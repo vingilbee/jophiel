@@ -13,6 +13,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# The lockfile includes a GitHub-sourced dependency, so uv needs git during
+# the dependency-install layer. CA certificates are required for HTTPS clones.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install deps first (cached) from the lockfile — reproducible, no dev deps.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
