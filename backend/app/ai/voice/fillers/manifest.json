@@ -1,0 +1,50 @@
+[
+  {
+    "name": "let_me_have_a_look",
+    "text": "Let me have a look at that.",
+    "file": "let_me_have_a_look.wav",
+    "seconds": 1.82
+  },
+  {
+    "name": "one_moment_please",
+    "text": "One moment, let me check.",
+    "file": "one_moment_please.wav",
+    "seconds": 1.94
+  },
+  {
+    "name": "let_me_think",
+    "text": "Let me think about that.",
+    "file": "let_me_think.wav",
+    "seconds": 1.82
+  },
+  {
+    "name": "lets_see_now",
+    "text": "Let's see now.",
+    "file": "lets_see_now.wav",
+    "seconds": 1.22
+  },
+  {
+    "name": "let_me_see",
+    "text": "Let me see.",
+    "file": "let_me_see.wav",
+    "seconds": 1.22
+  },
+  {
+    "name": "one_moment",
+    "text": "One moment.",
+    "file": "one_moment.wav",
+    "seconds": 1.3
+  },
+  {
+    "name": "alright",
+    "text": "Alright.",
+    "file": "alright.wav",
+    "seconds": 1.22
+  },
+  {
+    "name": "okay",
+    "text": "Okay.",
+    "file": "okay.wav",
+    "seconds": 1.26
+  }
+]

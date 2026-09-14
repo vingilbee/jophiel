@@ -1,0 +1,116 @@
+[
+  {
+    "test": "MEM-02 enqueue idempotency",
+    "status": "PASS",
+    "actual": "True",
+    "expected": "same durable job"
+  },
+  {
+    "test": "MEM-04 pending job without Redis",
+    "status": "PASS",
+    "actual": "pending row discoverable",
+    "expected": "polling sees durable job"
+  },
+  {
+    "test": "MEM-02 process and persist",
+    "status": "PASS",
+    "actual": true,
+    "expected": "completed with memory row"
+  },
+  {
+    "test": "MEM-02 completed retry no-op",
+    "status": "PASS",
+    "actual": false,
+    "expected": "already completed not reprocessed"
+  },
+  {
+    "test": "MEM-06 lexical fallback",
+    "status": "PASS",
+    "actual": "- [preference] I prefer QA green tea",
+    "expected": "relevant memory without embedding"
+  },
+  {
+    "test": "MEM-05 user isolation",
+    "status": "PASS",
+    "actual": null,
+    "expected": "no other user's fact"
+  },
+  {
+    "test": "MEM-03 correction",
+    "status": "PASS",
+    "actual": {
+      "rows": 1,
+      "content": "I prefer QA black tea"
+    },
+    "expected": "updated single fact"
+  },
+  {
+    "test": "MEM-03 retraction",
+    "status": "PASS",
+    "actual": null,
+    "expected": "deleted memory not retrieved"
+  },
+  {
+    "test": "MEM-04 crash recovery after processing commit",
+    "status": "PASS",
+    "actual": {
+      "job_status": "processing",
+      "selected_crashed_job": true
+    },
+    "expected": "worker can reclaim abandoned in-progress job"
+  },
+  {
+    "test": "MEM-05 concurrent job claim",
+    "status": "PASS",
+    "actual": {
+      "extraction_calls": 1,
+      "outcomes": [
+        true,
+        false
+      ]
+    },
+    "expected": "one worker extracts/processes a job"
+  },
+  {
+    "test": "IMG-03 malformed VLM missing fields",
+    "status": "PASS",
+    "actual": "{'calories': 500.0, 'fat': 20.0, 'carbs': 60.0, 'protein': 25.0, 'dish': 'unknown', 'portion_scale': 1.0, 'source': 'regression'}",
+    "expected": "validated regression fallback"
+  },
+  {
+    "test": "IMG-03 malformed VLM wrong numeric type",
+    "status": "PASS",
+    "actual": "{'calories': 500.0, 'fat': 20.0, 'carbs': 60.0, 'protein': 25.0, 'dish': 'unknown', 'portion_scale': 1.0, 'source': 'regression'}",
+    "expected": "validated regression fallback"
+  },
+  {
+    "test": "IMG-03 malformed VLM negative nutrition",
+    "status": "PASS",
+    "actual": "{'calories': 500.0, 'fat': 20.0, 'carbs': 60.0, 'protein': 25.0, 'dish': 'unknown', 'portion_scale': 1.0, 'source': 'regression'}",
+    "expected": "validated regression fallback"
+  },
+  {
+    "test": "IMG-03 malformed VLM nonfinite",
+    "status": "PASS",
+    "actual": "{'calories': 500.0, 'fat': 20.0, 'carbs': 60.0, 'protein': 25.0, 'dish': 'unknown', 'portion_scale': 1.0, 'source': 'regression'}",
+    "expected": "validated regression fallback"
+  },
+  {
+    "test": "IMG-02 local Qwen dispatch",
+    "status": "PASS",
+    "actual": "called",
+    "expected": "signature accepts hints"
+  },
+  {
+    "test": "IMG-07 EXIF orientation normalized",
+    "status": "PASS",
+    "actual": {
+      "decoded_size": [
+        40,
+        80
+      ],
+      "orientation": null
+    },
+    "expected": "portrait 40x80 before model processing"
+  }
+]

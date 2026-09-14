@@ -1,0 +1,68 @@
+@import 'tailwindcss';
+
+/* ---- Design tokens: dark, futuristic — black / grey / dark grey ---- */
+@theme {
+  --color-ink: #08080a; /* page background, near-black */
+  --color-surface: #101013; /* panels */
+  --color-surface-2: #17171c; /* raised panels / inputs */
+  --color-line: #26262e; /* hairline borders */
+  --color-line-bright: #34343f; /* hover / focus borders */
+  --color-muted: #7d7d88; /* secondary text */
+  --color-fg: #e9e9ee; /* primary text */
+  --color-accent: #5ee9d7; /* cool teal — used sparingly */
+  --color-accent-dim: #2f6f68;
+
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint grid texture for the futuristic backdrop. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Radial glow blob. */
+.glow {
+  background: radial-gradient(
+    circle at center,
+    rgba(94, 233, 215, 0.14),
+    transparent 60%
+  );
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* Slim custom scrollbar to match the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-bright) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-bright);
+  border-radius: 9999px;
+}

@@ -1,0 +1,12 @@
+{
+  "blender": {
+    "transport": "stdio",
+    "command": "uv",
+    "args": ["run", "python", "-m", "app.ai.tools.blender.server"],
+    "env": {
+      "BLENDER_USER_ID": "${user_id}",
+      "BLENDER_BRIDGE_HOST": "${host}",
+      "BLENDER_BRIDGE_PORT": "${port}"
+    }
+  }
+}

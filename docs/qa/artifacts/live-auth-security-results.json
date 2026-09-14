@@ -1,0 +1,103 @@
+[
+  {
+    "case": "AUTH-05 signup A/B",
+    "status": "PASS",
+    "actual": {
+      "A": 201,
+      "B": 201
+    },
+    "expected": "201 for both"
+  },
+  {
+    "case": "AUTH-05 cookie attributes",
+    "status": "PASS",
+    "actual": {
+      "httponly": true,
+      "samesite_lax": true,
+      "path": true,
+      "secure": false
+    },
+    "expected": "HttpOnly, SameSite=Lax, Path=/; Secure depends on QA HTTP"
+  },
+  {
+    "case": "AUTH-05 current user",
+    "status": "PASS",
+    "actual": "authenticated",
+    "expected": "200"
+  },
+  {
+    "case": "AUTH-06 logout revokes old cookie",
+    "status": "PASS",
+    "actual": {
+      "signout": 204,
+      "replay": 401
+    },
+    "expected": "204 then 401"
+  },
+  {
+    "case": "AUTH-06 revoked cookie new WebSocket",
+    "status": "PASS",
+    "actual": "InvalidStatus",
+    "expected": "HTTP 403 handshake rejection"
+  },
+  {
+    "case": "AUTH-09 existing WebSocket after logout",
+    "status": "PASS",
+    "actual": [
+      "connection_closed"
+    ],
+    "expected": "error or policy close after session revocation"
+  },
+  {
+    "case": "AUTH-07 Redis session expiry",
+    "status": "PASS",
+    "actual": 401,
+    "expected": "401"
+  },
+  {
+    "case": "SEC-02 hostile-origin mutation",
+    "status": "PASS",
+    "actual": 403,
+    "expected": "403"
+  },
+  {
+    "case": "SEC-02 hostile CORS preflight",
+    "status": "PASS",
+    "actual": {
+      "status": 400,
+      "allow_origin": null
+    },
+    "expected": "400 without allow-origin"
+  },
+  {
+    "case": "AUTH-10 account deletion",
+    "status": "PASS",
+    "actual": {
+      "delete": 202,
+      "me": 401,
+      "image_id_created": true
+    },
+    "expected": "202 then 401"
+  },
+  {
+    "case": "DATA-05 private image cleanup",
+    "status": "PASS",
+    "actual": {
+      "files_before": 2,
+      "files_after": 0
+    },
+    "expected": "owned files removed"
+  },
+  {
+    "case": "AUTH-10 other user unaffected",
+    "status": "PASS",
+    "actual": 200,
+    "expected": "200"
+  },
+  {
+    "case": "AUTH-08 QA log contains no raw session value",
+    "status": "PASS",
+    "actual": "redacted QA logging",
+    "expected": "raw token absent"
+  }
+]

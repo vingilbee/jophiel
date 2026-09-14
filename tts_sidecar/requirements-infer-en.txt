@@ -1,0 +1,38 @@
+# Minimal GPT-SoVITS v1/v2 English inference set (macOS arm64).
+# Deliberately omits: pyopenjtalk (ja), g2pk2/ko_pron/python_mecab_ko (ko),
+# ToJyutping (yue), opencc (g2pw only) -- all source-builds, all lazily imported.
+# Also omits training/ASR-only: funasr, modelscope, ctranslate2, gradio, tensorboard.
+torch
+torchaudio
+numpy<2.0
+scipy
+librosa==0.10.2
+numba
+pytorch-lightning>=2.4
+transformers>=4.43,<=4.50
+peft<0.18.0
+x_transformers
+rotary_embedding_torch
+torchmetrics<=1.5
+pydantic<=2.10.6
+PyYAML
+tqdm
+chardet
+psutil
+ffmpeg-python
+g2p_en
+nltk
+wordsegment
+cn2an
+pypinyin
+jieba
+jieba_fast
+split-lang
+fast_langdetect>=0.3.1
+huggingface_hub
+sentencepiece
+onnxruntime
+av>=11
+matplotlib
+fastapi
+uvicorn[standard]

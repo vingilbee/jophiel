@@ -1,0 +1,17 @@
+{
+  "drive": {
+    "transport": "stdio",
+    "command": "uv",
+    "args": ["run", "python", "-m", "app.ai.tools.drive.server"],
+    "env": {
+      "DRIVE_ACCESS_TOKEN": "${access_token}",
+      "DRIVE_USER_ID": "${user_id}",
+      "OPENAI_API_KEY": "${openai_api_key}",
+      "SLIDE_IMAGE_MODEL": "${image_model}",
+      "SLIDE_IMAGE_PUBLIC_BASE_URL": "${public_image_base}",
+      "GOOGLE_TOKEN_ENCRYPTION_KEY": "${image_signing_key}",
+      "ASSET_STORE_DIR": "${asset_store_dir}",
+      "IMAGE_STORE_DIR": "${image_store_dir}"
+    }
+  }
+}

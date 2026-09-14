@@ -1,0 +1,654 @@
+{
+  "case_count": 8,
+  "scores": {
+    "rules_intent_correct": 0.125,
+    "rules_clarification_correct": 0.75,
+    "llm_intent_correct": 0.875,
+    "llm_action_correct": 1.0,
+    "llm_capability_correct": 1.0
+  },
+  "review_note": "Review goals and constraint preservation manually; these small-case scores are not general accuracy estimates.",
+  "results": [
+    {
+      "id": "greeting_request",
+      "message": "Hey, please explain protein in one sentence.",
+      "recent_messages": [],
+      "expected": {
+        "intent": "request",
+        "action": "respond",
+        "constraints_to_review": [
+          "one sentence"
+        ]
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.0,
+          "signals": {
+            "word_count": {
+              "value": 7,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": true,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "greeting",
+          "confidence": 0.95,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User greeted and requested an explanation of protein in one sentence."
+          ],
+          "references": [
+            "protein"
+          ],
+          "explicit_constraints": [
+            "Explain in one sentence"
+          ]
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [
+            "greeting"
+          ],
+          "resolved_goal": "Explain what protein is using only one sentence.",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "respond",
+          "objective": "Provide a one-sentence explanation of protein.",
+          "capability": null,
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 3676.36,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "unresolved_reference",
+      "message": "Do it",
+      "recent_messages": [],
+      "expected": {
+        "intent": "request",
+        "action": "clarify"
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": true,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.65,
+          "signals": {
+            "word_count": {
+              "value": 2,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "question",
+          "confidence": 0.8,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": false,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User says: 'Do it'"
+          ],
+          "references": [],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Complete a previously discussed action, which is missing from the current context.",
+          "missing_information": [
+            "What should be done? The specific task or action is not identified."
+          ]
+        },
+        "action": {
+          "kind": "clarify",
+          "objective": "Determine what action the user wants completed.",
+          "capability": null,
+          "clarification_question": "Could you please specify what you would like me to do?"
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1498.04,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "resolved_reference",
+      "message": "Do it",
+      "recent_messages": [
+        "user: I am learning about protein.",
+        "assistant: Would you like a one-sentence explanation of protein?"
+      ],
+      "expected": {
+        "intent": "request",
+        "action": "respond",
+        "constraints_to_review": [
+          "one sentence"
+        ]
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": true,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.65,
+          "signals": {
+            "word_count": {
+              "value": 2,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "question",
+          "confidence": 0.8,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User said 'Do it' in response to the offer for a one-sentence explanation of protein."
+          ],
+          "references": [
+            "Offer to provide a one-sentence explanation of protein."
+          ],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Provide a one-sentence explanation of protein for the user.",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "respond",
+          "objective": "Provide a one-sentence explanation of protein.",
+          "capability": null,
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1990.28,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "correction",
+      "message": "That is wrong; I said lunch, not dinner.",
+      "recent_messages": [
+        "user: This meal was lunch.",
+        "assistant: We are discussing your dinner."
+      ],
+      "expected": {
+        "intent": "feedback",
+        "action": "respond",
+        "constraints_to_review": [
+          "lunch, not dinner"
+        ]
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 0.916667,
+          "ambiguity": 0.375,
+          "signals": {
+            "word_count": {
+              "value": 8,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "inform",
+          "confidence": 0.625,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User corrected the assistant's statement about the meal being dinner.",
+            "User clarified the meal was lunch."
+          ],
+          "references": [],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "clarify",
+          "secondary_intents": [
+            "feedback"
+          ],
+          "resolved_goal": "Correct the meal context from dinner to lunch as per the user's statement.",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "respond",
+          "objective": "Acknowledge the correction and confirm the meal being discussed is lunch, not dinner.",
+          "capability": null,
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": false,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1530.9,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "comparison",
+      "message": "Compare the two options.",
+      "recent_messages": [
+        "user: Option A is a short summary. Option B is a detailed explanation."
+      ],
+      "expected": {
+        "intent": "request",
+        "action": "respond"
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.0,
+          "signals": {
+            "word_count": {
+              "value": 4,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "inform",
+          "confidence": 1.0,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User referenced Option A: a short summary.",
+            "User referenced Option B: a detailed explanation.",
+            "User requests a comparison between the two options."
+          ],
+          "references": [
+            "Option A",
+            "Option B"
+          ],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Provide a comparison between Option A (short summary) and Option B (detailed explanation).",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "respond",
+          "objective": "Compare Option A (short summary) and Option B (detailed explanation) as requested.",
+          "capability": null,
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1542.79,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "missing_options",
+      "message": "Compare the two options.",
+      "recent_messages": [],
+      "expected": {
+        "intent": "request",
+        "action": "clarify"
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.0,
+          "signals": {
+            "word_count": {
+              "value": 4,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "inform",
+          "confidence": 1.0,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": false,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User requests a comparison between two options."
+          ],
+          "references": [],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Compare two options referenced in context.",
+          "missing_information": [
+            "Which two options to compare?"
+          ]
+        },
+        "action": {
+          "kind": "clarify",
+          "objective": "Identify which two options the user wants compared.",
+          "capability": null,
+          "clarification_question": "Could you specify which two options you would like me to compare?"
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1722.37,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "negation",
+      "message": "Explain how deletion works. Do not delete or save anything.",
+      "recent_messages": [],
+      "expected": {
+        "intent": "request",
+        "action": "respond",
+        "constraints_to_review": [
+          "do not delete",
+          "do not save"
+        ]
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": true,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.0,
+          "signals": {
+            "word_count": {
+              "value": 10,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "request",
+          "confidence": 0.8,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": true,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User asks for an explanation of how deletion works"
+          ],
+          "references": [],
+          "explicit_constraints": [
+            "Do not delete anything",
+            "Do not save anything"
+          ]
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Explain the process of deletion without performing any deletion or saving actions.",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "respond",
+          "objective": "Explain how deletion works without deleting or saving anything.",
+          "capability": null,
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 1448.8,
+      "image_count": 0,
+      "asset_count": 0,
+      "available_capabilities": []
+    },
+    {
+      "id": "available_delegation",
+      "message": "Ask the nutrition specialist to analyze my meal photo.",
+      "recent_messages": [],
+      "expected": {
+        "intent": "request",
+        "action": "delegate",
+        "capability": "nutrition"
+      },
+      "rules": {
+        "perception": {
+          "schema_version": 1,
+          "is_question": false,
+          "is_request": false,
+          "is_directed_at_agent": true,
+          "novelty": 1.0,
+          "ambiguity": 0.0,
+          "signals": {
+            "word_count": {
+              "value": 9,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_greeting": {
+              "value": false,
+              "confidence": 1.0,
+              "source": "text_rules"
+            },
+            "is_clarification": {
+              "value": false,
+              "confidence": 0.9,
+              "source": "text_rules"
+            }
+          }
+        },
+        "interpretation": {
+          "schema_version": 1,
+          "intent": "inform",
+          "confidence": 1.0,
+          "alternatives": [],
+          "needs_clarification": false,
+          "source": "rules_fallback"
+        }
+      },
+      "rules_intent_correct": false,
+      "rules_clarification_correct": true,
+      "llm": {
+        "perception": {
+          "observations": [
+            "User provided a meal photo."
+          ],
+          "references": [],
+          "explicit_constraints": []
+        },
+        "interpretation": {
+          "primary_intent": "request",
+          "secondary_intents": [],
+          "resolved_goal": "Request the nutrition specialist to analyze the user's meal photo.",
+          "missing_information": []
+        },
+        "action": {
+          "kind": "delegate",
+          "objective": "Analyze the user's meal photo for nutritional content.",
+          "capability": "nutrition",
+          "clarification_question": null
+        }
+      },
+      "llm_intent_correct": true,
+      "llm_action_correct": true,
+      "llm_capability_correct": true,
+      "llm_ms": 920.09,
+      "image_count": 1,
+      "asset_count": 0,
+      "available_capabilities": [
+        "nutrition"
+      ]
+    }
+  ],
+  "model": "gpt-4.1",
+  "error_count": 0
+}

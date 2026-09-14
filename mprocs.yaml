@@ -1,0 +1,16 @@
+procs:
+  tts:
+    cwd: tts_sidecar
+    shell: "TTS_DEVICE=cpu TTS_MODE=finetune .venv/bin/uvicorn server:app --port 8787"
+
+  backend:
+    cwd: backend
+    shell: "uv run uvicorn app.main:app --reload"
+
+  worker:
+    cwd: backend
+    shell: "uv run python -m app.workers"
+
+  frontend:
+    cwd: frontend
+    shell: "bun run dev"

@@ -1,0 +1,43 @@
+[project]
+name = "macrovision-backend"
+version = "0.1.0"
+description = "MacroVision backend — FastAPI API, ML inference, and DB layer."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    "pwdlib[argon2]>=0.3.0",
+    "langgraph>=1.2.7",
+    "transformers>=5.12.1",
+    "torch>=2.12.1",
+    "torchvision>=0.27.1",
+    "qwen-vl-utils>=0.0.14",
+    "accelerate>=1.14.0",
+    "bitsandbytes>=0.49.2",
+    "python-multipart>=0.0.32",
+    "redis>=8.0.1",
+    "openai>=2.52.0",
+    "mcp>=1.24,<2",
+    "langchain-mcp-adapters>=0.1",
+    "cryptography>=44",
+    "httpx>=0.27",
+    "matplotlib>=3.11.1",
+    "langchain-openai>=1.1.11",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+transformers = { git = "https://github.com/huggingface/transformers", rev = "main" }

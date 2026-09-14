@@ -1,0 +1,10 @@
+{
+  "gmail": {
+    "transport": "stdio",
+    "command": "uv",
+    "args": ["run", "python", "-m", "app.ai.tools.gmail.server"],
+    "env": {
+      "GMAIL_ACCESS_TOKEN": "${access_token}"
+    }
+  }
+}

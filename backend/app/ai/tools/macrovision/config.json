@@ -1,0 +1,9 @@
+{
+  "macrovision": {
+    "transport": "streamable_http",
+    "url": "${url}",
+    "headers": {
+      "Authorization": "Bearer ${scope_token}"
+    }
+  }
+}

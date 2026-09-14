@@ -1,0 +1,21 @@
+# Environment / secrets
+.env
+.env.example
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Uploaded user images / model weights
+uploads/
+# Default image_store_dir — user photos and derived depth maps.
+var/
+app/ai/MacroVision/weights/
+
+# OS
+.DS_Store

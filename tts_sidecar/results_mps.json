@@ -1,0 +1,52 @@
+{
+  "device": "mps",
+  "version": "v1",
+  "load_s": 4.001521082944237,
+  "batch": [
+    {
+      "text": "About four hundred and twenty calories.",
+      "audio_s": 2.46,
+      "wall_s": 5.106734375003725,
+      "rtf": 2.07590828252184
+    },
+    {
+      "text": "That looks like grilled chicken with rice and broccoli.",
+      "audio_s": 3.06,
+      "wall_s": 4.1373172079911456,
+      "rtf": 1.35206444705593
+    },
+    {
+      "text": "I'd estimate five hundred and forty calories, with forty grams of protein and twelve grams of fat.",
+      "audio_s": 6.1,
+      "wall_s": 9.781013417057693,
+      "rtf": 1.6034448224684743
+    },
+    {
+      "text": "You're about three hundred calories under your target for today, so there's room for a snack if you want one.",
+      "audio_s": 6.02,
+      "wall_s": 6.130538458004594,
+      "rtf": 1.0183618701004309
+    }
+  ],
+  "median_rtf": 1.4777546347622021,
+  "streaming": [
+    {
+      "text": "About four hundred and twenty calories.",
+      "first_chunk_s": 7.422326041967608,
+      "wall_s": 7.5915022500557825,
+      "audio_s": 2.42
+    },
+    {
+      "text": "That looks like grilled chicken with rice and broccoli.",
+      "first_chunk_s": 3.3618876669788733,
+      "wall_s": 3.5477281669154763,
+      "audio_s": 2.9
+    },
+    {
+      "text": "I'd estimate five hundred and forty calories, with forty grams of protein and twelve grams of fat.",
+      "first_chunk_s": 9.34642370895017,
+      "wall_s": 10.073172624921426,
+      "audio_s": 5.7
+    }
+  ]
+}
