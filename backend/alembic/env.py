@@ -16,7 +16,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Inject the runtime DB URL from app settings (keeps it out of alembic.ini).
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Railway commonly provides a bare postgresql:// URL, while this project
+# installs Psycopg 3 rather than the legacy psycopg2 driver.
+database_url = get_settings().database_url
+if database_url.startswith("postgres://"):
+    database_url = "postgresql+psycopg://" + database_url[len("postgres://"):]
+elif database_url.startswith("postgresql://"):
+    database_url = "postgresql+psycopg://" + database_url[len("postgresql://"):]
+config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = Base.metadata
 
