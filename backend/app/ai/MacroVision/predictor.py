@@ -407,7 +407,7 @@ class MacroVisionPredictor:
         depth_image = self.depth_to_image(img, depth_np)
         vlm = self._vlm_estimate(img, depth_image, hints)
         reg_cal, reg_fat, reg_carbs, reg_protein = self._regress(img, depth_np)
-        print("PREDICT COMBINE", vlm, reg_cal)
+        logger.debug("Prediction combine result: vlm=%s regression_calories=%s", vlm, reg_cal)
         if not vlm:
             return NutritionPrediction(
                 calories=reg_cal,

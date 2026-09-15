@@ -83,5 +83,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Reject print calls in application code
+        run: |
+          if rg -n --glob '*.py' '^\s*print\s*\(' \
+              app/api app/core app/services app/workers app/ai/subagents \
+              app/ai/MacroVision/predictor.py; then
+            echo "print() is not allowed in backend runtime code; use logging instead."
+            exit 1
+          fi
+
       - name: Run tests
         run: uv run pytest

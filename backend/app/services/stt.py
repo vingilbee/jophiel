@@ -12,6 +12,7 @@ to be complete.
 from __future__ import annotations
 
 import io
+import logging
 import wave
 
 from app.core.config import get_settings
@@ -20,6 +21,7 @@ from app.core.config import get_settings
 # utterances well below this; these catch a stuck mic or a malicious client.
 MIN_UTTERANCE_SECONDS = 0.25
 MAX_UTTERANCE_SECONDS = 60.0
+logger = logging.getLogger(__name__)
 
 
 class STTError(Exception):
@@ -67,7 +69,7 @@ async def transcribe(pcm: bytes, sample_rate: int) -> str:
             language="en",
         )
     except Exception as e:  # openai raises a family of errors; treat alike
-            print(f"STT ERROR: {type(e).__name__}: {e!r}")
-            raise STTError("Transcription failed.") from e
+        logger.exception("Speech transcription failed")
+        raise STTError("Transcription failed.") from e
 
     return (getattr(result, "text", "") or "").strip()
