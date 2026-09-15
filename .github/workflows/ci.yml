@@ -65,6 +65,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/macrovision
       REDIS_URL: redis://localhost:6379/0
       OPENAI_API_KEY: test-key
+      USDA_API_KEY: test-key
       PYTHONPATH: .
     steps:
       - name: Check out repository
@@ -82,6 +83,15 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked
+
+      - name: Reject print calls in application code
+        run: |
+          if rg -n --glob '*.py' '^\s*print\s*\(' \
+              app/api app/core app/services app/workers app/ai/subagents \
+              app/ai/MacroVision/predictor.py; then
+            echo "print() is not allowed in backend runtime code; use logging instead."
+            exit 1
+          fi
 
       - name: Run tests
         run: uv run pytest

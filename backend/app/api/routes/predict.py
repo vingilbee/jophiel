@@ -7,7 +7,8 @@
 Scoped to the authenticated user (session cookie), like the rest of the API.
 The handler stays thin — validation + inference live in the service layer.
 """
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from app.core.limiter import limiter
 
 from app.ai.MacroVision import PredictionMode
 from app.api.deps import get_current_user, validate_origin
@@ -19,7 +20,9 @@ router = APIRouter(prefix="/predict", tags=["predict"])
 
 
 @router.post("", response_model=PredictionOut, dependencies=[Depends(validate_origin)])
+@limiter.limit("10/minute")
 async def predict_macros(
+    request: Request,
     file: UploadFile = File(..., description="Food image to analyze"),
     mode: PredictionMode = Query(
         default="combined",

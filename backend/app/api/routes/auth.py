@@ -1,6 +1,7 @@
 """Authentication routes: signup, signin, signout, current user, delete account."""
 from app.api.deps import validate_origin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from app.core.limiter import limiter
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -32,7 +33,8 @@ def _clear_session_cookie(response: Response) -> None:
 
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(validate_origin)])
-def signup(payload: UserCreate,response:Response, db: Session = Depends(get_db)) -> User:
+@limiter.limit("3/hour")
+def signup(request: Request, payload: UserCreate, response: Response, db: Session = Depends(get_db)) -> User:
     try:
         user = auth_service.create_user(
             db, name=payload.name, email=payload.email, password=payload.password
@@ -48,8 +50,9 @@ def signup(payload: UserCreate,response:Response, db: Session = Depends(get_db))
 
 
 @router.post("/signin", response_model=UserOut, dependencies=[Depends(validate_origin)])
+@limiter.limit("5/minute")
 def signin(
-    payload: UserLogin, response: Response, db: Session = Depends(get_db)
+    request: Request, payload: UserLogin, response: Response, db: Session = Depends(get_db)
 ) -> User:
     user = auth_service.authenticate(
         db, email=payload.email, password=payload.password
@@ -61,7 +64,6 @@ def signin(
         )
     token = auth_service.create_session(user)
     _set_session_cookie(response, token)
-    print("USER: ", user, token)
     return user
 
 

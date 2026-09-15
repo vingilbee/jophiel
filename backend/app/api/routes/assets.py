@@ -1,5 +1,6 @@
 """Upload and retrieve user-owned Blender assets."""
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from app.core.limiter import limiter
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_current_user, validate_origin
@@ -24,8 +25,9 @@ def get_slide_image(token: str) -> FileResponse:
 
 
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(validate_origin)])
+@limiter.limit("10/minute")
 async def upload_asset(
-    file: UploadFile = File(...), current_user: User = Depends(get_current_user)
+    request: Request, file: UploadFile = File(...), current_user: User = Depends(get_current_user)
 ) -> AssetOut:
 
     try:

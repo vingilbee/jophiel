@@ -108,7 +108,7 @@ def build_subagent_tool(
                     if not started:
                         await queue.put({"kind": "subagent_start", "agent": spec.name})
                         started = True
-                    print("run(%s): pushing %r", spec.name, text[:20])
+                    logger.debug("run(%s): pushing %r", spec.name, text[:20])
                     await queue.put(
                         {"kind": "subagent_token", "agent": spec.name, "content": text}
                     )

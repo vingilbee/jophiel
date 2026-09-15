@@ -108,6 +108,9 @@ def socket_client(auth_client, monkeypatch):
     db = Mock()
     db.get.return_value = user
     monkeypatch.setattr(chat, "SessionLocal", lambda: db)
+    # These tests exercise the in-process stream path. CI starts Redis for
+    # integration coverage, but no chat worker is running to publish events.
+    monkeypatch.setattr(chat.chat_worker, "event_bus_available", lambda: False)
     monkeypatch.setattr(chat, "SESSION_CHECK_SECONDS", 0.05)
     state = Mock()
     state.to_dict.return_value = {}
@@ -269,7 +272,15 @@ def test_logout_cancels_streaming_reply(socket_client, monkeypatch):
         ws.send_json({"type": "run", "content": "Start a reply"})
         assert ws.receive_json()["type"] == "meta"
         assert ws.receive_json()["type"] == "ack"
-        assert ws.receive_json()["type"] == "token"
+        # Awareness updates are independent of chat streaming and may arrive
+        # between the acknowledgement and the first model token.
+        for _ in range(5):
+            frame = ws.receive_json()
+            if frame["type"] == "token":
+                break
+            assert frame["type"] == "state"
+        else:
+            pytest.fail("stream did not produce a token")
         assert client.post("/api/auth/signout", headers=headers).status_code == 204
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()

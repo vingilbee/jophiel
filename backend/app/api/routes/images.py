@@ -15,7 +15,8 @@ doesn't exist — both are 404.
 """
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from app.core.limiter import limiter
 from fastapi.responses import Response
 
 from app.api.deps import get_current_user, validate_origin
@@ -28,7 +29,9 @@ router = APIRouter(prefix="/images", tags=["images"])
 
 
 @router.post("", response_model=ImageOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(validate_origin)])
+@limiter.limit("30/minute")
 async def upload_image(
+    request: Request,
     file: UploadFile = File(..., description="Image to store"),
     kind: Literal["upload", "screen"] = Query(
         default="upload",
