@@ -9,11 +9,13 @@ type ServerEvent =
   | { type: 'history'; conversation_id: string | null; messages: StoredChatMessage[] }
   | { type: 'ack'; turn_id: string; user_message_id: string; conversation_id: string }
   | { type: 'token'; turn_id?: string; content: string }
+  | { type: 'sticker'; turn_id?: string; message_id?: string; sticker: string }
   | { type: 'subagent_start'; turn_id?: string; agent: string }
   | { type: 'subagent_token'; turn_id?: string; agent: string; content: string }
   | { type: 'subagent_end'; turn_id?: string; agent: string }
   | { type: 'nudge_start'; conversation_id: string; reason: string }
   | { type: 'nudge_token'; content: string }
+  | { type: 'nudge_sticker'; sticker: string }
   | { type: 'nudge_subagent_start'; agent: string }
   | { type: 'nudge_subagent_token'; agent: string; content: string }
   | { type: 'nudge_subagent_end'; agent: string }
@@ -49,6 +51,7 @@ export interface SocketHandlers {
    */
   onNudgeStart?: (info: { conversationId: string; reason: string }) => void
   onNudgeToken?: (chunk: string) => void
+  onNudgeSticker?: (name: string) => void
   onNudgeSubagentStart?: (agent: string) => void
   onNudgeSubagentToken?: (agent: string, content: string) => void
   onNudgeSubagentEnd?: (agent: string) => void
@@ -57,6 +60,7 @@ export interface SocketHandlers {
 
 interface TurnCallbacks {
   onToken: (chunk: string) => void
+  onSticker?: (name: string) => void
   onSubagentStart?: (agent: string) => void
   onSubagentToken?: (agent: string, content: string) => void
   onSubagentEnd?: (agent: string) => void
@@ -177,6 +181,10 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
         handlersRef.current.onNudgeToken?.(msg.content)
         return
       }
+      if (msg.type === 'nudge_sticker') {
+        handlersRef.current.onNudgeSticker?.(msg.sticker)
+        return
+      }
       if (msg.type === 'nudge_end') {
         handlersRef.current.onNudgeEnd?.()
         return
@@ -207,6 +215,8 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       } else if (msg.type === 'token') {
         pending.buffer += msg.content
         pending.callbacks.onToken(msg.content)
+      } else if (msg.type === 'sticker') {
+        pending.callbacks.onSticker?.(msg.sticker)
       } else if (msg.type === 'subagent_start') {
         pending.callbacks.onSubagentStart?.(msg.agent)
       } else if (msg.type === 'subagent_token') {

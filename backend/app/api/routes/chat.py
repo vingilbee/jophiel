@@ -47,6 +47,8 @@ exactly as for a spoken turn.
   {"type": "transcript", "content": str}        (voice turns: what we heard)
   {"type": "token", "turn_id": str, "message_id": str, "content": str}
                                                    (repeated, streamed)
+  {"type": "sticker", "turn_id": str, "message_id": str, "sticker": str}
+                                                   (assistant sticker)
   {"type": "audio_start", "sample_rate": int}   (voice turns, before any audio)
   {"type": "audio_end"}
   {"type": "done"} | {"type": "stopped"} | {"type": "error", "detail": str}
@@ -69,9 +71,11 @@ import contextlib
 import dataclasses
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -81,6 +85,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -115,6 +120,61 @@ from app.workers import chat as chat_worker
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+_STICKER_NAMES = frozenset({
+    "confused", "question", "love", "thinking", "good-job", "sleepy",
+    "yum", "tea", "hmm", "shy", "sorry", "idea", "encouragement", "silent",
+    "scribble", "grateful", "surprised", "peeking", "embarrassed", "praying",
+    "determined", "hungry", "see-you",
+})
+_STICKER_MARKER = re.compile(r"\[\[sticker:([a-z0-9-]+)\]\]")
+_STICKER_PREFIX = "[[sticker:"
+
+
+def _consume_sticker_text(buffer: str, text: str, *, final: bool = False) -> tuple[list[dict], str]:
+    """Turn complete sticker markers into protocol events without leaking them as text."""
+    pending = buffer + text
+    events: list[dict] = []
+    cursor = 0
+    for match in _STICKER_MARKER.finditer(pending):
+        if match.start() > cursor:
+            events.append({"type": "token", "content": pending[cursor:match.start()]})
+        name = match.group(1)
+        if name in _STICKER_NAMES:
+            events.append({"type": "sticker", "sticker": name})
+        # Unsupported markers are intentionally dropped. The model must never
+        # leak an implementation marker into the visible conversation.
+        cursor = match.end()
+    tail = pending[cursor:]
+    if final:
+        if tail:
+            events.append({"type": "token", "content": tail})
+        return events, ""
+    possible_start = tail.rfind(_STICKER_PREFIX)
+    if possible_start >= 0:
+        if possible_start:
+            events.append({"type": "token", "content": tail[:possible_start]})
+        return events, tail[possible_start:]
+    if tail:
+        events.append({"type": "token", "content": tail})
+    return events, ""
+
+
+def _nudge_frame(frame: dict) -> dict:
+    if frame["type"] == "token":
+        return {"type": "nudge_token", "content": frame["content"]}
+    return {"type": "nudge_sticker", "sticker": frame["sticker"]}
+
+
+@router.get("/stickers/{name}.png", include_in_schema=False)
+def get_sticker(name: str) -> FileResponse:
+    """Serve one approved, read-only Columbina sticker to the chat client."""
+    if name not in _STICKER_NAMES:
+        raise HTTPException(status_code=404, detail="Sticker not found")
+    sticker_path = Path(__file__).resolve().parents[2] / "assets" / "columbina_stickers" / f"{name}.png"
+    if not sticker_path.is_file():
+        raise HTTPException(status_code=404, detail="Sticker not found")
+    return FileResponse(sticker_path, media_type="image/png")
 
 
 @dataclasses.dataclass
@@ -568,14 +628,18 @@ async def chat_ws(websocket: WebSocket) -> None:
         feed, flush = tts_service.clause_chunker()
 
         reply = ""
+        sticker_buffer = ""
         try:
             async for event in stream_chat(messages=history, context=context):
                 if event["type"] == "token":
                     text = event["content"]
                     reply += text
-                    await send_json({"type": "nudge_token", "content": text})
+                    frames, sticker_buffer = _consume_sticker_text(sticker_buffer, text)
+                    for frame in frames:
+                        await send_json(_nudge_frame(frame))
                     if speaker is not None:
-                        for clause in feed(text):
+                        visible = "".join(frame["content"] for frame in frames if frame["type"] == "token")
+                        for clause in feed(visible):
                             clauses.put_nowait(clause)
                 elif event["type"] == "subagent_start":
                     await send_json({"type": "nudge_subagent_start", "agent": event["agent"]})
@@ -585,6 +649,9 @@ async def chat_ws(websocket: WebSocket) -> None:
                     )
                 elif event["type"] == "subagent_end":
                     await send_json({"type": "nudge_subagent_end", "agent": event["agent"]})
+            frames, sticker_buffer = _consume_sticker_text(sticker_buffer, "", final=True)
+            for frame in frames:
+                await send_json(_nudge_frame(frame))
             if speaker is not None:
                 for clause in flush():
                     clauses.put_nowait(clause)
@@ -726,17 +793,12 @@ async def chat_ws(websocket: WebSocket) -> None:
         failed = False
         assistant_message_id = uuid.uuid4()
         first_model_token = True
+        sticker_buffer = ""
         try:
             async for event in stream_chat(messages=history, context=context):
                 if stop_event.is_set():
                     stopped = True
                     break
-
-                await emit_event({
-                    **event,
-                    "turn_id": str(turn_id),
-                    "message_id": str(assistant_message_id),
-                })
 
                 if event["type"] == "token":
                     if first_model_token:
@@ -748,8 +810,33 @@ async def chat_ws(websocket: WebSocket) -> None:
                         )
                     text = event["content"]
                     reply += text
+                    frames, sticker_buffer = _consume_sticker_text(sticker_buffer, text)
+                    for frame in frames:
+                        await emit_event({
+                            **frame,
+                            "turn_id": str(turn_id),
+                            "message_id": str(assistant_message_id),
+                        })
                     if speaker is not None:
-                        for clause in feed(text):
+                        visible = "".join(frame["content"] for frame in frames if frame["type"] == "token")
+                        for clause in feed(visible):
+                            clauses.put_nowait(clause)
+                else:
+                    await emit_event({
+                        **event,
+                        "turn_id": str(turn_id),
+                        "message_id": str(assistant_message_id),
+                    })
+            if not stopped:
+                frames, sticker_buffer = _consume_sticker_text(sticker_buffer, "", final=True)
+                for frame in frames:
+                    await emit_event({
+                        **frame,
+                        "turn_id": str(turn_id),
+                        "message_id": str(assistant_message_id),
+                    })
+                    if speaker is not None and frame["type"] == "token":
+                        for clause in feed(frame["content"]):
                             clauses.put_nowait(clause)
             if speaker is not None and not stopped:
                 for clause in flush():

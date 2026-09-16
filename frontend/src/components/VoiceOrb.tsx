@@ -41,11 +41,11 @@ interface Palette {
 }
 
 const PALETTE: Record<VoiceState, Palette> = {
-  off: { rgb: '125, 125, 136', glow: 0.06 }, // muted
-  idle: { rgb: '47, 111, 104', glow: 0.16 }, // accent-dim
-  listening: { rgb: '94, 233, 215', glow: 0.4 }, // accent
-  thinking: { rgb: '251, 191, 36', glow: 0.26 }, // amber
-  speaking: { rgb: '167, 139, 250', glow: 0.34 }, // violet
+  off: { rgb: '113, 131, 163', glow: 0.06 }, // muted blue
+  idle: { rgb: '143, 199, 232', glow: 0.16 }, // sky blue
+  listening: { rgb: '110, 174, 211', glow: 0.32 }, // Columbina blue
+  thinking: { rgb: '182, 171, 201', glow: 0.24 }, // lilac
+  speaking: { rgb: '217, 154, 174', glow: 0.32 }, // veil pink
 }
 
 const BARS = 72
@@ -188,7 +188,7 @@ export function VoiceOrb({ state, getLevel, calm = 0, className = '' }: Props) {
       )
       core.addColorStop(0, `rgba(${rgb}, ${phase === 'off' ? 0.14 : 0.5 + level * 0.4})`)
       core.addColorStop(0.7, `rgba(${rgb}, ${phase === 'off' ? 0.08 : 0.16})`)
-      core.addColorStop(1, 'rgba(16, 16, 19, 0.55)')
+      core.addColorStop(1, 'rgba(248, 250, 255, 0.72)')
       ctx.beginPath()
       ctx.arc(cx, cy, radius, 0, TAU)
       ctx.fillStyle = core

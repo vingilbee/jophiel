@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { Button } from '../components/Button'
 import { ProviderIcon } from '../components/ProviderIcon'
+import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { integrationsApi } from '../api/integrations'
 import type { Integration } from '../types'
 
@@ -67,13 +68,14 @@ export function IntegrationsPage() {
   }, [searchParams, setSearchParams])
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink text-fg">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#F8FAFF] text-[#23314F] md:flex-row">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
+      <ColumbinaFeathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
+      <main className="relative mx-auto w-full max-w-5xl flex-1 px-5 py-10 sm:px-8 lg:px-12">
         <div className="mb-6">
-          <h1 className="text-xl font-medium">Integrations</h1>
-          <p className="mt-1 text-sm text-muted">
+          <h1 className="text-2xl font-semibold tracking-[-0.03em]">Connect your world.</h1>
+          <p className="mt-2 max-w-xl text-sm text-[#7183A3]">
             Connect the accounts you already use. Once connected, the assistant
             can act on them for you — always asking before it does anything that
             leaves your account.
@@ -83,10 +85,10 @@ export function IntegrationsPage() {
         {banner && (
           <div
             role="status"
-            className={`mb-5 flex items-start gap-3 rounded-lg border px-3 py-2.5 text-xs ${
+            className={`mb-5 flex items-start gap-3 rounded-xl border px-3 py-2.5 text-xs ${
               banner.kind === 'success'
-                ? 'border-accent/30 bg-accent/10 text-accent'
-                : 'border-red-500/30 bg-red-500/10 text-red-300'
+                ? 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]'
+                : 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]'
             }`}
           >
             <span className="flex-1">{banner.text}</span>
@@ -101,19 +103,19 @@ export function IntegrationsPage() {
         )}
 
         {loadError && (
-          <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <p className="rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">
             {loadError}
           </p>
         )}
 
         {integrations === null && !loadError && (
-          <p className="font-mono text-xs tracking-wider text-muted uppercase">
+          <p className="text-xs tracking-[0.08em] text-[#7183A3] uppercase">
             Loading…
           </p>
         )}
 
         {integrations?.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-line-bright bg-surface/40 px-6 py-12 text-center text-sm text-muted">
+          <p className="rounded-2xl border border-dashed border-[#B9DCF4] bg-white px-6 py-12 text-center text-sm text-[#7183A3]">
             No integrations are available yet.
           </p>
         )}
@@ -176,25 +178,25 @@ function IntegrationCard({
   }
 
   return (
-    <section className="rounded-2xl border border-line bg-surface/50 p-5">
+    <section className="rounded-2xl border border-[#D9E8F6] bg-white p-5 shadow-[0_8px_24px_rgba(35,49,79,0.04)]">
       <div className="flex items-start gap-4">
         <ProviderIcon id={integration.id} name={integration.name} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-medium text-fg">{integration.name}</h2>
-            <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-muted uppercase">
+            <h2 className="text-sm font-semibold text-[#23314F]">{integration.name}</h2>
+            <span className="rounded-full border border-[#D9E8F6] bg-[#F8FAFF] px-2 py-0.5 text-[10px] tracking-[0.08em] text-[#7183A3] uppercase">
               {integration.category}
             </span>
             {integration.connected && (
-              <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-wider text-accent uppercase">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+              <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-[#5E9FBE] uppercase">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#5E9FBE]" />
                 Connected
               </span>
             )}
           </div>
 
-          <p className="mt-1.5 text-sm text-muted">{integration.description}</p>
+          <p className="mt-1.5 text-sm text-[#7183A3]">{integration.description}</p>
 
           {integration.capabilities.length > 0 && (
             <ul className="mt-3 flex flex-col gap-1">

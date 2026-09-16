@@ -10,6 +10,7 @@ export type ChatRole = 'user' | 'assistant'
 export type MessagePart =
   | { kind: 'text'; content: string }
   | { kind: 'subagent'; agent: string; content: string }
+  | { kind: 'sticker'; name: string }
 
 export type ChatMessage = {
   /** Ephemeral UI identity used to route concurrent/queued stream updates. */

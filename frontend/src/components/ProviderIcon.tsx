@@ -8,9 +8,9 @@
 export function ProviderIcon({ id, name }: { id: string; name: string }) {
   const glyph = ICONS[id]
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line-bright bg-surface-2">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#D9E8F6] bg-[#F8FAFF]">
       {glyph ?? (
-        <span className="font-mono text-sm font-medium text-muted">
+        <span className="text-sm font-medium text-[#7183A3]">
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}

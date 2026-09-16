@@ -26,9 +26,9 @@ interface Props {
 type Tone = 'live' | 'armed' | 'closed'
 
 const TONE: Record<Tone, string> = {
-  live: 'border-accent/50 bg-accent/10 text-accent',
-  armed: 'border-accent-dim/50 bg-accent-dim/10 text-accent/80',
-  closed: 'border-line bg-surface-2 text-muted',
+  live: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+  armed: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#765E94]',
+  closed: 'border-[#D9E8F6] bg-[#F8FAFF] text-[#7183A3]',
 }
 
 export function SenseStrip({
@@ -40,9 +40,9 @@ export function SenseStrip({
 }: Props) {
   if (!awareness) {
     return (
-      <div className={`rounded-2xl border border-line bg-surface/60 p-4 ${className}`}>
+      <div className={`rounded-2xl border border-[#D9E8F6] bg-white/90 p-4 shadow-[0_8px_24px_rgba(35,49,79,0.04)] ${className}`}>
         <Heading />
-        <p className="mt-3 text-sm text-muted">Waking up…</p>
+        <p className="mt-3 text-sm text-[#7183A3]">Waking up…</p>
       </div>
     )
   }
@@ -58,7 +58,7 @@ export function SenseStrip({
 
   return (
     <div
-      className={`rounded-2xl border border-line bg-surface/60 p-4 backdrop-blur-sm ${className}`}
+      className={`rounded-2xl border border-[#D9E8F6] bg-white/90 p-4 shadow-[0_8px_24px_rgba(35,49,79,0.04)] backdrop-blur-sm ${className}`}
       title={awareness.narration}
     >
       <Heading />
@@ -109,25 +109,25 @@ export function SenseStrip({
           written about it is the point: it's the only way to check that what
           the assistant is told matches what's on your screen. */}
       {senses.vision_enabled && senses.screen_image_id && (
-        <figure className="mt-3 border-t border-line pt-3">
+        <figure className="mt-3 border-t border-[#EAF0FA] pt-3">
           <img
             src={imageUrl(senses.screen_image_id)}
             alt="The most recent frame of your shared screen"
-            className="w-full rounded-md border border-line object-cover"
+            className="w-full rounded-xl border border-[#D9E8F6] object-cover"
           />
-          <figcaption className="mt-2 text-xs leading-relaxed text-muted">
+          <figcaption className="mt-2 text-xs leading-relaxed text-[#7183A3]">
             {awareness.screen_caption ?? 'Not described yet — nothing has asked.'}
           </figcaption>
         </figure>
       )}
 
       {eyeError && (
-        <p className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs text-red-300">
+        <p className="mt-3 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-2 py-1.5 text-xs text-[#8B3158]">
           {eyeError}
         </p>
       )}
 
-      <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-muted">
+      <p className="mt-3 border-t border-[#EAF0FA] pt-3 text-xs leading-relaxed text-[#7183A3]">
         {awareness.entries_today > 0
           ? `${awareness.calories_today.toLocaleString()} kcal logged today across ${
               awareness.entries_today
@@ -140,7 +140,7 @@ export function SenseStrip({
 
 function Heading() {
   return (
-    <h2 className="font-mono text-[11px] tracking-wider text-muted uppercase">
+    <h2 className="text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
       Awareness
     </h2>
   )
@@ -164,8 +164,8 @@ function Sense({
 }) {
   const body = (
     <>
-      <span className="flex items-center gap-2 text-xs text-muted">
-        <span className={tone === 'closed' ? 'text-muted/60' : 'text-accent'}>
+      <span className="flex items-center gap-2 text-xs text-[#7183A3]">
+        <span className={tone === 'closed' ? 'text-[#B0BDD0]' : 'text-[#6FAED3]'}>
           {glyph}
         </span>
         {label}
@@ -186,7 +186,7 @@ function Sense({
       type="button"
       onClick={onClick}
       aria-label={actionLabel}
-      className="-mx-1 flex w-[calc(100%+0.5rem)] cursor-pointer items-center justify-between gap-3 rounded-md px-1 py-0.5 transition-colors outline-none hover:bg-line-bright/40 focus-visible:ring-2 focus-visible:ring-accent/60"
+      className="-mx-1 flex w-[calc(100%+0.5rem)] cursor-pointer items-center justify-between gap-3 rounded-md px-1 py-0.5 transition-colors outline-none hover:bg-[#F4F8FD] focus-visible:ring-2 focus-visible:ring-[#8FC7E8]"
     >
       {body}
     </button>

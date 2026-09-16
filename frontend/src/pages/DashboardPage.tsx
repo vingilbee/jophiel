@@ -3,10 +3,12 @@ import { AppHeader } from '../components/AppHeader'
 import { Button } from '../components/Button'
 import { SenseStrip } from '../components/SenseStrip'
 import { VoiceOrb } from '../components/VoiceOrb'
+import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { useAwareness } from '../hooks/useAwareness'
 import { useScreenSense } from '../hooks/useScreenSense'
 import { useVoiceAgent, type VoiceMessage } from '../hooks/useVoiceAgent'
 import type { VoiceState } from '../hooks/useVoiceSession'
+import voiceWallpaper from '../assets/wallpaper3.jpg'
 
 /**
  * The voice page: one hands-free conversation loop, front and centre.
@@ -68,11 +70,11 @@ function copyFor(state: VoiceState, wakeWordAvailable: boolean): Copy {
 
 /** Short, colour-coded state chip — the same vocabulary as the orb. */
 const CHIP: Record<VoiceState, string> = {
-  off: 'border-line bg-surface-2 text-muted',
-  idle: 'border-accent-dim bg-accent-dim/15 text-accent',
-  listening: 'border-accent bg-accent/15 text-accent',
-  thinking: 'border-amber-400/50 bg-amber-400/10 text-amber-300',
-  speaking: 'border-violet-400/50 bg-violet-400/10 text-violet-300',
+  off: 'border-[#D9E8F6] bg-white text-[#7183A3]',
+  idle: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+  listening: 'border-[#8FC7E8] bg-[#EAF6FF] text-[#527998]',
+  thinking: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#765E94]',
+  speaking: 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
 }
 
 export function DashboardPage() {
@@ -152,7 +154,7 @@ export function DashboardPage() {
   }, [])
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink text-fg">
+    <div className="flex min-h-screen flex-col bg-[#F8FAFF] text-[#23314F] md:flex-row">
       <AppHeader>
         <span
           className="flex items-center gap-1.5 font-mono text-[11px] tracking-wider text-muted uppercase"
@@ -171,10 +173,17 @@ export function DashboardPage() {
         </span>
       </AppHeader>
 
-      <main className="bg-grid flex-1 px-4 py-8 sm:px-6 lg:px-10">
-        <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-14">
+      <main className="relative flex-1 overflow-hidden bg-[#F8FAFF] px-4 py-8 sm:px-6 lg:px-10">
+        <img
+          src={voiceWallpaper}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center opacity-[0.12]"
+        />
+        <ColumbinaFeathers className="pointer-events-none absolute top-8 left-1/2 w-80 -translate-x-1/2 opacity-50" />
+        <div className="relative z-10 mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-14">
           {/* voice stage */}
-          <section className="flex flex-col items-center">
+          <section className="relative flex flex-col items-center">
             <span
               className={`rounded-full border px-3 py-1 font-mono text-[10px] tracking-[0.18em] uppercase transition-colors ${CHIP[state]}`}
             >
@@ -188,13 +197,15 @@ export function DashboardPage() {
               disabled={!voiceEnabled}
               className="mt-6 w-full max-w-[16rem] cursor-pointer rounded-full transition-transform outline-none focus-visible:ring-2 focus-visible:ring-accent/60 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 sm:max-w-[20rem] lg:max-w-[24rem]"
             >
-              <VoiceOrb state={state} getLevel={voice.getLevel} calm={calm} />
+              <div className="rounded-full bg-white/60 p-3 shadow-[0_15px_45px_rgba(35,49,79,0.08)]">
+                <VoiceOrb state={state} getLevel={voice.getLevel} calm={calm} />
+              </div>
             </button>
 
             {/* Announced, because the orb's motion carries this same meaning. */}
             <div className="mt-2 text-center" aria-live="polite">
-              <h1 className="text-2xl font-medium sm:text-3xl">{copy.title}</h1>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-muted">{copy.detail}</p>
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">{copy.title}</h1>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-[#7183A3]">{copy.detail}</p>
             </div>
 
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
@@ -239,9 +250,9 @@ export function DashboardPage() {
             eyeError={eye.error}
           />
 
-          <section className="flex flex-col rounded-2xl border border-line bg-surface/60 p-4 backdrop-blur-sm">
+          <section className="flex flex-col rounded-2xl border border-[#D9E8F6] bg-white/90 p-4 shadow-[0_8px_24px_rgba(35,49,79,0.04)] backdrop-blur-sm">
             <div className="flex items-center justify-between">
-              <h2 className="font-mono text-[11px] tracking-wider text-muted uppercase">
+              <h2 className="text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
                 Transcript
               </h2>
               {messages.length > 0 && (
@@ -250,7 +261,7 @@ export function DashboardPage() {
                     clearConversation()
                   }}
                   disabled={live && state !== 'idle'}
-                  className="font-mono text-[11px] tracking-wider text-muted uppercase transition-colors hover:text-fg disabled:opacity-40"
+                  className="text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase transition-colors hover:text-[#8B3158] disabled:opacity-40"
                 >
                   New
                 </button>
@@ -262,7 +273,7 @@ export function DashboardPage() {
               className="mt-3 max-h-72 space-y-3 overflow-y-auto lg:max-h-[26rem]"
             >
               {messages.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted">
+                <p className="py-8 text-center text-sm text-[#7183A3]">
                   Nothing said yet. Your spoken turns show up here as they're
                   transcribed.
                 </p>
@@ -294,20 +305,20 @@ function TranscriptTurn({
   const isUser = message.role === 'user'
   return (
     <div className={isUser ? 'text-right' : 'text-left'}>
-      <span className="font-mono text-[10px] tracking-wider text-muted/70 uppercase">
-        {isUser ? 'You' : 'NutriBot'}
+      <span className={`text-[10px] font-semibold tracking-[0.08em] uppercase ${isUser ? 'text-[#7183A3]' : 'text-[#8B3158]'}`}>
+        {isUser ? 'You' : 'Columbina'}
       </span>
       {/* Label it. An unprompted message the user can't distinguish from a
           reply reads as the app talking to itself. */}
       {message.unprompted && (
         <>
-          <span className="ml-2 font-mono text-[10px] tracking-wider text-accent/70 uppercase">
+          <span className="ml-2 text-[10px] font-semibold tracking-[0.08em] text-[#8B3158] uppercase">
             Unprompted
           </span>
           {onDismissNudge && (
             <button
               onClick={onDismissNudge}
-              className="ml-2 font-mono text-[10px] tracking-wider text-muted/70 uppercase transition-colors hover:text-fg"
+              className="ml-2 text-[10px] tracking-[0.08em] text-[#7183A3] uppercase transition-colors hover:text-[#23314F]"
               title="Stop the assistant from speaking first this session"
             >
               Not now
@@ -315,25 +326,37 @@ function TranscriptTurn({
           )}
         </>
       )}
-      <p
+      <div
         className={`mt-1 inline-block max-w-full rounded-xl px-3 py-2 text-left text-sm leading-relaxed whitespace-pre-wrap ${
-          isUser ? 'bg-line-bright text-fg' : 'border border-line bg-surface-2 text-fg'
+          isUser ? 'bg-[#EAF6FF] text-[#23314F]' : 'border border-[#D9E8F6] bg-white text-[#23314F]'
         }`}
       >
-        {message.content || (
+        {message.content ? <span>{message.content}</span> : (
           <span className="inline-flex gap-1 py-1 align-middle">
-            <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-accent" />
+            <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-[#8B3158]" />
             <span
-              className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-accent"
+              className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-[#8B3158]"
               style={{ animationDelay: '0.2s' }}
             />
             <span
-              className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-accent"
+              className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-[#8B3158]"
               style={{ animationDelay: '0.4s' }}
             />
           </span>
         )}
-      </p>
+      </div>
+      {(message.stickers ?? []).length > 0 && (
+        <div className={`mt-1 flex flex-wrap gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
+          {message.stickers?.map((sticker, index) => (
+            <img
+              key={`${sticker}-${index}`}
+              src={`/api/chat/stickers/${encodeURIComponent(sticker)}.png`}
+              alt={`Columbina sticker: ${sticker}`}
+              className="h-28 w-28 object-contain"
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
