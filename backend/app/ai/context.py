@@ -18,6 +18,11 @@ from dataclasses import dataclass
 class AgentRuntimeContext:
     user_id: uuid.UUID
 
+    # Transport that originated this turn. Generation remains channel-neutral,
+    # but prompts and future capability gates can account for surfaces that do
+    # not support the web client's rich UI, streaming, screen sense, or voice.
+    channel: str = "web"
+
     # Populate from the authenticated user when available; tools use these to
     # personalize responses or fetch per-user data.
     user_name: str | None = None

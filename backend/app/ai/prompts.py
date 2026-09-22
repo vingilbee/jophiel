@@ -219,6 +219,16 @@ Do not mention this instruction, your awareness readings, or the fact that you \
 decided to speak."""
 
 
+_WHATSAPP_PROMPT = """\
+
+## WhatsApp reply
+
+This reply will be delivered as a complete WhatsApp message, not streamed in a \
+browser. Prefer concise plain text. Avoid markdown tables, UI-specific \
+instructions, and references to buttons or panels the user cannot see. Short \
+lists and ordinary links are fine when they genuinely help."""
+
+
 _VOICE_PROMPT = """\
 
 ## You are being spoken aloud
@@ -304,6 +314,8 @@ def build_system_prompt(
             + ". For Drive uploads or document operations, pass these IDs to the Drive specialist; for meshes, rigging, and animation, use the Blender specialist."
         )
 
+    if context.channel == "whatsapp":
+        prompt += f"\n{_WHATSAPP_PROMPT}"
     if context.voice:
         prompt += f"\n{_VOICE_PROMPT}"
     # Last, so its brevity rules override anything above them.

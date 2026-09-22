@@ -52,6 +52,7 @@ export interface StoredImage {
 export interface Conversation {
   id: string
   title: string | null
+  origin_channel: 'web' | 'whatsapp'
   created_at: string
   updated_at: string
 }
@@ -62,6 +63,7 @@ export interface StoredChatMessage extends ChatMessage {
   content: string
   turn_id?: string | null
   status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  source_channel: 'web' | 'whatsapp' | 'system'
   /** Server-side attachment ids (snake_case, straight off the API). */
   image_ids?: string[] | null
   asset_ids?: string[] | null

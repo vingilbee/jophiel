@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.limiter import limiter
 
 from app.ai.tools.macrovision import macrovision_mcp_lifespan, mount_macrovision_mcp
-from app.api.routes import assets, auth, chat, cognitive, dashboard, images, integrations, predict
+from app.api.routes import assets, auth, chat, cognitive, dashboard, images, integrations, predict, whatsapp
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ app.include_router(images.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
 app.include_router(cognitive.router, prefix="/api")
+app.include_router(whatsapp.router, prefix="/api")
 
 
 @app.get("/health", tags=["health"])

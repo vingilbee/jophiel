@@ -205,7 +205,26 @@ class Settings(BaseSettings):
     chat_queue_name: str = "macrovision:chat:jobs"
     chat_event_stream_prefix: str = "macrovision:chat:events:"
     chat_worker_lease_seconds: int = 900
+    chat_worker_heartbeat_seconds: int = 30
     file_deletion_queue_name: str = "macrovision:file_deletion:jobs"
+
+    # --- WhatsApp Cloud API ---
+    # The webhook is inert until all required credentials are configured.
+    whatsapp_enabled: bool = False
+    whatsapp_verify_token: str | None = None
+    whatsapp_app_secret: str | None = None
+    whatsapp_access_token: str | None = None
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_display_phone_number: str | None = None
+    whatsapp_graph_api_version: str = "v23.0"
+    whatsapp_link_code_ttl_seconds: int = 600
+    whatsapp_debounce_seconds: float = 1.0
+    whatsapp_max_batch_seconds: float = 3.0
+    whatsapp_delivery_timeout_seconds: float = 15.0
+    whatsapp_delivery_max_attempts: int = 8
+    whatsapp_webhook_max_bytes: int = 1_000_000
+    whatsapp_worker_poll_seconds: float = 1.0
+    whatsapp_queue_name: str = "macrovision:whatsapp:wakeups"
     
 
 

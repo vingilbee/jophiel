@@ -1,4 +1,8 @@
-"""Long-term memory extraction, persistence, retrieval, and job scheduling."""
+"""Semantic-memory extraction, persistence, retrieval, and job scheduling.
+
+The public function names remain stable while the existing long-term fact store
+is migrated to the more precise ``semantic_memories`` table.
+"""
 from __future__ import annotations
 
 import logging
@@ -14,7 +18,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.models import ChatMessage, LongTermMemory, MemoryJob
+from app.db.models import ChatMessage, EpisodicMemory, MemoryJob, SemanticMemory
 from app.db.session import SessionLocal
 from app.schemas.long_term_memory import MemoryCandidate, MemoryExtraction
 
@@ -54,7 +58,7 @@ def _embedding(text: str) -> list[float] | None:
 
 def schedule_consolidation(
     db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID,
-    assistant_message_id: uuid.UUID,
+    assistant_message_id: uuid.UUID, commit: bool = True,
 ) -> MemoryJob | None:
     """Create an idempotent durable job and best-effort wake the worker."""
     if not get_settings().long_term_memory_enabled:
@@ -70,6 +74,9 @@ def schedule_consolidation(
         assistant_message_id=assistant_message_id,
     )
     db.add(job)
+    if not commit:
+        db.flush()
+        return job
     db.commit()
     db.refresh(job)
     settings = get_settings()
@@ -146,20 +153,36 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
         for candidate in candidates:
             key = candidate.normalized_key.strip().lower()
             existing = db.scalar(
-                select(LongTermMemory).where(
-                    LongTermMemory.user_id == job.user_id,
-                    LongTermMemory.normalized_key == key,
+                select(SemanticMemory).where(
+                    SemanticMemory.user_id == job.user_id,
+                    SemanticMemory.normalized_key == key,
                 )
             )
             if candidate.operation == "forget":
                 if existing is not None:
                     existing.status = "deleted"
                     existing.last_confirmed_at = now
+                    existing.revision += 1
                 continue
             vector = _embedding(candidate.content)
+            if candidate.kind == "episode":
+                db.add(EpisodicMemory(
+                    user_id=job.user_id,
+                    conversation_id=job.conversation_id,
+                    summary=candidate.content.strip(),
+                    source_message_ids=[str(source_message_id)] if source_message_id else [],
+                    embedding=vector,
+                    importance=candidate.importance,
+                    confidence=candidate.confidence,
+                    context={"normalized_key": key},
+                ))
+                continue
             if existing is None:
-                existing = LongTermMemory(user_id=job.user_id, normalized_key=key)
+                existing = SemanticMemory(user_id=job.user_id, normalized_key=key)
                 db.add(existing)
+            else:
+                existing.evidence_count += 1
+                existing.revision += 1
             existing.kind = candidate.kind
             existing.content = candidate.content.strip()
             existing.embedding = vector
@@ -234,10 +257,10 @@ def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
         with SessionLocal() as db:
             memories = list(
                 db.scalars(
-                    select(LongTermMemory).where(
-                        LongTermMemory.user_id == user_id,
-                        LongTermMemory.status == "active",
-                        or_(LongTermMemory.expires_at.is_(None), LongTermMemory.expires_at > now),
+                    select(SemanticMemory).where(
+                        SemanticMemory.user_id == user_id,
+                        SemanticMemory.status == "active",
+                        or_(SemanticMemory.expires_at.is_(None), SemanticMemory.expires_at > now),
                     )
                 )
             )
@@ -245,7 +268,7 @@ def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
                 return None
             query_vector = _embedding(query)
             query_words = set(_WORD_RE.findall(query.lower()))
-            ranked: list[tuple[float, LongTermMemory]] = []
+            ranked: list[tuple[float, SemanticMemory]] = []
             for memory in memories:
                 memory_words = set(_WORD_RE.findall(memory.content.lower()))
                 lexical = len(query_words & memory_words) / max(1, len(query_words))

@@ -68,6 +68,23 @@ backend/uploads/
 backend/storage/
 backend/data/
 data/
+!backend/app/ai/Cognitive/system/data/
+backend/app/ai/Cognitive/system/data/*
+!backend/app/ai/Cognitive/system/data/perception_design_cases.json
+!backend/app/ai/Cognitive/system/data/INTERPRETATION_DESIGN_CASES_README.md
+!backend/app/ai/Cognitive/system/data/interpretation_design_cases.json
+!backend/app/ai/Cognitive/system/data/CONVERSATIONAL_ACTION_DESIGN_CASES_README.md
+!backend/app/ai/Cognitive/system/data/conversational_action_design_cases.json
+!backend/app/ai/Cognitive/system/data/CONVERSATIONAL_ACTION_REGISTRY_V0.md
+!backend/app/ai/Cognitive/system/data/OUTCOME_OBSERVATION_SCHEMA_V0.md
+!backend/app/ai/Cognitive/system/data/APPRAISAL_SCHEMA_V0.md
+!backend/app/ai/Cognitive/system/data/APPRAISAL_DESIGN_CASES_README.md
+!backend/app/ai/Cognitive/system/data/appraisal_design_cases.json
+!backend/app/ai/Cognitive/system/data/DYNAMIC_STATE_SCHEMA_V0.md
+!backend/app/ai/Cognitive/system/data/DYNAMIC_STATE_DESIGN_CASES_README.md
+!backend/app/ai/Cognitive/system/data/dynamic_state_design_cases.json
+!backend/app/ai/Cognitive/system/data/GOAL_DESIGN_CASES_README.md
+!backend/app/ai/Cognitive/system/data/goal_design_cases.json
 uploads/
 storage/
 

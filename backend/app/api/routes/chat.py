@@ -405,6 +405,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         "role": message.role,
                         "content": message.content,
                         "status": message.status,
+                        "source_channel": message.source_channel,
                         "created_at": message.created_at.isoformat(),
                         "image_ids": message.image_ids,
                         "asset_ids": message.asset_ids,
@@ -936,6 +937,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             state = awareness_service.build(db, user_id=user_id, session=session)
             chat_service.enqueue_job(
                 db, user_id=user_id, conversation=conversation, turn_id=turn_id,
+                user_message_id=user_message.id,
                 payload={"content": transcript, "image_ids": [], "asset_ids": [],
                          "voice": True, "awareness": state.describe(),
                          "vision_enabled": state.senses.vision_enabled,
@@ -1209,6 +1211,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                     state = awareness_service.build(db, user_id=user_id, session=session)
                     chat_service.enqueue_job(
                         db, user_id=user_id, conversation=conversation, turn_id=turn_id,
+                        user_message_id=user_message.id,
                         payload={
                             "content": message.content, "image_ids": attached,
                             "asset_ids": attached_assets, "voice": False,

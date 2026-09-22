@@ -7,14 +7,22 @@ import threading
 import redis
 
 from app.core.config import get_settings
-from app.workers import chat, file_deletion, memory
+from app.workers import chat, file_deletion, memory, whatsapp
 
 logger = logging.getLogger(__name__)
 
 
-def _work_loop(name: str, run_once: Callable[[], bool], queue: str, stop: threading.Event) -> None:
+def _work_loop(
+    name: str, run_once: Callable[[], bool], queue: str, stop: threading.Event,
+    interval_seconds: float | None = None,
+) -> None:
     settings = get_settings()
-    interval = max(1, int(getattr(settings, "chat_worker_poll_seconds", settings.memory_worker_poll_seconds)))
+    configured_interval = (
+        interval_seconds
+        if interval_seconds is not None
+        else getattr(settings, "chat_worker_poll_seconds", settings.memory_worker_poll_seconds)
+    )
+    interval = max(1, int(configured_interval))
     wakeups = redis.from_url(
         settings.redis_url, socket_connect_timeout=interval, socket_timeout=interval + 2,
     ) if settings.redis_url else None
@@ -61,13 +69,20 @@ def run(stop: threading.Event | None = None) -> None:
             previous[sig] = signal.signal(sig, request_stop)
     threads = []
     try:
-        for name, callback, queue in (
-            ("chat", chat.run_once, getattr(settings, "chat_queue_name", "macrovision:chat:jobs")),
-            ("memory", memory.run_once, settings.memory_queue_name),
-            ("file-deletion", file_deletion.run_once, settings.file_deletion_queue_name),
-        ):
+        worker_specs = [
+            ("chat", chat.run_once, getattr(settings, "chat_queue_name", "macrovision:chat:jobs"), None),
+            ("memory", memory.run_once, settings.memory_queue_name, None),
+            ("file-deletion", file_deletion.run_once, settings.file_deletion_queue_name, None),
+        ]
+        if getattr(settings, "whatsapp_enabled", False):
+            worker_specs.append((
+                "whatsapp", whatsapp.run_once,
+                getattr(settings, "whatsapp_queue_name", "macrovision:whatsapp:wakeups"),
+                getattr(settings, "whatsapp_worker_poll_seconds", 1.0),
+            ))
+        for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
-                target=_work_loop, args=(name, callback, queue, stop), name=f"worker-{name}",
+                target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",
             )
             thread.start()
             threads.append(thread)

@@ -155,6 +155,7 @@ class ChatMessageOut(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     status: Literal["completed", "partial", "cancelled", "failed"] = "completed"
+    source_channel: Literal["web", "whatsapp", "system"] = "web"
     created_at: datetime
     # Photos attached to this turn, for rendering thumbnails in the transcript.
     image_ids: list[str] | None = None
@@ -168,6 +169,7 @@ class ConversationOut(BaseModel):
 
     id: uuid.UUID
     title: str | None
+    origin_channel: Literal["web", "whatsapp"] = "web"
     created_at: datetime
     updated_at: datetime
 
