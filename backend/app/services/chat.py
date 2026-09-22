@@ -8,8 +8,8 @@ helpers to load history before streaming and to persist each turn after.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, exists, func, or_, select, update
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import ChatJob, ChatMessage, Conversation
 from datetime import datetime, timedelta, timezone
@@ -54,12 +54,18 @@ def get_conversation(
 
 
 def create_conversation(
-    db: Session, *, user_id: uuid.UUID, title: str | None = None
+    db: Session, *, user_id: uuid.UUID, title: str | None = None,
+    origin_channel: str = "web", commit: bool = True,
 ) -> Conversation:
-    conversation = Conversation(user_id=user_id, title=title)
+    conversation = Conversation(
+        user_id=user_id, title=title, origin_channel=origin_channel
+    )
     db.add(conversation)
-    db.commit()
-    db.refresh(conversation)
+    if commit:
+        db.commit()
+        db.refresh(conversation)
+    else:
+        db.flush()
     return conversation
 
 
@@ -69,6 +75,7 @@ def get_or_create_conversation(
     user_id: uuid.UUID,
     conversation_id: uuid.UUID | None,
     title: str | None = None,
+    origin_channel: str = "web",
 ) -> Conversation:
     """Resolve an existing owned conversation, or start a fresh one.
 
@@ -82,7 +89,9 @@ def get_or_create_conversation(
         )
         if existing is not None:
             return existing
-    return create_conversation(db, user_id=user_id, title=title)
+    return create_conversation(
+        db, user_id=user_id, title=title, origin_channel=origin_channel
+    )
 
 
 def add_message(
@@ -96,6 +105,9 @@ def add_message(
     status: str = "completed",
     image_ids: Sequence[str] | None = None,
     asset_ids: Sequence[str] | None = None,
+    source_channel: str = "web",
+    external_message_id: str | None = None,
+    commit: bool = True,
 ) -> ChatMessage:
     """Append a message to a conversation and bump its ``updated_at``."""
     message = ChatMessage(
@@ -107,6 +119,8 @@ def add_message(
         status=status,
         image_ids=list(image_ids) if image_ids else None,
         asset_ids=list(asset_ids) if asset_ids else None,
+        source_channel=source_channel,
+        external_message_id=external_message_id,
     )
     db.add(message)
     # Backfill a title from the first user message if we don't have one yet.
@@ -114,12 +128,19 @@ def add_message(
         conversation.title = _derive_title(content)
     # Touch the parent so conversation lists sort by latest activity.
     conversation.updated_at = func.now()
-    db.commit()
-    db.refresh(message)
+    if commit:
+        db.commit()
+        db.refresh(message)
+    else:
+        db.flush()
     return message
 
 
-def get_history(db: Session, *, conversation: Conversation) -> list[ChatTurn]:
+def get_history(
+    db: Session, *, conversation: Conversation,
+    up_to_message_id: uuid.UUID | None = None,
+    up_to_job_id: uuid.UUID | None = None,
+) -> list[ChatTurn]:
     """Return the conversation's messages, oldest first, as role/content dicts.
 
     Attachments are folded into the text as a trailing marker. The AI layer
@@ -130,12 +151,34 @@ def get_history(db: Session, *, conversation: Conversation) -> list[ChatTurn]:
     limit = max(2, get_settings().short_term_memory_messages)
     # Fetch newest-first so Postgres can apply the limit, then restore natural
     # order for the model. Older rows remain available to the UI and worker.
-    stmt = (
-        select(ChatMessage)
-        .where(ChatMessage.conversation_id == conversation.id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(limit)
-    )
+    job_time = None
+    if up_to_job_id is not None:
+        boundary_job = db.get(ChatJob, up_to_job_id)
+        if boundary_job is not None and boundary_job.conversation_id == conversation.id:
+            job_time = boundary_job.created_at
+    if job_time is not None:
+        effective_time = func.coalesce(ChatJob.created_at, ChatMessage.created_at)
+        role_order = case((ChatMessage.role == "assistant", 1), else_=0)
+        stmt = (
+            select(ChatMessage)
+            .outerjoin(ChatJob, ChatJob.turn_id == ChatMessage.turn_id)
+            .where(
+                ChatMessage.conversation_id == conversation.id,
+                or_(ChatJob.id.is_(None), ChatJob.created_at <= job_time),
+            )
+            .order_by(effective_time.desc(), role_order.desc(), ChatMessage.created_at.desc())
+            .limit(limit)
+        )
+    else:
+        stmt = select(ChatMessage).where(
+            ChatMessage.conversation_id == conversation.id
+        )
+    if job_time is None and up_to_message_id is not None:
+        boundary = db.get(ChatMessage, up_to_message_id)
+        if boundary is not None and boundary.conversation_id == conversation.id:
+            stmt = stmt.where(ChatMessage.created_at <= boundary.created_at)
+    if job_time is None:
+        stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit)
     history: list[ChatTurn] = []
     for message in reversed(list(db.scalars(stmt))):
         # Durable cancellation metadata is not useful model context.
@@ -179,19 +222,28 @@ def delete_conversation(
 
 
 def enqueue_job(db: Session, *, user_id: uuid.UUID, conversation: Conversation,
-                turn_id: uuid.UUID, payload: dict) -> ChatJob:
+                turn_id: uuid.UUID, payload: dict,
+                user_message_id: uuid.UUID | None = None,
+                commit: bool = True) -> ChatJob:
     job = ChatJob(turn_id=turn_id, user_id=user_id, conversation_id=conversation.id,
-                  payload=payload, status="pending")
+                  user_message_id=user_message_id, payload=payload, status="pending")
     db.add(job)
+    if not commit:
+        db.flush()
+        return job
     db.commit()
     db.refresh(job)
+    wake_chat_worker(job.id)
+    return job
+
+
+def wake_chat_worker(job_id: uuid.UUID | str = "wake") -> None:
     settings = get_settings()
     if settings.redis_url:
         try:
-            redis.from_url(settings.redis_url).rpush(settings.chat_queue_name, str(job.id))
+            redis.from_url(settings.redis_url).rpush(settings.chat_queue_name, str(job_id))
         except Exception:
             pass  # PostgreSQL polling is the source of truth.
-    return job
 
 
 def active_jobs(db: Session, *, user_id: uuid.UUID) -> list[ChatJob]:
@@ -203,12 +255,49 @@ def active_jobs(db: Session, *, user_id: uuid.UUID) -> list[ChatJob]:
 
 def claim_next_job(db: Session, *, lease_seconds: int) -> ChatJob | None:
     now = datetime.now(timezone.utc)
-    job = db.scalar(select(ChatJob).where(
-        or_(ChatJob.status == "pending",
-            (ChatJob.status == "processing") &
-            (ChatJob.lease_expires_at.is_(None) | (ChatJob.lease_expires_at <= now)))
-    ).with_for_update(skip_locked=True).limit(1))
+    other = aliased(ChatJob)
+    live_other = exists(select(other.id).where(
+        other.conversation_id == ChatJob.conversation_id,
+        other.id != ChatJob.id,
+        other.status == "processing",
+        other.lease_expires_at > now,
+    ))
+    job = db.scalar(
+        select(ChatJob)
+        .where(
+            or_(
+                ChatJob.status == "pending",
+                (ChatJob.status == "processing")
+                & (ChatJob.lease_expires_at.is_(None) | (ChatJob.lease_expires_at <= now)),
+            ),
+            ~live_other,
+        )
+        .order_by(ChatJob.created_at, ChatJob.id)
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
     if job is None:
+        return None
+    # The candidate row lock alone is insufficient: two workers can lock two
+    # different pending jobs for the same conversation before either commits.
+    # Serialize the final claim through the parent conversation, then recheck.
+    db.scalar(
+        select(Conversation.id)
+        .where(Conversation.id == job.conversation_id)
+        .with_for_update()
+    )
+    competing = db.scalar(
+        select(ChatJob.id)
+        .where(
+            ChatJob.conversation_id == job.conversation_id,
+            ChatJob.id != job.id,
+            ChatJob.status == "processing",
+            ChatJob.lease_expires_at > now,
+        )
+        .limit(1)
+    )
+    if competing is not None:
+        db.rollback()
         return None
     job.status = "processing"
     job.attempts += 1
@@ -219,11 +308,44 @@ def claim_next_job(db: Session, *, lease_seconds: int) -> ChatJob | None:
     return job
 
 
-def finish_job(db: Session, job_id: uuid.UUID, status: str, error: str | None = None) -> None:
-    job = db.get(ChatJob, job_id)
-    if job is None:
-        return
-    job.status, job.last_error = status, error
-    job.processed_at = datetime.now(timezone.utc)
-    job.lease_expires_at = None
+def renew_job_lease(
+    db: Session, job_id: uuid.UUID, claim_token: str, *, lease_seconds: int
+) -> bool:
+    result = db.execute(
+        update(ChatJob)
+        .where(
+            ChatJob.id == job_id,
+            ChatJob.status == "processing",
+            ChatJob.claim_token == claim_token,
+        )
+        .values(lease_expires_at=datetime.now(timezone.utc) + timedelta(seconds=lease_seconds))
+    )
     db.commit()
+    return bool(result.rowcount)
+
+
+def finish_job(
+    db: Session, job_id: uuid.UUID, status: str, error: str | None = None,
+    *, claim_token: str | None = None, commit: bool = True,
+) -> bool:
+    conditions = [ChatJob.id == job_id]
+    if claim_token is not None:
+        conditions.extend((
+            ChatJob.status == "processing",
+            ChatJob.claim_token == claim_token,
+        ))
+    result = db.execute(
+        update(ChatJob)
+        .where(*conditions)
+        .values(
+            status=status,
+            last_error=error,
+            processed_at=datetime.now(timezone.utc),
+            lease_expires_at=None,
+        )
+    )
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return bool(result.rowcount)

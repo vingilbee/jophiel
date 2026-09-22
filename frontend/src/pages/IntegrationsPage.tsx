@@ -5,6 +5,8 @@ import { Button } from '../components/Button'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { integrationsApi } from '../api/integrations'
+import { whatsappApi } from '../api/whatsapp'
+import type { WhatsAppLinkCode, WhatsAppLinkStatus } from '../api/whatsapp'
 import type { Integration } from '../types'
 
 /**
@@ -30,12 +32,18 @@ type Banner = { kind: 'success' | 'error'; text: string }
 export function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [whatsapp, setWhatsapp] = useState<WhatsAppLinkStatus | null>(null)
   const [banner, setBanner] = useState<Banner | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
 
   const load = useCallback(async () => {
     try {
-      setIntegrations(await integrationsApi.list())
+      const [available, whatsappStatus] = await Promise.all([
+        integrationsApi.list(),
+        whatsappApi.status(),
+      ])
+      setIntegrations(available)
+      setWhatsapp(whatsappStatus)
       setLoadError(null)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load integrations.')
@@ -121,6 +129,13 @@ export function IntegrationsPage() {
         )}
 
         <div className="flex flex-col gap-3">
+          {whatsapp && (
+            <WhatsAppCard
+              status={whatsapp}
+              onChanged={load}
+              onError={(text) => setBanner({ kind: 'error', text })}
+            />
+          )}
           {integrations?.map((integration) => (
             <IntegrationCard
               key={integration.id}
@@ -132,6 +147,137 @@ export function IntegrationsPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+function WhatsAppCard({
+  status,
+  onChanged,
+  onError,
+}: {
+  status: WhatsAppLinkStatus
+  onChanged: () => Promise<void>
+  onError: (text: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [code, setCode] = useState<WhatsAppLinkCode | null>(null)
+  const [confirming, setConfirming] = useState(false)
+
+  async function beginLink() {
+    setBusy(true)
+    try {
+      setCode(await whatsappApi.createLinkCode())
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not create a WhatsApp link code.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refresh() {
+    setBusy(true)
+    try {
+      await onChanged()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not refresh WhatsApp status.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true)
+    try {
+      await whatsappApi.unlink()
+      setCode(null)
+      await onChanged()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not disconnect WhatsApp.')
+    } finally {
+      setBusy(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-[#D9E8F6] bg-white p-5 shadow-[0_8px_24px_rgba(35,49,79,0.04)]">
+      <div className="flex items-start gap-4">
+        <ProviderIcon id="whatsapp" name="WhatsApp" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-[#23314F]">WhatsApp</h2>
+            <span className="rounded-full border border-[#D9E8F6] bg-[#F8FAFF] px-2 py-0.5 text-[10px] tracking-[0.08em] text-[#7183A3] uppercase">
+              Messaging
+            </span>
+            {status.linked && (
+              <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-[#5E9FBE] uppercase">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#5E9FBE]" />
+                Connected
+              </span>
+            )}
+          </div>
+          <p className="mt-1.5 text-sm text-[#7183A3]">
+            Continue the same assistant conversation from WhatsApp.
+          </p>
+          {status.linked && (
+            <p className="mt-3 font-mono text-[11px] text-muted">
+              {status.display_name ?? 'WhatsApp account'} ·••{status.wa_id_suffix}
+            </p>
+          )}
+          {code && !status.linked && (
+            <div className="mt-3 rounded-xl border border-[#B9DCF4] bg-[#F8FAFF] p-3">
+              <p className="text-xs text-[#7183A3]">{code.instruction}</p>
+              <p className="mt-2 font-mono text-lg font-semibold tracking-[0.16em] text-[#23314F]">
+                {code.code}
+              </p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                disabled={busy}
+                className="mt-2 text-xs font-semibold text-[#5E9FBE] hover:underline disabled:opacity-50"
+              >
+                {busy ? 'Checking…' : 'I sent it — check connection'}
+              </button>
+            </div>
+          )}
+          {!status.configured && (
+            <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-300">
+              Unavailable — this server has no WhatsApp credentials configured.
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {status.linked ? (
+            confirming ? (
+              <>
+                <Button variant="outline" onClick={() => void disconnect()} disabled={busy}>
+                  {busy ? 'Disconnecting…' : 'Confirm'}
+                </Button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  disabled={busy}
+                  className="font-mono text-[10px] tracking-wider text-muted uppercase"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <Button variant="ghost" onClick={() => setConfirming(true)} disabled={busy}>
+                Disconnect
+              </Button>
+            )
+          ) : (
+            <Button
+              variant="primary"
+              onClick={() => void beginLink()}
+              disabled={busy || !status.configured}
+            >
+              {busy ? 'Preparing…' : 'Connect'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 
