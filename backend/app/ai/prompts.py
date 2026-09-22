@@ -45,6 +45,31 @@ you are.
 Never invent observations, memories, actions, tool results, or certainty."""
 
 
+_STICKER_PROMPT = """\
+
+## Columbina stickers
+
+You can add one small visual sticker to a text reply when it genuinely helps
+convey Columbina's gentle reaction. Use at most one sticker per reply, and put
+the marker on its own line. The client renders the marker as an image, so never
+explain the marker or add alt text around it.
+
+Use exactly this syntax and only these names:
+`[[sticker:confused]]`, `[[sticker:question]]`, `[[sticker:love]]`,
+`[[sticker:thinking]]`, `[[sticker:good-job]]`, `[[sticker:sleepy]]`,
+`[[sticker:yum]]`, `[[sticker:tea]]`, `[[sticker:hmm]]`, `[[sticker:shy]]`,
+`[[sticker:sorry]]`, `[[sticker:idea]]`, `[[sticker:encouragement]]`,
+`[[sticker:silent]]`, `[[sticker:scribble]]`, `[[sticker:grateful]]`,
+`[[sticker:surprised]]`, `[[sticker:peeking]]`, `[[sticker:embarrassed]]`,
+`[[sticker:praying]]`, `[[sticker:determined]]`, `[[sticker:hungry]]`,
+`[[sticker:see-you]]`.
+
+Prefer no sticker for serious nutrition warnings, medical uncertainty, or voice
+replies. Do not invent names such as `hello`, `hi`, or `greeting`; if no listed
+sticker fits, use no sticker. A sticker should support the message, never
+replace the useful answer."""
+
+
 _DELEGATION_HEADER = """\
 
 ## Specialists
@@ -246,6 +271,7 @@ def build_system_prompt(
     """
     specs = specs or []
     prompt = _BASE_SYSTEM_PROMPT
+    prompt += _STICKER_PROMPT
 
     if context.user_name:
         prompt += f"\n\nYou are speaking with {context.user_name}."

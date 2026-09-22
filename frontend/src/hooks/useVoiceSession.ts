@@ -63,6 +63,7 @@ export interface VoiceSession {
 interface Options {
   conversationId: string | null
   onToken: (chunk: string) => void
+  onSticker?: (name: string) => void
   onReplyComplete: (conversationId: string, reply: string) => void
   socket: {
     startVoice: (conversationId: string | null, sampleRate: number) => boolean
@@ -70,6 +71,7 @@ interface Options {
     endVoice: (
       conversationId: string | null,
       onToken: (c: string) => void,
+      onSticker?: (name: string) => void,
     ) => Promise<{ conversationId: string; reply: string }>
     cancelVoice: () => void
     stop: () => void
@@ -153,7 +155,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
     playbackDoneRef.current = false
     const { conversationId, socket, onToken, onReplyComplete } = optsRef.current
     try {
-      const result = await socket.endVoice(conversationId, onToken)
+      const result = await socket.endVoice(conversationId, onToken, optsRef.current.onSticker)
       replyDoneRef.current = true
       onReplyComplete(result.conversationId, result.reply)
     } catch (e) {

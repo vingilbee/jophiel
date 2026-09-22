@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Logo } from '../components/Logo'
 import { Button } from '../components/Button'
+import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../api/client'
+import loginWallpaper from '../assets/wallpaper.jpg'
 
 type Mode = 'signin' | 'signup'
 
 const inputClass =
-  'w-full rounded-md border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-fg placeholder:text-muted/60 outline-none transition-colors focus:border-accent'
+  'w-full rounded-xl border border-[#D9E8F6] bg-[#FBFDFF] px-3.5 py-3 text-sm text-[#23314F] placeholder:text-[#9AAAC1] outline-none transition-colors focus:border-[#8FC7E8]'
 
 export function LoginPage() {
   const [params] = useSearchParams()
@@ -47,25 +48,47 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-ink px-6">
-      <div className="bg-grid pointer-events-none absolute inset-0 opacity-50" />
-      <div className="glow pointer-events-none absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F8FAFF] px-6 py-8 text-[#23314F]">
+      <ColumbinaFeathers className="absolute -top-8 -left-16 w-72 rotate-[-18deg] opacity-80" />
+      <ColumbinaFeathers className="absolute -right-20 -bottom-10 w-72 rotate-[165deg] opacity-65" />
 
-      <div className="relative w-full max-w-sm">
-        <div className="mb-8 flex justify-center">
-          <Logo />
+      <div className="relative grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-[#D9E8F6] bg-white shadow-[0_18px_60px_rgba(35,49,79,0.10)] lg:grid-cols-[.9fr_1.1fr]">
+        <div className="relative hidden min-h-[610px] overflow-hidden bg-gradient-to-br from-[#B9DCF4] via-[#EAF6FF] to-[#D9D6F3] p-10 lg:flex lg:flex-col lg:justify-end">
+          <img
+            src={loginWallpaper}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover object-center opacity-80"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#EAF6FF] via-[#EAF6FF]/25 to-transparent" />
+          <ColumbinaFeathers className="absolute inset-0 h-full w-full opacity-25" />
+          <div className="relative z-10 max-w-xs">
+            <p className="text-2xl font-semibold leading-tight text-[#23314F]">Nourish today,<br />a brighter tomorrow.</p>
+            <p className="mt-3 text-sm text-[#526A8F]">A quiet companion for the choices that shape how you feel.</p>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-line bg-surface/70 p-7 backdrop-blur-sm">
+        <div className="relative w-full max-w-md justify-self-center p-7 sm:p-10">
+          <div className="mb-8 flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#B9DCF4] bg-[#F2EFFB] text-[#8B3158]">✦</span>
+            <span className="text-lg font-semibold text-[#23314F]">Columbina</span>
+          </div>
+
+          <div className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-[-0.03em]">{mode === 'signin' ? 'Welcome back' : 'Begin your journey'}</h1>
+            <p className="mt-1.5 text-sm text-[#7183A3]">Good things start with small choices.</p>
+          </div>
+
+        <div className="rounded-2xl border border-[#EAF0FA] bg-white p-1">
           {/* mode toggle */}
-          <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg border border-line bg-surface-2 p-1">
+          <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-1">
             {(['signin', 'signup'] as Mode[]).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => switchMode(m)}
                 className={`rounded-md py-1.5 text-sm font-medium transition-colors ${
-                  mode === m ? 'bg-line-bright text-fg' : 'text-muted hover:text-fg'
+                  mode === m ? 'bg-white text-[#8B3158] shadow-sm' : 'text-[#7183A3] hover:text-[#23314F]'
                 }`}
               >
                 {m === 'signin' ? 'Sign in' : 'Sign up'}
@@ -76,7 +99,7 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
               <div>
-                <label htmlFor="signup-name" className="mb-1.5 block font-mono text-[11px] tracking-wider text-muted uppercase">
+                <label htmlFor="signup-name" className="mb-1.5 block text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
                   Name
                 </label>
                 <input
@@ -92,7 +115,7 @@ export function LoginPage() {
             )}
 
             <div>
-              <label htmlFor="auth-email" className="mb-1.5 block font-mono text-[11px] tracking-wider text-muted uppercase">
+              <label htmlFor="auth-email" className="mb-1.5 block text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
                 Email
               </label>
               <input
@@ -108,7 +131,7 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="auth-password" className="mb-1.5 block font-mono text-[11px] tracking-wider text-muted uppercase">
+              <label htmlFor="auth-password" className="mb-1.5 block text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
                 Password
               </label>
               <input
@@ -125,7 +148,7 @@ export function LoginPage() {
             </div>
 
             {error && (
-              <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              <p className="rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">
                 {error}
               </p>
             )}
@@ -133,7 +156,7 @@ export function LoginPage() {
             <Button
               type="submit"
               variant="primary"
-              className="w-full py-3"
+              className="w-full rounded-xl bg-[#8B3158] py-3 text-white shadow-[0_8px_20px_rgba(139,49,88,0.20)] hover:bg-[#762847]"
               disabled={submitting}
             >
               {submitting
@@ -145,12 +168,13 @@ export function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-muted">
-          <Link to="/" className="transition-colors hover:text-fg">
+        <p className="mt-6 text-center text-xs text-[#7183A3]">
+          <Link to="/" className="transition-colors hover:text-[#8B3158]">
             ← Back to home
           </Link>
         </p>
       </div>
+    </div>
     </div>
   )
 }

@@ -176,3 +176,12 @@ class ConversationDetailOut(ConversationOut):
     """A conversation with its full ordered message history."""
 
     messages: list[ChatMessageOut]
+
+
+class ChatStickerEvent(BaseModel):
+    """A server-to-client assistant sticker frame."""
+
+    type: Literal["sticker"]
+    turn_id: uuid.UUID | None = None
+    message_id: uuid.UUID | None = None
+    sticker: str = Field(pattern=r"^[a-z0-9-]+$")

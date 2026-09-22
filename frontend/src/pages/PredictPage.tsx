@@ -77,14 +77,15 @@ export function PredictPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink text-fg">
+    <div className="flex min-h-screen flex-col bg-[#F8FAFF] text-[#23314F] md:flex-row">
       <AppHeader />
 
       {/* body */}
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-xl font-medium">Scan a meal</h1>
-          <p className="mt-1 text-sm text-muted">
+          <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8B3158] uppercase">Nutrition analysis</p>
+          <h1 className="mt-2 text-2xl font-medium tracking-[-0.03em]">Scan a meal</h1>
+          <p className="mt-1 text-sm text-[#7183A3]">
             Upload or snap a photo of your food and get an estimated macro
             breakdown.
           </p>
@@ -100,12 +101,12 @@ export function PredictPage() {
               title={m.hint}
               className={`flex-1 rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-50 ${
                 mode === m.value
-                  ? 'border-accent bg-accent/10'
-                  : 'border-line bg-surface/50 hover:border-line-bright'
+                  ? 'border-[#B9DCF4] bg-[#EAF6FF]'
+                  : 'border-[#D9E8F6] bg-white hover:border-[#B9DCF4]'
               }`}
             >
-              <span className="block text-sm font-medium text-fg">{m.label}</span>
-              <span className="block font-mono text-[10px] tracking-wider text-muted uppercase">
+              <span className="block text-sm font-medium text-[#23314F]">{m.label}</span>
+              <span className="block font-mono text-[10px] tracking-wider text-[#7183A3] uppercase">
                 {m.hint}
               </span>
             </button>
@@ -123,25 +124,25 @@ export function PredictPage() {
             onDrop={handleDrop}
             className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-16 text-center transition-colors ${
               dragging
-                ? 'border-accent bg-accent/5'
-                : 'border-line-bright bg-surface/40 hover:border-accent/60'
+                ? 'border-[#8B3158] bg-[#FDF5FA]'
+                : 'border-[#C9DDF2] bg-white hover:border-[#B9DCF4]'
             }`}
           >
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-line-bright bg-surface-2">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D9E8F6] bg-[#F2EFFB]">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"
-                  stroke="var(--color-accent)"
+                    stroke="#8B3158"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
               </svg>
             </span>
-            <span className="mt-4 text-sm text-fg">
-              Drop an image, or <span className="text-accent">browse</span>
+            <span className="mt-4 text-sm text-[#23314F]">
+              Drop an image, or <span className="text-[#8B3158]">browse</span>
             </span>
-            <span className="mt-1 font-mono text-[10px] tracking-wider text-muted uppercase">
+            <span className="mt-1 font-mono text-[10px] tracking-wider text-[#7183A3] uppercase">
               JPG / PNG · up to {MAX_MB} MB
             </span>
             <input
@@ -154,21 +155,21 @@ export function PredictPage() {
             />
           </label>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-line bg-surface/40">
+          <div className="overflow-hidden rounded-2xl border border-[#D9E8F6] bg-white shadow-[0_8px_30px_rgba(35,49,79,0.05)]">
             <img
               src={previewUrl}
               alt="Food preview"
-              className="max-h-80 w-full object-contain bg-ink"
+              className="max-h-80 w-full object-contain bg-[#F2EFFB]"
             />
-            <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
-              <span className="truncate font-mono text-xs text-muted">
+            <div className="flex items-center justify-between gap-3 border-t border-[#EAF0FA] px-4 py-3">
+              <span className="truncate font-mono text-xs text-[#7183A3]">
                 {file?.name}
               </span>
               <div className="flex shrink-0 gap-2">
                 <Button variant="ghost" onClick={reset} disabled={loading}>
                   Remove
                 </Button>
-                <Button variant="primary" onClick={() => void analyze()} disabled={loading}>
+                <Button variant="primary" className="!bg-[#8B3158] !text-white" onClick={() => void analyze()} disabled={loading}>
                   {loading ? 'Analyzing…' : 'Analyze'}
                 </Button>
               </div>
@@ -177,7 +178,7 @@ export function PredictPage() {
         )}
 
         {error && (
-          <p className="mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <p className="mt-4 rounded-md border border-[#E7A9B9] bg-[#FFF3F6] px-3 py-2 text-xs text-[#9D3F59]">
             {error}
           </p>
         )}
@@ -197,15 +198,15 @@ function MacroResult({ result }: { result: Prediction }) {
     { label: 'Fat', value: result.fat, unit: 'g' },
   ]
   return (
-    <section className="mt-6 rounded-2xl border border-line bg-surface/50 p-5">
+    <section className="mt-6 rounded-2xl border border-[#D9E8F6] bg-white p-5 shadow-[0_8px_30px_rgba(35,49,79,0.05)]">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium text-fg">
+          <h2 className="text-sm font-medium text-[#23314F]">
             {result.dish && result.dish !== 'unknown'
               ? result.dish
               : 'Estimated macros'}
           </h2>
-          <p className="mt-0.5 font-mono text-[10px] tracking-wider text-muted uppercase">
+          <p className="mt-0.5 font-mono text-[10px] tracking-wider text-[#7183A3] uppercase">
             {result.source === 'combined' ? 'VLM + depth model' : 'Depth model'}
             {result.portion_scale != null &&
               ` · portion ×${result.portion_scale.toFixed(2)}`}
@@ -216,18 +217,18 @@ function MacroResult({ result }: { result: Prediction }) {
         {macros.map((m) => (
           <div
             key={m.label}
-            className="rounded-xl border border-line bg-surface-2 px-4 py-3 text-center"
+            className="rounded-xl border border-[#EAF0FA] bg-[#F8FAFF] px-4 py-3 text-center"
           >
-            <div className="text-2xl font-semibold text-accent">
+            <div className="text-2xl font-semibold text-[#8B3158]">
               {Math.round(m.value)}
             </div>
-            <div className="mt-0.5 font-mono text-[10px] tracking-wider text-muted uppercase">
+            <div className="mt-0.5 font-mono text-[10px] tracking-wider text-[#7183A3] uppercase">
               {m.label} · {m.unit}
             </div>
           </div>
         ))}
       </div>
-      <p className="mt-4 text-center text-[11px] text-muted/70">
+      <p className="mt-4 text-center text-[11px] text-[#7183A3]">
         Estimates only — verify before logging.
       </p>
     </section>

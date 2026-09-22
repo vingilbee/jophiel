@@ -5,11 +5,13 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
+import { Link } from 'react-router-dom'
 import { chatApi } from '../api/chat'
 import { imageUrl, uploadImage } from '../api/images'
 import { uploadAsset } from '../api/assets'
+import profileIcon from '../assets/profile_icon.jpg'
+import chatWallpaper from '../assets/chat-wallpaper.jpg'
 import { ChatContent, DocumentAttachment } from '../components/DocumentAttachment'
-import { AppHeader } from '../components/AppHeader'
 import { CognitiveInspector } from '../components/CognitiveInspector'
 import { useAwareness } from '../hooks/useAwareness'
 import { useChatSocket } from '../hooks/useChatSocket'
@@ -23,6 +25,37 @@ const SUGGESTIONS = [
 
 // Matches the backend's per-turn cap (schemas/chat.py).
 const MAX_ATTACHMENTS = 8
+
+const STICKER_MARKER = /\[\[sticker:([a-z0-9-]+)\]\]/g
+const STICKER_NAMES = new Set([
+  'confused', 'question', 'love', 'thinking', 'good-job', 'sleepy', 'yum',
+  'tea', 'hmm', 'shy', 'sorry', 'idea', 'encouragement', 'silent', 'scribble',
+  'grateful', 'surprised', 'peeking', 'embarrassed', 'praying', 'determined',
+  'hungry', 'see-you',
+])
+const stickerUrl = (name: string) => `/api/chat/stickers/${encodeURIComponent(name)}.png`
+
+function partsFromContent(content: string): MessagePart[] {
+  const parts: MessagePart[] = []
+  let cursor = 0
+  for (const match of content.matchAll(STICKER_MARKER)) {
+    if (match.index === undefined) continue
+    if (match.index > cursor) parts.push({ kind: 'text', content: content.slice(cursor, match.index) })
+    const name = match[1]
+    if (STICKER_NAMES.has(name)) parts.push({ kind: 'sticker', name })
+    cursor = match.index + match[0].length
+  }
+  if (cursor < content.length) parts.push({ kind: 'text', content: content.slice(cursor) })
+  return parts
+}
+
+const CHAT_NAV = [
+  { to: '/dashboard', label: 'Home' },
+  { to: '/chat', label: 'Chat' },
+  { to: '/predict', label: 'Scan Meal' },
+  { to: '/chat', label: 'History' },
+  { to: '/integrations', label: 'Integrations' },
+]
 
 /** A photo attached to the message being composed, before it's sent. */
 interface Attachment {
@@ -118,6 +151,19 @@ export function ChatPage() {
     })
   }
 
+  function appendSticker(name: string, targetId?: string) {
+    setMessages((prev) => {
+      const next = [...prev]
+      const index = targetId
+        ? next.findIndex((message) => message.clientId === targetId)
+        : next.length - 1
+      const target = next[index]
+      if (!target || target.role !== 'assistant') return prev
+      next[index] = { ...target, parts: [...target.parts, { kind: 'sticker', name }] }
+      return next
+    })
+  }
+
   // Typed turns only — the spoken loop lives on the Dashboard, which shares this
   // same socket and conversation thread.
   const { status, sendMessage, sendSense, dismissNudges, stop } = useChatSocket({
@@ -126,7 +172,7 @@ export function ChatPage() {
       setConversationId(historyConversationId)
       setMessages(historyMessages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
         role,
-        parts: content ? [{ kind: 'text', content }] : [],
+        parts: content ? partsFromContent(content) : [],
         turnId: turn_id ?? undefined,
         status,
         imageIds: image_ids ?? undefined,
@@ -145,6 +191,7 @@ export function ChatPage() {
       ])
     },
     onNudgeToken: (chunk) => appendToken(chunk, nudgeMessageRef.current ?? undefined),
+    onNudgeSticker: (name) => appendSticker(name, nudgeMessageRef.current ?? undefined),
     onNudgeSubagentStart: (agent) => startSubagent(agent, nudgeMessageRef.current ?? undefined),
     onNudgeSubagentToken: (agent, chunk) => appendSubagentToken(agent, chunk, nudgeMessageRef.current ?? undefined),
   })
@@ -181,7 +228,7 @@ export function ChatPage() {
             setMessages(
               detail.messages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
                 role,
-                parts: content ? [{ kind: 'text', content }] : [],
+                parts: content ? partsFromContent(content) : [],
                 turnId: turn_id ?? undefined,
                 status,
                 imageIds: image_ids ?? undefined,
@@ -305,6 +352,7 @@ export function ChatPage() {
           content,
           {
             onToken: (chunk) => appendToken(chunk, assistantId),
+            onSticker: (name) => appendSticker(name, assistantId),
             onSubagentStart: (agent) => startSubagent(agent, assistantId),
             onSubagentToken: (agent, chunk) => appendSubagentToken(agent, chunk, assistantId),
           },
@@ -351,60 +399,95 @@ export function ChatPage() {
   const empty = messages.length === 0
 
   return (
-    <div className="flex h-screen flex-col bg-ink text-fg">
-      <AppHeader>
-        <button
-          type="button"
-          onClick={() => setCognitiveInspectorOpen((open) => !open)}
-          className={`font-mono text-xs tracking-wider uppercase transition-colors ${
-            cognitiveInspectorOpen ? 'text-accent' : 'text-muted hover:text-fg'
-          }`}
-        >
-          Cognitive test
-        </button>
-        <button
-          onClick={startNewChat}
-          disabled={streaming}
-          className="font-mono text-xs tracking-wider text-muted uppercase transition-colors hover:text-fg disabled:opacity-40"
-        >
-          New chat
-        </button>
-        <span
-          className="flex items-center gap-1.5 font-mono text-[11px] tracking-wider text-muted uppercase"
-          title={`WebSocket: ${status}`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              status === 'open'
-                ? 'bg-accent'
-                : status === 'connecting'
-                  ? 'bg-amber-400 animate-pulse-dot'
-                  : 'bg-red-400'
-            }`}
-          />
-          {status === 'open' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'}
-        </span>
-      </AppHeader>
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFF] text-[#23314F]">
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-[#EAF0FA] bg-white px-4 py-7 md:flex">
+        <Link to="/dashboard" className="flex items-center gap-2 px-2 text-[17px] font-semibold tracking-[-0.02em] text-[#23314F]">
+          <span className="flex h-6 w-6 items-center justify-center text-[18px] text-[#23314F]">✦</span>
+          Columbina
+        </Link>
+        <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
+
+        <nav className="mt-12 flex flex-col gap-2" aria-label="Main navigation">
+          {CHAT_NAV.map((item) => {
+            const active = item.label === 'Chat'
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                className={`rounded-full px-3.5 py-2.5 text-[13px] transition-colors ${
+                  active
+                    ? 'bg-[#EAF6FF] font-medium text-[#8B3158]'
+                    : 'text-[#617698] hover:bg-[#F4F8FD] hover:text-[#23314F]'
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </nav>
+
+        <div className="mt-10 border-t border-[#EAF0FA] pt-7">
+          <p className="px-2 text-[9px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">Profile</p>
+          <div className="mt-4 flex items-center gap-2 px-2">
+            <span className="h-8 w-8 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
+              <img src={profileIcon} alt="Vincent profile" className="h-full w-full object-cover" />
+            </span>
+            <p className="text-[13px] font-medium text-[#23314F]">Vincent</p>
+          </div>
+        </div>
+
+        <div className="mt-auto flex flex-col gap-2 px-2 text-[11px] text-[#7183A3]">
+          <button
+            type="button"
+            onClick={() => setCognitiveInspectorOpen((open) => !open)}
+            className="text-left transition-colors hover:text-[#8B3158]"
+          >
+            {cognitiveInspectorOpen ? 'Close cognitive test' : 'Cognitive test'}
+          </button>
+          <button type="button" onClick={startNewChat} disabled={streaming} className="text-left transition-colors hover:text-[#8B3158] disabled:opacity-40">
+            New chat
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
+          <div>
+            <Link to="/dashboard" className="text-[17px] font-semibold tracking-[-0.02em] text-[#23314F] md:hidden">✦ Columbina</Link>
+            <h1 className="hidden text-[25px] font-semibold tracking-[-0.03em] text-[#23314F] md:block">Columbina</h1>
+            <p className="hidden text-[12px] text-[#7183A3] md:block">Your quiet nutrition companion</p>
+          </div>
+          <span className="flex items-center gap-2 rounded-full bg-[#EAF6FF] px-4 py-2 text-[11px] font-medium text-[#8B3158]">
+            <span className={`h-2 w-2 rounded-full ${status === 'open' ? 'bg-[#8B3158]' : status === 'connecting' ? 'animate-pulse-dot bg-[#8FC7E8]' : 'bg-[#A94B60]'}`} />
+            {status === 'open' ? 'here with you' : status === 'connecting' ? 'connecting' : 'offline'}
+          </span>
+        </header>
 
       {/* messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6">
+      <div className="relative flex-1 overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-[0.13]"
+          style={{ backgroundImage: `url(${chatWallpaper})` }}
+        />
+        <div ref={scrollRef} className="relative h-full overflow-y-auto px-5 sm:px-8 lg:px-12">
+          <div className="mx-auto flex h-full w-full max-w-4xl flex-col py-4 sm:py-8">
           {empty ? (
-            <div className="flex flex-col items-center justify-center pt-24 text-center">
-              <span className="relative flex h-12 w-12 items-center justify-center rounded-xl border border-line-bright bg-surface-2">
-                <span className="h-3 w-3 rounded bg-accent shadow-[0_0_16px_var(--color-accent)]" />
+            <div className="flex flex-1 flex-col items-center justify-center text-center">
+              <span className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-[#B9DCF4] bg-white shadow-[0_0_0_8px_rgba(234,246,255,0.55)]">
+                <img src={profileIcon} alt="Columbina" className="h-full w-full object-cover" />
               </span>
-              <h2 className="mt-5 text-xl font-medium">NutriBot</h2>
-              <p className="mt-2 max-w-sm text-sm text-muted">
-                Your nutrition assistant. Ask about macros, foods, and how they
-                fit your goals.
+              <h2 className="mt-8 text-[23px] font-semibold tracking-[-0.03em] text-[#23314F] sm:text-[26px]">What would you like to nourish today?</h2>
+              <p className="mt-2 max-w-md text-[13px] text-[#7183A3]">
+                Ask about a meal, your macros, or upload a photo.
               </p>
-              <div className="mt-8 flex flex-col gap-2">
+              <div className="mt-8 grid w-full max-w-xl gap-2 sm:grid-cols-3">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     onClick={() => void send(s)}
-                    className="rounded-lg border border-line bg-surface/50 px-4 py-2.5 text-left text-sm text-muted transition-colors hover:border-line-bright hover:text-fg"
+                    className="rounded-2xl border border-[#D9E8F6] bg-white px-4 py-3 text-left text-[12px] leading-relaxed text-[#526A8F] shadow-[0_5px_18px_rgba(35,49,79,0.03)] transition-colors hover:border-[#B9DCF4] hover:bg-[#F4F9FE] hover:text-[#23314F]"
                   >
                     {s}
                   </button>
@@ -433,10 +516,11 @@ export function ChatPage() {
           )}
 
           {error && (
-            <p className="mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            <p className="mt-4 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">
               {error}
             </p>
           )}
+          </div>
         </div>
       </div>
 
@@ -455,8 +539,8 @@ export function ChatPage() {
       </div>
 
       {/* composer */}
-      <div className="border-t border-line bg-surface/50 px-4 py-4 backdrop-blur-sm">
-        <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
+      <div className="bg-[#F8FAFF] px-5 pb-5 pt-3 sm:px-8 sm:pb-7 lg:px-12">
+        <form onSubmit={handleSubmit} className="mx-auto max-w-4xl">
           {/* pending attachments */}
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -464,14 +548,14 @@ export function ChatPage() {
                 <div key={a.id} className="group relative">
                   {a.kind === 'image' ? <img
                     src={a.previewUrl} alt="Attached image"
-                    className="h-16 w-16 rounded-lg border border-line object-cover"
-                  /> : <div className="flex h-16 max-w-40 items-center rounded-lg border border-line bg-surface px-3 font-mono text-[10px] text-muted">
+                    className="h-16 w-16 rounded-xl border border-[#D9E8F6] object-cover"
+                  /> : <div className="flex h-16 max-w-40 items-center rounded-xl border border-[#D9E8F6] bg-white px-3 text-[10px] text-[#7183A3]">
                     {a.filename}
                   </div>}
                   <button
                     type="button"
                     onClick={() => removeAttachment(a.id)}
-                    className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line-bright bg-surface-2 text-muted transition-colors hover:text-fg"
+                    className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#D9E8F6] bg-white text-[#7183A3] transition-colors hover:text-[#8B3158]"
                     aria-label="Remove attachment"
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
@@ -488,7 +572,7 @@ export function ChatPage() {
             </div>
           )}
 
-          <div className="flex items-end gap-2 rounded-xl border border-line bg-surface-2 p-2 transition-colors focus-within:border-line-bright">
+          <div className="flex items-end gap-2 rounded-[22px] border border-[#D9E8F6] bg-white p-2.5 shadow-[0_7px_24px_rgba(35,49,79,0.04)] transition-colors focus-within:border-[#B9DCF4]">
             <input
               ref={fileInputRef}
               type="file"
@@ -505,7 +589,7 @@ export function ChatPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={streaming || uploading || attachments.length >= MAX_ATTACHMENTS}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-line/40 hover:text-fg disabled:opacity-40"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#8FC7E8] transition-colors hover:bg-[#EAF6FF] hover:text-[#6FAED3] disabled:opacity-40"
               aria-label="Attach an image or file"
               title="Attach an image or file"
             >
@@ -530,14 +614,14 @@ export function ChatPage() {
               onKeyDown={handleKeyDown}
               rows={1}
               placeholder="Ask about nutrition…"
-              className="max-h-40 flex-1 resize-none bg-transparent px-2.5 py-1.5 text-sm text-fg placeholder:text-muted/60 outline-none"
+              className="max-h-40 flex-1 resize-none bg-transparent px-2.5 py-2 text-[13px] text-[#23314F] placeholder:text-[#7183A3] outline-none"
             />
             {streaming && (
               <button
                 type="button"
                 onClick={requestStop}
                 disabled={stopping}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-ink transition-all hover:brightness-110 disabled:opacity-60"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#8B3158] text-white transition-all hover:bg-[#762847] disabled:opacity-60"
                 aria-label={stopping ? 'Stopping' : 'Stop'}
               >
                 {stopping ? (
@@ -557,7 +641,7 @@ export function ChatPage() {
                   status !== 'open' ||
                   stopping
                 }
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-ink transition-all hover:brightness-110 disabled:opacity-40"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#8B3158] text-white transition-all hover:bg-[#762847] disabled:opacity-40"
                 aria-label="Send"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -572,11 +656,12 @@ export function ChatPage() {
               </button>
             ) : null}
           </div>
-          <p className="mt-2 text-center font-mono text-[10px] tracking-wider text-muted/60 uppercase">
+          <p className="mt-2 text-center text-[10px] text-[#9AAAC1]">
             Enter to send · Shift+Enter for newline · Attach images, documents, or 3D assets
           </p>
         </form>
       </div>
+      </main>
     </div>
   )
 }
@@ -595,7 +680,14 @@ function MessageBubble({
   const isUser = message.role === 'user'
   const images = message.imageIds ?? []
   const assets = message.assetIds ?? []
-  const hasContent = message.parts.length > 0
+  // Normalize persisted replies and older/live websocket replies as well.
+  // This keeps a raw [[sticker:name]] marker from leaking into the bubble if
+  // the backend was not restarted after the sticker protocol was added.
+  const renderableParts = message.parts.flatMap((part) => (
+    part.kind === 'text' ? partsFromContent(part.content) : [part]
+  ))
+  const stickerParts = renderableParts.filter((part): part is Extract<MessagePart, { kind: 'sticker' }> => part.kind === 'sticker')
+  const hasContent = renderableParts.some((part) => part.kind !== 'sticker')
   const outcomeLabel = message.status === 'cancelled'
     ? 'Response stopped.'
     : message.status === 'failed'
@@ -606,8 +698,8 @@ function MessageBubble({
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`flex max-w-[85%] gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
         {!isUser && (
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line-bright bg-surface-2">
-            <span className="h-2 w-2 rounded-sm bg-accent" />
+          <span className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
+            <img src={profileIcon} alt="Columbina" className="h-full w-full object-cover" />
           </span>
         )}
         <div className={`flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
@@ -615,13 +707,13 @@ function MessageBubble({
               reply reads as the app talking to itself. */}
           {message.unprompted && (
             <span className="flex items-center gap-2">
-              <span className="font-mono text-[10px] tracking-wider text-accent/70 uppercase">
+              <span className="text-[10px] font-semibold tracking-[0.08em] text-[#8B3158] uppercase">
                 Unprompted
               </span>
               {onDismissNudge && (
                 <button
                   onClick={onDismissNudge}
-                  className="font-mono text-[10px] tracking-wider text-muted/70 uppercase transition-colors hover:text-fg"
+                  className="text-[10px] tracking-[0.08em] text-[#7183A3] uppercase transition-colors hover:text-[#23314F]"
                   title="Stop the assistant from speaking first this session"
                 >
                   Not now
@@ -636,7 +728,7 @@ function MessageBubble({
                   <img
                     src={imageUrl(id)}
                     alt="Food photo"
-                    className="max-h-48 rounded-xl border border-line object-cover transition-opacity hover:opacity-90"
+                    className="max-h-48 rounded-2xl border border-[#D9E8F6] object-cover transition-opacity hover:opacity-90"
                   />
                 </a>
               ))}
@@ -651,31 +743,32 @@ function MessageBubble({
           )}
           {(hasContent || loading || outcomeLabel) && (
             <div
-              className={`flex w-full flex-col gap-2 rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              className={`flex w-full flex-col gap-2 rounded-[20px] px-5 py-4 text-[13px] leading-relaxed shadow-[0_5px_18px_rgba(35,49,79,0.03)] ${
                 isUser
-                  ? 'bg-line-bright text-fg'
-                  : 'border border-line bg-surface text-fg'
+                  ? 'bg-[#EAF6FF] text-[#23314F]'
+                  : 'border border-[#D9E8F6] bg-white text-[#23314F]'
               }`}
             >
+              {!isUser && <span className="text-[10px] font-semibold text-[#8B3158]">Columbina</span>}
               {loading ? (
                 <span className="inline-flex gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-dot" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#8B3158] animate-pulse-dot" />
                   <span
-                    className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-dot"
+                    className="h-1.5 w-1.5 rounded-full bg-[#8B3158] animate-pulse-dot"
                     style={{ animationDelay: '0.2s' }}
                   />
                   <span
-                    className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-dot"
+                    className="h-1.5 w-1.5 rounded-full bg-[#8B3158] animate-pulse-dot"
                     style={{ animationDelay: '0.4s' }}
                   />
                 </span>
               ) : outcomeLabel ? (
                 <span className="text-muted italic">{outcomeLabel}</span>
               ) : (
-                message.parts.map((part, i) =>
+                renderableParts.map((part, i) =>
                   part.kind === 'text' ? (
                     <ChatContent key={i} content={part.content} />
-                  ) : (
+                  ) : part.kind === 'subagent' ? (
                     <SubagentSegment
                       key={i}
                       part={part}
@@ -683,9 +776,21 @@ function MessageBubble({
                         messageIsStreaming && i === message.parts.length - 1
                       }
                     />
-                  ),
+                  ) : null,
                 )
               )}
+            </div>
+          )}
+          {stickerParts.length > 0 && (
+            <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+              {stickerParts.map((part, index) => (
+                <img
+                  key={`${part.name}-${index}`}
+                  src={stickerUrl(part.name)}
+                  alt={`Columbina sticker: ${part.name}`}
+                  className="h-36 w-36 object-contain"
+                />
+              ))}
             </div>
           )}
         </div>

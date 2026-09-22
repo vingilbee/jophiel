@@ -16,9 +16,27 @@ import { api } from '../api/client'
 export type VoiceMessage = {
   role: 'user' | 'assistant'
   content: string
+  stickers?: string[]
   turnId?: string
   status?: 'completed' | 'partial' | 'cancelled' | 'failed'
   unprompted?: boolean
+}
+
+const STICKER_MARKER = /\[\[sticker:([a-z0-9-]+)\]\]/g
+const STICKER_NAMES = new Set([
+  'confused', 'question', 'love', 'thinking', 'good-job', 'sleepy', 'yum',
+  'tea', 'hmm', 'shy', 'sorry', 'idea', 'encouragement', 'silent', 'scribble',
+  'grateful', 'surprised', 'peeking', 'embarrassed', 'praying', 'determined',
+  'hungry', 'see-you',
+])
+
+function cleanStickerMarkers(content: string) {
+  const stickers: string[] = []
+  const visible = content.replace(STICKER_MARKER, (_marker, name: string) => {
+    if (STICKER_NAMES.has(name)) stickers.push(name)
+    return ''
+  })
+  return { visible, stickers }
 }
 
 type VoiceAgentContextValue = {
@@ -51,6 +69,16 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
     })
   }
 
+  function appendSticker(name: string) {
+    setMessages((prev) => {
+      const next = [...prev]
+      const last = next[next.length - 1]
+      if (!last || last.role !== 'assistant') return prev
+      next[next.length - 1] = { ...last, stickers: [...(last.stickers ?? []), name] }
+      return next
+    })
+  }
+
   const socket = useChatSocket({
     onTranscript: (text, turnId) =>
       setMessages((prev) => [
@@ -68,6 +96,7 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
       ])
     },
     onNudgeToken: appendToReply,
+    onNudgeSticker: appendSticker,
   })
 
   const voice = useVoiceSession({
@@ -79,7 +108,7 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
     socket: {
       startVoice: socket.startVoice,
       sendAudio: socket.sendAudio,
-      endVoice: (id, onToken) => socket.endVoice(id, { onToken }),
+      endVoice: (id, onToken, onSticker) => socket.endVoice(id, { onToken, onSticker }),
       cancelVoice: socket.cancelVoice,
       stop: socket.stop,
     },
@@ -104,7 +133,10 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
         return chatApi.getConversation(conversations[0].id).then((detail) => {
           if (cancelled) return
           setConversationId(detail.id)
-          setMessages(detail.messages.map(({ role, content }) => ({ role, content })))
+          setMessages(detail.messages.map(({ role, content }) => {
+            const cleaned = cleanStickerMarkers(content)
+            return { role, content: cleaned.visible, stickers: cleaned.stickers }
+          }))
         })
       })
       .catch(() => {})
