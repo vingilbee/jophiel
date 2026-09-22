@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -16,6 +17,10 @@ from app.db.session import get_db
 from app.services import whatsapp as whatsapp_service
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
+# Uvicorn owns the API process logging configuration. Using its error logger
+# keeps these operational diagnostics visible in hosted deploy logs without
+# logging message bodies, phone numbers, link codes, or credentials.
+logger = logging.getLogger("uvicorn.error")
 
 
 class LinkCodeOut(BaseModel):
@@ -94,6 +99,7 @@ async def receive_webhook(
     if len(raw) > settings.whatsapp_webhook_max_bytes:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Webhook too large")
     if not whatsapp_service.verify_signature(raw, x_hub_signature_256):
+        logger.warning("WhatsApp webhook rejected: invalid signature")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
     try:
         payload = json.loads(raw)
@@ -102,8 +108,11 @@ async def receive_webhook(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid payload")
     if payload.get("object") != "whatsapp_business_account":
+        logger.info("WhatsApp webhook ignored: unexpected object")
         return {"status": "ignored"}
 
+    message_events = 0
+    status_events = 0
     for entry in payload.get("entry") or []:
         for change in entry.get("changes") or []:
             if change.get("field") != "messages":
@@ -111,6 +120,13 @@ async def receive_webhook(
             value = change.get("value") or {}
             account_id = (value.get("metadata") or {}).get("phone_number_id")
             if not account_id or account_id != settings.whatsapp_phone_number_id:
+                logger.warning(
+                    "WhatsApp webhook ignored: phone_number_id mismatch "
+                    "received_suffix=%s configured_suffix=%s",
+                    str(account_id)[-6:] if account_id else "missing",
+                    str(settings.whatsapp_phone_number_id)[-6:]
+                    if settings.whatsapp_phone_number_id else "missing",
+                )
                 continue
             contacts = {
                 contact.get("wa_id"): (contact.get("profile") or {}).get("name")
@@ -121,8 +137,14 @@ async def receive_webhook(
                 provider_id = message.get("id")
                 content = _message_text(message)
                 if not sender or not provider_id or content is None or not content.strip():
+                    logger.warning(
+                        "WhatsApp inbound event ignored: incomplete or unsupported payload "
+                        "type=%s message_id_suffix=%s",
+                        message.get("type", "missing"),
+                        str(provider_id)[-8:] if provider_id else "missing",
+                    )
                     continue
-                whatsapp_service.ingest_message(
+                result = whatsapp_service.ingest_message(
                     db,
                     provider_account_id=account_id,
                     provider_message_id=provider_id,
@@ -130,6 +152,13 @@ async def receive_webhook(
                     content=content,
                     provider_timestamp=_timestamp(message.get("timestamp")),
                     display_name=contacts.get(sender),
+                )
+                message_events += 1
+                log = logger.warning if result == "unlinked" else logger.info
+                log(
+                    "WhatsApp inbound processed: result=%s message_id_suffix=%s",
+                    result,
+                    str(provider_id)[-8:],
                 )
             for delivery_status in value.get("statuses") or []:
                 provider_id = delivery_status.get("id")
@@ -143,7 +172,20 @@ async def receive_webhook(
                     status=delivery_status.get("status", ""),
                     error=error,
                 )
+                status_events += 1
+                logger.info(
+                    "WhatsApp delivery status processed: status=%s "
+                    "message_id_suffix=%s has_error=%s",
+                    delivery_status.get("status", "missing"),
+                    str(provider_id)[-8:],
+                    bool(error),
+                )
     db.commit()
+    logger.info(
+        "WhatsApp webhook accepted: message_events=%d status_events=%d",
+        message_events,
+        status_events,
+    )
     return {"status": "accepted"}
 
 
