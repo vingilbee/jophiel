@@ -2,6 +2,13 @@
 # Deliberately omits: pyopenjtalk (ja), g2pk2/ko_pron/python_mecab_ko (ko),
 # ToJyutping (yue), opencc (g2pw only) -- all source-builds, all lazily imported.
 # Also omits training/ASR-only: funasr, modelscope, ctranslate2, gradio, tensorboard.
+#
+# NVIDIA/CUDA machines: plain `torch` from PyPI is CPU-only on Windows/Linux,
+# so install the CUDA build first, then this file:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+#   python -c "import torch; print(torch.cuda.is_available())"   # must be True
+# TTS_DEVICE=auto (default) then picks cuda + fp16 automatically.
+# GPT-SoVITS/ and the voice weights/ref wavs are gitignored: copy them over.
 torch
 torchaudio
 numpy<2.0

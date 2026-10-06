@@ -34,7 +34,9 @@ def _rss_mb() -> float:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    pipeline = engine.load_pipeline(device=os.environ.get("TTS_DEVICE", "cpu"))
+    device = engine.resolve_device()
+    pipeline = engine.load_pipeline(device=device)
+    _state["device"] = device
     engine.warm(pipeline)
     _state["pipeline"] = pipeline
     _state["rss_mb"] = _rss_mb()
@@ -56,7 +58,7 @@ class SpeakRequest(BaseModel):
 def health() -> dict:
     return {
         "ok": "pipeline" in _state,
-        "device": os.environ.get("TTS_DEVICE", "cpu"),
+        "device": _state.get("device"),
         "mode": engine.MODE,
         "reference_cached": (
             engine.reference_cached(_state["pipeline"])
