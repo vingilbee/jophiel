@@ -24,8 +24,18 @@ Client -> server. JSON frames (discriminated by ``type``)::
   {"type": "sense", "timezone": str, "route": str, ...}          → report senses
   {"type": "nudge_feedback", "action": "dismiss"}                → stop initiating
   {"type": "voice_start", "conversation_id": str|null, "turn_id": str, "sample_rate": int}
+  {"type": "voice_interrupt", "cancel_turn_id": str|null, "new_turn_id": str,
+   "conversation_id": str|null, "sample_rate": int,
+   "tentative": bool}                                            → barge-in: stop the
+                                                                   reply (or just hold it),
+                                                                   open an utterance
+  {"type": "voice_interrupt_commit", "turn_id": str}            → the hold is a real turn
+  {"type": "voice_heard", "turn_id": str, "heard_chars": int}   → how much of a cut-off
+                                                                   reply was actually heard
   {"type": "voice_end", "turn_id": str}                         → transcribe + reply
   {"type": "voice_cancel"}                                       → discard utterance
+  {"type": "voice_latency", "turn_id": str, "outcome": str, "marks": {...}}
+                                                                 → browser timing marks
 
 Binary frames are raw 16-bit mono PCM at the ``sample_rate`` declared by the
 preceding ``voice_start``, and are ignored unless an utterance is open.
@@ -50,6 +60,11 @@ exactly as for a spoken turn.
   {"type": "sticker", "turn_id": str, "message_id": str, "sticker": str}
                                                    (assistant sticker)
   {"type": "audio_start", "sample_rate": int}   (voice turns, before any audio)
+  {"type": "audio_segment", "turn_id": str, "segment": int,
+   "text_start": int, "text_end": int}          (the audio that follows speaks
+                                                 this span of the reply text)
+  {"type": "barge_resolved", "turn_id": str,
+   "action": "resume"|"stop"|"turn"}            (a held interruption was decided)
   {"type": "audio_end"}
   {"type": "done"} | {"type": "stopped"} | {"type": "error", "detail": str}
 
@@ -106,6 +121,10 @@ from app.schemas.chat import (
     SenseUpdateRequest,
     VoiceCancelRequest,
     VoiceEndRequest,
+    VoiceHeardReport,
+    VoiceInterruptCommitRequest,
+    VoiceInterruptRequest,
+    VoiceLatencyReport,
     VoiceStartRequest,
     chat_ws_message_adapter,
 )
@@ -116,52 +135,15 @@ from app.services import chat as chat_service
 from app.services import cognitive_shadow
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
+from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
+from app.services import voice_latency
 from app.workers import chat as chat_worker
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-_STICKER_NAMES = frozenset({
-    "confused", "question", "love", "thinking", "good-job", "sleepy",
-    "yum", "tea", "hmm", "shy", "sorry", "idea", "encouragement", "silent",
-    "scribble", "grateful", "surprised", "peeking", "embarrassed", "praying",
-    "determined", "hungry", "see-you",
-})
-_STICKER_MARKER = re.compile(r"\[\[sticker:([a-z0-9-]+)\]\]")
-_STICKER_PREFIX = "[[sticker:"
-
-
-def _consume_sticker_text(buffer: str, text: str, *, final: bool = False) -> tuple[list[dict], str]:
-    """Turn complete sticker markers into protocol events without leaking them as text."""
-    pending = buffer + text
-    events: list[dict] = []
-    cursor = 0
-    for match in _STICKER_MARKER.finditer(pending):
-        if match.start() > cursor:
-            events.append({"type": "token", "content": pending[cursor:match.start()]})
-        name = match.group(1)
-        if name in _STICKER_NAMES:
-            events.append({"type": "sticker", "sticker": name})
-        # Unsupported markers are intentionally dropped. The model must never
-        # leak an implementation marker into the visible conversation.
-        cursor = match.end()
-    tail = pending[cursor:]
-    if final:
-        if tail:
-            events.append({"type": "token", "content": tail})
-        return events, ""
-    possible_start = tail.rfind(_STICKER_PREFIX)
-    if possible_start >= 0:
-        if possible_start:
-            events.append({"type": "token", "content": tail[:possible_start]})
-        return events, tail[possible_start:]
-    if tail:
-        events.append({"type": "token", "content": tail})
-    return events, ""
-
 
 def _nudge_frame(frame: dict) -> dict:
     if frame["type"] == "token":
@@ -172,7 +154,7 @@ def _nudge_frame(frame: dict) -> dict:
 @router.get("/stickers/{name}.png", include_in_schema=False)
 def get_sticker(name: str) -> FileResponse:
     """Serve one approved, read-only Columbina sticker to the chat client."""
-    if name not in _STICKER_NAMES:
+    if name not in stickers.STICKER_NAMES:
         raise HTTPException(status_code=404, detail="Sticker not found")
     sticker_path = Path(__file__).resolve().parents[2] / "assets" / "columbina_stickers" / f"{name}.png"
     if not sticker_path.is_file():
@@ -195,12 +177,29 @@ class _ActiveTurn:
 _active_turns: dict[uuid.UUID, _ActiveTurn] = {}
 
 
-async def _stop_active_turn(user_id: uuid.UUID) -> None:
+def _fence_active_turn(user_id: uuid.UUID) -> _ActiveTurn | None:
+    """Signal the active turn to stop, without waiting for it to finish.
+
+    Synchronous on purpose: from here on its audio is dropped by the relay and
+    the worker stops synthesizing, so a barge-in can open the new utterance
+    straight away and leave the teardown to `_await_teardown`.
+    """
     active = _active_turns.get(user_id)
     if active is None or active.task.done():
-        return
-    chat_worker.request_cancel(active.turn_id)
-    active.stop.set()
+        return None
+    if not active.stop.is_set():  # already fenced by a barge-in
+        chat_worker.request_cancel(active.turn_id)
+        active.stop.set()
+    return active
+
+
+async def _stop_active_turn(user_id: uuid.UUID) -> None:
+    active = _fence_active_turn(user_id)
+    if active is not None:
+        await _await_teardown(active)
+
+
+async def _await_teardown(active: _ActiveTurn) -> None:
     # Cooperative stopping lets run_turn persist its partial assistant reply
     # before a follow-up reconstructs conversation history.
     try:
@@ -245,6 +244,96 @@ def _active_jobs_for_user(user_id: uuid.UUID):
 # A client that opens an utterance and never closes it would otherwise buffer
 # without bound. 60s at 16kHz/16-bit is ~1.9MB; well past any real utterance.
 MAX_UTTERANCE_BYTES = 16000 * 2 * 60
+
+# An interruption that says only this was a request to stop talking, not a
+# question. Matched on the whole transcript after normalizing case/punctuation.
+# Deliberately word lists, not a model: instant, readable, and a miss is mild —
+# an unlisted phrase is treated as a real turn, which is the pre-hold behavior.
+_STOP_PHRASES = frozenset({
+    "stop", "wait", "hold on", "hang on", "pause", "shh", "shush", "quiet",
+    "be quiet", "enough", "okay stop", "ok stop", "stop stop", "wait wait",
+    "no stop", "stop please", "please stop", "one second", "one sec",
+    "just a second", "just a sec", "hold on a second", "hold on a sec",
+    "stop it", "stop talking", "hold up", "wait a second", "wait a sec", "wait a minute",
+})
+
+
+# Listening noises said over the assistant: she should carry on, not answer.
+# "thank you" is here too because it is also STT's favorite hallucination on
+# near-silent audio, and resuming is the right outcome either way.
+_BACKCHANNEL_PHRASES = frozenset({
+    "i see", "oh i see", "ah i see", "mm", "mmm", "mm hm", "mm hmm", "mhm", "mhmm",
+    "hmm", "uh huh", "uh hum", "okay", "ok", "oh okay", "oh ok", "ah okay", "okay okay",
+    "right", "right right", "yeah", "yeah yeah", "yes", "yep", "yup", "yea", "ya",
+    "got it", "gotcha", "sure", "cool", "nice", "alright", "all right", "oh", "ah",
+    "makes sense", "that makes sense", "interesting", "true", "exactly", "i know",
+    "wow", "great", "oh nice", "oh cool", "thank you", "thanks", "uh", "um",
+    "i get it", "i understand", "understood", "fair", "fair enough",
+    "nice nice", "oh wow", "of course", "totally", "definitely", "for sure",
+})
+
+
+# Stretched filler sounds STT spells however it likes: "hmmm", "mmmm",
+# "ohhh", "ahh", "umm", "mhmm". Matched per word, so "hmmm i see" is fillers.
+_FILLER_WORD = re.compile(r"^(h?m+|h+m+|m+h+m+|o+h+|a+h+|u+m+|u+h+|e+r+m*)$")
+
+
+def _normalize_phrase(transcript: str) -> str:
+    return " ".join(re.sub(r"[^\w\s']", " ", transcript.lower()).split())
+
+
+def _segments(words: list[str], phrases: frozenset[str]) -> list[set[str]] | None:
+    """Split ``words`` into known phrases (or filler words), if possible.
+
+    Returns, for one valid split, which list each piece came from; ``None``
+    when some part of the utterance is not a known phrase at all. Phrases are
+    at most four words, so this is a tiny dynamic program per utterance.
+    """
+    n = len(words)
+    best: list[list[str] | None] = [None] * (n + 1)
+    best[0] = []
+    for end in range(1, n + 1):
+        for start in range(max(0, end - 4), end):
+            if best[start] is None:
+                continue
+            piece = " ".join(words[start:end])
+            if piece in phrases or (end - start == 1 and _FILLER_WORD.match(piece)):
+                best[end] = [*best[start], piece]
+                break
+    if best[n] is None:
+        return None
+    return [{"stop"} if piece in _STOP_PHRASES else {"backchannel"} for piece in best[n]]
+
+
+def _is_stop_only(transcript: str) -> bool:
+    return _normalize_phrase(transcript) in _STOP_PHRASES
+
+
+def _classify_hold(transcript: str) -> str:
+    """What a held interruption meant: ``resume``, ``stop``, or ``turn``.
+
+    Made only of listening noises in any combination ("hmm, I see", "oh okay
+    got it") resumes; any stop phrase among them ("hmm, wait") stops; a word
+    outside both lists makes it a real turn. Nothing intelligible (her own
+    echo, a cough) resumes too: holding is what removed the echo, so a false
+    barge-in costs a short pause, not the reply.
+    """
+    words = _normalize_phrase(transcript).split()
+    if not words:
+        return "resume"
+    pieces = _segments(words, _BACKCHANNEL_PHRASES | _STOP_PHRASES)
+    if pieces is None:
+        return "turn"
+    return "stop" if any("stop" in kinds for kinds in pieces) else "resume"
+
+
+# Worker events that carry reply audio; dropped once their turn is stopped.
+_AUDIO_EVENT_TYPES = frozenset({"audio_start", "audio_segment", "audio_chunk", "audio_end"})
+
+# A heard report usually arrives before the interrupted reply is saved (the
+# worker persists it on cancellation). Retry this long for the row to appear.
+_HEARD_RETRY_SECONDS = 15.0
+_HEARD_RETRY_INTERVAL = 0.5
 
 # How often the server re-derives and pushes awareness on its own. The clock
 # and "how long since you last spoke" drift without anyone touching anything,
@@ -638,11 +727,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                 if event["type"] == "token":
                     text = event["content"]
                     reply += text
-                    frames, sticker_buffer = _consume_sticker_text(sticker_buffer, text)
+                    frames, sticker_buffer = stickers.consume_text(sticker_buffer, text)
                     for frame in frames:
                         await send_json(_nudge_frame(frame))
                     if speaker is not None:
-                        visible = "".join(frame["content"] for frame in frames if frame["type"] == "token")
+                        visible = stickers.spoken_text(frames)
                         for clause in feed(visible):
                             clauses.put_nowait(clause)
                 elif event["type"] == "subagent_start":
@@ -653,7 +742,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                     )
                 elif event["type"] == "subagent_end":
                     await send_json({"type": "nudge_subagent_end", "agent": event["agent"]})
-            frames, sticker_buffer = _consume_sticker_text(sticker_buffer, "", final=True)
+            frames, sticker_buffer = stickers.consume_text(sticker_buffer, "", final=True)
             for frame in frames:
                 await send_json(_nudge_frame(frame))
             if speaker is not None:
@@ -836,7 +925,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         )
                     text = event["content"]
                     reply += text
-                    frames, sticker_buffer = _consume_sticker_text(sticker_buffer, text)
+                    frames, sticker_buffer = stickers.consume_text(sticker_buffer, text)
                     for frame in frames:
                         await emit_event({
                             **frame,
@@ -844,7 +933,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                             "message_id": str(assistant_message_id),
                         })
                     if speaker is not None:
-                        visible = "".join(frame["content"] for frame in frames if frame["type"] == "token")
+                        visible = stickers.spoken_text(frames)
                         for clause in feed(visible):
                             clauses.put_nowait(clause)
                 else:
@@ -854,7 +943,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         "message_id": str(assistant_message_id),
                     })
             if not stopped:
-                frames, sticker_buffer = _consume_sticker_text(sticker_buffer, "", final=True)
+                frames, sticker_buffer = stickers.consume_text(sticker_buffer, "", final=True)
                 for frame in frames:
                     await emit_event({
                         **frame,
@@ -953,23 +1042,30 @@ async def chat_ws(websocket: WebSocket) -> None:
         sample_rate: int,
         stop_event: asyncio.Event,
         turn_id: uuid.UUID,
+        interruption: bool = False,
+        transcript: str | None = None,
     ) -> None:
-        """Transcribe a captured utterance, then run it as a normal turn."""
-        stt_started_at = time.perf_counter()
-        try:
-            transcript = await stt_service.transcribe(pcm, sample_rate)
-        except stt_service.STTError:
-            await send_json({"type": "error", "detail": "Couldn't transcribe that."})
-            return
-        logger.info(
-            "voice latency: transcription=%.3fs audio_seconds=%.2f",
-            time.perf_counter() - stt_started_at,
-            len(pcm) / 2 / max(sample_rate, 1),
-        )
+        """Transcribe a captured utterance, then run it as a normal turn.
+
+        ``interruption`` marks an utterance that began by talking over a
+        reply. If all it says is "stop" or "wait", cutting the reply off was
+        the whole request: there is nothing to answer, and persisting it
+        would make the next turn respond to the word "stop".
+        """
+        if transcript is None:
+            try:
+                transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
+            except stt_service.STTError:
+                await send_json({"type": "error", "detail": "Couldn't transcribe that."})
+                return
         if not transcript:
             # Silence or a stray VAD trigger: end the turn quietly rather than
             # making the user dismiss an error.
             await send_json({"type": "done"})
+            return
+        if interruption and _is_stop_only(transcript):
+            voice_latency.mark("barge_stop_only", turn_id, source="api")
+            await send_json({"type": "done", "turn_id": str(turn_id), "status": "cancelled"})
             return
         await send_json({"type": "transcript", "turn_id": str(turn_id), "content": transcript})
         db = SessionLocal()
@@ -990,13 +1086,103 @@ async def chat_ws(websocket: WebSocket) -> None:
                          "vision_enabled": state.senses.vision_enabled,
                          "screen_image_id": state.senses.screen_image_id},
             )
+            voice_latency.mark("job_enqueued", turn_id, source="api")
             await send_json({"type": "meta", "conversation_id": str(conversation.id)})
             await send_json({"type": "ack", "turn_id": str(turn_id),
                              "user_message_id": str(user_message.id),
                              "conversation_id": str(conversation.id)})
         finally:
             db.close()
-        await subscribe_turn(turn_id)
+        await subscribe_turn(turn_id, voice=True, stop_event=stop_event)
+
+    async def transcribe_utterance(
+        pcm: bytes, sample_rate: int, turn_id: uuid.UUID,
+    ) -> str:
+        stt_started_at = time.perf_counter()
+        try:
+            transcript = await stt_service.transcribe(pcm, sample_rate)
+        except stt_service.STTError:
+            voice_latency.mark("stt_failed", turn_id, source="api")
+            raise
+        voice_latency.mark(
+            "stt_final", turn_id, source="api",
+            stt_model=settings.stt_model, empty=not transcript,
+        )
+        logger.info(
+            "voice latency: transcription=%.3fs audio_seconds=%.2f",
+            time.perf_counter() - stt_started_at,
+            len(pcm) / 2 / max(sample_rate, 1),
+        )
+        return transcript
+
+    async def resolve_hold(
+        conversation_id: uuid.UUID | None,
+        pcm: bytes,
+        sample_rate: int,
+        turn_id: uuid.UUID,
+    ) -> None:
+        """Decide a held interruption once its utterance is complete.
+
+        The held reply is still the active turn throughout; it is only
+        stopped once the decision is stop or turn. `barge_resolved` goes out
+        before any teardown, so the client never waits on a slow provider to
+        resume or go quiet.
+        """
+        try:
+            transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
+        except stt_service.STTError:
+            transcript = ""  # couldn't tell: carrying on beats losing the reply
+        action = _classify_hold(transcript)
+        voice_latency.mark("barge_hold_resolved", turn_id, source="api", action=action)
+        await send_json({"type": "barge_resolved", "turn_id": str(turn_id), "action": action})
+        if action == "resume":
+            return
+        await _stop_active_turn(user_id)
+        if action == "stop":
+            return
+        next_stop = asyncio.Event()
+        task = asyncio.current_task()
+        assert task is not None
+        register_turn(task, next_stop, conversation_id, turn_id)
+        await run_voice_turn(
+            conversation_id, pcm, sample_rate, next_stop, turn_id,
+            interruption=True, transcript=transcript,
+        )
+
+    async def record_heard(turn_id: uuid.UUID, heard_chars: int) -> None:
+        """Save a heard report once the interrupted reply has been persisted."""
+
+        def attempt() -> bool:
+            db = SessionLocal()
+            try:
+                return chat_service.record_heard(
+                    db, user_id=user_id, turn_id=turn_id, heard_chars=heard_chars,
+                )
+            finally:
+                db.close()
+
+        deadline = time.monotonic() + _HEARD_RETRY_SECONDS
+        while True:
+            try:
+                if await asyncio.to_thread(attempt):
+                    voice_latency.mark("barge_heard_recorded", turn_id, source="api",
+                                       heard_chars=heard_chars)
+                    return
+            except Exception:
+                logger.exception("Could not record heard progress for %s", turn_id)
+                return
+            if time.monotonic() >= deadline:
+                logger.warning("Reply %s never persisted; heard report dropped", turn_id)
+                return
+            await asyncio.sleep(_HEARD_RETRY_INTERVAL)
+
+    def fence_in_background() -> None:
+        """Stop the active turn now; finish its teardown off the receive loop."""
+        active = _fence_active_turn(user_id)
+        if active is not None:
+            teardown = asyncio.create_task(_await_teardown(active))
+            background_tasks.add(teardown)
+            teardown.add_done_callback(background_tasks.discard)
 
     current_task: asyncio.Task | None = None
     stop_event: asyncio.Event | None = None
@@ -1009,6 +1195,12 @@ async def chat_ws(websocket: WebSocket) -> None:
     utterance_rate = 16000
     utterance_conversation: uuid.UUID | None = None
     utterance_turn_id: uuid.UUID | None = None
+    utterance_interruption = False
+    # A held interruption: the reply is paused client-side, not cancelled.
+    utterance_tentative = False
+    # Barge-in teardowns and hold decisions run detached from the receive
+    # loop; strong refs so they aren't garbage-collected mid-flight.
+    background_tasks: set[asyncio.Task] = set()
 
     def register_turn(
         task: asyncio.Task,
@@ -1032,6 +1224,8 @@ async def chat_ws(websocket: WebSocket) -> None:
         turn_id: uuid.UUID,
         *,
         refresh_history: bool = False,
+        voice: bool = False,
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         """Replay and follow the worker's Redis Stream for this turn.
 
@@ -1052,6 +1246,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             return client.xread({chat_worker.stream_key(turn_id): last_id}, block=2000, count=100)
 
         last_id = "0-0"
+        first_audio = voice
         try:
             while connected:
                 batches = await asyncio.to_thread(read_events, last_id)
@@ -1062,11 +1257,26 @@ async def chat_ws(websocket: WebSocket) -> None:
                         if raw is None:
                             continue
                         event = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                        # Once this turn is told to stop, its audio is stale:
+                        # the worker may still be finishing a chunk, and a
+                        # barge-in must not hear the old reply resume. Text
+                        # and terminal events still flow so the turn settles.
+                        if (stop_event is not None and stop_event.is_set()
+                                and event.get("type") in _AUDIO_EVENT_TYPES):
+                            continue
                         if event.get("type") == "audio_chunk":
                             await send_bytes(base64.b64decode(event["content"]))
+                            if first_audio:
+                                first_audio = False
+                                voice_latency.mark("ws_first_audio", turn_id, source="api")
                         else:
                             await send_json(event)
                         if event.get("type") in {"done", "stopped", "error"}:
+                            if voice:
+                                voice_latency.mark(
+                                    "ws_terminal", turn_id, source="api",
+                                    outcome=event.get("type"),
+                                )
                             if refresh_history and event.get("type") != "error":
                                 with contextlib.suppress(Exception):
                                     await send_json(await asyncio.to_thread(read_history))
@@ -1090,13 +1300,16 @@ async def chat_ws(websocket: WebSocket) -> None:
     )
     subscription_tasks: list[asyncio.Task] = []
     for active_job in initial_active:
+        resumed_stop = asyncio.Event()
         task = asyncio.create_task(
-            subscribe_turn(active_job.turn_id, refresh_history=True),
+            subscribe_turn(active_job.turn_id, refresh_history=True, stop_event=resumed_stop),
             name=f"chat-turn:{active_job.turn_id}",
         )
         subscription_tasks.append(task)
-        register_turn(task, asyncio.Event(), active_job.conversation_id, active_job.turn_id)
+        register_turn(task, resumed_stop, active_job.conversation_id, active_job.turn_id)
 
+    # The handshake just authenticated this session.
+    last_session_check = time.monotonic()
     try:
         while True:
             try:
@@ -1106,12 +1319,21 @@ async def chat_ws(websocket: WebSocket) -> None:
             except TimeoutError:
                 if not await check_session():
                     break
+                last_session_check = time.monotonic()
                 continue
             if event["type"] == "websocket.disconnect":
                 break
-            # Revalidate every frame before handling text, controls, or audio.
-            if not await check_session():
-                break
+            # Revalidate before every text frame (they start turns and change
+            # state), but at most once per SESSION_CHECK_SECONDS for audio. The
+            # mic sends a frame every 8ms and a check costs ~5ms (Redis + DB),
+            # so checking each one let frames queue up behind the checks and
+            # delayed `voice_end` by 1.5-3s. Revocation is still caught within
+            # a second, the same bound as the idle check above.
+            is_audio = event.get("bytes") is not None
+            if not is_audio or time.monotonic() - last_session_check >= SESSION_CHECK_SECONDS:
+                if not await check_session():
+                    break
+                last_session_check = time.monotonic()
 
             # --- binary: audio for the open utterance ---
             if (data := event.get("bytes")) is not None:
@@ -1138,6 +1360,8 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             # --- stop / barge-in ---
             if isinstance(message, ChatStopRequest):
+                active = _active_turns.get(user_id)
+                stopped_turn_id = active.turn_id if active is not None else message.turn_id
                 # Use the same bounded path as barge-in/follow-up. Merely
                 # setting the flag can hang forever while a provider or tool
                 # is between streamed events and cannot observe it.
@@ -1146,7 +1370,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                 # the client has already cleared its pending turn. If the
                 # subscription was bounded/cancelled, this guarantees the
                 # client's stopping state cannot remain stuck forever.
-                await send_json({"type": "stopped", "status": "cancelled"})
+                # Tagged with the stopped turn: teardown can take up to 2s,
+                # and by then a barge-in may already have a new turn pending
+                # that an untagged `stopped` would settle as cancelled.
+                await send_json({
+                    "type": "stopped", "status": "cancelled",
+                    "turn_id": str(stopped_turn_id) if stopped_turn_id else None,
+                })
                 continue
 
             # --- "stop doing that" ---
@@ -1198,11 +1428,64 @@ async def chat_ws(websocket: WebSocket) -> None:
                 utterance_rate = message.sample_rate
                 utterance_conversation = message.conversation_id
                 utterance_turn_id = message.turn_id or uuid.uuid4()
+                utterance_interruption = False
+                utterance_tentative = False
+                continue
+
+            if isinstance(message, VoiceInterruptRequest):
+                if not settings.voice_enabled:
+                    await send_json({"type": "error", "detail": "Voice is disabled."})
+                    continue
+                # Fence now, tear down in the background. Awaiting teardown
+                # here (up to 2s) would hold the pre-roll and live audio that
+                # follow this frame in the transport queue. `voice_end` still
+                # awaits it, so the old partial reply is persisted before the
+                # new turn reads history. A hold fences nothing yet.
+                if not message.tentative:
+                    fence_in_background()
+                utterance = bytearray()
+                utterance_rate = message.sample_rate
+                utterance_conversation = message.conversation_id
+                utterance_turn_id = message.new_turn_id
+                utterance_interruption = True
+                utterance_tentative = message.tentative
+                voice_latency.mark(
+                    "barge_control_received", message.new_turn_id, source="api",
+                    cancelled_turn=str(message.cancel_turn_id) if message.cancel_turn_id else None,
+                    tentative=message.tentative,
+                )
+                continue
+
+            if isinstance(message, VoiceInterruptCommitRequest):
+                # Only the open hold it names; a late commit is a no-op.
+                if (utterance is not None and utterance_tentative
+                        and utterance_turn_id == message.turn_id):
+                    fence_in_background()
+                    utterance_tentative = False
+                    voice_latency.mark("barge_committed", message.turn_id, source="api")
+                continue
+
+            if isinstance(message, VoiceHeardReport):
+                task = asyncio.create_task(
+                    record_heard(message.turn_id, message.heard_chars),
+                    name=f"chat-heard:{message.turn_id}",
+                )
+                background_tasks.add(task)
+                task.add_done_callback(background_tasks.discard)
+                continue
+
+            if isinstance(message, VoiceLatencyReport):
+                voice_latency.record_client_report(
+                    message.turn_id, outcome=message.outcome,
+                    endpoint=message.endpoint, marks=message.marks,
+                )
                 continue
 
             if isinstance(message, VoiceCancelRequest):
                 utterance = None
                 utterance_turn_id = None
+                utterance_interruption = False
+                utterance_tentative = False
                 continue
 
             if isinstance(message, VoiceEndRequest):
@@ -1210,13 +1493,32 @@ async def chat_ws(websocket: WebSocket) -> None:
                     continue
                 pcm, rate = bytes(utterance), utterance_rate
                 conversation_id = utterance_conversation
+                interruption = utterance_interruption
+                tentative = utterance_tentative
                 turn_id = message.turn_id or utterance_turn_id or uuid.uuid4()
+                voice_latency.mark(
+                    "voice_end_received", turn_id, source="api",
+                    audio_ms=round(len(pcm) / 2 / max(rate, 1) * 1000),
+                    sample_rate=rate,
+                )
                 utterance = None
                 utterance_turn_id = None
+                utterance_interruption = False
+                utterance_tentative = False
+                if tentative:
+                    # The held reply stays the active turn while we decide.
+                    hold = asyncio.create_task(
+                        resolve_hold(conversation_id, pcm, rate, turn_id),
+                        name=f"chat-hold:{turn_id}",
+                    )
+                    background_tasks.add(hold)
+                    hold.add_done_callback(background_tasks.discard)
+                    continue
                 await _stop_active_turn(user_id)
+                voice_latency.mark("prior_turn_stopped", turn_id, source="api")
                 next_stop = asyncio.Event()
                 task = asyncio.create_task(
-                    run_voice_turn(conversation_id, pcm, rate, next_stop, turn_id)
+                    run_voice_turn(conversation_id, pcm, rate, next_stop, turn_id, interruption)
                 )
                 register_turn(task, next_stop, conversation_id, turn_id)
                 continue

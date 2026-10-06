@@ -10,6 +10,7 @@ import { chatApi } from '../api/chat'
 import { useAuth } from './useAuth'
 import { useAwareness } from './useAwareness'
 import { useChatSocket } from './useChatSocket'
+import { heardCut } from '../audio/heardText'
 import { useVoiceSession, type VoiceSession } from './useVoiceSession'
 import { api } from '../api/client'
 
@@ -20,6 +21,11 @@ export type VoiceMessage = {
   turnId?: string
   status?: 'completed' | 'partial' | 'cancelled' | 'failed'
   unprompted?: boolean
+  /**
+   * Set when the user cut this spoken reply off: characters of `content` they
+   * heard. The rest was generated but never said aloud.
+   */
+  heardChars?: number
 }
 
 const STICKER_MARKER = /\[\[sticker:([a-z0-9-]+)\]\]/g
@@ -84,10 +90,18 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
       setMessages((prev) => [
         ...prev,
         { role: 'user', content: text, turnId },
-        { role: 'assistant', content: '', turnId },
+        // A transcript can land after the user already talked over that turn
+        // (they are listening again); its reply will never come, so no
+        // typing placeholder for it.
+        ...(voiceRef.current?.state === 'thinking'
+          ? [{ role: 'assistant' as const, content: '', turnId }]
+          : []),
       ]),
     onAudio: (pcm, sampleRate) => voiceRef.current?.handleAudio(pcm, sampleRate),
     onAudioEnd: () => voiceRef.current?.handleAudioEnd(),
+    onAudioSegment: (segment, textStart, textEnd) =>
+      voiceRef.current?.handleAudioSegment(segment, textStart, textEnd),
+    onBargeResolved: (action) => voiceRef.current?.handleBargeResolved(action),
     onNudgeStart: ({ conversationId: id }) => {
       setConversationId(id)
       setMessages((prev) => [
@@ -101,19 +115,61 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
 
   const voice = useVoiceSession({
     conversationId,
+    connected: socket.status === 'open',
     onToken: appendToReply,
     onReplyComplete: (id) => {
       if (id) setConversationId(id)
     },
+    onHeard: (turnId, heardChars) =>
+      setMessages((prev) => {
+        let index = -1
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === 'assistant' && prev[i].turnId === turnId) {
+            index = i
+            break
+          }
+        }
+        if (index < 0) return prev
+        const next = [...prev]
+        next[index] = { ...next[index], heardChars }
+        return next
+      }),
     socket: {
       startVoice: socket.startVoice,
       sendAudio: socket.sendAudio,
       endVoice: (id, onToken, onSticker) => socket.endVoice(id, { onToken, onSticker }),
       cancelVoice: socket.cancelVoice,
       stop: socket.stop,
+      interruptVoiceStart: socket.interruptVoiceStart,
+      holdVoice: socket.holdVoice,
+      commitHold: socket.commitHold,
+      endHold: socket.endHold,
+      resumeHold: socket.resumeHold,
+      stopHold: socket.stopHold,
+      adoptHold: (id, onToken, onSticker) => socket.adoptHold(id, { onToken, onSticker }),
+      reportHeard: socket.reportHeard,
+      reportVoiceLatency: socket.reportVoiceLatency,
     },
   })
   voiceRef.current = voice
+
+  // A reply placeholder is added the moment the transcript lands. If the turn
+  // is interrupted before its first token (the user paused, then kept
+  // talking), nothing ever fills it and its typing dots would pulse forever.
+  // Once we're listening again (or voice is off) no reply is pending, so any
+  // still-empty placeholder belongs to a turn that is over. Not on 'idle':
+  // a nudge opens its placeholder while idle.
+  useEffect(() => {
+    if (voice.state !== 'listening' && voice.state !== 'off') return
+    // A held reply is paused, not over: its bubble will fill when it resumes.
+    if (voice.holding) return
+    setMessages((prev) => {
+      const next = prev.filter(
+        (m) => m.role !== 'assistant' || m.content !== '' || (m.stickers?.length ?? 0) > 0,
+      )
+      return next.length === prev.length ? prev : next
+    })
+  }, [voice.state, voice.holding])
 
   useAwareness({
     sendSense: socket.sendSense,
@@ -133,9 +189,18 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
         return chatApi.getConversation(conversations[0].id).then((detail) => {
           if (cancelled) return
           setConversationId(detail.id)
-          setMessages(detail.messages.map(({ role, content }) => {
-            const cleaned = cleanStickerMarkers(content)
-            return { role, content: cleaned.visible, stickers: cleaned.stickers }
+          setMessages(detail.messages.map(({ role, content, heard_chars }) => {
+            // Cut the raw text first, then strip sticker markers from each
+            // side: heard_chars counts characters of the raw stored reply.
+            const cut = heardCut(content, heard_chars)
+            const heard = cleanStickerMarkers(content.slice(0, cut))
+            const rest = cleanStickerMarkers(content.slice(cut))
+            return {
+              role,
+              content: heard.visible + rest.visible,
+              stickers: [...heard.stickers, ...rest.stickers],
+              ...(cut < content.length ? { heardChars: heard.visible.length } : {}),
+            }
           }))
         })
       })

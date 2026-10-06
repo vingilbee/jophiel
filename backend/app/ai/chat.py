@@ -23,8 +23,9 @@ Users with nothing available skip all of it and get the cached, tool-less agent.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -199,13 +200,25 @@ async def _speaker_from_tags(tags: Sequence[str] | None) -> str | None:
     return None
 
 async def stream_chat(
-    *, messages: Sequence[ChatTurn], context: AgentRuntimeContext
+    *,
+    messages: Sequence[ChatTurn],
+    context: AgentRuntimeContext,
+    on_stage: Callable[[str], None] | None = None,
 ) -> AsyncIterator[dict]:
+    """Stream the orchestrator's reply as token/subagent events.
+
+    ``on_stage``, if given, is called with ``"tools_ready"`` once the
+    specialists' MCP sessions are up and the model request is about to go out
+    -- the caller's timing hook. It must not raise; errors are swallowed.
+    """
     queue: asyncio.Queue[tuple[str | None, str] | dict | None] = asyncio.Queue()
     logger.debug("stream_chat: queue created id=%s", id(queue))
     async def _drain_orchestrator():
         try:
             async with _orchestrator_for(context, queue=queue) as (agent, specs):
+                if on_stage is not None:
+                    with contextlib.suppress(Exception):
+                        on_stage("tools_ready")
                 inputs = _build_inputs(messages, context, specs)
                 async for chunk, metadata in agent.astream(inputs, stream_mode="messages"):
                     if not isinstance(chunk, AIMessageChunk) or chunk.tool_call_chunks:

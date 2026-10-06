@@ -316,6 +316,11 @@ class ChatMessage(Base, TimestampMixin):
     # and so "the photo from earlier" survives into later turns.
     image_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     asset_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Spoken replies cut off by the user: how many characters of `content` they
+    # heard before interrupting (null = all of it, or not a voice reply).
+    # `content` keeps the full generated text; history and memory read the
+    # heard part via services/heard.py.
+    heard_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # The message's durable position in its conversation ledger
     # (dialogue-message-order-v0.1). Allocated by a BEFORE INSERT trigger under
     # the conversation row lock -- never by the application, never reused, and

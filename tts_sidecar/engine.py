@@ -157,9 +157,12 @@ Select with the TTS_MODE env var:
                             faithful, but heavier CFM vocoder -- slower on
                             CPU, per the earlier RTF discussion)
 
-    TTS_DEVICE=cpu .venv/bin/uvicorn server:app --port 8787          # v2pro
-    TTS_DEVICE=cpu TTS_MODE=v4 .venv/bin/uvicorn server:app --port 8787
-    TTS_DEVICE=cpu TTS_MODE=finetune .venv/bin/uvicorn server:app --port 8787
+    .venv/bin/uvicorn server:app --port 8787                         # v2pro
+    TTS_MODE=v4 .venv/bin/uvicorn server:app --port 8787
+    TTS_MODE=finetune .venv/bin/uvicorn server:app --port 8787
+
+TTS_DEVICE defaults to "auto": cuda with fp16 on an NVIDIA machine, cpu
+otherwise (see resolve_device / resolve_is_half).
 
 Only one mode is loaded per process -- restart the sidecar to switch. They
 don't stack in memory, so keeping all three sets of weights on disk doesn't
@@ -230,10 +233,45 @@ REF_TXT = _CFG["ref_txt"]
 
 # Everything downstream (server.py, tts.py, the frontend) expects this rate.
 TARGET_SAMPLE_RATE = 32000
-# Smaller semantic packages reduce time-to-first-audio. GPT-SoVITS defaults to
-# 16; eight keeps enough context for stable English while allowing the HTTP
-# stream to return its first PCM substantially earlier.
-STREAM_MIN_CHUNK_LENGTH = int(os.environ.get("TTS_STREAM_MIN_CHUNK_LENGTH", "8"))
+# Streaming chunk size in semantic tokens (~20ms of audio each).
+STREAM_MIN_CHUNK_LENGTH = int(os.environ.get("TTS_STREAM_MIN_CHUNK_LENGTH", "16"))
+# Upstream GPT-SoVITS only cuts a streaming chunk where the voice pauses, so a
+# clause with no internal pause comes back all at once: first audio ~= full
+# synthesis time (measured 0.8-1.5s on CPU, finetune mode). Fixed-length
+# chunking cuts every STREAM_MIN_CHUNK_LENGTH tokens instead: first audio
+# ~0.5s at 16 tokens (~0.3s at 8). Upstream labels it lower quality at the
+# seams; at 16 tokens no seams were audible in an A/B listening test, while 8
+# sounded worse. Set TTS_STREAM_FIXED_LENGTH_CHUNK=false to restore
+# pause-only cuts.
+STREAM_FIXED_LENGTH_CHUNK = os.environ.get("TTS_STREAM_FIXED_LENGTH_CHUNK", "true").lower() in {"1", "true", "yes"}
+
+
+def resolve_device(requested: str | None = None) -> str:
+    """Turn TTS_DEVICE into a concrete torch device.
+
+    "auto" (the default) picks cuda when an NVIDIA GPU is usable, else cpu.
+    It deliberately never picks mps: on Apple silicon the GPU benchmarked ~2x
+    slower than the CPU (results_mps.json vs results_cpu.json). Set
+    TTS_DEVICE=mps|cpu|cuda to force one.
+    """
+    device = (requested or os.environ.get("TTS_DEVICE", "auto")).lower()
+    if device != "auto":
+        return device
+    import torch
+
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def resolve_is_half(device: str) -> bool:
+    """fp16 halves VRAM and speeds up inference on CUDA; CPU/MPS stay fp32.
+
+    Override with TTS_IS_HALF=true|false.
+    """
+    value = os.environ.get("TTS_IS_HALF")
+    if value is not None:
+        return value.lower() in {"1", "true", "yes"}
+    return device.startswith("cuda")
+
 
 os.chdir(REPO)
 sys.path.insert(0, REPO)
@@ -258,10 +296,12 @@ def _install_soundfile_shim() -> None:
     torchaudio.load = _load
 
 
-def load_pipeline(device: str = "cpu"):
+def load_pipeline(device: str | None = None):
     """Build the TTS pipeline for the selected TTS_MODE. Slow (~2-3s); call
-    once per process."""
-    print(f"[tts] mode={MODE} version={_CFG['version']}")
+    once per process. ``device`` defaults to TTS_DEVICE (see resolve_device)."""
+    device = resolve_device(device)
+    is_half = resolve_is_half(device)
+    print(f"[tts] mode={MODE} version={_CFG['version']} device={device} is_half={is_half}")
     for key in ("t2s_weights_path", "vits_weights_path"):
         p = _CFG[key]
         if not os.path.exists(p):
@@ -278,7 +318,7 @@ def load_pipeline(device: str = "cpu"):
         {
             "custom": {
                 "device": device,
-                "is_half": False,
+                "is_half": is_half,
                 "version": _CFG["version"],
                 "t2s_weights_path": _CFG["t2s_weights_path"],
                 "vits_weights_path": _CFG["vits_weights_path"],
@@ -343,6 +383,7 @@ def synthesize(pipeline, text: str, streaming: bool = True) -> Iterator[tuple[in
         "parallel_infer": False,
         "streaming_mode": streaming,
         "min_chunk_length": STREAM_MIN_CHUNK_LENGTH,
+        "fixed_length_chunk": STREAM_FIXED_LENGTH_CHUNK,
         # Only meaningful for v3/v4's CFM vocoder stage; harmless no-op on v1/v2Pro.
         "sample_steps": 32,
     }

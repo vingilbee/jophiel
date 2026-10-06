@@ -3,6 +3,7 @@ import { AppHeader } from '../components/AppHeader'
 import { Button } from '../components/Button'
 import { SenseStrip } from '../components/SenseStrip'
 import { VoiceOrb } from '../components/VoiceOrb'
+import { heardCut } from '../audio/heardText'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { useAwareness } from '../hooks/useAwareness'
 import { useScreenSense } from '../hooks/useScreenSense'
@@ -165,7 +166,7 @@ export function DashboardPage() {
               status === 'open'
                 ? 'bg-accent'
                 : status === 'connecting'
-                  ? 'animate-pulse-dot bg-amber-400'
+                  ? 'animate-pulse-dot bg-red-400'
                   : 'bg-red-400'
             }`}
           />
@@ -229,7 +230,7 @@ export function DashboardPage() {
               </p>
             )}
             {status !== 'open' && !error && (
-              <p className="mt-5 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              <p className="mt-5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 {status === 'connecting'
                   ? 'Connecting to the assistant…'
                   : 'Disconnected — retrying. Voice will work once the connection is back.'}
@@ -331,7 +332,7 @@ function TranscriptTurn({
           isUser ? 'bg-[#EAF6FF] text-[#23314F]' : 'border border-[#D9E8F6] bg-white text-[#23314F]'
         }`}
       >
-        {message.content ? <span>{message.content}</span> : (
+        {message.content ? <MessageText message={message} /> : (
           <span className="inline-flex gap-1 py-1 align-middle">
             <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-[#8B3158]" />
             <span
@@ -358,5 +359,22 @@ function TranscriptTurn({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * A reply the user cut off shows the part they never heard faded: it's what
+ * she was going to say, but she knows it wasn't said.
+ */
+function MessageText({ message }: { message: VoiceMessage }) {
+  const cut = heardCut(message.content, message.heardChars)
+  if (cut >= message.content.length) return <span>{message.content}</span>
+  return (
+    <>
+      <span>{message.content.slice(0, cut)}</span>
+      <span className="text-[#23314F]/35" title="Not heard: you interrupted here">
+        {message.content.slice(cut)}
+      </span>
+    </>
   )
 }
