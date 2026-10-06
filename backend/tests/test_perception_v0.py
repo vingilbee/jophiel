@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.ai.Cognitive.system.perception_v0 import (
+from app.ai.Cognitive.system.v0.perception_v0 import (
     AttachmentFact,
     CueState,
     PerceptionMessage,
@@ -17,10 +17,10 @@ from app.ai.Cognitive.system.perception_v0 import (
     ToolEventFact,
     perceive,
 )
-from app.ai.Cognitive.system.perception_v0.fixture_validator import validate_fixture
+from app.ai.Cognitive.system.v0.perception_v0.fixture_validator import validate_fixture
 
 
-FIXTURE = Path(__file__).parents[1] / "app/ai/Cognitive/system/data/perception_design_cases.json"
+FIXTURE = Path(__file__).parents[1] / "app/ai/Cognitive/system/v0/data/perception_design_cases.json"
 
 
 def _event(
@@ -44,20 +44,34 @@ def _cue(event, key: str):
     return next(item for item in event.cue_activations if item.cue_key == key)
 
 
-def test_all_twenty_fixture_cases_execute_and_report_only_contract_conflicts() -> None:
+def test_all_fixture_cases_execute_without_fixture_runtime_conflicts() -> None:
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     report = validate_fixture(FIXTURE)
 
     assert fixture["status"] == "draft_for_human_review"
-    assert len(fixture["cases"]) == 20
-    assert report.cases_run == 20
-    assert report.expectations_checked == 49
-    assert report.evidence_checks == 36
-    assert len(report.errors) == 2
-    assert any("tool_failure" in item and "not_applicable" in item for item in report.errors)
-    assert any("self_reference" in item and "present:1" in item for item in report.errors)
-    assert any("human design resolution" in item for item in report.ontology_questions)
-    assert any("unquoted first-person" in item for item in report.ontology_questions)
+    # 20 original cases plus 6 clause-level question contrasts (SH-EVAL-004).
+    assert len(fixture["cases"]) == 26
+    assert report.cases_run == 26
+    assert report.expectations_checked == 55
+    assert report.evidence_checks == 40
+    assert report.errors == ()
+    # The two resolved conflicts are gone; unrelated ontology questions remain.
+    assert not any("human design resolution" in item for item in report.ontology_questions)
+    assert not any("unquoted first-person" in item for item in report.ontology_questions)
+    assert len(report.ontology_questions) == 8
+    assert any("possible-sarcastic-mismatch" in item for item in report.ontology_questions)
+
+
+def test_hypothetical_quoted_failure_is_not_applicable_and_excludes_quoted_i() -> None:
+    event = _event('If the tool said "I failed to save it," what should happen?')
+    tool_failure = _cue(event, "runtime.tool_failure")
+    assert (tool_failure.state, tool_failure.value) == (CueState.NOT_APPLICABLE, None)
+    assert (_cue(event, "linguistic.self_reference").state, _cue(event, "linguistic.self_reference").value) == (
+        CueState.ABSENT, 0,
+    )
+    # An unquoted first-person reference by the current speaker still counts.
+    counted = _cue(_event('If the tool said "I failed to save it," what would we do?'), "linguistic.self_reference")
+    assert (counted.state, counted.value) == (CueState.PRESENT, 1)
 
 
 def test_factual_question_and_action_request_question_are_distinct() -> None:

@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from app.ai.Cognitive.system.appraisal.models import (
+from app.ai.Cognitive.system.v0.appraisal.models import (
     AppraisalDimension, AppraisalFrame, AppraisalSubject,
 )
-from app.ai.Cognitive.system.appraisal.rules import DIMENSION_TYPES
+from app.ai.Cognitive.system.v0.appraisal.rules import DIMENSION_TYPES
 
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     AttentionSignal,
     ControlContext,
     Direction,
@@ -34,7 +34,7 @@ from app.ai.Cognitive.system.dynamic_state import (
 
 FIXTURE_PATH = (
     Path(__file__).parents[1]
-    / "app/ai/Cognitive/system/data/dynamic_state_design_cases.json"
+    / "app/ai/Cognitive/system/v0/data/dynamic_state_design_cases.json"
 )
 POLICY_VERSION = "dynamic-state-rules-v0.1-draft"
 MAPPER_VERSION = "personality-runtime-v0.1-draft"

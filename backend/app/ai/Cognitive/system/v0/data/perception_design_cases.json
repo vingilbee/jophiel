@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "ontology_version": 1,
+  "status": "draft_for_human_review",
+  "description": "Manual cases for validating Perception Ontology V1",
+  "cases": [
+    {
+      "case_id": "question-factual-museum-hours",
+      "title": "Factual question about museum hours",
+      "purpose": "Distinguish a request for information from a request to perform an action",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "What time does the museum close?"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 32, "quoted_text": "What time does the museum close?"}], "rationale": "The user asks a direct punctuated factual question."},
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The message asks for information but does not ask Columbina to perform an external action."}
+      ],
+      "forbidden_inferences": ["The user is impatient."],
+      "interpretation_handoff": {"information_available": ["The user wants to know the museum closing time."], "information_missing": ["Which museum the user means is not established."], "candidate_hypotheses_for_later_review": ["requesting_factual_information"]},
+      "routing_expectation": {"path": "fast", "rationale": "The question form is explicit; any entity resolution can occur downstream."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "request-question-missing-recipient",
+      "title": "Action request phrased as a question with a missing recipient",
+      "purpose": "Show that question form and explicit request can co-occur and that missing constraints require a task contract",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "Could you send the report?"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["send_report"], "last_tool_event": null, "task_contract": {"task_type": "send_report", "required_parameters": ["recipient"], "provided_parameters": {}}},
+      "cue_expectations": [
+        {"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 26, "quoted_text": "Could you send the report?"}], "rationale": "The action request has interrogative grammar and punctuation."},
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 26, "quoted_text": "Could you send the report?"}], "rationale": "The user directly asks Columbina to send a report."}
+      ],
+      "post_interpretation_expectations": [
+        {"fact_key": "action.required_parameter_missing", "target": "send_report.recipient", "expected_value": true, "requires_interpretation": "Resolve the utterance to the send_report action before applying its parameter contract.", "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/task_contract", "value": {"task_type": "send_report", "required_parameters": ["recipient"], "provided_parameters": {}}}], "rationale": "After action resolution, the trusted send_report contract requires a recipient and none is provided."}
+      ],
+      "forbidden_inferences": ["The user intentionally omitted the recipient."],
+      "interpretation_handoff": {"information_available": ["The user requests that the report be sent.", "The required recipient is missing."], "information_missing": ["The intended recipient."], "candidate_hypotheses_for_later_review": ["action_request_needs_parameter"]},
+      "routing_expectation": {"path": "clarify", "rationale": "A required task parameter must be supplied before the action can be executed."},
+      "ontology_questions": ["The location and schema of a task-specific contract are not defined. Suggested change: define the trusted runtime task_contract shape and parameter-presence semantics."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "explicit-correction-date",
+      "title": "Explicit correction of a date",
+      "purpose": "Distinguish a direct correction from a refusal",
+      "source": "synthetic_manual",
+      "messages": [
+        {"message_id": "m1", "role": "assistant", "content": "Your appointment is Thursday."},
+        {"message_id": "m2", "role": "user", "content": "No, I said Tuesday, not Thursday."}
+      ],
+      "focus_message_id": "m2",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.explicit_correction", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 0, "end": 33, "quoted_text": "No, I said Tuesday, not Thursday."}, {"evidence_type": "text_span", "message_id": "m1", "start": 20, "end": 28, "quoted_text": "Thursday"}], "rationale": "The user explicitly replaces the prior Thursday claim with Tuesday."},
+        {"cue_key": "conversation.question_form", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The focus message is a declarative correction, not a question."},
+        {"cue_key": "linguistic.negation", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 20, "end": 32, "quoted_text": "not Thursday"}], "rationale": "The user's not scopes over the rejected date."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 4, "end": 5, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The user is angry.", "The user distrusts Columbina."],
+      "interpretation_handoff": {"information_available": ["The user corrects Thursday to Tuesday."], "information_missing": ["The user's emotional state."], "candidate_hypotheses_for_later_review": ["correcting_previous_information"]},
+      "routing_expectation": {"path": "fast", "rationale": "The replacement is explicit and low risk."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "refusal-no-thanks",
+      "title": "Brief refusal rather than correction",
+      "purpose": "Prevent an ordinary no from being labeled as a correction",
+      "source": "synthetic_manual",
+      "messages": [
+        {"message_id": "m1", "role": "assistant", "content": "Would you like me to add dessert?"},
+        {"message_id": "m2", "role": "user", "content": "No thanks."}
+      ],
+      "focus_message_id": "m2",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.explicit_correction", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The user declines an offer and does not replace any prior claim."},
+        {"cue_key": "linguistic.positive_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 3, "end": 9, "quoted_text": "thanks"}], "rationale": "Thanks is a literal positive/polite wording marker; V1 records presence rather than magnitude."}
+      ],
+      "forbidden_inferences": ["The user is annoyed.", "The user dislikes dessert."],
+      "interpretation_handoff": {"information_available": ["The user declines the dessert offer."], "information_missing": ["Why the user declines."], "candidate_hypotheses_for_later_review": ["declining_offer"]},
+      "routing_expectation": {"path": "fast", "rationale": "The refusal is explicit and needs no clarification."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "request-first-informal",
+      "title": "First informal request",
+      "purpose": "Establish the negative side of the repetition pair and include informal spelling",
+      "source": "synthetic_manual",
+      "messages": [
+        {"message_id": "m1", "role": "assistant", "content": "The budget draft is ready."},
+        {"message_id": "m2", "role": "user", "content": "pls send the budget draft"}
+      ],
+      "focus_message_id": "m2",
+      "runtime_context": {"attachments": [], "available_capabilities": ["send_document"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 0, "end": 25, "quoted_text": "pls send the budget draft"}], "rationale": "Despite informal spelling, the imperative directly requests an action."},
+        {"cue_key": "conversation.repetition", "expected_state": "absent", "expected_value": 0, "evidence": [], "rationale": "No earlier user request appears in the supplied context."},
+        {"cue_key": "conversation.topic_shift", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The request remains on the budget draft introduced immediately before it."}
+      ],
+      "forbidden_inferences": ["The user is careless because they wrote pls."],
+      "interpretation_handoff": {"information_available": ["The user requests the budget draft."], "information_missing": ["A destination is not specified, and no task contract says whether one is required."], "candidate_hypotheses_for_later_review": ["requesting_document_delivery"]},
+      "routing_expectation": {"path": "fast", "rationale": "The request itself is explicit; authorization and parameters remain downstream concerns."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "request-repeated-unanswered",
+      "title": "Informal request repeated after no answer",
+      "purpose": "Detect a previously unanswered request repeated across turns",
+      "source": "synthetic_manual",
+      "messages": [
+        {"message_id": "m1", "role": "assistant", "content": "The budget draft is ready."},
+        {"message_id": "m2", "role": "user", "content": "pls send the budget draft"},
+        {"message_id": "m3", "role": "assistant", "content": "I can help with the budget."},
+        {"message_id": "m4", "role": "user", "content": "pls send the budget draft"}
+      ],
+      "focus_message_id": "m4",
+      "runtime_context": {"attachments": [], "available_capabilities": ["send_document"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m4", "start": 0, "end": 25, "quoted_text": "pls send the budget draft"}], "rationale": "The focus message is still a direct action request."},
+        {"cue_key": "conversation.repetition", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 0, "end": 25, "quoted_text": "pls send the budget draft"}, {"evidence_type": "text_span", "message_id": "m4", "start": 0, "end": 25, "quoted_text": "pls send the budget draft"}], "rationale": "The same request is made once again after the assistant did not fulfill or directly answer it."},
+        {"cue_key": "conversation.topic_shift", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "Every turn remains about the budget draft."}
+      ],
+      "forbidden_inferences": ["The repetition proves impatience.", "The assistant deliberately ignored the request."],
+      "interpretation_handoff": {"information_available": ["The request has been repeated after an answer that did not resolve it."], "information_missing": ["Why the earlier response did not fulfill the request."], "candidate_hypotheses_for_later_review": ["unresolved_repeated_request"]},
+      "routing_expectation": {"path": "fast", "rationale": "The repeated wording and unresolved request are explicit in the supplied turns."},
+      "ontology_questions": ["The semantic-equivalence threshold for materially matching requests remains undefined and needs reviewed paraphrase examples."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "uncertainty-train-maybe",
+      "title": "Explicit first-person uncertainty about a train",
+      "purpose": "Contrast an explicit first-person hedge with a confident statement and provide a self-reference minimal pair",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "I think the train leaves at six."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.uncertainty_marker", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 7, "quoted_text": "I think"}], "rationale": "I think explicitly hedges the departure-time proposition."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 1, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The train actually leaves at six."],
+      "interpretation_handoff": {"information_available": ["The speaker is uncertain about a six o'clock departure."], "information_missing": ["The actual departure time."], "candidate_hypotheses_for_later_review": ["tentative_schedule_claim"]},
+      "routing_expectation": {"path": "fast", "rationale": "The user's hedge is explicit and can be preserved without implying that the system's interpretation is uncertain."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "uncertainty-train-confident",
+      "title": "Confident train-time statement",
+      "purpose": "Provide the negative member of the uncertainty minimal pair",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "The train leaves at six."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.uncertainty_marker", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The proposition is stated without an explicit uncertainty marker."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "absent", "expected_value": 0, "evidence": [], "rationale": "The otherwise parallel statement omits the first-person hedge and contains no self-reference."},
+        {"cue_key": "linguistic.positive_wording", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The sentence contains no positive evaluative or affective wording."},
+        {"cue_key": "linguistic.negative_wording", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The sentence contains no negative evaluative or affective wording."}
+      ],
+      "forbidden_inferences": ["The statement is factually correct.", "The speaker is generally confident."],
+      "interpretation_handoff": {"information_available": ["The speaker states a six o'clock departure without hedging."], "information_missing": ["Whether the statement is correct."], "candidate_hypotheses_for_later_review": ["unhedged_schedule_claim"]},
+      "routing_expectation": {"path": "fast", "rationale": "No perceptual ambiguity needs escalation."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "negation-approval",
+      "title": "Scoped negation of approval",
+      "purpose": "Contrast a negated proposition with its affirmative form",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "I did not approve the change."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.negation", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 6, "end": 9, "quoted_text": "not"}], "rationale": "Not scopes over the speaker's approval of the change."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 1, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The change is harmful.", "The speaker is upset."],
+      "interpretation_handoff": {"information_available": ["The speaker denies approving the change."], "information_missing": ["Who approved it, if anyone."], "candidate_hypotheses_for_later_review": ["denial_of_approval"]},
+      "routing_expectation": {"path": "fast", "rationale": "The negation scope is explicit."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "negation-approval-affirmative",
+      "title": "Affirmative approval",
+      "purpose": "Provide the negative member of the scoped-negation minimal pair",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "I did approve the change."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.negation", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The otherwise parallel proposition contains no scoped negation."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 1, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The approval was authorized."],
+      "interpretation_handoff": {"information_available": ["The speaker claims to have approved the change."], "information_missing": ["Whether the claim is accurate or authorized."], "candidate_hypotheses_for_later_review": ["claim_of_approval"]},
+      "routing_expectation": {"path": "fast", "rationale": "The wording is explicit and unambiguous at the perceptual layer."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "attachment-trusted-runtime",
+      "title": "Attachment confirmed by trusted runtime context",
+      "purpose": "Distinguish an actual attachment from a textual attachment claim",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "I attached the scan."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [{"attachment_id": "att-1", "filename": "scan.pdf"}], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "runtime.attachment_present", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/attachments/0", "value": {"attachment_id": "att-1", "filename": "scan.pdf"}}], "rationale": "Trusted runtime context contains one concrete attachment."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 1, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The scan is safe.", "The scan contains the expected document."],
+      "interpretation_handoff": {"information_available": ["A file named scan.pdf is present in trusted runtime context."], "information_missing": ["The attachment's contents and safety."], "candidate_hypotheses_for_later_review": ["attachment_available_for_inspection"]},
+      "routing_expectation": {"path": "fast", "rationale": "Attachment presence is a direct runtime fact."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "attachment-text-only",
+      "title": "Attachment claimed in text but absent from runtime",
+      "purpose": "Ensure textual claims do not become trusted attachment facts",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "I attached the scan."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "runtime.attachment_present", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The trusted attachments list is empty regardless of the user's claim."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 1, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["An attachment exists.", "The user is deceptive."],
+      "interpretation_handoff": {"information_available": ["The user says a scan was attached, but runtime context contains no attachment."], "information_missing": ["Whether an upload was attempted or lost."], "candidate_hypotheses_for_later_review": ["attachment_claim_conflicts_with_runtime"]},
+      "routing_expectation": {"path": "clarify", "rationale": "The textual claim conflicts with trusted runtime state."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "tool-failure-trusted-topic-shift",
+      "title": "Trusted export failure after a clear topic shift",
+      "purpose": "Record a runtime tool failure and a shift away from the active topic",
+      "source": "synthetic_manual",
+      "messages": [
+        {"message_id": "m1", "role": "assistant", "content": "Water the basil when the top inch of soil is dry."},
+        {"message_id": "m2", "role": "user", "content": "The invoice export failed."}
+      ],
+      "focus_message_id": "m2",
+      "runtime_context": {"attachments": [], "available_capabilities": ["export_invoice"], "last_tool_event": {"tool": "export_invoice", "status": "failed", "error_code": "timeout"}},
+      "cue_expectations": [
+        {"cue_key": "runtime.tool_failure", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/last_tool_event", "value": {"tool": "export_invoice", "status": "failed", "error_code": "timeout"}}], "rationale": "The trusted last tool event has a recognized failed status."},
+        {"cue_key": "conversation.topic_shift", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 10, "end": 15, "quoted_text": "basil"}, {"evidence_type": "text_span", "message_id": "m2", "start": 4, "end": 18, "quoted_text": "invoice export"}], "rationale": "The conversation moves materially from basil care to invoice export."},
+        {"cue_key": "linguistic.negative_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m2", "start": 19, "end": 25, "quoted_text": "failed"}], "rationale": "Failed is literal negative-event wording."}
+      ],
+      "forbidden_inferences": ["The tool is permanently broken.", "The user is frustrated."],
+      "interpretation_handoff": {"information_available": ["A trusted invoice-export invocation failed with a timeout.", "The user changed from plant care to invoice export."], "information_missing": ["Whether retrying will succeed."], "candidate_hypotheses_for_later_review": ["recover_from_tool_failure", "new_conversation_topic"]},
+      "routing_expectation": {"path": "slow", "rationale": "The runtime failure needs recovery analysis even though the evidence itself is direct."},
+      "ontology_questions": ["The topic-shift context window is undefined. Suggested change: define the active-topic source and comparison window.", "Recognized tool failure states are not enumerated. Suggested change: define the trusted event schema and failure-status set."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "tool-failure-hypothetical-quote",
+      "title": "Hypothetical quoted tool failure",
+      "purpose": "Prevent hypothetical and quoted language from becoming a runtime failure fact",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "If the tool said \"I failed to save it,\" what should happen?"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["save_document"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "runtime.tool_failure", "expected_state": "not_applicable", "expected_value": null, "evidence": [], "rationale": "Hypothetical quoted failure language is not a trusted runtime event, and no real tool event is available (last_tool_event is null), so tool failure cannot be evaluated; absent would claim an inspected event showed no failure."},
+        {"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 59, "quoted_text": "If the tool said \"I failed to save it,\" what should happen?"}], "rationale": "The user asks a punctuated hypothetical question."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "absent", "expected_value": 0, "evidence": [], "rationale": "The only first-person reference is the quoted I, which belongs to the tool's speech and which V1 excludes from the current speaker's self-reference count; the unquoted wording contains no first-person reference."}
+      ],
+      "forbidden_inferences": ["A save attempt failed.", "The user personally failed to save the document."],
+      "interpretation_handoff": {"information_available": ["The user asks what to do in a fictional failure scenario."], "information_missing": ["Whether any real save attempt occurred."], "candidate_hypotheses_for_later_review": ["requesting_contingency_guidance"]},
+      "routing_expectation": {"path": "fast", "rationale": "Quotation ownership is explicit in this case, so the deterministic exclusion rule applies."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "capability-unavailable-runtime",
+      "title": "Requested capability absent from runtime set",
+      "purpose": "Ground capability unavailability in trusted runtime context",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "Please generate a PDF."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["summarize_text"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 22, "quoted_text": "Please generate a PDF."}], "rationale": "The user directly requests PDF generation."}
+      ],
+      "post_interpretation_expectations": [
+        {"fact_key": "situation.capability_unavailable", "target": "generate_pdf", "expected_value": true, "requires_interpretation": "Resolve generate a PDF to the generate_pdf capability identifier before comparing it with runtime capabilities.", "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/available_capabilities", "value": ["summarize_text"]}, {"evidence_type": "text_span", "message_id": "m1", "start": 7, "end": 21, "quoted_text": "generate a PDF"}], "rationale": "After capability resolution, generate_pdf is absent from the trusted available set."}
+      ],
+      "forbidden_inferences": ["PDF generation is impossible in every environment."],
+      "interpretation_handoff": {"information_available": ["The user requests PDF generation, which is absent from the current capability set."], "information_missing": ["Whether another authorized route can satisfy the request."], "candidate_hypotheses_for_later_review": ["requested_capability_missing"]},
+      "routing_expectation": {"path": "abstain_or_escalate", "rationale": "The requested capability cannot be selected from the trusted available set, and more internal reasoning or user-supplied detail cannot create it."},
+      "ontology_questions": ["The mapping from natural-language requests to capability identifiers is undefined. Suggested change: define a versioned request-to-capability matching contract."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "capability-user-assumption",
+      "title": "User assumes an available capability is missing",
+      "purpose": "Ensure a user's assumption does not override trusted capability context",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "You probably can't generate PDFs."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["generate_pdf"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.uncertainty_marker", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 4, "end": 12, "quoted_text": "probably"}], "rationale": "Probably explicitly hedges the user's claim."},
+        {"cue_key": "linguistic.negation", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 13, "end": 18, "quoted_text": "can't"}], "rationale": "Can't negates the claimed ability to generate PDFs."}
+      ],
+      "post_interpretation_expectations": [
+        {"fact_key": "situation.capability_unavailable", "target": "generate_pdf", "expected_value": false, "requires_interpretation": "Resolve the user's PDF-generation claim to the generate_pdf capability identifier before comparing it with runtime capabilities.", "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/available_capabilities", "value": ["generate_pdf"]}], "rationale": "After capability resolution, trusted runtime context explicitly lists generate_pdf despite the user's assumption."}
+      ],
+      "forbidden_inferences": ["The capability is unavailable.", "The user distrusts the system."],
+      "interpretation_handoff": {"information_available": ["The user tentatively claims PDF generation is unavailable, while runtime context lists it as available."], "information_missing": ["Why the user holds that assumption."], "candidate_hypotheses_for_later_review": ["capability_assumption_conflicts_with_runtime"]},
+      "routing_expectation": {"path": "fast", "rationale": "Trusted runtime state resolves the availability question."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "request-statement-missing-recipient",
+      "title": "Action request phrased as a statement with a missing recipient",
+      "purpose": "Provide the declarative member of the question-form minimal pair while holding the task contract constant",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "Please send the report."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["send_report"], "last_tool_event": null, "task_contract": {"task_type": "send_report", "required_parameters": ["recipient"], "provided_parameters": {}}},
+      "cue_expectations": [
+        {"cue_key": "conversation.question_form", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "Unlike the paired Could you formulation, this imperative request is not a grammatical or punctuated question."},
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 23, "quoted_text": "Please send the report."}], "rationale": "The user directly asks Columbina to send the report."}
+      ],
+      "post_interpretation_expectations": [
+        {"fact_key": "action.required_parameter_missing", "target": "send_report.recipient", "expected_value": true, "requires_interpretation": "Resolve the utterance to the send_report action before applying its parameter contract.", "evidence": [{"evidence_type": "runtime_fact", "json_pointer": "/task_contract", "value": {"task_type": "send_report", "required_parameters": ["recipient"], "provided_parameters": {}}}], "rationale": "After action resolution, the trusted send_report contract requires a recipient and none is provided."}
+      ],
+      "forbidden_inferences": ["The user intentionally omitted the recipient."],
+      "interpretation_handoff": {"information_available": ["The user requests that the report be sent.", "The required recipient is missing."], "information_missing": ["The intended recipient."], "candidate_hypotheses_for_later_review": ["action_request_needs_parameter"]},
+      "routing_expectation": {"path": "clarify", "rationale": "The form is not a question, but the missing required recipient still needs clarification."},
+      "ontology_questions": ["The location and schema of a task-specific contract are not defined. Suggested change: define the trusted runtime task_contract shape and parameter-presence semantics."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "possible-sarcastic-mismatch",
+      "title": "Positive wording beside a negative event",
+      "purpose": "Keep a possible sarcastic mismatch out of the perception facts",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "Great, another broken export. Exactly what I needed."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "linguistic.positive_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 5, "quoted_text": "Great"}], "rationale": "Great is lexically positive even though its pragmatic force is unresolved."},
+        {"cue_key": "linguistic.negative_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 15, "end": 28, "quoted_text": "broken export"}], "rationale": "Broken export is literal negative-event wording."},
+        {"cue_key": "linguistic.self_reference", "expected_state": "present", "expected_value": 1, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 43, "end": 44, "quoted_text": "I"}], "rationale": "The focus message contains one first-person reference."}
+      ],
+      "forbidden_inferences": ["The user is sarcastic.", "The user is annoyed.", "The export tool actually failed."],
+      "interpretation_handoff": {"information_available": ["Positive wording appears beside wording about a broken export."], "information_missing": ["Whether the user is sincere, sarcastic, playful, or quoting a familiar expression."], "candidate_hypotheses_for_later_review": ["literal_positive_reaction", "possible_tone_situation_mismatch"]},
+      "routing_expectation": {"path": "slow", "rationale": "The pragmatic meaning is ambiguous and must not be asserted by perception."},
+      "ontology_questions": ["The ontology excludes a tone/situation-mismatch cue, so sarcasm-relevant evidence cannot be represented beyond separate lexical cues. Suggested change: consider a reviewed shadow mismatch cue without labeling sarcasm."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "urgency-explicit-deadline",
+      "title": "Explicit deadline creates urgency",
+      "purpose": "Distinguish time pressure from emotional intensity",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "This is awful—please fix the itinerary by 3 p.m."}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": ["edit_itinerary"], "last_tool_event": null},
+      "cue_expectations": [
+        {"cue_key": "task.urgency", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 39, "end": 48, "quoted_text": "by 3 p.m."}], "rationale": "A concrete deadline explicitly indicates time pressure."},
+        {"cue_key": "conversation.explicit_action_request", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 14, "end": 48, "quoted_text": "please fix the itinerary by 3 p.m."}], "rationale": "The user directly asks for the itinerary to be fixed."},
+        {"cue_key": "linguistic.negative_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 8, "end": 13, "quoted_text": "awful"}], "rationale": "Awful is negative evaluative wording."}
+      ],
+      "forbidden_inferences": ["The user is hostile.", "Missing the deadline will cause harm."],
+      "interpretation_handoff": {"information_available": ["The user requests an itinerary fix by 3 p.m."], "information_missing": ["The consequence of missing the deadline."], "candidate_hypotheses_for_later_review": ["time_bounded_action_request"]},
+      "routing_expectation": {"path": "fast", "rationale": "The request and deadline are explicit; feasibility remains downstream."},
+      "ontology_questions": ["The reference clock and normalization of relative deadlines remain undefined. Suggested change: define how expressions such as today and in ten minutes are grounded."],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "intensity-without-urgency-short",
+      "title": "Emotional intensity without time pressure",
+      "purpose": "Provide a very short counterexample for urgency",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "Awful!"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [
+        {"cue_key": "task.urgency", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The emphatic evaluation contains no deadline, haste term, or other time pressure."},
+        {"cue_key": "linguistic.negative_wording", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 5, "quoted_text": "Awful"}], "rationale": "Awful is negative evaluative wording."}
+      ],
+      "forbidden_inferences": ["The user needs an immediate response.", "The user is hostile."],
+      "interpretation_handoff": {"information_available": ["The user expresses a strongly negative evaluation."], "information_missing": ["What is being evaluated and what response is wanted."], "candidate_hypotheses_for_later_review": ["negative_evaluation_with_missing_referent"]},
+      "routing_expectation": {"path": "clarify", "rationale": "The extremely short input omits its referent and desired response."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-embedded-after-greeting-unpunctuated",
+      "title": "Unpunctuated question after a greeting and addressee",
+      "purpose": "A question clause after permitted discourse prefixes is detected without terminal punctuation (SH-EVAL-004)",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "hi columbina how much protein is in eggs"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 13, "end": 40, "quoted_text": "how much protein is in eggs"}], "rationale": "The greeting and addressee are prefixes; the remaining clause opens with a quantity interrogative."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user asks a quantity question after greeting the assistant."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "The clause-level question structure is explicit."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-trailing-after-acknowledgement",
+      "title": "Elliptical question following an acknowledgement sentence",
+      "purpose": "A trailing interrogative clause is found in a later sentence of the same contribution",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "thanks! what about tofu"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 8, "end": 23, "quoted_text": "what about tofu"}], "rationale": "The acknowledgement is its own sentence; the second clause is an elliptical 'what about' question."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user thanks the assistant and asks a follow-up question."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "The second clause is interrogative."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-quoted-not-owned",
+      "title": "Reported question inside introduced quotation",
+      "purpose": "A question inside quotation introduced by a reporting verb is not the speaker's question",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "She asked \"what time is it?\""}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The only question is quoted speech attributed to someone else."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user reports what someone else asked."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "No speaker-owned question exists."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-word-subordinate-clause",
+      "title": "Wh-word introducing a subordinate clause",
+      "purpose": "A clause-initial wh-word without subject-auxiliary inversion is not a question",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "When I ate eggs I felt sick"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "'When' opens a temporal subordinate clause, not a question."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user reports a past experience."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "The statement has no question structure."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-multiple-clauses",
+      "title": "Two questions in one contribution",
+      "purpose": "Each interrogative clause contributes its own evidence span to the single Boolean cue",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "What is in hummus? And how many calories are in tofu?"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "present", "expected_value": true, "evidence": [{"evidence_type": "text_span", "message_id": "m1", "start": 0, "end": 18, "quoted_text": "What is in hummus?"}, {"evidence_type": "text_span", "message_id": "m1", "start": 23, "end": 53, "quoted_text": "how many calories are in tofu?"}], "rationale": "Both sentences are questions; the discourse marker 'And' is a prefix of the second."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user asks two related questions."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "Both question clauses are explicit."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    },
+    {
+      "case_id": "question-word-exclamative",
+      "title": "Exclamative with a clause-initial wh-word",
+      "purpose": "A 'what a' exclamative is not a question",
+      "source": "synthetic_manual",
+      "messages": [{"message_id": "m1", "role": "user", "content": "What a great meal!"}],
+      "focus_message_id": "m1",
+      "runtime_context": {"attachments": [], "available_capabilities": [], "last_tool_event": null, "task_contract": null},
+      "cue_expectations": [{"cue_key": "conversation.question_form", "expected_state": "absent", "expected_value": false, "evidence": [], "rationale": "The sentence is an exclamation about the meal."}],
+      "forbidden_inferences": ["Punctuation alone decides whether the user asked a question."],
+      "interpretation_handoff": {"information_available": ["The user expresses appreciation for a meal."], "information_missing": [], "candidate_hypotheses_for_later_review": []},
+      "routing_expectation": {"path": "fast", "rationale": "No question structure is present."},
+      "ontology_questions": [],
+      "review": {"status": "pending", "reviewer": null, "notes": []}
+    }
+  ]
+}

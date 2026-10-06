@@ -7,31 +7,33 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal import ActiveGoal
-from app.ai.Cognitive.system.cognitive_pipeline_v0 import (
+from cognitive_action_support import action_personality, safety_decision_for_legacy
+from app.ai.Cognitive.system.v0.cognitive_pipeline_v0 import (
     CognitivePipelineExecutionError,
     CognitivePipelineRelationshipContext,
     CognitivePipelineRequest,
     CognitivePipelineRuntimeSnapshot,
     CognitivePipelineV0,
 )
-from app.ai.Cognitive.system.cognitive_turn import (
+from app.ai.Cognitive.system.v0.cognitive_turn import (
     CognitiveTurnExecutionError,
     CognitiveTurnRunner,
 )
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     DynamicStateSnapshotFactory,
     PersonalityProfile,
 )
-from app.ai.Cognitive.system.interpretation_v0.fixture_validator import (
+from app.ai.Cognitive.system.v0.interpretation_v0.fixture_validator import (
     DEFAULT_FIXTURE,
     _runtime_case,
 )
-from app.ai.Cognitive.system.interpretation_v0 import (
+from app.ai.Cognitive.system.v0.interpretation_v0 import (
     InterpretationEngine,
     InterpretationExecutionError,
 )
-from app.ai.Cognitive.system.perception_v0 import (
+from app.ai.Cognitive.system.v0.goal_v0 import GoalExecutionError
+from app.ai.Cognitive.system.v0.goal_v0.errors import GoalFailurePhase
+from app.ai.Cognitive.system.v0.perception_v0 import (
     PerceptionEngine,
     PerceptionEvent,
     PerceptionMessage,
@@ -67,20 +69,18 @@ def _request(case_id: str = "factual-information-question") -> CognitivePipeline
             capability_snapshot_id=f"capability:{case_id}",
             task_contract=runtime.task_contract,
             authorization=runtime.authorization,
-            safety_decision=runtime.safety_decision,
+            safety_decision=safety_decision_for_legacy(runtime.snapshot_id, runtime.safety_decision),
             last_tool_event=runtime.last_tool_event,
+            response_obligation="required",
+            response_obligation_ref=f"response-obligation:{case_id}",
         ),
         memories=interpretation_request.memories,
         interpretation_biases=interpretation_request.biases,
-        active_goals=(ActiveGoal(
-            goal_id="goal-answer", owner="columbina", goal_type="conversation",
-            description="Answer the grounded request", desired_state={"answered": True},
-            priority_band="high",
-        ),),
         previous_state=previous,
         state_personality=personality,
         core_memory_ref=interpretation_request.biases.source_core_memory_ref,
         memory_retrieval_policy_version="memory-retrieval-v1",
+        action_personality=action_personality(interpretation_request.biases.source_core_memory_ref),
     )
 
 
@@ -89,10 +89,10 @@ def test_real_pipeline_preserves_exact_authoritative_outputs() -> None:
     pipeline = CognitivePipelineV0(
         cognitive_turn_runner=CognitiveTurnRunner(
             id_factory=lambda: "turn-trace-1",
-            clock=iter((0.0, 0.001, 0.003)).__next__,
+            clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
         ),
         trace_id_factory=lambda: "pipeline-trace-1",
-        clock=iter((0.0, 0.001, 0.003, 0.006)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004, 0.0045, 0.005, 0.0055, 0.007)).__next__,
     )
 
     trace = pipeline.run(request)
@@ -103,7 +103,8 @@ def test_real_pipeline_preserves_exact_authoritative_outputs() -> None:
     assert trace.versions.perception is trace.perception.versions
     assert trace.versions.interpretation is trace.interpretation.versions
     assert trace.versions.cognitive_turn is trace.cognitive_turn.versions
-    assert trace.timings.total_ms == 6.0
+    assert trace.timings.total_ms == 7.0
+    assert trace.timings.goal_update_ms == 1.0
     assert type(trace).model_validate_json(trace.model_dump_json()) == trace
 
 
@@ -124,10 +125,10 @@ def test_required_real_cases_cross_the_complete_pipeline(case_id: str) -> None:
     trace = CognitivePipelineV0(
         cognitive_turn_runner=CognitiveTurnRunner(
             id_factory=lambda: f"turn-trace:{case_id}",
-            clock=iter((0.0, 0.001, 0.003)).__next__,
+            clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
         ),
         trace_id_factory=lambda: f"pipeline-trace:{case_id}",
-        clock=iter((0.0, 0.001, 0.003, 0.006)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004, 0.0045, 0.005, 0.0055, 0.007)).__next__,
     ).run(_request(case_id))
 
     assert trace.status == "completed"
@@ -338,10 +339,27 @@ class _Recorder:
         return self.delegate.evaluate(request)
 
 
+class _FailingGoalEngine:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def update(self, request):
+        self.calls += 1
+        try:
+            raise ValueError("raw private goal evidence")
+        except ValueError as exc:
+            raise GoalExecutionError(
+                request.cognitive_turn_id,
+                GoalFailurePhase.EVIDENCE_RECONCILIATION,
+                "invalid_goal_evidence",
+                "Goal processing could not complete safely.",
+            ) from exc
+
+
 def _turn_runner(trace_id: str = "turn-trace-fixed") -> CognitiveTurnRunner:
     return CognitiveTurnRunner(
         id_factory=lambda: trace_id,
-        clock=iter((0.0, 0.001, 0.003)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
     )
 
 
@@ -349,7 +367,7 @@ def _pipeline(**overrides) -> CognitivePipelineV0:
     values = {
         "cognitive_turn_runner": _turn_runner(),
         "trace_id_factory": lambda: "pipeline-trace-fixed",
-        "clock": iter((0.0, 0.001, 0.003, 0.006)).__next__,
+        "clock": iter((0.0, 0.001, 0.003, 0.004, 0.0045, 0.005, 0.0055, 0.007)).__next__,
     }
     values.update(overrides)
     return CognitivePipelineV0(**values)
@@ -373,6 +391,21 @@ def test_perception_failure_stops_all_later_engines() -> None:
     assert "private" not in captured.value.safe_message
 
 
+def test_goal_failure_is_typed_and_stops_cognitive_turn() -> None:
+    goal = _FailingGoalEngine()
+    turn = _Recorder(delegate=_turn_runner())
+
+    with pytest.raises(CognitivePipelineExecutionError) as captured:
+        _pipeline(goal_engine=goal, cognitive_turn_runner=turn).run(_request())
+
+    assert captured.value.failed_stage == "goal_update"
+    assert captured.value.nested_stage == GoalFailurePhase.EVIDENCE_RECONCILIATION
+    assert isinstance(captured.value.__cause__, GoalExecutionError)
+    assert captured.value.__cause__.__cause__ is not None
+    assert (goal.calls, turn.calls) == (1, 0)
+    assert "private" not in captured.value.safe_message
+
+
 def test_handoff_failure_stops_later_engines(monkeypatch) -> None:
     request = _request()
     original = PerceptionEvent.interpretation_handoff
@@ -381,7 +414,7 @@ def test_handoff_failure_stops_later_engines(monkeypatch) -> None:
         return original(self).model_copy(update={"runtime_snapshot_id": "foreign-runtime"})
 
     monkeypatch.setattr(
-        "app.ai.Cognitive.system.perception_v0.models.PerceptionEvent.interpretation_handoff",
+        "app.ai.Cognitive.system.v0.perception_v0.models.PerceptionEvent.interpretation_handoff",
         forged_handoff,
     )
     interpretation = _Recorder(delegate=InterpretationEngine())
@@ -425,13 +458,13 @@ def test_turn_request_failure_stops_turn(monkeypatch) -> None:
         raise ValueError("injected turn request failure")
 
     monkeypatch.setattr(
-        "app.ai.Cognitive.system.cognitive_pipeline_v0.runner.CognitiveTurnRequest",
+        "app.ai.Cognitive.system.v0.cognitive_pipeline_v0.runner.CognitiveTurnRequest",
         reject_turn_request,
     )
     with pytest.raises(CognitivePipelineExecutionError) as captured:
         _pipeline(cognitive_turn_runner=turn).run(_request())
 
-    assert captured.value.failed_stage == "turn_request"
+    assert captured.value.failed_stage == "goal_handoff_validation"
     assert turn.calls == 0
 
 

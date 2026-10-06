@@ -86,12 +86,16 @@ def delete_session(token: str) -> None:
 
 def delete_user(db: Session, user: User) -> None:
     """Atomically remove account rows and enqueue persistent file cleanup."""
-    from app.services import file_deletion
+    from app.services import dialogue_memory, file_deletion
 
+    conversation_ids = [conversation.id for conversation in user.conversations]
     file_deletion.schedule_deletion(db, user.id)
     db.delete(user)
     db.commit()
     file_deletion.wake_worker()
+    # Snapshots, heads, and jobs went with the cascade; cached payloads must too.
+    for conversation_id in conversation_ids:
+        dialogue_memory.delete_cached_conversation(conversation_id)
 
 
 # Precomputed hash of a throwaway password, used to equalize timing when the

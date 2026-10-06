@@ -8,27 +8,30 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal.models import (
-    ActiveGoal,
+from cognitive_action_support import action_inputs
+from app.ai.Cognitive.system.v0.appraisal.models import (
     CapabilitySnapshot,
     RuntimeContext,
 )
-from app.ai.Cognitive.system.cognitive_turn import (
+from app.ai.Cognitive.system.v0.contracts.goals import GoalUpdateTrigger
+from app.ai.Cognitive.system.v0.goal_v0 import GoalEngine
+from app.ai.Cognitive.system.v0.goal_v0.models import GoalRuntimeContext, GoalUpdateRequest
+from app.ai.Cognitive.system.v0.cognitive_turn import (
     CognitiveTurnRequest,
     CognitiveTurnRunner,
     CognitiveTurnTrace,
 )
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     DynamicStateSnapshotFactory,
     PersonalityProfile,
 )
-from app.ai.Cognitive.system.interpretation_v0.engine import InterpretationEngine
-from app.ai.Cognitive.system.interpretation_v0.fixture_validator import _runtime_case
+from app.ai.Cognitive.system.v0.interpretation_v0.engine import InterpretationEngine
+from app.ai.Cognitive.system.v0.interpretation_v0.fixture_validator import _runtime_case
 
 
 FIXTURE = (
     Path(__file__).parents[1]
-    / "app/ai/Cognitive/system/data/interpretation_design_cases.json"
+    / "app/ai/Cognitive/system/v0/data/interpretation_design_cases.json"
 )
 
 
@@ -45,34 +48,44 @@ def _request() -> CognitiveTurnRequest:
         cognitive_turn_id="turn-before",
         personality=personality,
     )
+    goal_update = GoalEngine().update(GoalUpdateRequest(
+        trigger=GoalUpdateTrigger.RESPONSE_TURN,
+        cognitive_turn_id=interpretation.cognitive_turn_id,
+        conversation_ref=interpretation.conversation_ref,
+        interpretation=interpretation,
+        runtime=GoalRuntimeContext(
+            cognitive_turn_id=interpretation.cognitive_turn_id,
+            runtime_snapshot_ref=interpretation.runtime_snapshot_id,
+            response_obligation="required",
+            response_obligation_ref="response-obligation:provenance",
+        ),
+        previous_dynamic_state=previous,
+    ))
+    runtime = RuntimeContext(capability_snapshot=CapabilitySnapshot(snapshot_id="capability-main"))
     return CognitiveTurnRequest(
         cognitive_turn_id=interpretation.cognitive_turn_id,
         conversation_ref=interpretation.conversation_ref,
         input_message_ids=interpretation.input_message_ids,
         focus_message_id=interpretation.focus_message_id,
         interpretation=interpretation,
-        active_goals=(ActiveGoal(
-            goal_id="goal-main",
-            owner="columbina",
-            goal_type="conversation",
-            description="Answer the bounded user request",
-            desired_state={"answered": True},
-            priority_band="high",
-        ),),
-        runtime=RuntimeContext(
-            capability_snapshot=CapabilitySnapshot(snapshot_id="capability-main")
-        ),
+        goal_snapshot=goal_update.snapshot,
+        active_goals=goal_update.active_goal_views,
+        runtime=runtime,
         previous_state=previous,
         personality=personality,
         core_memory_ref="core-v1",
         memory_retrieval_policy_version="memory-v1",
+        **action_inputs(
+            runtime, runtime_snapshot_ref=interpretation.runtime_snapshot_id, core_memory_ref="core-v1",
+            response_obligation_ref="response-obligation:provenance",
+        ),
     )
 
 
 def _trace() -> CognitiveTurnTrace:
     return CognitiveTurnRunner(
         id_factory=lambda: "trace-main",
-        clock=iter((0.0, 0.001, 0.003)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
     ).evaluate(_request())
 
 

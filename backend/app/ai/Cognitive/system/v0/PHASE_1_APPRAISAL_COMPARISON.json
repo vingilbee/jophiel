@@ -1,0 +1,116 @@
+{
+  "schema_version": "appraisal-comparison-v0.1",
+  "mode": "frozen_output_replay",
+  "measurement_scope": "appraisal_only",
+  "input_sample_size": 8,
+  "latency": {
+    "deterministic": {
+      "sample_size": 8,
+      "p50_ms": 0.16900012269616127,
+      "p95_ms": 0.18475018441677094,
+      "p99_ms": 0.18475018441677094
+    },
+    "trial": {
+      "sample_size": 8,
+      "p50_ms": 0.7765837945044041,
+      "p95_ms": 1.0024579241871834,
+      "p99_ms": 1.0024579241871834
+    },
+    "provider": {
+      "sample_size": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    }
+  },
+  "live_model_call_count": 0,
+  "provider_sdk_retries": 0,
+  "worker_retries": "not_measured_by_this_runner",
+  "behavioral_gate": "pending_independent_review",
+  "records": [
+    {
+      "case_index": 0,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 1,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 2,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 3,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 4,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 5,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 6,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    },
+    {
+      "case_index": 7,
+      "status": "compiled",
+      "baseline_known_dimensions": 0,
+      "trial_known_dimensions": 6,
+      "trial_unknown_dimensions": 2,
+      "evidence_reference_validation": "passed",
+      "appropriateness_review": "pending"
+    }
+  ],
+  "input_origin": "synthetic_contract_fixtures",
+  "case_categories": [
+    "correction",
+    "gratitude",
+    "disagreement",
+    "urgency",
+    "uncertainty",
+    "harmless_refinement",
+    "failed_operation",
+    "topic_change"
+  ],
+  "quality_claim": "Compiler coverage only; scripted assessments are not evidence of improved contextual judgment."
+}

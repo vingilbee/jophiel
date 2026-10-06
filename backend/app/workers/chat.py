@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import uuid
@@ -15,12 +16,15 @@ import redis
 from sqlalchemy import select
 
 from app.ai import AgentRuntimeContext, stream_chat
+from app.ai.Cognitive.system.v0.live_shadow.models import GenerationPath
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
 from app.services import asset_store, chat as chat_service, google_account
+from app.services import cognitive_shadow
+from app.services import dialogue_memory
 from app.services import image_store, long_term_memory as memory_service
 from app.services import tts as tts_service
 from app.services import whatsapp as whatsapp_service
@@ -69,6 +73,35 @@ def event_bus_available() -> bool:
         return False
 
 
+def _start_setup_tasks(job: ChatJob, payload: dict) -> list[asyncio.Task]:
+    """Start the independent pre-generation steps: (memory lookup, capture)."""
+
+    async def capture() -> None:
+        if not (job.attempts == 1 and job.user_message_id is not None
+                and cognitive_shadow.capture_enabled()):
+            return
+        # Observational only. Captured once, on the first claim, from this
+        # turn's own durable boundary and before generation starts; a retry
+        # never recaptures later state. The result is never read here, and a
+        # capture failure cannot affect this job.
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(
+                cognitive_shadow.capture_turn,
+                user_id=job.user_id, conversation_id=job.conversation_id, turn_id=job.turn_id,
+                user_message_id=job.user_message_id, chat_job_id=job.id,
+                generation_path=GenerationPath.CHAT_WORKER,
+                source_channel=cognitive_shadow.source_channel_for(payload),
+            )
+
+    return [
+        # Fails open inside the service (returns None), like before.
+        asyncio.create_task(asyncio.to_thread(
+            memory_service.retrieve_for_prompt, job.user_id, payload["content"]
+        )),
+        asyncio.create_task(capture()),
+    ]
+
+
 async def _generate(job: ChatJob) -> None:
     payload = job.payload
     claim_token = job.claim_token
@@ -88,17 +121,31 @@ async def _generate(job: ChatJob) -> None:
                 db, job.id, "completed", claim_token=claim_token
             )
             return
-        history = chat_service.get_history(
-            db, conversation=conversation, up_to_message_id=job.user_message_id,
-            up_to_job_id=job.id,
-        )
-        user = db.get(User, job.user_id)
-        gmail_token = await google.get_access_token(db, user_id=job.user_id)
-        account = google_account.get_for_user(db, user_id=job.user_id)
-        granted = account.granted_scopes() if account else set()
-        drive_token = gmail_token if DRIVE in granted else None
-        if GMAIL_MODIFY not in granted:
-            gmail_token = None
+        # Setup steps that don't depend on each other run concurrently: the
+        # memory lookup (an embedding API call) and the shadow capture each
+        # use their own thread and DB session, and proceed while history and
+        # the Google token load below. Serially they added up before every
+        # first token.
+        background = _start_setup_tasks(job, payload)
+        try:
+            history = chat_service.get_history(
+                db, conversation=conversation, up_to_message_id=job.user_message_id,
+                up_to_job_id=job.id,
+            )
+            user = db.get(User, job.user_id)
+            gmail_token = await google.get_access_token(db, user_id=job.user_id)
+            account = google_account.get_for_user(db, user_id=job.user_id)
+            granted = account.granted_scopes() if account else set()
+            drive_token = gmail_token if DRIVE in granted else None
+            if GMAIL_MODIFY not in granted:
+                gmail_token = None
+        except BaseException:
+            for task in background:
+                task.cancel()
+            await asyncio.gather(*background, return_exceptions=True)
+            raise
+
+    long_term_memory, _ = await asyncio.gather(*background)
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -113,9 +160,7 @@ async def _generate(job: ChatJob) -> None:
         blender_enabled=settings.blender_tools_enabled,
         voice=bool(payload.get("voice", False)),
         awareness=payload.get("awareness", ""),
-        long_term_memory=await asyncio.to_thread(
-            memory_service.retrieve_for_prompt, job.user_id, payload["content"]
-        ),
+        long_term_memory=long_term_memory,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
     )
@@ -183,9 +228,11 @@ async def _generate(job: ChatJob) -> None:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
+        dialogue_scheduled = False
         with SessionLocal() as db:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
                                                           conversation_id=job.conversation_id)
+            assistant = None
             if conversation is not None and (reply or outcome == "cancelled"):
                 assistant = chat_service.add_message(
                     db, message_id=assistant_id, conversation=conversation,
@@ -203,6 +250,13 @@ async def _generate(job: ChatJob) -> None:
                             db, assistant_message_id=assistant.id,
                             channel_identity_id=identity_id, content=reply,
                         )
+            trigger_id = assistant.id if assistant is not None else job.user_message_id
+            if conversation is not None and trigger_id is not None:
+                # Same transaction as the terminal outcome; a user-only turn
+                # still advances dialogue memory over its user message.
+                dialogue_scheduled = dialogue_memory.schedule_update(
+                    db, user_id=job.user_id, conversation_id=job.conversation_id, trigger_message_id=trigger_id,
+                )
             finished = chat_service.finish_job(
                 db, job.id, "cancelled" if stopped else "completed",
                 claim_token=claim_token, commit=False,
@@ -211,6 +265,8 @@ async def _generate(job: ChatJob) -> None:
                 db.rollback()
                 raise RuntimeError("chat job lease ownership was lost before commit")
             db.commit()
+        if dialogue_scheduled:
+            dialogue_memory.wake_worker()
         publish(turn_id, {"type": "stopped" if stopped else "done",
                           "turn_id": str(turn_id), "message_id": str(assistant_id),
                           "status": outcome})
@@ -230,6 +286,7 @@ async def _generate(job: ChatJob) -> None:
                     ChatMessage.role == "assistant",
                 ))
                 failure_text = reply or "I couldn't complete that response. Please try again."
+                failure_scheduled = False
                 if conversation is not None and existing is None:
                     assistant = chat_service.add_message(
                         db, message_id=assistant_id, conversation=conversation,
@@ -242,6 +299,10 @@ async def _generate(job: ChatJob) -> None:
                             channel_identity_id=uuid.UUID(payload["channel_identity_id"]),
                             content=failure_text,
                         )
+                    failure_scheduled = dialogue_memory.schedule_update(
+                        db, user_id=job.user_id, conversation_id=job.conversation_id,
+                        trigger_message_id=assistant.id,
+                    )
                 finished = chat_service.finish_job(
                     db, job.id, "failed", str(exc)[:1000],
                     claim_token=claim_token, commit=False,
@@ -250,6 +311,8 @@ async def _generate(job: ChatJob) -> None:
                     db.commit()
                     if context.channel == "whatsapp":
                         whatsapp_service.wake_worker()
+                    if failure_scheduled:
+                        dialogue_memory.wake_worker()
                 else:
                     db.rollback()
         except Exception:

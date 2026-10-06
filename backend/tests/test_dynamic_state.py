@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     AppraisalAggregate,
     AppraisalDimension,
     AppraisalFrame,
@@ -27,8 +27,8 @@ from app.ai.Cognitive.system.dynamic_state import (
     UpdateRequest,
     validate_fixture,
 )
-from app.ai.Cognitive.system.appraisal.models import AppraisalSubject
-from app.ai.Cognitive.system.appraisal.rules import DIMENSION_TYPES
+from app.ai.Cognitive.system.v0.appraisal.models import AppraisalSubject
+from app.ai.Cognitive.system.v0.appraisal.rules import DIMENSION_TYPES
 
 
 def _profile(sensitivity: str = "neutral") -> PersonalityProfile:

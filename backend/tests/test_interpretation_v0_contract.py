@@ -7,19 +7,19 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal.models import (
+from app.ai.Cognitive.system.v0.appraisal.models import (
     InterpretationEnvelope as AppraisalInterpretationEnvelope,
     SemanticFrame as AppraisalSemanticFrame,
 )
-from app.ai.Cognitive.system.contracts.interpretation import (
+from app.ai.Cognitive.system.v0.contracts.interpretation import (
     InterpretationEnvelope,
     SemanticFrame,
 )
-from app.ai.Cognitive.system.interpretation_v0.fixture_validator import (
+from app.ai.Cognitive.system.v0.interpretation_v0.fixture_validator import (
     DEFAULT_FIXTURE,
     _runtime_case,
 )
-from app.ai.Cognitive.system.interpretation_v0 import InterpretationEngine
+from app.ai.Cognitive.system.v0.interpretation_v0 import InterpretationEngine
 
 
 def _case(case_id: str) -> dict[str, object]:

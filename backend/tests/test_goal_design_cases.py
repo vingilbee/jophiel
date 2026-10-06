@@ -9,7 +9,7 @@ from typing import Any
 
 FIXTURE = (
     Path(__file__).parents[1]
-    / "app/ai/Cognitive/system/data/goal_design_cases.json"
+    / "app/ai/Cognitive/system/v0/data/goal_design_cases.json"
 )
 
 

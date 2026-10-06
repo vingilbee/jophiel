@@ -7,7 +7,7 @@ import threading
 import redis
 
 from app.core.config import get_settings
-from app.workers import chat, file_deletion, memory, whatsapp
+from app.workers import chat, cognitive_shadow, dialogue_memory, file_deletion, memory, whatsapp
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,26 @@ def run(stop: threading.Event | None = None) -> None:
                 "whatsapp", whatsapp.run_once,
                 getattr(settings, "whatsapp_queue_name", "macrovision:whatsapp:wakeups"),
                 getattr(settings, "whatsapp_worker_poll_seconds", 1.0),
+            ))
+        if getattr(settings, "cognitive_live_shadow_enabled", False) and getattr(
+            settings, "cognitive_live_shadow_run_in_shared_worker", True
+        ):
+            # A separate thread and queue: shadow cognition never shares the
+            # chat thread, so its CPU work cannot sit in front of a reply.
+            cognitive_shadow.check_semantic_parser_configuration(settings)
+            cognitive_shadow.check_realization_configuration(settings)
+            worker_specs.append((
+                "cognitive-shadow", cognitive_shadow.run_once,
+                getattr(settings, "cognitive_live_shadow_queue_name", "macrovision:cognitive-shadow:wakeups"),
+                getattr(settings, "cognitive_live_shadow_worker_poll_seconds", 2.0),
+            ))
+        if getattr(settings, "cognitive_dialogue_memory_enabled", False):
+            # Its own thread and queue: dialogue state updates never sit in
+            # front of a chat reply or a shadow observation.
+            worker_specs.append((
+                "dialogue-memory", dialogue_memory.run_once,
+                getattr(settings, "cognitive_dialogue_memory_queue_name", "macrovision:dialogue-memory:wakeups"),
+                getattr(settings, "cognitive_dialogue_memory_worker_poll_seconds", 2.0),
             ))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(

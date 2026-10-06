@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     AppraisalDimension as DynamicAppraisalDimension,
     AppraisalFrame as DynamicAppraisalFrame,
     DynamicStateContext,
@@ -19,8 +19,8 @@ from app.ai.Cognitive.system.dynamic_state import (
     StateKey,
     UpdateRequest,
 )
-from app.ai.Cognitive.system.appraisal.engine import AppraisalEngine
-from app.ai.Cognitive.system.appraisal.models import (
+from app.ai.Cognitive.system.v0.appraisal.engine import AppraisalEngine
+from app.ai.Cognitive.system.v0.appraisal.models import (
     ActiveGoal,
     AppraisalDimension,
     AppraisalFrame,
@@ -31,9 +31,12 @@ from app.ai.Cognitive.system.appraisal.models import (
     RuntimeContext,
     SemanticFrame,
 )
-from app.ai.Cognitive.system.dynamic_state.policy import DEFAULT_BASELINE_SCORES
-from app.ai.Cognitive.system.contracts.interpretation import (
+from app.ai.Cognitive.system.v0.dynamic_state.policy import DEFAULT_BASELINE_SCORES
+from app.ai.Cognitive.system.v0.contracts.interpretation import (
     InterpretationEvidence, InterpretationEvidenceKind, InterpretationVersions,
+)
+from app.ai.Cognitive.system.v0.contracts.goals import (
+    GoalDefinitionRef, GoalRequirement, GoalTargetRef,
 )
 
 
@@ -179,9 +182,21 @@ def test_initial_snapshot_flows_into_first_appraisal_revision() -> None:
             ),
         ),
         active_goals=(ActiveGoal(
-            goal_id="goal-1", owner="columbina", goal_type="conversation",
-            description="Explain the estimate", desired_state={"user_has_explanation": True},
-            priority_band="high",
+            goal_id="goal-1",
+            definition_ref=GoalDefinitionRef(
+                definition_key="interaction.answer_information_request",
+                definition_version="v0.1-draft",
+            ),
+            owner="columbina", domain="interaction", mode="achieve",
+            scope="turn", scope_ref="turn-2", priority_band="high",
+            requirements=(GoalRequirement(
+                requirement_id="goal-1-requirement",
+                requirement_key="supported_answer_provided",
+                target_refs=(GoalTargetRef(role="topic_ref", ref="estimate-change"),),
+                parameters={"answer_scope": "estimate-change"},
+                satisfaction_policy_key="goal-satisfaction.supported-answer.v1",
+            ),),
+            source_refs=("message-1",),
         ),),
         runtime=RuntimeContext(
             capability_snapshot=CapabilitySnapshot(snapshot_id="capability-1")

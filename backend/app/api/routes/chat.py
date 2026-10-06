@@ -90,6 +90,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai import AgentRuntimeContext, prompts, stream_chat, vision
+from app.ai.Cognitive.system.v0.live_shadow.models import GenerationPath, ShadowSourceChannel
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.api.deps import get_current_user, validate_origin
@@ -112,6 +113,8 @@ from app.services import asset_store, google_account, image_store, salience
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
+from app.services import cognitive_shadow
+from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -661,16 +664,25 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         if reply:
             db = SessionLocal()
+            scheduled = False
             try:
                 conversation = chat_service.get_conversation(
                     db, user_id=user_id, conversation_id=conversation_id
                 )
                 if conversation is not None:
-                    chat_service.add_message(
-                        db, conversation=conversation, role="assistant", content=reply
+                    nudge_message = chat_service.add_message(
+                        db, conversation=conversation, role="assistant", content=reply, commit=False,
                     )
+                    # An unprompted message is still a delivered dialogue event.
+                    scheduled = dialogue_memory.schedule_update(
+                        db, user_id=user_id, conversation_id=conversation_id,
+                        trigger_message_id=nudge_message.id,
+                    )
+                    db.commit()
             finally:
                 db.close()
+            if scheduled:
+                dialogue_memory.wake_worker()
 
         await send_json({"type": "nudge_end"})
 
@@ -749,6 +761,19 @@ async def chat_ws(websocket: WebSocket) -> None:
                 gmail_access_token = None
         finally:
             db.close()
+
+        # Local fallback has no ChatJob, so it calls the same shared capture
+        # owner as the chat worker, marked as the local-fallback path.
+        # Observational only: nothing below reads the result.
+        if cognitive_shadow.capture_enabled():
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    cognitive_shadow.capture_turn,
+                    user_id=user_id, conversation_id=resolved_id, turn_id=turn_id,
+                    user_message_id=user_message.id, chat_job_id=None,
+                    generation_path=GenerationPath.LOCAL_FALLBACK,
+                    source_channel=ShadowSourceChannel.VOICE if voice else ShadowSourceChannel.WEB,
+                )
 
         # Caption the screen lazily, here, rather than on a timer while the
         # user is idle — this is what makes an always-on eye free when nobody
@@ -865,6 +890,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             "partial" if stopped else
             "completed"
         )
+        dialogue_scheduled = False
         if reply or outcome_status in {"cancelled", "failed"}:
             db = SessionLocal()
             try:
@@ -880,7 +906,15 @@ async def chat_ws(websocket: WebSocket) -> None:
                         content=reply,
                         turn_id=turn_id,
                         status=outcome_status,
+                        commit=False,
                     )
+                    # The same scheduling service as the chat worker, in the
+                    # transaction that commits the terminal outcome.
+                    dialogue_scheduled = dialogue_memory.schedule_update(
+                        db, user_id=user_id, conversation_id=resolved_id,
+                        trigger_message_id=assistant_message_id,
+                    )
+                    db.commit()
                     # A stopped reply is partial model output, not a completed
                     # interaction, so only consolidate finished turns.
                     if not stopped:
@@ -888,10 +922,23 @@ async def chat_ws(websocket: WebSocket) -> None:
                             db,
                             user_id=user_id,
                             conversation_id=resolved_id,
-                            assistant_message_id=assistant_message.id,
+                            assistant_message_id=assistant_message_id,
                         )
             finally:
                 db.close()
+        elif dialogue_memory.enabled():
+            # A user-only terminal turn still advances dialogue memory over
+            # the persisted user message.
+            db = SessionLocal()
+            try:
+                dialogue_scheduled = dialogue_memory.schedule_update(
+                    db, user_id=user_id, conversation_id=resolved_id, trigger_message_id=user_message.id,
+                )
+                db.commit()
+            finally:
+                db.close()
+        if dialogue_scheduled:
+            dialogue_memory.wake_worker()
 
         await emit_event({
             "type": "stopped" if stopped else "done",
