@@ -14,6 +14,7 @@ from app.api.deps import get_current_user, validate_origin
 from app.core.config import get_settings
 from app.db.models import User
 from app.db.session import get_db
+from app.services import dialogue_memory
 from app.services import whatsapp as whatsapp_service
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
@@ -113,6 +114,7 @@ async def receive_webhook(
 
     message_events = 0
     status_events = 0
+    dialogue_updates = False
     for entry in payload.get("entry") or []:
         for change in entry.get("changes") or []:
             if change.get("field") != "messages":
@@ -166,7 +168,7 @@ async def receive_webhook(
                     continue
                 errors = delivery_status.get("errors") or []
                 error = str(errors[0])[:1000] if errors else None
-                whatsapp_service.apply_delivery_status(
+                dialogue_updates |= whatsapp_service.apply_delivery_status(
                     db,
                     provider_message_id=provider_id,
                     status=delivery_status.get("status", ""),
@@ -181,6 +183,8 @@ async def receive_webhook(
                     bool(error),
                 )
     db.commit()
+    if dialogue_updates:
+        dialogue_memory.wake_worker()
     logger.info(
         "WhatsApp webhook accepted: message_events=%d status_events=%d",
         message_events,

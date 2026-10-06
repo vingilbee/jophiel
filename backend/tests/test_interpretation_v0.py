@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-from app.ai.Cognitive.system.interpretation_v0 import (
+from app.ai.Cognitive.system.v0.interpretation_v0 import (
     InterpretationEngine,
     InterpretationExecutionError,
     InterpretationMemory,
 )
-from app.ai.Cognitive.system.contracts.interpretation import InterpretationEnvelope
-from app.ai.Cognitive.system.interpretation_v0.evidence import EvidenceRegistryBuilder
-from app.ai.Cognitive.system.interpretation_v0.fixture_validator import (
+from app.ai.Cognitive.system.v0.contracts.interpretation import InterpretationEnvelope
+from app.ai.Cognitive.system.v0.interpretation_v0.evidence import EvidenceRegistryBuilder
+from app.ai.Cognitive.system.v0.interpretation_v0.fixture_validator import (
     DEFAULT_FIXTURE,
     RuntimeEligibility,
     _runtime_case,
@@ -30,15 +30,29 @@ def test_all_structural_and_live_fixture_cases_are_accounted_for() -> None:
     report = validate_fixture()
 
     assert report.passed
-    assert report.cases_validated == 23
-    assert report.cases_executed == 22
-    assert report.expectations_checked == 128
+    # 23 original cases plus 4 compositional-grounding contrasts (SH-EVAL-003).
+    assert report.cases_validated == 27
+    assert report.cases_executed == 26
+    assert report.expectations_checked == 152
     assert report.eligibility_counts == {
-        RuntimeEligibility.LIVE_V0_ELIGIBLE.value: 22,
+        RuntimeEligibility.LIVE_V0_ELIGIBLE.value: 26,
         RuntimeEligibility.ONTOLOGY_ONLY_SHADOW_DEPENDENCY.value: 1,
     }
     assert report.deferred_cases == ("positive-negative-mismatch",)
-    assert len(report.ontology_questions) == 1
+    assert report.errors == ()
+    assert report.ontology_questions == ()
+
+
+def test_mixed_evaluation_keeps_target_polarities_under_an_unknown_frame_polarity() -> None:
+    _, request = _runtime_case(_case("mixed-literal-evaluation"))
+    frame = next(
+        item for item in InterpretationEngine().interpret(request).semantic_frames
+        if item.predicate == "evaluate_meal"
+    )
+    assert frame.polarity == "unknown"
+    assert dict(frame.arguments) == {"soup": "positive", "service": "negative"}
+    for case_id in ("mixed-literal-evaluation", "positive-negative-mismatch"):
+        assert all(item["polarity"] != "mixed" for item in _case(case_id)["semantic_frame_expectations"])
 
 
 def test_interpretation_is_deterministic_and_preserves_exact_perception_ownership() -> None:

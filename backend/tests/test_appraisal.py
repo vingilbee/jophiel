@@ -5,17 +5,18 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal import validate_fixture
-from app.ai.Cognitive.system.appraisal.engine import AppraisalEngine
-from app.ai.Cognitive.system.appraisal.models import (
+from app.ai.Cognitive.system.v0.appraisal import validate_fixture
+from app.ai.Cognitive.system.v0.appraisal.engine import AppraisalEngine
+from app.ai.Cognitive.system.v0.appraisal.models import (
     ActiveGoal, AppraisalDimension, AppraisalRequest, CapabilitySnapshot, Contradiction,
     DimensionStatus, InterpretationEnvelope as CanonicalInterpretationEnvelope,
     InterpretationScenario as CanonicalInterpretationScenario, RuntimeContext,
     SemanticFrame as CanonicalSemanticFrame, SupplementalInput, UnknownInput as CanonicalUnknownInput,
 )
-from app.ai.Cognitive.system.contracts.interpretation import (
+from app.ai.Cognitive.system.v0.contracts.interpretation import (
     InterpretationEvidence, InterpretationEvidenceKind, InterpretationVersions,
 )
+from app.ai.Cognitive.system.v0.contracts.goals import GoalDefinitionRef, GoalRequirement, GoalTargetRef
 
 
 def SemanticFrame(**values: object) -> CanonicalSemanticFrame:
@@ -85,10 +86,28 @@ def test_all_appraisal_design_cases_execute() -> None:
 
 
 def _goal(goal_id: str = "goal", **desired_state: object) -> ActiveGoal:
+    if desired_state.get("failure_explained") is True:
+        definition_key, requirement_key, policy = "interaction.explain_unavailable_or_failed_operation", "operation_failure_explained", "goal-satisfaction.operation-failure-explained.v1"
+        targets = (GoalTargetRef(role="operation_ref", ref="operation-test"), GoalTargetRef(role="failure_ref", ref="failure-test"))
+        parameters, domain, scope = {}, "interaction", "turn"
+    elif desired_state.get("export_completed") is True:
+        definition_key, requirement_key, policy = "task.complete_authorized_request", "authorized_task_completed", "goal-satisfaction.authorized-task-result.v1"
+        targets = (GoalTargetRef(role="task_ref", ref="task-test"),)
+        parameters, domain, scope = {"requested_effect": "export_completed"}, "task", "task"
+    else:
+        definition_key, requirement_key, policy = "interaction.answer_information_request", "supported_answer_provided", "goal-satisfaction.supported-answer.v1"
+        targets = (GoalTargetRef(role="topic_ref", ref="topic-test"),)
+        parameters, domain, scope = {"answer_scope": "test"}, "interaction", "turn"
     return ActiveGoal(
-        goal_id=goal_id, owner="columbina", goal_type="conversation",
-        description="test goal", desired_state=desired_state or {"resolved": True},
-        priority_band="high",
+        goal_id=goal_id, definition_ref=GoalDefinitionRef(
+            definition_key=definition_key, definition_version="v0.1-draft",
+        ),
+        owner="shared" if definition_key != "interaction.answer_information_request" else "user",
+        domain=domain, mode="achieve", scope=scope, scope_ref="task-test" if scope == "task" else "turn-test",
+        priority_band="high", requirements=(GoalRequirement(
+            requirement_id=f"{goal_id}-requirement", requirement_key=requirement_key,
+            target_refs=targets, parameters=parameters, satisfaction_policy_key=policy,
+        ),), source_refs=("test-source",),
     )
 
 

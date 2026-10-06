@@ -7,7 +7,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.perception_v0 import (
+from app.ai.Cognitive.system.v0.perception_v0 import (
     CUE_MANIFEST,
     AttachmentFact,
     CueActivation,
@@ -24,8 +24,8 @@ from app.ai.Cognitive.system.perception_v0 import (
     perceive,
     validate_manifest,
 )
-from app.ai.Cognitive.system.perception_v0.detectors import DETECTORS
-from app.ai.Cognitive.system.perception_v0.evidence import validate_evidence
+from app.ai.Cognitive.system.v0.perception_v0.detectors import DETECTORS
+from app.ai.Cognitive.system.v0.perception_v0.evidence import validate_evidence
 
 
 def _request(content: str = "Please send the report.") -> PerceptionRequest:

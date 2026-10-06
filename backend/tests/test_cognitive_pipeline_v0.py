@@ -7,12 +7,16 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal.engine import AppraisalEngine
-from app.ai.Cognitive.system.appraisal.models import ActiveGoal, CapabilitySnapshot, RuntimeContext
-from app.ai.Cognitive.system.cognitive_turn import CognitiveTurnRequest, CognitiveTurnRunner
-from app.ai.Cognitive.system.dynamic_state import DynamicStateSnapshotFactory, PersonalityProfile
-from app.ai.Cognitive.system.interpretation_v0 import InterpretationEngine
-from app.ai.Cognitive.system.interpretation_v0.fixture_validator import (
+from cognitive_action_support import action_inputs
+from app.ai.Cognitive.system.v0.appraisal.engine import AppraisalEngine
+from app.ai.Cognitive.system.v0.appraisal.models import CapabilitySnapshot, RuntimeContext
+from app.ai.Cognitive.system.v0.contracts.goals import GoalUpdateTrigger
+from app.ai.Cognitive.system.v0.goal_v0 import GoalEngine
+from app.ai.Cognitive.system.v0.goal_v0.models import GoalRuntimeContext, GoalUpdateRequest
+from app.ai.Cognitive.system.v0.cognitive_turn import CognitiveTurnRequest, CognitiveTurnRunner
+from app.ai.Cognitive.system.v0.dynamic_state import DynamicStateSnapshotFactory, PersonalityProfile
+from app.ai.Cognitive.system.v0.interpretation_v0 import InterpretationEngine
+from app.ai.Cognitive.system.v0.interpretation_v0.fixture_validator import (
     DEFAULT_FIXTURE,
     _runtime_case,
 )
@@ -45,27 +49,40 @@ def test_real_pipeline_preserves_ownership_identity_and_version_provenance(
         conversation_ref=interpretation.conversation_ref,
         cognitive_turn_id="pipeline-before", personality=personality,
     )
+    goal_update = GoalEngine().update(GoalUpdateRequest(
+        trigger=GoalUpdateTrigger.RESPONSE_TURN,
+        cognitive_turn_id=interpretation.cognitive_turn_id,
+        conversation_ref=interpretation.conversation_ref,
+        interpretation=interpretation,
+        runtime=GoalRuntimeContext(
+            cognitive_turn_id=interpretation.cognitive_turn_id,
+            runtime_snapshot_ref=interpretation.runtime_snapshot_id,
+            response_obligation="required",
+            response_obligation_ref=f"response-obligation:{case_id}",
+        ),
+        previous_dynamic_state=previous,
+    ))
+    runtime = RuntimeContext(capability_snapshot=CapabilitySnapshot(snapshot_id="appraisal-capability-1"))
     request = CognitiveTurnRequest(
         cognitive_turn_id=interpretation.cognitive_turn_id,
         conversation_ref=interpretation.conversation_ref,
         input_message_ids=interpretation.input_message_ids,
         focus_message_id=interpretation.focus_message_id,
         interpretation=interpretation,
-        active_goals=(ActiveGoal(
-            goal_id="goal-answer-question", owner="columbina", goal_type="conversation",
-            description="Answer the grounded question", desired_state={"answered": True},
-            priority_band="high",
-        ),),
-        runtime=RuntimeContext(
-            capability_snapshot=CapabilitySnapshot(snapshot_id="appraisal-capability-1")
-        ),
+        goal_snapshot=goal_update.snapshot,
+        active_goals=goal_update.active_goal_views,
+        runtime=runtime,
         previous_state=previous, personality=personality,
         core_memory_ref="core-columbina-v1",
         memory_retrieval_policy_version="memory-retrieval-v1",
+        **action_inputs(
+            runtime, runtime_snapshot_ref=interpretation.runtime_snapshot_id,
+            core_memory_ref="core-columbina-v1", response_obligation_ref=f"response-obligation:{case_id}",
+        ),
     )
     trace = CognitiveTurnRunner(
         appraisal_engine=AppraisalEngine(), id_factory=lambda: "pipeline-trace-1",
-        clock=iter((0.0, 0.001, 0.003)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
     ).evaluate(request)
 
     assert request.interpretation is interpretation
@@ -97,6 +114,24 @@ def test_connected_pipeline_rejects_state_from_another_conversation() -> None:
         personality=personality,
     )
 
+    valid_state = DynamicStateSnapshotFactory().create_initial(
+        conversation_ref=interpretation.conversation_ref,
+        cognitive_turn_id="pipeline-before", personality=personality,
+    )
+    goal_update = GoalEngine().update(GoalUpdateRequest(
+        trigger=GoalUpdateTrigger.RESPONSE_TURN,
+        cognitive_turn_id=interpretation.cognitive_turn_id,
+        conversation_ref=interpretation.conversation_ref,
+        interpretation=interpretation,
+        runtime=GoalRuntimeContext(
+            cognitive_turn_id=interpretation.cognitive_turn_id,
+            runtime_snapshot_ref=interpretation.runtime_snapshot_id,
+            response_obligation="required",
+            response_obligation_ref="response-obligation:foreign-state",
+        ),
+        previous_dynamic_state=valid_state,
+    ))
+
     with pytest.raises(ValidationError, match="different conversation"):
         CognitiveTurnRequest(
             cognitive_turn_id=interpretation.cognitive_turn_id,
@@ -104,14 +139,8 @@ def test_connected_pipeline_rejects_state_from_another_conversation() -> None:
             input_message_ids=interpretation.input_message_ids,
             focus_message_id=interpretation.focus_message_id,
             interpretation=interpretation,
-            active_goals=(ActiveGoal(
-                goal_id="goal-answer-question",
-                owner="columbina",
-                goal_type="conversation",
-                description="Answer the grounded question",
-                desired_state={"answered": True},
-                priority_band="high",
-            ),),
+            goal_snapshot=goal_update.snapshot,
+            active_goals=goal_update.active_goal_views,
             runtime=RuntimeContext(
                 capability_snapshot=CapabilitySnapshot(snapshot_id="appraisal-capability-1")
             ),
@@ -119,4 +148,8 @@ def test_connected_pipeline_rejects_state_from_another_conversation() -> None:
             personality=personality,
             core_memory_ref="core-columbina-v1",
             memory_retrieval_policy_version="memory-retrieval-v1",
+            **action_inputs(
+                RuntimeContext(capability_snapshot=CapabilitySnapshot(snapshot_id="appraisal-capability-1")),
+                runtime_snapshot_ref=interpretation.runtime_snapshot_id, core_memory_ref="core-columbina-v1",
+            ),
         )

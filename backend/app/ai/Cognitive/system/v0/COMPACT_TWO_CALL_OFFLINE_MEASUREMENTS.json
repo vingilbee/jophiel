@@ -1,0 +1,214 @@
+{
+  "schema": "compact-offline-structural-report-v0.1",
+  "synthetic": true,
+  "external_provider_calls": 0,
+  "provider_latency_p50_ms": null,
+  "provider_latency_p95_ms": null,
+  "provider_token_counts": null,
+  "rows": [
+    {
+      "protocol": "legacy",
+      "turn_class": "social",
+      "stage": "call_one",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 25939,
+      "schema_characters": 5959,
+      "instruction_characters": 1925,
+      "output_characters": 4718,
+      "attribution": null
+    },
+    {
+      "protocol": "legacy",
+      "turn_class": "social",
+      "stage": "call_two",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 31125,
+      "schema_characters": 7607,
+      "instruction_characters": 4783,
+      "output_characters": 642,
+      "attribution": null
+    },
+    {
+      "protocol": "legacy",
+      "turn_class": "artifact",
+      "stage": "call_one",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 26141,
+      "schema_characters": 5959,
+      "instruction_characters": 1925,
+      "output_characters": 29657,
+      "attribution": null
+    },
+    {
+      "protocol": "legacy",
+      "turn_class": "artifact",
+      "stage": "call_two",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 62158,
+      "schema_characters": 8891,
+      "instruction_characters": 4783,
+      "output_characters": 2540,
+      "attribution": null
+    },
+    {
+      "protocol": "compact",
+      "turn_class": "social",
+      "stage": "call_one",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 15726,
+      "schema_characters": 6589,
+      "instruction_characters": 2815,
+      "output_characters": 895,
+      "attribution": {
+        "unit": "unicode_characters",
+        "tokenizer": null,
+        "token_estimation": "characters_divided_by_4_rough_estimate",
+        "estimated_input_tokens": 6282.5,
+        "estimated_output_tokens": 223.75,
+        "first_token_ms": null,
+        "payload_sections": {
+          "protocol": 35,
+          "turn_context": 2634,
+          "evidence_regions": 57,
+          "predicates": 5290,
+          "argument_specs": 7319,
+          "reference_scope": 291
+        },
+        "output_sections": {
+          "observations": 159,
+          "readings": 452,
+          "event_appraisals": 179,
+          "existing_goal_impacts": 2,
+          "unknowns": 2,
+          "conflicts": 2
+        },
+        "prompt_characters": 2815,
+        "schema_characters": 6589
+      }
+    },
+    {
+      "protocol": "compact",
+      "turn_class": "social",
+      "stage": "call_two",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 4483,
+      "schema_characters": 4327,
+      "instruction_characters": 2857,
+      "output_characters": 265,
+      "attribution": {
+        "unit": "unicode_characters",
+        "tokenizer": null,
+        "token_estimation": "characters_divided_by_4_rough_estimate",
+        "estimated_input_tokens": 2916.75,
+        "estimated_output_tokens": 66.25,
+        "first_token_ms": null,
+        "payload_sections": {
+          "protocol": 35,
+          "decision_context": 4415,
+          "decision_context.version": 23,
+          "decision_context.shared_context": 1379,
+          "decision_context.understanding": 868,
+          "decision_context.state_after": 680,
+          "decision_context.goals": 285,
+          "decision_context.readiness": 2,
+          "decision_context.content_requests": 2,
+          "decision_context.answer_permissions": 2,
+          "decision_context.choices": 1022,
+          "decision_context.templates": 2
+        },
+        "output_sections": {
+          "content_ops": 2,
+          "moves": 137,
+          "segments": 74,
+          "inquiries": 2
+        },
+        "prompt_characters": 2857,
+        "schema_characters": 4327
+      }
+    },
+    {
+      "protocol": "compact",
+      "turn_class": "artifact",
+      "stage": "call_one",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 15795,
+      "schema_characters": 6589,
+      "instruction_characters": 2815,
+      "output_characters": 836,
+      "attribution": {
+        "unit": "unicode_characters",
+        "tokenizer": null,
+        "token_estimation": "characters_divided_by_4_rough_estimate",
+        "estimated_input_tokens": 6299.75,
+        "estimated_output_tokens": 209.0,
+        "first_token_ms": null,
+        "payload_sections": {
+          "protocol": 35,
+          "turn_context": 2702,
+          "evidence_regions": 58,
+          "predicates": 5290,
+          "argument_specs": 7319,
+          "reference_scope": 291
+        },
+        "output_sections": {
+          "observations": 334,
+          "readings": 218,
+          "event_appraisals": 179,
+          "existing_goal_impacts": 2,
+          "unknowns": 2,
+          "conflicts": 2
+        },
+        "prompt_characters": 2815,
+        "schema_characters": 6589
+      }
+    },
+    {
+      "protocol": "compact",
+      "turn_class": "artifact",
+      "stage": "call_two",
+      "core_status": "completed",
+      "realization_status": "accepted_shadow",
+      "payload_characters": 11675,
+      "schema_characters": 9257,
+      "instruction_characters": 2857,
+      "output_characters": 1990,
+      "attribution": {
+        "unit": "unicode_characters",
+        "tokenizer": null,
+        "token_estimation": "characters_divided_by_4_rough_estimate",
+        "estimated_input_tokens": 5947.25,
+        "estimated_output_tokens": 497.5,
+        "first_token_ms": null,
+        "payload_sections": {
+          "protocol": 35,
+          "decision_context": 11607,
+          "decision_context.version": 23,
+          "decision_context.shared_context": 1446,
+          "decision_context.understanding": 809,
+          "decision_context.state_after": 680,
+          "decision_context.goals": 284,
+          "decision_context.readiness": 661,
+          "decision_context.content_requests": 771,
+          "decision_context.answer_permissions": 2,
+          "decision_context.choices": 590,
+          "decision_context.templates": 6191
+        },
+        "output_sections": {
+          "content_ops": 1511,
+          "moves": 295,
+          "segments": 132,
+          "inquiries": 2
+        },
+        "prompt_characters": 2857,
+        "schema_characters": 9257
+      }
+    }
+  ]
+}

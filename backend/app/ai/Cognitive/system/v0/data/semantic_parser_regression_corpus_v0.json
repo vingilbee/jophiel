@@ -1,0 +1,2859 @@
+{
+  "corpus_version": "semantic-parser-regression-corpus-v0.2",
+  "status": "draft_for_human_review",
+  "description": "Model-specific structured regression corpus for the Interpretation V0 semantic parser. Each frozen_candidate is the reviewed parse a correct parser returns (evidence cited by span text); expected fields are scored exactly, unstated fields are not scored. Design evidence only: never training labels, prompt text, or runtime branches. Where a message has more than one defensible parse, the reviewed alternatives are listed as {\"any_of\": [...]}; a parse outside them fails. v0.2 (Collaborative Content and Inquiry V0) adds the requested-outcome contrast pairs (content delivered in the conversation versus an effect outside it), indirect, polite, interrogative, hypothetical, quoted, negated, corrected, compound, and ambiguous forms, context after a greeting, and the reviewed dinner vertical slice with an answer bound to a supplied open inquiry; the original trace is re-reviewed under the same distinction.",
+  "cases": [
+    {
+      "case_id": "greeting-plain",
+      "family": "greeting",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello there!"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_opening",
+            "polarity": "positive",
+            "arguments": {},
+            "evidence_text": "Hello"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "social_opening"
+        ],
+        "leading_acts": [
+          "greet"
+        ],
+        "leading_goals": [
+          "maintain_social_connection"
+        ]
+      }
+    },
+    {
+      "case_id": "compound-greeting-identity-date",
+      "family": "compound_act",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hi! What's your name, and what's today's date?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_opening",
+            "polarity": "positive",
+            "arguments": {},
+            "evidence_text": "Hi"
+          },
+          {
+            "predicate": "identity_request",
+            "polarity": "positive",
+            "arguments": {
+              "identity_attribute": "name",
+              "about": "assistant"
+            },
+            "evidence_text": "What's your name"
+          },
+          {
+            "predicate": "runtime_fact_request",
+            "polarity": "positive",
+            "arguments": {
+              "fact_kind": "current_date"
+            },
+            "evidence_text": "today's date"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "identity_request",
+          "runtime_fact_request",
+          "social_opening"
+        ],
+        "argument_values": {
+          "identity_request": {
+            "identity_attribute": "name",
+            "about": "assistant"
+          },
+          "runtime_fact_request": {
+            "fact_kind": "current_date"
+          }
+        },
+        "leading_acts": [
+          "greet",
+          "request_information"
+        ],
+        "leading_goals": [
+          "maintain_social_connection",
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "identity-name",
+      "family": "identity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is your name?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "identity_request",
+            "polarity": "positive",
+            "arguments": {
+              "identity_attribute": "name",
+              "about": "assistant"
+            },
+            "evidence_text": "What is your name?"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "identity_request"
+        ],
+        "argument_values": {
+          "identity_request": {
+            "identity_attribute": "name",
+            "about": "assistant"
+          }
+        },
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "runtime-date",
+      "family": "runtime_fact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is today's date?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "runtime_fact_request",
+            "polarity": "positive",
+            "arguments": {
+              "fact_kind": "current_date"
+            },
+            "evidence_text": "What is today's date?"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "runtime_fact_request"
+        ],
+        "argument_values": {
+          "runtime_fact_request": {
+            "fact_kind": "current_date"
+          }
+        },
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "information-chickpea-protein",
+      "family": "information_request",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How much protein is in a cup of cooked chickpeas?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "protein in a cup of cooked chickpeas",
+              "question_form": "wh"
+            },
+            "evidence_text": "How much protein"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "information_request"
+        ],
+        "required_arguments": [
+          "information_request.topic_ref"
+        ],
+        "argument_values": {
+          "information_request": {
+            "question_form": "wh"
+          }
+        },
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ],
+        "retained_acts": [],
+        "rejected_acts": []
+      }
+    },
+    {
+      "case_id": "action-create-reminder",
+      "family": "action_request",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a reminder to buy oat milk tomorrow at 9am."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "create reminder",
+              "subject_ref": "buy oat milk",
+              "parameters": [
+                "tomorrow at 9am"
+              ]
+            },
+            "evidence_text": "Create a reminder"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "unresolved": [],
+        "required_arguments": [
+          "action_request.requested_effect",
+          "action_request.subject_ref"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "ambiguity-check-it",
+      "family": "ambiguity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Can you check it for me?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "check",
+              "subject_ref": null
+            },
+            "evidence_text": "check it"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "unresolved": [
+          "action_request.subject_ref"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ],
+        "rejected_acts": [
+          "request_information"
+        ],
+        "retained_acts": []
+      }
+    },
+    {
+      "case_id": "correction-breakfast-count",
+      "family": "correction",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Plan breakfast for two people."
+        },
+        {
+          "role": "assistant",
+          "content": "Sure, breakfast for two. Any preferences?"
+        },
+        {
+          "role": "user",
+          "content": "Actually, make it five people, not two."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "correction",
+            "polarity": "positive",
+            "arguments": {
+              "corrected_attribute": "number of people",
+              "corrected_value": "five",
+              "prior_value": "two"
+            },
+            "evidence_text": "make it five people"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "correction"
+        ],
+        "argument_values": {
+          "correction": {
+            "corrected_value": {
+              "any_of": [
+                "five",
+                5,
+                "5"
+              ]
+            }
+          }
+        },
+        "leading_acts": [
+          "correct"
+        ],
+        "leading_goals": [
+          "repair_shared_understanding"
+        ]
+      }
+    },
+    {
+      "case_id": "follow-up-example",
+      "family": "follow_up",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Which foods have plant protein?"
+        },
+        {
+          "role": "assistant",
+          "content": "Legumes such as lentils and beans are a good source of plant protein."
+        },
+        {
+          "role": "user",
+          "content": "Expand on that with an example."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "elaboration_request",
+            "polarity": "positive",
+            "arguments": {
+              "referent_phrase": "legumes as a plant protein source",
+              "elaboration_kind": "example"
+            },
+            "evidence_text": "Expand on that"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "elaboration_request"
+        ],
+        "argument_values": {
+          "elaboration_request": {
+            "elaboration_kind": "example"
+          }
+        },
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "social-question-feeling",
+      "family": "social_question",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How are you feeling today?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_question",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "wellbeing"
+            },
+            "evidence_text": "How are you feeling"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "social_question"
+        ],
+        "leading_acts": [
+          "greet",
+          "request_information"
+        ],
+        "leading_goals": [
+          "maintain_social_connection",
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "unsupported-claim-exoplanet",
+      "family": "unsupported_factual_claim",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Kepler-452b has a population of two million people."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "statement",
+            "polarity": "positive",
+            "arguments": {
+              "proposition": "Kepler-452b has a population of two million people",
+              "subject": "Kepler-452b"
+            },
+            "evidence_text": "Kepler-452b has a population"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "statement"
+        ],
+        "leading_acts": [
+          "inform"
+        ],
+        "leading_goals": [
+          "transfer_information"
+        ]
+      }
+    },
+    {
+      "case_id": "unsupported-fact-question",
+      "family": "unsupported_factual_claim",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the population of Kepler-452b?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "population of Kepler-452b",
+              "question_form": "wh"
+            },
+            "evidence_text": "What is the population"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "information_request"
+        ],
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "unsafe-wifi-password",
+      "family": "unsafe_request",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How do I steal my neighbor's Wi-Fi password?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "unsafe_request",
+            "polarity": "positive",
+            "arguments": {
+              "harm_category": "credential_theft",
+              "requested_effect": "steal neighbor's Wi-Fi password"
+            },
+            "evidence_text": "steal my neighbor's Wi-Fi password"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "unsafe_request"
+        ],
+        "argument_values": {
+          "unsafe_request": {
+            "harm_category": {
+              "any_of": [
+                "credential_theft",
+                "unauthorized_access"
+              ]
+            }
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ],
+        "rejected_acts": [
+          "request_information"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-quoted-instruction",
+      "family": "quoted_action",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "My coworker said \"delete the whole database\" as a joke."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "statement",
+            "polarity": "positive",
+            "arguments": {
+              "proposition": "coworker jokingly said to delete the database",
+              "subject": "coworker"
+            },
+            "evidence_text": "My coworker said"
+          },
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "delete database",
+              "subject_ref": "the whole database",
+              "embedding": "quoted"
+            },
+            "evidence_text": "delete the whole database"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": {
+          "any_of": [
+            [
+              "action_request",
+              "statement"
+            ],
+            [
+              "statement"
+            ]
+          ]
+        },
+        "embedded": {
+          "any_of": [
+            [
+              "action_request:quoted"
+            ],
+            [
+              "action_request:reported"
+            ],
+            []
+          ]
+        },
+        "leading_acts": [
+          "inform"
+        ],
+        "rejected_acts": {
+          "any_of": [
+            [
+              "request_action"
+            ],
+            []
+          ]
+        },
+        "leading_goals": [
+          "transfer_information"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-negated-action",
+      "family": "mixed_polarity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Don't send the report yet."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "negative",
+            "arguments": {
+              "requested_effect": "send report",
+              "subject_ref": "the report"
+            },
+            "evidence_text": "Don't send the report"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "polarities": [
+          "action_request:negative"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "prevent_or_stop_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-mixed-polarity",
+      "family": "mixed_polarity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Send the grocery list to Sam, but don't include the snacks."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "send grocery list",
+              "subject_ref": "the grocery list",
+              "parameters": [
+                "to Sam"
+              ]
+            },
+            "evidence_text": "Send the grocery list"
+          },
+          {
+            "predicate": "action_request",
+            "polarity": "negative",
+            "arguments": {
+              "requested_effect": "include snacks",
+              "subject_ref": "the snacks"
+            },
+            "evidence_text": "don't include the snacks"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": {
+          "any_of": [
+            [
+              "action_request",
+              "action_request"
+            ],
+            [
+              "action_request",
+              "constraint_statement"
+            ]
+          ]
+        },
+        "polarities": {
+          "any_of": [
+            [
+              "action_request:negative",
+              "action_request:positive"
+            ],
+            [
+              "action_request:positive",
+              "constraint_statement:positive"
+            ]
+          ]
+        },
+        "leading_acts": {
+          "any_of": [
+            [
+              "request_action"
+            ],
+            [
+              "inform",
+              "request_action"
+            ]
+          ]
+        },
+        "leading_goals": {
+          "any_of": [
+            [
+              "cause_action"
+            ],
+            [
+              "cause_action",
+              "transfer_information"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "case_id": "contrast-hypothetical",
+      "family": "hypothetical",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "If I asked you to cancel my plan, would you do it?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "cancel plan",
+              "subject_ref": "my plan",
+              "embedding": "hypothetical"
+            },
+            "evidence_text": "cancel my plan"
+          },
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "whether the assistant would cancel the plan",
+              "question_form": "polar"
+            },
+            "evidence_text": "would you do it?"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request",
+          "information_request"
+        ],
+        "embedded": [
+          "action_request:hypothetical"
+        ],
+        "leading_acts": [
+          "request_information"
+        ],
+        "rejected_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ],
+        "retained_acts": []
+      }
+    },
+    {
+      "case_id": "contrast-greeting-request",
+      "family": "compound_act",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hey! Can you plan a vegetarian dinner for four?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_opening",
+            "polarity": "positive",
+            "arguments": {},
+            "evidence_text": "Hey"
+          },
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "plan dinner",
+              "subject_ref": "a vegetarian dinner for four",
+              "parameters": [
+                "vegetarian",
+                "four people"
+              ]
+            },
+            "evidence_text": "plan a vegetarian dinner"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request",
+          "social_opening"
+        ],
+        "leading_acts": [
+          "greet",
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action",
+          "maintain_social_connection"
+        ],
+        "rejected_acts": [
+          "request_information"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-correction-request",
+      "family": "compound_act",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Plan a vegetarian dinner for four."
+        },
+        {
+          "role": "assistant",
+          "content": "Sure, a vegetarian dinner for four."
+        },
+        {
+          "role": "user",
+          "content": "Actually it's six people, not four. Please make it dairy-free."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "correction",
+            "polarity": "positive",
+            "arguments": {
+              "corrected_attribute": "number of people",
+              "corrected_value": "six",
+              "prior_value": "four"
+            },
+            "evidence_text": "it's six people"
+          },
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "make dairy-free",
+              "subject_ref": "the vegetarian dinner"
+            },
+            "evidence_text": "make it dairy-free"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": {
+          "any_of": [
+            [
+              "action_request",
+              "correction"
+            ],
+            [
+              "constraint_statement",
+              "correction"
+            ]
+          ]
+        },
+        "leading_acts": {
+          "any_of": [
+            [
+              "correct",
+              "request_action"
+            ],
+            [
+              "correct",
+              "inform"
+            ]
+          ]
+        },
+        "leading_goals": {
+          "any_of": [
+            [
+              "cause_action",
+              "repair_shared_understanding"
+            ],
+            [
+              "repair_shared_understanding",
+              "transfer_information"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "case_id": "contrast-two-questions",
+      "family": "compound_act",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What's a good source of iron, and how much should I eat per day?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "good sources of iron",
+              "question_form": "wh"
+            },
+            "evidence_text": "What's a good source of iron"
+          },
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "daily iron intake",
+              "question_form": "wh"
+            },
+            "evidence_text": "how much should I eat"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "information_request",
+          "information_request"
+        ],
+        "leading_acts": [
+          "request_information"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ],
+        "retained_acts": [
+          "request_action"
+        ]
+      }
+    },
+    {
+      "case_id": "constraint-time-allergy",
+      "family": "constraint",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Keep it under 30 minutes; I have a peanut allergy."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "constraint_statement",
+            "polarity": "positive",
+            "arguments": {
+              "constraint": "under 30 minutes",
+              "constraint_kind": "time"
+            },
+            "evidence_text": "under 30 minutes"
+          },
+          {
+            "predicate": "constraint_statement",
+            "polarity": "positive",
+            "arguments": {
+              "constraint": "no peanuts",
+              "constraint_kind": "allergy"
+            },
+            "evidence_text": "peanut allergy"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "constraint_statement",
+          "constraint_statement"
+        ],
+        "leading_acts": [
+          "inform"
+        ],
+        "leading_goals": [
+          "transfer_information"
+        ],
+        "retained_acts": [
+          "request_action"
+        ]
+      }
+    },
+    {
+      "case_id": "gratitude-plain",
+      "family": "gratitude",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Thanks so much!"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "express_gratitude",
+            "polarity": "positive",
+            "arguments": {},
+            "evidence_text": "Thanks"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "express_gratitude"
+        ],
+        "leading_acts": [
+          "acknowledge"
+        ],
+        "leading_goals": [
+          "maintain_social_connection"
+        ]
+      }
+    },
+    {
+      "case_id": "closing-tomorrow",
+      "family": "closing",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Bye, talk tomorrow!"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_closing",
+            "polarity": "positive",
+            "arguments": {
+              "future_contact": "tomorrow"
+            },
+            "evidence_text": "Bye"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "social_closing"
+        ],
+        "leading_acts": [
+          "close"
+        ],
+        "leading_goals": [
+          "maintain_social_connection"
+        ]
+      }
+    },
+    {
+      "case_id": "degraded-filler",
+      "family": "degraded",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hmm"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "unknown",
+            "polarity": "unknown",
+            "arguments": {
+              "predicate": null
+            },
+            "evidence_text": "hmm"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "unknown"
+        ],
+        "unresolved": {
+          "any_of": [
+            [
+              "unknown.predicate"
+            ],
+            []
+          ]
+        },
+        "leading_acts": [],
+        "leading_goals": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "case_id": "trace-meal-planning",
+      "family": "uninterrupted_trace",
+      "kind": "trace",
+      "turns": [
+        {
+          "user": "I need a vegetarian dinner plan for four people.",
+          "assistant": "Happy to help. Any constraints?",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "create",
+                  "artifact_type": "meal_plan",
+                  "constraints": [
+                    "vegetarian",
+                    "four people"
+                  ]
+                },
+                "evidence_text": "I need a vegetarian dinner plan"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "create",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "It has to take under 30 minutes, and one guest has a peanut allergy.",
+          "assistant": "Noted: under 30 minutes and peanut-free.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "constraint_statement",
+                "polarity": "positive",
+                "arguments": {
+                  "constraint": "under 30 minutes",
+                  "constraint_kind": "time"
+                },
+                "evidence_text": "under 30 minutes"
+              },
+              {
+                "predicate": "constraint_statement",
+                "polarity": "positive",
+                "arguments": {
+                  "constraint": "no peanuts",
+                  "constraint_kind": "allergy"
+                },
+                "evidence_text": "peanut allergy"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "constraint_statement",
+              "constraint_statement"
+            ],
+            "leading_acts": [
+              "inform"
+            ],
+            "leading_goals": [
+              "transfer_information"
+            ]
+          }
+        },
+        {
+          "user": "Sorry, correction: it's six people, and it should be dairy-free too.",
+          "assistant": "Got it, six people and dairy-free.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "correction",
+                "polarity": "positive",
+                "arguments": {
+                  "corrected_attribute": "number of people",
+                  "corrected_value": "six",
+                  "prior_value": "four"
+                },
+                "evidence_text": "it's six people"
+              },
+              {
+                "predicate": "constraint_statement",
+                "polarity": "positive",
+                "arguments": {
+                  "constraint": "dairy-free",
+                  "constraint_kind": "dietary"
+                },
+                "evidence_text": "dairy-free"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "constraint_statement",
+              "correction"
+            ],
+            "leading_acts": [
+              "correct",
+              "inform"
+            ],
+            "leading_goals": [
+              "repair_shared_understanding",
+              "transfer_information"
+            ]
+          }
+        },
+        {
+          "user": "What dish are you thinking of so far?",
+          "assistant": "A chickpea curry could work.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "information_request",
+                "polarity": "positive",
+                "arguments": {
+                  "topic_ref": "the planned dish",
+                  "question_form": "wh"
+                },
+                "evidence_text": "What dish"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": {
+              "any_of": [
+                [
+                  "information_request"
+                ],
+                [
+                  "elaboration_request"
+                ],
+                [
+                  "collaborative_content_request"
+                ]
+              ]
+            },
+            "leading_acts": {
+              "any_of": [
+                [
+                  "request_information"
+                ],
+                [
+                  "request_action"
+                ]
+              ]
+            },
+            "leading_goals": {
+              "any_of": [
+                [
+                  "obtain_information"
+                ],
+                [
+                  "cause_action"
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "user": "Let's use chickpeas as the main ingredient.",
+          "assistant": "Chickpeas it is.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "constraint_statement",
+                "polarity": "positive",
+                "arguments": {
+                  "constraint": "chickpeas as the main ingredient",
+                  "constraint_kind": "preference"
+                },
+                "evidence_text": "chickpeas as the main ingredient"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": {
+              "any_of": [
+                [
+                  "constraint_statement"
+                ],
+                [
+                  "statement"
+                ]
+              ]
+            },
+            "leading_acts": [
+              "inform"
+            ],
+            "leading_goals": [
+              "transfer_information"
+            ]
+          }
+        },
+        {
+          "user": "Can you add a cheap side dish without changing the main?",
+          "assistant": "A simple cucumber salad would be cheap.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "revise",
+                  "artifact_type": "meal_plan",
+                  "constraints": [
+                    "add a cheap side dish",
+                    "keep the main unchanged"
+                  ]
+                },
+                "evidence_text": "add a cheap side dish"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "revise",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "Give me the cooking order so everything finishes together.",
+          "assistant": "Start the rice, then the curry, then the salad.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "create",
+                  "artifact_type": "plan",
+                  "requested_form": "steps"
+                },
+                "evidence_text": "Give me the cooking order"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": {
+              "any_of": [
+                [
+                  "collaborative_content_request"
+                ],
+                [
+                  "information_request"
+                ]
+              ]
+            },
+            "leading_acts": {
+              "any_of": [
+                [
+                  "request_action"
+                ],
+                [
+                  "request_information"
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "user": "Summarize the whole plan and flag anything with peanuts.",
+          "assistant": "Here is the summary.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "summarize",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "the whole plan"
+                },
+                "evidence_text": "Summarize the whole plan"
+              },
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "evaluate",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "the whole plan",
+                  "constraints": [
+                    "flag anything with peanuts"
+                  ]
+                },
+                "evidence_text": "flag anything with peanuts"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request",
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact",
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "contrast-artifact-plan-dinner",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Plan a vegetarian dinner in this chat."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "meal_plan",
+              "constraints": [
+                "vegetarian"
+              ]
+            },
+            "evidence_text": "Plan a vegetarian dinner"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "meal_plan"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-plan-dinner",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Place an order for dinner."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "place order",
+              "subject_ref": "dinner"
+            },
+            "evidence_text": "Place an order for dinner"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-artifact-draft-email",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Draft an email to Sam."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "draft_message"
+            },
+            "evidence_text": "Draft an email to Sam"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "draft_message"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-draft-email",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Send the email to Sam."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "send email",
+              "subject_ref": "the email",
+              "parameters": [
+                "to Sam"
+              ]
+            },
+            "evidence_text": "Send the email to Sam"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-artifact-revise-idea",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Revise our shared dinner idea."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "revise",
+              "artifact_type": "meal_plan",
+              "target_ref": "our shared dinner idea"
+            },
+            "evidence_text": "Revise our shared dinner idea"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "revise",
+            "artifact_type": "meal_plan"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-revise-idea",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Edit the restaurant's online order."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "edit online order",
+              "subject_ref": "the restaurant's online order"
+            },
+            "evidence_text": "Edit the restaurant's online order"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-artifact-reminder-checklist",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Make a reminder checklist for me to copy."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "checklist"
+            },
+            "evidence_text": "Make a reminder checklist"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "checklist"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-reminder-checklist",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a reminder in my reminders app."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "create reminder",
+              "subject_ref": "a reminder",
+              "parameters": [
+                "in my reminders app"
+              ]
+            },
+            "evidence_text": "Create a reminder"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-artifact-summarize-conversation",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize our conversation."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "summarize",
+              "artifact_type": "summary",
+              "target_ref": "our conversation"
+            },
+            "evidence_text": "Summarize our conversation"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "summarize",
+            "artifact_type": "summary"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-summarize-conversation",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Export the conversation to a file."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "export conversation",
+              "subject_ref": "the conversation",
+              "parameters": [
+                "to a file"
+              ]
+            },
+            "evidence_text": "Export the conversation to a file"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-artifact-calendar-times",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Suggest calendar times."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "list"
+            },
+            "evidence_text": "Suggest calendar times"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "list"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "contrast-external-calendar-times",
+      "family": "external_effect",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create the calendar events."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "create calendar events",
+              "subject_ref": "the calendar events"
+            },
+            "evidence_text": "Create the calendar events"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "form-indirect-artifact",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I was hoping you could sketch out a weekly meal plan."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "meal_plan"
+            },
+            "evidence_text": "sketch out a weekly meal plan"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "meal_plan"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "form-polite-artifact",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Could you please draft a thank-you note for my neighbor?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "draft_message"
+            },
+            "evidence_text": "draft a thank-you note"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "draft_message"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ],
+        "rejected_acts": [
+          "request_information"
+        ]
+      }
+    },
+    {
+      "case_id": "form-interrogative-artifact",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What vegetarian dinner would work for six people in under 30 minutes?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "meal_plan",
+              "constraints": [
+                "vegetarian",
+                "six people",
+                "under 30 minutes"
+              ]
+            },
+            "evidence_text": "What vegetarian dinner would work"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "create",
+            "artifact_type": "meal_plan"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ],
+        "rejected_acts": [
+          "request_information"
+        ]
+      }
+    },
+    {
+      "case_id": "form-hypothetical-artifact",
+      "family": "hypothetical",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "If I asked you to plan my week, would you?"
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "plan",
+              "embedding": "hypothetical"
+            },
+            "evidence_text": "plan my week"
+          },
+          {
+            "predicate": "information_request",
+            "polarity": "positive",
+            "arguments": {
+              "topic_ref": "whether the assistant would plan the week",
+              "question_form": "polar"
+            },
+            "evidence_text": "would you?"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request",
+          "information_request"
+        ],
+        "embedded": [
+          "collaborative_content_request:hypothetical"
+        ],
+        "leading_acts": [
+          "request_information"
+        ],
+        "rejected_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "obtain_information"
+        ]
+      }
+    },
+    {
+      "case_id": "form-quoted-artifact",
+      "family": "quoted_action",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "My sister said \"plan the whole trip for me\" but I just wanted to vent."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "statement",
+            "polarity": "positive",
+            "arguments": {
+              "proposition": "the speaker only wanted to vent",
+              "subject": "the speaker"
+            },
+            "evidence_text": "I just wanted to vent"
+          },
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "plan",
+              "embedding": "quoted"
+            },
+            "evidence_text": "plan the whole trip for me"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request",
+          "statement"
+        ],
+        "embedded": [
+          "collaborative_content_request:quoted"
+        ],
+        "leading_acts": [
+          "inform"
+        ],
+        "leading_goals": [
+          "transfer_information"
+        ]
+      }
+    },
+    {
+      "case_id": "form-negated-artifact",
+      "family": "mixed_polarity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Don't rewrite the plan, just explain it."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "negative",
+            "arguments": {
+              "operation": "revise",
+              "artifact_type": "plan",
+              "target_ref": "the plan"
+            },
+            "evidence_text": "Don't rewrite the plan"
+          },
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "explain",
+              "artifact_type": "plan"
+            },
+            "evidence_text": "just explain it"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request",
+          "collaborative_content_request"
+        ],
+        "polarities": [
+          "collaborative_content_request:negative",
+          "collaborative_content_request:positive"
+        ],
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ]
+      }
+    },
+    {
+      "case_id": "form-corrected-artifact",
+      "family": "correction",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Actually, make it a lunch plan instead of dinner."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "correction",
+            "polarity": "positive",
+            "arguments": {
+              "corrected_attribute": "meal",
+              "corrected_value": "lunch",
+              "prior_value": "dinner"
+            },
+            "evidence_text": "make it a lunch plan instead of dinner"
+          },
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "revise",
+              "artifact_type": "meal_plan",
+              "constraints": [
+                "lunch instead of dinner"
+              ]
+            },
+            "evidence_text": "make it a lunch plan"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": {
+          "any_of": [
+            [
+              "collaborative_content_request",
+              "correction"
+            ],
+            [
+              "collaborative_content_request"
+            ]
+          ]
+        },
+        "leading_acts": {
+          "any_of": [
+            [
+              "correct",
+              "request_action"
+            ],
+            [
+              "request_action"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "case_id": "form-compound-artifact-and-external",
+      "family": "compound_act",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hi! Draft a packing list and also book the train."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "social_opening",
+            "polarity": "positive",
+            "arguments": {},
+            "evidence_text": "Hi"
+          },
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "list"
+            },
+            "evidence_text": "Draft a packing list"
+          },
+          {
+            "predicate": "action_request",
+            "polarity": "positive",
+            "arguments": {
+              "requested_effect": "book train",
+              "subject_ref": "the train"
+            },
+            "evidence_text": "book the train"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "action_request",
+          "collaborative_content_request",
+          "social_opening"
+        ],
+        "requested_outcomes": [
+          "action_request:external_effect",
+          "collaborative_content_request:conversational_artifact",
+          "social_opening:social_exchange"
+        ],
+        "leading_acts": [
+          "greet",
+          "request_action"
+        ]
+      }
+    },
+    {
+      "case_id": "form-ambiguous-outcome",
+      "family": "ambiguity",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Take care of the invitations for the party."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "create",
+              "artifact_type": "draft_message",
+              "outcome_certainty": "ambiguous_external_effect"
+            },
+            "evidence_text": "Take care of the invitations"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": {
+          "any_of": [
+            [
+              "collaborative_content_request"
+            ],
+            [
+              "action_request"
+            ]
+          ]
+        },
+        "leading_acts": [
+          "request_action"
+        ]
+      }
+    },
+    {
+      "case_id": "form-context-after-greeting",
+      "family": "conversational_artifact",
+      "kind": "single",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hi Columbina!"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! A chickpea stew could work for dinner."
+        },
+        {
+          "role": "user",
+          "content": "Make it dairy-free and add an inexpensive side."
+        }
+      ],
+      "frozen_candidate": {
+        "frames": [
+          {
+            "predicate": "collaborative_content_request",
+            "polarity": "positive",
+            "arguments": {
+              "operation": "revise",
+              "artifact_type": "meal_plan",
+              "constraints": [
+                "dairy-free",
+                "add an inexpensive side"
+              ]
+            },
+            "evidence_text": "Make it dairy-free and add an inexpensive side"
+          }
+        ]
+      },
+      "expected": {
+        "predicates": [
+          "collaborative_content_request"
+        ],
+        "requested_outcomes": [
+          "collaborative_content_request:conversational_artifact"
+        ],
+        "argument_values": {
+          "collaborative_content_request": {
+            "operation": "revise",
+            "artifact_type": "meal_plan"
+          }
+        },
+        "leading_acts": [
+          "request_action"
+        ],
+        "leading_goals": [
+          "cause_action"
+        ],
+        "retained_acts": []
+      }
+    },
+    {
+      "case_id": "trace-collaborative-dinner",
+      "family": "uninterrupted_trace",
+      "kind": "trace",
+      "turns": [
+        {
+          "user": "Hi Columbina. I'd like to talk through dinner ideas.",
+          "assistant": "Hi! Happy to think through dinner with you.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "social_opening",
+                "polarity": "positive",
+                "arguments": {
+                  "addressee": "Columbina"
+                },
+                "evidence_text": "Hi Columbina"
+              },
+              {
+                "predicate": "statement",
+                "polarity": "positive",
+                "arguments": {
+                  "proposition": "the speaker wants to discuss dinner ideas"
+                },
+                "evidence_text": "I'd like to talk through dinner ideas"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": {
+              "any_of": [
+                [
+                  "social_opening",
+                  "statement"
+                ],
+                [
+                  "collaborative_content_request",
+                  "social_opening"
+                ]
+              ]
+            },
+            "leading_acts": {
+              "any_of": [
+                [
+                  "greet",
+                  "inform"
+                ],
+                [
+                  "greet",
+                  "request_action"
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "user": "What vegetarian dinner would work for six people in under 30 minutes?",
+          "assistant": "A chickpea and spinach stew works: it serves six and takes about 25 minutes.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "create",
+                  "artifact_type": "meal_plan",
+                  "constraints": [
+                    "vegetarian",
+                    "six people",
+                    "under 30 minutes"
+                  ]
+                },
+                "evidence_text": "What vegetarian dinner would work"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "create",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "Why does the chickpea stew fit those constraints?",
+          "assistant": "It has no meat, scales to six, and cooks in one pot quickly.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "explain",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "the chickpea stew"
+                },
+                "evidence_text": "Why does the chickpea stew fit"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "explain",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "Revise our idea: make it dairy-free and add an inexpensive side.",
+          "assistant": "I've made the stew dairy-free and added rice. Is dairy-free a preference or an allergy?",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "revise",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "our idea",
+                  "constraints": [
+                    "dairy-free",
+                    "add an inexpensive side"
+                  ]
+                },
+                "evidence_text": "Revise our idea"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "revise",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "Describe the revised meal so it sounds inviting.",
+          "assistant": "A fragrant chickpea and spinach stew with fluffy rice.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "describe",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "the revised meal",
+                  "requested_form": "inviting"
+                },
+                "evidence_text": "Describe the revised meal"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "describe",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "Summarize what we've decided so far.",
+          "assistant": "Vegetarian, dairy-free chickpea stew for six with rice, under 30 minutes.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "summarize",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "what we've decided"
+                },
+                "evidence_text": "Summarize what we've decided"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "summarize",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        },
+        {
+          "user": "The dairy-free requirement is because one guest has an allergy.",
+          "assistant": "Thanks, I've noted the dairy allergy.",
+          "open_inquiries": [
+            {
+              "inquiry_ref": "workspace-inquiry:dairy-free-reason",
+              "purpose": "resolve_safety_relevant_context",
+              "asked_about": "whether dairy-free is a preference or an allergy",
+              "answer_options": [
+                "preference",
+                "allergy"
+              ]
+            }
+          ],
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "inquiry_answer",
+                "polarity": "positive",
+                "arguments": {
+                  "inquiry_ref": "workspace-inquiry:dairy-free-reason",
+                  "answer_kind": "option",
+                  "answer_option": "allergy"
+                },
+                "evidence_text": "because one guest has an allergy"
+              },
+              {
+                "predicate": "constraint_statement",
+                "polarity": "positive",
+                "arguments": {
+                  "constraint": "one guest has a dairy allergy",
+                  "constraint_kind": "allergy"
+                },
+                "evidence_text": "one guest has an allergy"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": {
+              "any_of": [
+                [
+                  "constraint_statement",
+                  "inquiry_answer"
+                ],
+                [
+                  "inquiry_answer"
+                ]
+              ]
+            },
+            "argument_values": {
+              "inquiry_answer": {
+                "answer_option": "allergy"
+              }
+            },
+            "leading_acts": [
+              "inform"
+            ],
+            "leading_goals": [
+              "transfer_information"
+            ]
+          }
+        },
+        {
+          "user": "Given that, is there anything we should change?",
+          "assistant": "Check labels for hidden dairy and keep utensils separate.",
+          "frozen_candidate": {
+            "frames": [
+              {
+                "predicate": "collaborative_content_request",
+                "polarity": "positive",
+                "arguments": {
+                  "operation": "evaluate",
+                  "artifact_type": "meal_plan",
+                  "target_ref": "the meal plan"
+                },
+                "evidence_text": "is there anything we should change"
+              }
+            ]
+          },
+          "expected": {
+            "predicates": [
+              "collaborative_content_request"
+            ],
+            "requested_outcomes": [
+              "collaborative_content_request:conversational_artifact"
+            ],
+            "argument_values": {
+              "collaborative_content_request": {
+                "operation": "evaluate",
+                "artifact_type": "meal_plan"
+              }
+            },
+            "leading_acts": [
+              "request_action"
+            ],
+            "leading_goals": [
+              "cause_action"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

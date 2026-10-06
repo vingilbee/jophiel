@@ -7,8 +7,8 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from app.ai.Cognitive.system.appraisal.engine import AppraisalEngine
-from app.ai.Cognitive.system.appraisal.models import (
+from app.ai.Cognitive.system.v0.appraisal.engine import AppraisalEngine
+from app.ai.Cognitive.system.v0.appraisal.models import (
     ActiveGoal,
     AppraisalRequest,
     AppraisalResult,
@@ -19,10 +19,14 @@ from app.ai.Cognitive.system.appraisal.models import (
     SemanticFrame as CanonicalSemanticFrame,
     UnknownInput as CanonicalUnknownInput,
 )
-from app.ai.Cognitive.system.contracts.interpretation import (
+from app.ai.Cognitive.system.v0.contracts.interpretation import (
     InterpretationEvidence, InterpretationEvidenceKind, InterpretationVersions,
 )
-from app.ai.Cognitive.system.cognitive_turn import (
+from app.ai.Cognitive.system.v0.goal_v0 import GoalEngine
+from app.ai.Cognitive.system.v0.goal_v0.models import GoalRuntimeContext, GoalUpdateRequest
+from app.ai.Cognitive.system.v0.contracts.goals import GoalUpdateTrigger
+from cognitive_action_support import action_inputs
+from app.ai.Cognitive.system.v0.cognitive_turn import (
     CognitiveTurnExecutionError,
     CognitiveTurnRequest,
     CognitiveTurnRunner,
@@ -70,7 +74,7 @@ def InterpretationEnvelope(**values: object) -> CanonicalInterpretationEnvelope:
             perception_detectors="test-detectors-v1",
         ), **values,
     )
-from app.ai.Cognitive.system.dynamic_state import (
+from app.ai.Cognitive.system.v0.dynamic_state import (
     ControlContext,
     DynamicStateSnapshotFactory,
     DynamicStateUpdater,
@@ -132,15 +136,27 @@ def _request(
             semantic_frame_refs=(frames[0].frame_id,),
         ),
     )
-    goals = goals or (
-        ActiveGoal(
-            goal_id="goal-main",
-            owner="columbina",
-            goal_type="conversation",
-            description="Resolve the current request",
-            desired_state={"user_has_explanation": True},
-            priority_band="high",
+    previous_state = previous_state or _previous_state()
+    interpretation = InterpretationEnvelope(
+        interpretation_trace_id="interpretation-1",
+        semantic_frames=frames,
+        scenarios=scenarios,
+        unknowns=unknowns,
+    )
+    goal_update = GoalEngine().update(GoalUpdateRequest(
+        trigger=GoalUpdateTrigger.RESPONSE_TURN,
+        cognitive_turn_id="turn-1",
+        conversation_ref="conversation-1",
+        interpretation=interpretation,
+        runtime=GoalRuntimeContext(
+            cognitive_turn_id="turn-1", runtime_snapshot_ref="runtime-1",
+            response_obligation="required",
+            response_obligation_ref="response-obligation:test",
         ),
+        previous_dynamic_state=previous_state,
+    ))
+    runtime = runtime or RuntimeContext(
+        capability_snapshot=CapabilitySnapshot(snapshot_id="capability-1")
     )
     return CognitiveTurnRequest(
         cognitive_turn_id="turn-1",
@@ -148,29 +164,27 @@ def _request(
         input_message_ids=("message-1",),
         focus_message_id="message-1",
         processing_path=processing_path,
-        interpretation=InterpretationEnvelope(
-            interpretation_trace_id="interpretation-1",
-            semantic_frames=frames,
-            scenarios=scenarios,
-            unknowns=unknowns,
-        ),
-        active_goals=goals,
-        runtime=runtime or RuntimeContext(
-            capability_snapshot=CapabilitySnapshot(snapshot_id="capability-1")
-        ),
-        previous_state=previous_state or _previous_state(),
+        interpretation=interpretation,
+        goal_snapshot=goal_update.snapshot,
+        active_goals=goal_update.active_goal_views,
+        runtime=runtime,
+        previous_state=previous_state,
         personality=_personality(),
         grounded_objects=grounded_objects,
         control_context=ControlContext(),
         core_memory_ref="core-columbina-v1",
         memory_retrieval_policy_version="memory-retrieval-v1",
+        **action_inputs(
+            runtime, runtime_snapshot_ref="runtime-1", core_memory_ref="core-columbina-v1",
+            response_obligation_ref="response-obligation:test",
+        ),
     )
 
 
 def _runner(*, clock: Callable[[], float] | None = None) -> CognitiveTurnRunner:
     return CognitiveTurnRunner(
         id_factory=lambda: "trace-1",
-        clock=clock or iter((0.0, 0.001, 0.003)).__next__,
+        clock=clock or iter((0.0, 0.001, 0.003, 0.004)).__next__,
     )
 
 
@@ -221,7 +235,7 @@ def test_exact_shared_objects_reach_dynamic_state() -> None:
         appraisal_engine=appraisal,  # type: ignore[arg-type]
         dynamic_state_updater=recorder,  # type: ignore[arg-type]
         id_factory=lambda: "trace-1",
-        clock=iter((0.0, 0.001, 0.003)).__next__,
+        clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
     ).evaluate(request)
 
     assert appraisal.request is not None
@@ -332,11 +346,6 @@ def test_high_consequence_alternative_reaches_downstream_control() -> None:
 
 def test_cross_goal_state_isolation_through_runner() -> None:
     request = _request(
-        goals=(ActiveGoal(
-            goal_id="goal-b", owner="columbina", goal_type="conversation",
-            description="Explain", desired_state={"user_has_explanation": True},
-            priority_band="high",
-        ),),
         previous_state=_previous_state(goal_ref="goal-a"),
     )
     before = next(
@@ -354,7 +363,7 @@ def test_cross_goal_state_isolation_through_runner() -> None:
 
 def test_fixed_id_and_clock_make_trace_deterministic() -> None:
     request = _request()
-    clock = iter((0.0, 0.001, 0.003, 0.0, 0.001, 0.003)).__next__
+    clock = iter((0.0, 0.001, 0.003, 0.004, 0.0, 0.001, 0.003, 0.004)).__next__
     runner = CognitiveTurnRunner(id_factory=lambda: "trace-fixed", clock=clock)
     assert runner.evaluate(request) == runner.evaluate(request)
 
@@ -454,7 +463,9 @@ class _MutatingUpdater:
     (
         ("turn", "appraisal"),
         ("interpretation", "appraisal"),
-        ("goal", "trace_validation"),
+        # A frame citing a non-focal goal is now rejected by the action handoff,
+        # the first boundary after Dynamic State that re-validates Appraisal.
+        ("goal", "action_handoff_validation"),
         ("capability", "trace_validation"),
     ),
 )
@@ -463,20 +474,29 @@ def test_appraisal_contract_mismatches_fail_closed(mutation: str, stage: str) ->
         CognitiveTurnRunner(
             appraisal_engine=_MutatingAppraisal(mutation),  # type: ignore[arg-type]
             id_factory=lambda: "trace-1",
-            clock=iter((0.0, 0.001, 0.003)).__next__,
+            clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
         ).evaluate(_request())
     assert caught.value.failed_stage == stage
 
 
-@pytest.mark.parametrize("mutation", ("provenance", "predecessor", "revision"))
-def test_dynamic_state_contract_mismatches_fail_closed(mutation: str) -> None:
+@pytest.mark.parametrize(
+    ("mutation", "stage"),
+    (
+        ("provenance", "trace_validation"),
+        # A snapshot that does not supersede the previous state is rejected by
+        # the action handoff before any action is selected.
+        ("predecessor", "action_handoff_validation"),
+        ("revision", "trace_validation"),
+    ),
+)
+def test_dynamic_state_contract_mismatches_fail_closed(mutation: str, stage: str) -> None:
     with pytest.raises(CognitiveTurnExecutionError) as caught:
         CognitiveTurnRunner(
             dynamic_state_updater=_MutatingUpdater(mutation),  # type: ignore[arg-type]
             id_factory=lambda: "trace-1",
-            clock=iter((0.0, 0.001, 0.003)).__next__,
+            clock=iter((0.0, 0.001, 0.003, 0.004)).__next__,
         ).evaluate(_request())
-    assert caught.value.failed_stage == "trace_validation"
+    assert caught.value.failed_stage == stage
 
 
 def test_unsupported_processing_path_is_explicitly_rejected() -> None:
@@ -489,7 +509,7 @@ def test_unsupported_processing_path_is_explicitly_rejected() -> None:
 def test_request_contract_rejects_invalid_identity_and_structure() -> None:
     valid = _request().model_dump()
     invalid_changes = (
-        {"schema_version": 2},
+        {"schema_version": 1},
         {"input_message_ids": ()},
         {"input_message_ids": ("same", "same")},
         {"active_goals": ()},

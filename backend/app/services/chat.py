@@ -218,6 +218,10 @@ def delete_conversation(
         return False
     db.delete(conversation)
     db.commit()
+    # Dialogue memory rows cascade with the conversation; cached payloads are purged here.
+    from app.services import dialogue_memory
+
+    dialogue_memory.delete_cached_conversation(conversation_id)
     return True
 
 
