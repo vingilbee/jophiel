@@ -21,13 +21,42 @@ type ServerEvent =
   | { type: 'nudge_subagent_end'; agent: string }
   | { type: 'nudge_end' }
   | { type: 'state'; awareness: AwarenessSnapshot }
-  | { type: 'audio_start'; sample_rate: number }
-  | { type: 'audio_end' }
+  | { type: 'audio_start'; turn_id?: string; sample_rate: number }
+  | { type: 'audio_end'; turn_id?: string }
+  | {
+    type: 'audio_segment'
+    turn_id?: string
+    segment: number
+    text_start: number
+    text_end: number
+  }
   | { type: 'transcript'; turn_id?: string; content: string }
+  | { type: 'barge_resolved'; turn_id: string; action: BargeAction }
   | { type: 'error'; turn_id?: string; detail: string }
   | { type: 'stopped' | 'done'; turn_id?: string; status?: ChatTurnStatus }
 
 export type ChatTurnStatus = 'completed' | 'partial' | 'cancelled' | 'failed'
+
+/**
+ * The server's decision on a held interruption: carry on with the paused
+ * reply, drop it and stay quiet, or drop it and answer the new utterance.
+ */
+export type BargeAction = 'resume' | 'stop' | 'turn'
+
+/** Browser-side timing stages of a voice turn (see backend voice_latency). */
+export type VoiceLatencyStage =
+  | 'speech_last_active'
+  | 'vad_endpoint'
+  | 'voice_end_sent'
+  | 'browser_first_audio'
+  | 'browser_playback_started'
+
+export interface VoiceLatencyReport {
+  outcome: 'audio' | 'no_audio' | 'error' | 'interrupted'
+  endpoint: 'vad' | 'manual'
+  /** Wall-clock epoch milliseconds per stage. */
+  marks: Partial<Record<VoiceLatencyStage, number>>
+}
 
 // The full reply plus the (possibly newly created) conversation it belongs to.
 export interface ChatTurnResult {
@@ -44,6 +73,10 @@ export interface SocketHandlers {
   onAudioStart?: (sampleRate: number) => void
   onAudio?: (pcm: Int16Array, sampleRate: number) => void
   onAudioEnd?: () => void
+  /** The audio that follows speaks this span of the reply's text. */
+  onAudioSegment?: (segment: number, textStart: number, textEnd: number) => void
+  /** A held interruption was decided (see `holdVoice`). */
+  onBargeResolved?: (action: BargeAction) => void
   /**
    * The agent is speaking *first* — unprompted, because something in its
    * awareness was worth mentioning. Nothing on the client asked for this, so
@@ -107,6 +140,22 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
   // The last report we sent, so re-reporting an unchanged sense is a no-op.
   const lastSenseRef = useRef<string>('')
   const voiceTurnIdRef = useRef<string | null>(null)
+  // The voice turn whose timing marks haven't been reported yet. Separate from
+  // voiceTurnIdRef, which is cleared on `done` and replaced by the next
+  // utterance before the previous turn's report may have gone out.
+  const latencyTurnIdRef = useRef<string | null>(null)
+  // Barge-in fencing. Turns the user talked over, so their late audio (the
+  // worker can still be mid-chunk, the relay mid-flight) never plays again,
+  // and whether the current audio envelope belongs to one of them. Binary
+  // frames carry no turn id, so they inherit it from the last `audio_start`.
+  const fencedTurnsRef = useRef<string[]>([])
+  const dropAudioRef = useRef(false)
+  // An open hold: the utterance talking over a paused reply, and the voice
+  // turn id to restore if the reply resumes.
+  const heldRef = useRef<{ turnId: string; previousVoiceTurnId: string | null } | null>(null)
+  // The turn whose audio is playing — not the pending turn: a reply's text
+  // usually finishes (and settles) while its audio is still being spoken.
+  const audioTurnIdRef = useRef<string | null>(null)
 
   const connect = useCallback(() => {
     if (!networkOnlineRef.current) {
@@ -138,6 +187,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       if (!isCurrentSocket()) return
       // Binary frame: streamed TTS audio for the reply being spoken.
       if (event.data instanceof ArrayBuffer) {
+        if (dropAudioRef.current) return
         handlersRef.current.onAudio?.(
           new Int16Array(event.data),
           audioRateRef.current,
@@ -193,16 +243,35 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       // Audio frames are not tied to the pending text promise — a voice turn
       // can be speaking while the caller has already resolved.
       if (msg.type === 'audio_start') {
+        // Every reply's audio opens with this frame, so it is also where a
+        // fence from a previous interruption is lifted for the next reply.
+        dropAudioRef.current = !!msg.turn_id && fencedTurnsRef.current.includes(msg.turn_id)
+        if (dropAudioRef.current) return
+        audioTurnIdRef.current = msg.turn_id ?? null
         audioRateRef.current = msg.sample_rate
         handlersRef.current.onAudioStart?.(msg.sample_rate)
         return
       }
+      if (msg.type === 'audio_segment') {
+        if (dropAudioRef.current) return
+        handlersRef.current.onAudioSegment?.(msg.segment, msg.text_start, msg.text_end)
+        return
+      }
       if (msg.type === 'audio_end') {
+        if (dropAudioRef.current || (msg.turn_id && fencedTurnsRef.current.includes(msg.turn_id))) {
+          return
+        }
         handlersRef.current.onAudioEnd?.()
         return
       }
       if (msg.type === 'transcript') {
         handlersRef.current.onTranscript?.(msg.content, msg.turn_id)
+        return
+      }
+      if (msg.type === 'barge_resolved') {
+        // Only for the hold still open; a stale decision changes nothing.
+        if (heldRef.current?.turnId !== msg.turn_id) return
+        handlersRef.current.onBargeResolved?.(msg.action)
         return
       }
 
@@ -240,6 +309,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
     ws.onclose = () => {
       if (!isCurrentSocket()) return
       setStatus('closed')
+      heldRef.current = null
       // Fail any in-flight turn so the UI doesn't hang.
       if (pendingRef.current) {
         pendingRef.current.reject(new Error('Connection closed.'))
@@ -396,12 +466,26 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
   /** Close the utterance and run the turn. Resolves like `sendMessage`. */
   const endVoice = useCallback(
     (conversationId: string | null, callbacks: TurnCallbacks) =>
-      beginTurn(conversationId, callbacks, (ws) =>
-        ws.send(JSON.stringify({ type: 'voice_end', turn_id: voiceTurnIdRef.current })),
+      beginTurn(conversationId, callbacks, (ws) => {
+        latencyTurnIdRef.current = voiceTurnIdRef.current
+        ws.send(JSON.stringify({ type: 'voice_end', turn_id: voiceTurnIdRef.current }))
+      },
         voiceTurnIdRef.current ?? crypto.randomUUID(),
       ),
     [beginTurn],
   )
+
+  /**
+   * Send the browser's timing marks for the last voice turn. At most once per
+   * turn; measurement only, so a closed socket just drops it.
+   */
+  const reportVoiceLatency = useCallback((report: VoiceLatencyReport) => {
+    const turnId = latencyTurnIdRef.current
+    latencyTurnIdRef.current = null
+    const ws = wsRef.current
+    if (!turnId || !ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'voice_latency', turn_id: turnId, ...report }))
+  }, [])
 
   /** Discard the open utterance without running a turn. */
   const cancelVoice = useCallback(() => {
@@ -428,6 +512,168 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
     )
   }, [])
 
+  /**
+   * Fence the in-flight turn and settle it locally as cancelled. Returns what
+   * the caller needs to tell the server which turn that was.
+   */
+  const fenceInFlightTurn = useCallback(() => {
+    const pending = pendingRef.current
+    const turnId = pending?.turnId ?? null
+    // Silence whatever audio envelope is open now; the next reply's
+    // `audio_start` lifts this unless it belongs to a fenced turn.
+    dropAudioRef.current = true
+    if (turnId) {
+      fencedTurnsRef.current = [...fencedTurnsRef.current, turnId].slice(-16)
+    }
+    const conversationId = pending?.conversationId ?? null
+    if (pending) {
+      pendingRef.current = null
+      if (pending.turnId === voiceTurnIdRef.current) voiceTurnIdRef.current = null
+      pending.resolve({
+        conversationId: conversationId ?? '',
+        reply: pending.buffer,
+        status: 'cancelled',
+      })
+    }
+    return { turnId, conversationId }
+  }, [])
+
+  /**
+   * Barge-in: cut off the reply being spoken or prepared so a new utterance
+   * can start immediately. Unlike `stop`, the old turn is settled here, as
+   * cancelled, instead of waiting for the server's `stopped` (teardown can
+   * take up to 2s, and a short "wait, what?" would otherwise be rejected as
+   * "already in progress"). Its late audio and events are fenced off.
+   */
+  const interruptVoice = useCallback(() => {
+    const ws = wsRef.current
+    const { turnId, conversationId } = fenceInFlightTurn()
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'stop', conversation_id: conversationId, turn_id: turnId }))
+    }
+  }, [fenceInFlightTurn])
+
+  /**
+   * Barge-in handoff in one frame: cut off the reply (as `interruptVoice`
+   * does) and open a new utterance. Binary frames sent after this belong to
+   * the new utterance — WebSocket keeps order, so pre-roll can follow at once.
+   * Returns false, changing nothing, when the socket isn't open.
+   */
+  const interruptVoiceStart = useCallback(
+    (conversationId: string | null, sampleRate: number) => {
+      const ws = wsRef.current
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false
+      const cancelled = fenceInFlightTurn()
+      const newTurnId = crypto.randomUUID()
+      voiceTurnIdRef.current = newTurnId
+      ws.send(JSON.stringify({
+        type: 'voice_interrupt',
+        cancel_turn_id: cancelled.turnId,
+        new_turn_id: newTurnId,
+        // The cut-off turn may have just created the thread (its `meta`
+        // arrived, but the caller's state hasn't caught up yet). Without
+        // this the interruption would land in a brand-new conversation.
+        conversation_id: cancelled.conversationId ?? conversationId,
+        sample_rate: sampleRate,
+      }))
+      return true
+    },
+    [fenceInFlightTurn],
+  )
+
+  /**
+   * Barge-in as a *hold*: open an utterance over the reply without cancelling
+   * it. The reply keeps streaming (the caller has paused playback); the
+   * server decides once the utterance ends, via `barge_resolved`. Returns
+   * false, changing nothing, when the socket isn't open.
+   */
+  const holdVoice = useCallback(
+    (conversationId: string | null, sampleRate: number) => {
+      const ws = wsRef.current
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false
+      const pending = pendingRef.current
+      const turnId = crypto.randomUUID()
+      heldRef.current = { turnId, previousVoiceTurnId: voiceTurnIdRef.current }
+      voiceTurnIdRef.current = turnId
+      ws.send(JSON.stringify({
+        type: 'voice_interrupt',
+        tentative: true,
+        cancel_turn_id: pending?.turnId ?? null,
+        new_turn_id: turnId,
+        conversation_id: pending?.conversationId ?? conversationId,
+        sample_rate: sampleRate,
+      }))
+      return true
+    },
+    [],
+  )
+
+  /** The hold is clearly a real turn: cut the reply off now, keep listening. */
+  const commitHold = useCallback(() => {
+    const held = heldRef.current
+    if (!held) return
+    heldRef.current = null
+    fenceInFlightTurn()
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'voice_interrupt_commit', turn_id: held.turnId }))
+    }
+  }, [fenceInFlightTurn])
+
+  /** The held utterance is over: send it for a decision. */
+  const endHold = useCallback(() => {
+    const held = heldRef.current
+    const ws = wsRef.current
+    if (!held || !ws || ws.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ type: 'voice_end', turn_id: held.turnId }))
+    return true
+  }, [])
+
+  /** Decision `resume`: the reply carries on as the voice turn. */
+  const resumeHold = useCallback(() => {
+    const held = heldRef.current
+    if (!held) return
+    heldRef.current = null
+    voiceTurnIdRef.current = held.previousVoiceTurnId
+  }, [])
+
+  /** Decision `stop`: the server stopped the reply; settle it here too. */
+  const stopHold = useCallback(() => {
+    if (!heldRef.current) return
+    heldRef.current = null
+    fenceInFlightTurn()
+    voiceTurnIdRef.current = null
+  }, [fenceInFlightTurn])
+
+  /**
+   * Decision `turn`: fence the held reply and take the held utterance as the
+   * pending turn. Its transcript and reply follow `barge_resolved` on the
+   * socket, so this must run synchronously from that handler.
+   */
+  const adoptHold = useCallback(
+    (conversationId: string | null, callbacks: TurnCallbacks) => {
+      const held = heldRef.current
+      if (!held) return Promise.reject(new Error('No held utterance.'))
+      heldRef.current = null
+      const cancelled = fenceInFlightTurn()
+      latencyTurnIdRef.current = held.turnId
+      return beginTurn(cancelled.conversationId ?? conversationId, callbacks, () => {}, held.turnId)
+    },
+    [beginTurn, fenceInFlightTurn],
+  )
+
+  /**
+   * Tell the server how much of the reply being spoken was heard before the
+   * user cut it off. Returns that reply's turn id, or null if there's none.
+   */
+  const reportHeard = useCallback((heardChars: number) => {
+    const turnId = audioTurnIdRef.current
+    const ws = wsRef.current
+    if (!turnId || !ws || ws.readyState !== WebSocket.OPEN) return null
+    ws.send(JSON.stringify({ type: 'voice_heard', turn_id: turnId, heard_chars: heardChars }))
+    return turnId
+  }, [])
+
   return {
     status,
     awareness,
@@ -435,9 +681,19 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
     sendSense,
     dismissNudges,
     stop,
+    interruptVoice,
+    interruptVoiceStart,
+    holdVoice,
+    commitHold,
+    endHold,
+    resumeHold,
+    stopHold,
+    adoptHold,
+    reportHeard,
     startVoice,
     sendAudio,
     endVoice,
     cancelVoice,
+    reportVoiceLatency,
   }
 }

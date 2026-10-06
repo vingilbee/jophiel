@@ -196,11 +196,20 @@ class Settings(BaseSettings):
     # than mask it with filler speech.
     tts_fillers_enabled: bool = False
     # Speech-to-text via the OpenAI audio API; reuses `openai_api_key`.
-    stt_model: str = "whisper-1"
+    # gpt-4o-mini-transcribe replaced whisper-1, which measured 0.6-3.1s per
+    # utterance. Set STT_MODEL=whisper-1 to roll back.
+    stt_model: str = "gpt-4o-mini-transcribe"
     # Voice turns use a faster model than typed chat: opus-4-8's time-to-first
     # -token is fine when you're reading and bad when you're waiting to hear a
     # reply. Set to None to use `chat_model` for voice too.
     voice_chat_model: str | None = "gpt-4.1-mini"
+    # Per-stage timestamps for voice turns, appended as JSON lines by the
+    # browser, API, and worker (see app/services/voice_latency.py). Ids, stage
+    # names, and numbers only, never transcript or audio. Read with
+    # `uv run python scripts/voice_latency_report.py`. Relative paths resolve
+    # against backend/.
+    voice_latency_marks_enabled: bool = True
+    voice_latency_log_path: str = "var/voice_latency.jsonl"
 
     redis_url: str | None = None
     chat_queue_name: str = "macrovision:chat:jobs"

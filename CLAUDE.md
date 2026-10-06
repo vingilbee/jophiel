@@ -113,7 +113,9 @@ A web app that predicts macronutrients (calories, protein, carbs, fat) from a ph
                        #   persistence, awareness.py: the agent's sense of the current moment,
                        #   salience.py: whether it's worth speaking first,
                        #   cognitive_shadow.py: live-shadow capture + durable queue,
-                       #   dialogue_memory.py: dialogue snapshots, CAS head, jobs, catch-up, cache)
+                       #   dialogue_memory.py: dialogue snapshots, CAS head, jobs, catch-up, cache,
+                       #   voice_latency.py: per-stage voice-turn timing marks -> var/voice_latency.jsonl,
+                       #   read with `uv run python scripts/voice_latency_report.py`)
     /workers           # external workers: chat, memory, whatsapp, file_deletion, cognitive_shadow,
                        #   dialogue_memory
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
@@ -348,6 +350,7 @@ rather than stored in a cookie. Safe to delete.
 | role            | string      | `user` or `assistant`                  |
 | content         | text        |                                        |
 | image_ids       | JSONB, null | ids of photos attached to this turn    |
+| heard_chars     | int, null   | interrupted voice reply: chars of `content` actually heard (history/memory see only those, via `services/heard.py`) |
 | created_at      | timestamp   | history is ordered by this             |
 
 **long_term_memories / memory_jobs** *(durable memory + consolidation outbox)*

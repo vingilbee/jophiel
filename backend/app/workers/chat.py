@@ -11,6 +11,7 @@ import contextlib
 import json
 import logging
 import uuid
+from functools import lru_cache
 
 import redis
 from sqlalchemy import select
@@ -25,8 +26,11 @@ from app.db.session import SessionLocal
 from app.services import asset_store, chat as chat_service, google_account
 from app.services import cognitive_shadow
 from app.services import dialogue_memory
+from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
+from app.services import stickers
 from app.services import tts as tts_service
+from app.services import voice_latency
 from app.services import whatsapp as whatsapp_service
 
 logger = logging.getLogger(__name__)
@@ -40,9 +44,18 @@ def cancel_key(turn_id: uuid.UUID | str) -> str:
     return f"{stream_key(turn_id)}:cancel"
 
 
+@lru_cache(maxsize=4)
+def _client_for(url: str) -> redis.Redis:
+    # One client (and connection pool) per process, shared by every job and
+    # worker thread; redis-py clients are thread-safe. Building a client per
+    # call opened a new TCP connection for every token, audio chunk, and
+    # cancellation check.
+    return redis.from_url(url)
+
+
 def _redis():
     url = get_settings().redis_url
-    return redis.from_url(url) if url else None
+    return _client_for(url) if url else None
 
 
 def publish(turn_id: uuid.UUID | str, event: dict) -> None:
@@ -50,8 +63,11 @@ def publish(turn_id: uuid.UUID | str, event: dict) -> None:
     if r is None:
         return
     key = stream_key(turn_id)
-    r.xadd(key, {"event": json.dumps(event)}, maxlen=2000, approximate=True)
-    r.expire(key, 86400)
+    # One round trip for both commands.
+    with r.pipeline(transaction=False) as pipe:
+        pipe.xadd(key, {"event": json.dumps(event)}, maxlen=2000, approximate=True)
+        pipe.expire(key, 86400)
+        pipe.execute()
 
 
 def request_cancel(turn_id: uuid.UUID | str) -> None:
@@ -107,6 +123,14 @@ async def _generate(job: ChatJob) -> None:
     claim_token = job.claim_token
     if not claim_token:
         raise RuntimeError("claimed chat job has no ownership token")
+
+    def mark(stage: str, **dims) -> None:
+        # Timing marks are for spoken turns only; typed turns aren't waiting
+        # on a voice.
+        if payload.get("voice"):
+            voice_latency.mark(stage, job.turn_id, source="worker", **dims)
+
+    mark("job_claimed", attempt=job.attempts)
     with SessionLocal() as db:
         conversation = chat_service.get_conversation(db, user_id=job.user_id,
                                                       conversation_id=job.conversation_id)
@@ -164,11 +188,58 @@ async def _generate(job: ChatJob) -> None:
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
     )
+    mark("context_ready", model=settings.voice_chat_model or settings.chat_model)
     turn_id = job.turn_id
     assistant_id = uuid.uuid5(job.turn_id, "assistant")
     reply = ""
     feed, flush = tts_service.clause_chunker()
     audio_started = False
+    clauses_spoken = 0
+    # End of the reply text spoken so far, so each clause's audio can be
+    # labelled with the span of `reply` it speaks (services/heard.py).
+    spoken_end = 0
+
+    speech_cancelled = False
+
+    async def speak(clause: str) -> None:
+        nonlocal audio_started, clauses_spoken, speech_cancelled, spoken_end
+        # A barge-in must silence the reply now, not after the clause being
+        # synthesized finishes: check the fence before every chunk, and close
+        # the sidecar stream so its next request isn't queued behind this one.
+        if speech_cancelled or _cancelled(turn_id):
+            speech_cancelled = True
+            return
+        first = clauses_spoken == 0
+        segment = clauses_spoken
+        clauses_spoken += 1
+        text_start = spoken_end
+        spoken_end = heard.raw_end_of_spoken(reply, spoken_end, clause)
+        if first:
+            mark("first_clause_emitted", clause_chars=len(clause))
+            mark("tts_request_started")
+        announced = False
+        async with contextlib.aclosing(tts_service.synthesize(clause)) as stream:
+            async for pcm in stream:
+                if _cancelled(turn_id):
+                    speech_cancelled = True
+                    return
+                first_audio = not audio_started
+                if first_audio:
+                    audio_started = True
+                    mark("tts_first_byte", first_clause=first)
+                    publish(turn_id, {"type": "audio_start", "turn_id": str(turn_id),
+                                      "sample_rate": settings.tts_sample_rate})
+                if not announced:
+                    # Binary frames carry no ids: everything until the next
+                    # segment speaks this span, which is how the browser can
+                    # tell how much of the text was actually heard.
+                    announced = True
+                    publish(turn_id, {"type": "audio_segment", "turn_id": str(turn_id),
+                                      "segment": segment, "text_start": text_start,
+                                      "text_end": spoken_end})
+                publish(turn_id, {"type": "audio_chunk", "content": base64.b64encode(pcm).decode()})
+                if first_audio:
+                    mark("redis_first_audio")
     publish(turn_id, {"type": "start", "turn_id": str(turn_id),
                       "message_id": str(assistant_id)})
     lost_claim = asyncio.Event()
@@ -197,33 +268,43 @@ async def _generate(job: ChatJob) -> None:
                 return
 
     heartbeat = asyncio.create_task(keep_lease())
+    # The published tokens keep their sticker markers (the client renders
+    # them); only what gets *spoken* has them stripped.
+    sticker_buffer = ""
+    first_token = True
+    first_subagent = True
     try:
-        async for event in stream_chat(messages=history, context=context):
+        async for event in stream_chat(messages=history, context=context,
+                                       on_stage=lambda stage: mark(stage)):
             if _cancelled(turn_id) or lost_claim.is_set():
                 break
             if event.get("type") == "token":
+                if first_token:
+                    first_token = False
+                    mark("model_first_token")
                 reply += event["content"]
                 if context.voice:
-                    for clause in feed(event["content"]):
-                        async for pcm in tts_service.synthesize(clause):
-                            if not audio_started:
-                                audio_started = True
-                                publish(turn_id, {"type": "audio_start", "sample_rate": settings.tts_sample_rate})
-                            publish(turn_id, {"type": "audio_chunk", "content": base64.b64encode(pcm).decode()})
+                    frames, sticker_buffer = stickers.consume_text(sticker_buffer, event["content"])
+                    for clause in feed(stickers.spoken_text(frames)):
+                        await speak(clause)
+            elif event.get("type") == "subagent_start" and first_subagent:
+                # Delegation adds a whole extra model run; flag the turns
+                # that paid for one so they aren't mistaken for slow plain turns.
+                first_subagent = False
+                mark("subagent_start", agent=event.get("agent"))
             publish(turn_id, {**event, "turn_id": str(turn_id),
                               "message_id": str(assistant_id)})
         if lost_claim.is_set():
             raise RuntimeError("chat job lease ownership was lost")
         stopped = _cancelled(turn_id)
         if context.voice and not stopped:
-            for clause in flush():
-                async for pcm in tts_service.synthesize(clause):
-                    if not audio_started:
-                        audio_started = True
-                        publish(turn_id, {"type": "audio_start", "sample_rate": settings.tts_sample_rate})
-                    publish(turn_id, {"type": "audio_chunk", "content": base64.b64encode(pcm).decode()})
+            frames, sticker_buffer = stickers.consume_text(sticker_buffer, "", final=True)
+            for clause in [*feed(stickers.spoken_text(frames)), *flush()]:
+                await speak(clause)
         if audio_started:
-            publish(turn_id, {"type": "audio_end"})
+            publish(turn_id, {"type": "audio_end", "turn_id": str(turn_id)})
+        mark("generation_done", stopped=stopped, clauses=clauses_spoken,
+             audio=audio_started, reply_chars=len(reply))
         if context.channel == "whatsapp" and not stopped and not reply:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("partial" if stopped and reply else

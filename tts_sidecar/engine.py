@@ -230,10 +230,17 @@ REF_TXT = _CFG["ref_txt"]
 
 # Everything downstream (server.py, tts.py, the frontend) expects this rate.
 TARGET_SAMPLE_RATE = 32000
-# Smaller semantic packages reduce time-to-first-audio. GPT-SoVITS defaults to
-# 16; eight keeps enough context for stable English while allowing the HTTP
-# stream to return its first PCM substantially earlier.
-STREAM_MIN_CHUNK_LENGTH = int(os.environ.get("TTS_STREAM_MIN_CHUNK_LENGTH", "8"))
+# Streaming chunk size in semantic tokens (~20ms of audio each).
+STREAM_MIN_CHUNK_LENGTH = int(os.environ.get("TTS_STREAM_MIN_CHUNK_LENGTH", "16"))
+# Upstream GPT-SoVITS only cuts a streaming chunk where the voice pauses, so a
+# clause with no internal pause comes back all at once: first audio ~= full
+# synthesis time (measured 0.8-1.5s on CPU, finetune mode). Fixed-length
+# chunking cuts every STREAM_MIN_CHUNK_LENGTH tokens instead: first audio
+# ~0.5s at 16 tokens (~0.3s at 8). Upstream labels it lower quality at the
+# seams; at 16 tokens no seams were audible in an A/B listening test, while 8
+# sounded worse. Set TTS_STREAM_FIXED_LENGTH_CHUNK=false to restore
+# pause-only cuts.
+STREAM_FIXED_LENGTH_CHUNK = os.environ.get("TTS_STREAM_FIXED_LENGTH_CHUNK", "true").lower() in {"1", "true", "yes"}
 
 os.chdir(REPO)
 sys.path.insert(0, REPO)
@@ -343,6 +350,7 @@ def synthesize(pipeline, text: str, streaming: bool = True) -> Iterator[tuple[in
         "parallel_infer": False,
         "streaming_mode": streaming,
         "min_chunk_length": STREAM_MIN_CHUNK_LENGTH,
+        "fixed_length_chunk": STREAM_FIXED_LENGTH_CHUNK,
         # Only meaningful for v3/v4's CFM vocoder stage; harmless no-op on v1/v2Pro.
         "sample_steps": 32,
     }

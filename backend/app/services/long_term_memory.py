@@ -21,6 +21,7 @@ from app.core.config import get_settings
 from app.db.models import ChatMessage, EpisodicMemory, MemoryJob, SemanticMemory
 from app.db.session import SessionLocal
 from app.schemas.long_term_memory import MemoryCandidate, MemoryExtraction
+from app.services.heard import heard_text
 
 logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -105,7 +106,9 @@ def _turn_for_job(db: Session, job: MemoryJob) -> tuple[str, str, uuid.UUID] | N
     )
     if user_message is None:
         return None
-    return user_message.content, assistant.content, user_message.id
+    # Learn only from what the user heard: unheard text was never said to them.
+    return (user_message.content, heard_text(assistant.content, assistant.heard_chars),
+            user_message.id)
 
 
 def _extract(user_text: str, assistant_text: str) -> list[MemoryCandidate]:

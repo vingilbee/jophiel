@@ -12,6 +12,7 @@ from sqlalchemy import case, exists, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import ChatJob, ChatMessage, Conversation
+from app.services.heard import heard_text
 from datetime import datetime, timedelta, timezone
 import secrets
 import redis
@@ -136,6 +137,34 @@ def add_message(
     return message
 
 
+def record_heard(
+    db: Session, *, user_id: uuid.UUID, turn_id: uuid.UUID, heard_chars: int,
+) -> bool:
+    """Record how much of an interrupted spoken reply the user heard.
+
+    Returns False when the reply isn't persisted yet (the worker may still be
+    finishing it), so the caller can retry. Only ever moves the cut earlier:
+    two reports for one reply keep the more conservative one.
+    """
+    message = db.scalar(
+        select(ChatMessage)
+        .join(Conversation, Conversation.id == ChatMessage.conversation_id)
+        .where(
+            ChatMessage.turn_id == turn_id,
+            ChatMessage.role == "assistant",
+            Conversation.user_id == user_id,
+        )
+    )
+    if message is None:
+        return False
+    if heard_chars < len(message.content) and (
+        message.heard_chars is None or heard_chars < message.heard_chars
+    ):
+        message.heard_chars = heard_chars
+        db.commit()
+    return True
+
+
 def get_history(
     db: Session, *, conversation: Conversation,
     up_to_message_id: uuid.UUID | None = None,
@@ -185,6 +214,9 @@ def get_history(
         if message.role == "assistant" and message.status == "cancelled" and not message.content:
             continue
         content = message.content
+        if message.role == "assistant" and message.heard_chars is not None:
+            # Interrupted voice reply: the model sees what the user heard.
+            content = heard_text(content, message.heard_chars)
         if message.image_ids:
             attached = ", ".join(message.image_ids)
             content = f"{content}\n\n[Attached image ids: {attached}]"

@@ -67,6 +67,8 @@ export interface StoredChatMessage extends ChatMessage {
   /** Server-side attachment ids (snake_case, straight off the API). */
   image_ids?: string[] | null
   asset_ids?: string[] | null
+  /** Interrupted voice replies: characters of `content` the user heard. */
+  heard_chars?: number | null
 }
 
 export interface ConversationDetail extends Conversation {

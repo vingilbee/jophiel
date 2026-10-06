@@ -76,6 +76,53 @@ class VoiceEndRequest(BaseModel):
     turn_id: uuid.UUID | None = None
 
 
+class VoiceInterruptRequest(BaseModel):
+    """Barge-in: the user talked over a reply. Stop it and open a new utterance.
+
+    One frame for both sides of the handoff rather than ``stop`` followed by
+    ``voice_start``. The server fences the old turn at once and opens the new
+    utterance without waiting for teardown, so the pre-roll and live audio
+    that follow (WebSocket keeps frame order) can't be delayed behind a slow
+    provider or lost between two commands.
+    """
+
+    type: Literal["voice_interrupt"]
+    # The reply being cut off. None when it was already settled server-side.
+    cancel_turn_id: uuid.UUID | None = None
+    new_turn_id: uuid.UUID
+    conversation_id: uuid.UUID | None = None
+    sample_rate: int = Field(default=16000, ge=8000, le=48000)
+    # A *hold*, not yet a cancellation: the client paused playback and the
+    # reply keeps generating. On `voice_end` the server transcribes the
+    # utterance and answers `barge_resolved` with resume / stop / turn. A
+    # `voice_interrupt_commit` turns it into a real interruption early.
+    tentative: bool = False
+
+
+class VoiceInterruptCommitRequest(BaseModel):
+    """The held interruption is clearly a real turn: cancel the reply now.
+
+    Sent when the user keeps talking well past a backchannel's length, so a
+    long interruption doesn't leave the old reply generating until they stop.
+    """
+
+    type: Literal["voice_interrupt_commit"]
+    turn_id: uuid.UUID
+
+
+class VoiceHeardReport(BaseModel):
+    """How much of an interrupted spoken reply the user actually heard.
+
+    Measured by the browser from playback progress, in characters of the
+    reply's stored text. Sent when an interruption becomes final; a reply that
+    resumes after "I see" never sends one.
+    """
+
+    type: Literal["voice_heard"]
+    turn_id: uuid.UUID
+    heard_chars: int = Field(ge=0, le=1_000_000)
+
+
 class SenseUpdateRequest(BaseModel):
     """Report the client's own senses, so the agent has a sense of the moment.
 
@@ -130,6 +177,32 @@ class VoiceCancelRequest(BaseModel):
     type: Literal["voice_cancel"]
 
 
+class VoiceLatencyReport(BaseModel):
+    """The browser's half of a voice turn's timing marks.
+
+    Sent once per voice turn, after the first reply audio is scheduled (or the
+    turn ended without any). Values are wall-clock epoch milliseconds. Logged
+    only (see `app.services.voice_latency`); nothing reads it back into a turn,
+    so a client lying here only spoils its own measurements.
+    """
+
+    type: Literal["voice_latency"]
+    turn_id: uuid.UUID
+    outcome: Literal["audio", "no_audio", "error", "interrupted"]
+    # How the user's turn ended: VAD silence, or the explicit "I'm done".
+    endpoint: Literal["vad", "manual"] = "vad"
+    marks: dict[
+        Literal[
+            "speech_last_active",
+            "vad_endpoint",
+            "voice_end_sent",
+            "browser_first_audio",
+            "browser_playback_started",
+        ],
+        float,
+    ] = Field(default_factory=dict)
+
+
 # A frame off the chat WebSocket is one of the command types above, chosen by
 # its ``type`` field. `chat_ws_message_adapter` validates raw JSON into the
 # right model (or raises ValidationError). Binary frames are not JSON and are
@@ -140,8 +213,12 @@ ChatWSMessage = Annotated[
     | NudgeFeedbackRequest
     | SenseUpdateRequest
     | VoiceStartRequest
+    | VoiceInterruptRequest
+    | VoiceInterruptCommitRequest
+    | VoiceHeardReport
     | VoiceEndRequest
-    | VoiceCancelRequest,
+    | VoiceCancelRequest
+    | VoiceLatencyReport,
     Field(discriminator="type"),
 ]
 chat_ws_message_adapter: TypeAdapter[ChatWSMessage] = TypeAdapter(ChatWSMessage)
@@ -160,6 +237,8 @@ class ChatMessageOut(BaseModel):
     # Photos attached to this turn, for rendering thumbnails in the transcript.
     image_ids: list[str] | None = None
     asset_ids: list[str] | None = None
+    # Interrupted voice replies: characters of `content` the user heard.
+    heard_chars: int | None = None
 
 
 class ConversationOut(BaseModel):
