@@ -176,6 +176,9 @@ class Heartbeat(_Msg):
     # Why there is or isn't a picture: the game window missing, behind another
     # window, minimized, or capture switched off.
     target_state: TargetState = "capture_off"
+    # The game's input mode during a session ("playing", "menu", "unknown"),
+    # from the profile's detector; None without a session.
+    context: str | None = Field(default=None, max_length=32)
 
 
 # relay -> controller

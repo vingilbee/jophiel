@@ -355,7 +355,7 @@ Other genres are new profiles, not code changes. A MOBA profile maps `move: MOUS
 
 **Calibration:** relative-look axes are expressed in degrees because raw mouse counts are meaningless across sensitivity settings. Calibration measures `counts_per_degree` once per profile and game settings (automatically by frame comparison, or by hand with a 360° turn) and stores it in the profile.
 
-The example above is abridged; the implemented profile is `backend/desktop_profiles/minecraft_java.yaml` (it adds `drop`, `swap_hands`, menu-only click buttons, a `status_bars` region, and the assumed game settings). Its `counts_per_degree` 6.67 is an uncalibrated estimate from Minecraft's sensitivity formula at 100% (0.15° per count) until stage C measures it.
+The example above is abridged; the implemented profile is `backend/desktop_profiles/minecraft_java.yaml` (it adds `drop`, `swap_hands`, menu-only click buttons, a `status_bars` region, and the assumed game settings). Its `counts_per_degree` 6.67 comes from Minecraft's sensitivity formula at 100% (0.15° per count) and was confirmed by the stage C 360° turn in the guest (2026-10-07).
 
 **Generic fallback profile:** `generic_keyboard_mouse` exposes letters, digits, arrows, Space/Shift/Ctrl, mouse buttons, relative mouse movement in counts per second, pointer moves, and scroll under raw names, with conservative limits and no camera, macros, Esc, Tab or Alt. It is a **template**: the checker refuses it until `target.process` names a real game executable, so copying it and setting the process allows trying a new game the same day. A tuned profile replaces it once the game's needs are known.
 
@@ -823,9 +823,16 @@ Status 2026-10-07, stage C part 1 built, not yet independently reviewed or run i
   - 13 runtime tests and 7 end-to-end tests with the real relay, real Redis and the real client loop. They cover: input only with a lease; a lapsed lease releases; a new generation fences; pause releases in under 1 s; a stale decision after resume is refused; a lost window pauses; the lease stops input even if the cancel is lost; input works immediately after resume; the first move of a session keeps its lease.
   - The last test is a regression caught only by a rehearsal with the real programs. The guest slept through its 2 s idle heartbeat at session start and the first lease lapsed.
 
-Verified on the actual setup 2026-10-07 (manual, by the user): controller 0.3.0 in the Windows 11 guest; sessions start and play, and the card's test moves drive Minecraft, stopping as expected. The 360° calibration result is not yet reported.
+Verified on the actual setup 2026-10-07 (manual, by the user): controller 0.3.0 in the Windows 11 guest; sessions start and play, and the card's test moves drive Minecraft, stopping as expected. The 360° calibration turn ended facing the start, so `counts_per_degree` 6.67 is confirmed for Minecraft at 100% sensitivity with raw input.
 
 Remaining for the stage C gate (beyond the user's check): a detailed run in the guest (the camera turns, W walks, clicking away pauses), measure `counts_per_degree` with the 360° turn, pointer actions in menus (click, drag, scroll), crash/kill behaviour of the guest process, and `until` (needs region-change ratios from capture).
+
+Status 2026-10-07, stage C part 2 (pointer and menus) built, not yet run in the guest:
+
+- **Context.** The guest reports the game's input mode (`playing` / `menu` from cursor visibility) in every heartbeat, stored as `desktop_environments.input_context` (migration `c4f8a2e6b9d1`) and shown on the card. Controller 0.4.0.
+- **Pointer test from the card.** With the preview on *Game window only* and the session playing, clicking the picture sends a decision at that spot: left or right click, optionally with Shift (`hold: [sneak]`), drag, pointer move, or scroll. The card converts the click to decision-frame pixels (the profile's `observation_size`, 640×360) per axis, accounting for letterboxing. The controller maps frame pixels to the game window per axis, so a point lands in the same place whatever the window size. Clicks are sent as `move` then `click` 40 ms later, so the game has seen the pointer arrive before the press.
+- **Evidence.** All five pointer decisions pass in `menu` and are refused (`context_mismatch`) in `playing`. A centre click lands at the centre of 1280×720 and 1600×900 windows. An end-to-end test with the real relay and Redis covers refused in play (no pointer motion at all), `input_context` switching to `menu`, the click landing at (640, 360), and the press arriving at least 30 ms after the pointer.
+- **Note for stage D.** Model observations must be game-window frames at exactly `observation_size` (or the mapping must account for aspect), independent of the preview's scope.
 
 ### D. Model gameplay
 

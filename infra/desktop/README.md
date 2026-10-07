@@ -57,15 +57,15 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.3.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.4.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.4.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl SHA256
-   py -m pip install --user $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.4.0-py3-none-any.whl SHA256
+   py -m pip install --user $HOME\Downloads\desktop_controller-0.4.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
@@ -116,6 +116,10 @@ the VM and the VM lets go of everything and the session pauses ("not_foreground"
 over, and End stop input within a second; if the Mac or the network goes away, the VM lets go
 on its own within 1.5 s.
 
+For menus (inventory, crafting): set the preview to **Game window only**, open the menu in the
+game, then click the picture on the card. The card shows `game: menu` or `game: playing`; clicks
+are refused while playing, because moving the pointer then would swing the camera.
+
 To start it at logon (once the manual run works): Task Scheduler → *Create Task* → trigger
 *At log on* of your user, *Run only when user is logged on* (input needs the desktop session,
 so never a service), action `pythonw.exe` with arguments `-m desktop_controller run`.
@@ -123,7 +127,7 @@ so never a service), action `pythonw.exe` with arguments `-m desktop_controller 
 ## Updating the VM program
 
 When the program changes, repeat §2 and §3 with the new file name (the version is in it,
-e.g. `desktop_controller-0.3.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
+e.g. `desktop_controller-0.4.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
 no new code is needed.
 
 ## 6. Check what the VM can reach (stage B gate)

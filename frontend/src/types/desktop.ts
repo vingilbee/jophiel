@@ -17,6 +17,8 @@ export interface DesktopProfile {
   id: string
   revision: number
   display_name: string
+  /** Decision points are in this frame's pixels, e.g. [640, 360]. */
+  observation_size: [number, number]
 }
 
 export interface DesktopEnvironment {
@@ -38,6 +40,8 @@ export interface DesktopEnvironment {
   capture_confirmed: boolean
   /** Why there is or isn't a picture, as last reported by the VM. */
   target_state: DesktopTargetState | null
+  /** The game's input mode during a session: "playing", "menu", "unknown". */
+  input_context: string | null
 }
 
 export type DesktopCaptureGate = 'allowed' | 'blocked' | 'manual_auth'

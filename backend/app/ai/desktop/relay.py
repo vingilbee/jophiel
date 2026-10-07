@@ -133,6 +133,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                 capture = await db_call(
                     desktop_link.heartbeat, environment_id, generation,
                     gate_epoch_seen=message.gate_epoch_seen, target_state=message.target_state,
+                    context=message.context,
                 )
                 link.last_capture = capture
                 control = await link.control()

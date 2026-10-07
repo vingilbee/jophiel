@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState, type PointerEvent, type WheelEvent } from 'react'
 import { Button } from './Button'
 import { useDesktopSession } from '../hooks/useDesktopSession'
 import type {
@@ -86,8 +86,37 @@ const NO_PICTURE: Record<DesktopTargetState, string> = {
  * the VM itself and stays off until turned back on; the line under it says
  * whether the VM has *confirmed* that, not just been asked.
  */
+type PointerMode = 'left' | 'right' | 'move'
+
+/**
+ * Where a pointer event landed in the decision frame (e.g. 640x360), or null
+ * outside the picture. The image is letterboxed (object-contain), so the
+ * rendered picture is found from its natural aspect ratio; positions are then
+ * scaled per axis, exactly as the controller maps frame -> game window.
+ */
+function toFrame(
+  e: { clientX: number; clientY: number },
+  img: HTMLImageElement,
+  frame: [number, number],
+): [number, number] | null {
+  const box = img.getBoundingClientRect()
+  const ratio = img.naturalWidth / Math.max(img.naturalHeight, 1)
+  const width = Math.min(box.width, box.height * ratio)
+  const height = width / ratio
+  const fx = (e.clientX - (box.left + (box.width - width) / 2)) / width
+  const fy = (e.clientY - (box.top + (box.height - height) / 2)) / height
+  if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null
+  return [Math.min(Math.round(fx * frame[0]), frame[0] - 1), Math.min(Math.round(fy * frame[1]), frame[1] - 1)]
+}
+
 function GamePreview() {
-  const { environment: env, preview, busy, setCapture, setCaptureScope } = useDesktopSession()
+  const { environment: env, preview, busy, session, profiles, setCapture, setCaptureScope, sendDecision } =
+    useDesktopSession()
+  const imgRef = useRef<HTMLImageElement>(null)
+  const pressed = useRef<[number, number] | null>(null)
+  const [mode, setMode] = useState<PointerMode>('left')
+  const [shift, setShift] = useState(false)
+  const [marker, setMarker] = useState<[number, number] | null>(null)
   if (!env || !env.paired_at) return null
   const online = env.status === 'online'
   const gate = env.capture_gate
@@ -103,16 +132,76 @@ function GamePreview() {
         ? 'Waiting for the first picture…'
         : NO_PICTURE[env.target_state]
 
+  // Clicking the picture clicks the game: only when the picture *is* the game
+  // window (so its positions are the decision frame's) and the session plays.
+  const frame = profiles.find((p) => p.id === session?.profile_id)?.observation_size ?? null
+  const pointing =
+    session?.state === 'running' && env.capture_scope === 'game_window' && frame !== null && !body && !busy
+  const button = mode === 'right' ? 'menu_alt_click' : 'menu_click'
+  const hold = shift ? ['sneak'] : []
+
+  const point = (e: { clientX: number; clientY: number }) =>
+    imgRef.current && frame ? toFrame(e, imgRef.current, frame) : null
+  const showMarker = (xy: [number, number]) => frame && setMarker([xy[0] / frame[0], xy[1] / frame[1]])
+
+  const onPointerDown = (e: PointerEvent<HTMLImageElement>) => {
+    if (!pointing) return
+    pressed.current = point(e)
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onPointerUp = (e: PointerEvent<HTMLImageElement>) => {
+    const start = pressed.current
+    pressed.current = null
+    const end = point(e)
+    if (!pointing || !start || !end) return
+    showMarker(end)
+    const moved = frame ? Math.hypot(end[0] - start[0], end[1] - start[1]) > frame[0] * 0.02 : false
+    if (mode === 'move') {
+      void sendDecision({ intent: 'point', events: [{ type: 'move', point: end }], valid_for_ms: 200 })
+    } else if (moved) {
+      void sendDecision({
+        intent: 'drag', hold,
+        events: [{ type: 'drag', button, path: [start, end], duration_ms: 300 }],
+        valid_for_ms: 700,
+      })
+    } else {
+      // Move first, press a moment later, so the game has registered the position.
+      void sendDecision({
+        intent: shift ? 'shift-click' : mode === 'right' ? 'right click' : 'click', hold,
+        events: [{ type: 'move', point: end }, { type: 'click', at_ms: 40, button, point: end }],
+        valid_for_ms: 400,
+      })
+    }
+  }
+  const onWheel = (e: WheelEvent<HTMLImageElement>) => {
+    const at = pointing ? point(e) : null
+    if (!at || e.deltaY === 0) return
+    showMarker(at)
+    void sendDecision({ intent: 'scroll', events: [{ type: 'scroll', amount: e.deltaY > 0 ? 1 : -1, point: at }], valid_for_ms: 200 })
+  }
+
   return (
     <div className="space-y-2">
       <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-[#D9E8F6] bg-[#EEF3FA]">
         {preview && !body ? (
           <>
             <img
+              ref={imgRef}
               src={preview.url}
               alt={env.capture_scope === 'desktop' ? "Live view of the VM's screen" : 'Live view of the game window'}
-              className="h-full w-full object-contain"
+              className={`h-full w-full object-contain select-none ${pointing ? 'cursor-crosshair' : ''}`}
+              draggable={false}
+              onPointerDown={onPointerDown}
+              onPointerUp={onPointerUp}
+              onWheel={onWheel}
             />
+            {marker && pointing && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent"
+                style={{ left: `${marker[0] * 100}%`, top: `${marker[1] * 100}%` }}
+              />
+            )}
             <span
               className={`absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-wider uppercase ${
                 stale ? 'bg-amber-100 text-amber-800' : 'bg-white/80 text-[#527998]'
@@ -125,6 +214,44 @@ function GamePreview() {
           <p className="flex h-full items-center justify-center px-4 text-center text-xs text-[#7183A3]">{body}</p>
         )}
       </div>
+
+      {session?.state === 'running' && online && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7183A3]">
+          <span className="rounded-full border border-[#D9E8F6] px-2 py-0.5 font-mono">
+            game: {env.input_context ?? '…'}
+          </span>
+          {env.capture_scope === 'game_window' ? (
+            <>
+              <span>Click the picture to</span>
+              {(
+                [
+                  ['left', 'left-click'],
+                  ['right', 'right-click'],
+                  ['move', 'move the pointer'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                  className={`rounded-full border px-2 py-0.5 ${
+                    mode === value ? 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]' : 'border-[#D9E8F6]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              <label className="flex items-center gap-1">
+                <input type="checkbox" checked={shift} onChange={(e) => setShift(e.target.checked)} /> with Shift
+              </label>
+              <span>· drag to drag · wheel to scroll</span>
+            </>
+          ) : (
+            <span>Switch to “Game window only” to click in the game from the picture.</span>
+          )}
+        </div>
+      )}
 
       {online && (
         <div className="flex flex-wrap items-center gap-2">

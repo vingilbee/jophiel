@@ -126,7 +126,10 @@ def list_profiles() -> list[ProfileOut]:
             profile = get_profile(path.stem)
         except DesktopError:
             continue
-        found.append(ProfileOut(id=profile.id, revision=profile.revision, display_name=profile.display_name))
+        found.append(ProfileOut(
+            id=profile.id, revision=profile.revision, display_name=profile.display_name,
+            observation_size=profile.observation.size,
+        ))
     return found
 
 

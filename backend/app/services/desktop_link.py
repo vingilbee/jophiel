@@ -196,6 +196,7 @@ def heartbeat(
     *,
     gate_epoch_seen: int = 0,
     target_state: str = "capture_off",
+    context: str | None = None,
 ) -> CaptureConfig:
     """Record a heartbeat and return what the controller may capture now, or
     refuse if this connection is no longer the environment's current one
@@ -212,6 +213,7 @@ def heartbeat(
             status="online",
             capture_confirmed_epoch=gate_epoch_seen,
             target_state=target_state,
+            input_context=context,
         )
         .returning(DesktopEnvironment.capture_gate, DesktopEnvironment.capture_epoch, DesktopEnvironment.capture_scope)
     ).first()

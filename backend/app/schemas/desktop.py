@@ -34,6 +34,8 @@ class ProfileOut(BaseModel):
     id: str
     revision: int
     display_name: str
+    # Decision points are in this frame's pixels (plan §7.8).
+    observation_size: tuple[int, int]
 
 
 class EnvironmentCreate(_In):
@@ -65,6 +67,8 @@ class EnvironmentOut(BaseModel):
     capture_confirmed: bool
     # Why there is or isn't a picture, as last reported by the VM.
     target_state: str | None
+    # The game's input mode during a session ("playing", "menu", "unknown").
+    input_context: str | None
 
 
 class CaptureGateIn(_In):

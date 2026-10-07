@@ -38,9 +38,10 @@ buttons:
   hotbar_9:   { key: "9", description: "select hotbar slot 9" }
 
 axes:
-  # counts_per_degree is an UNCALIBRATED estimate from Minecraft's sensitivity
-  # formula at 100%: f = 0.5*0.6+0.2, degrees per count = f^3 * 8 * 0.15 = 0.15,
-  # so ~6.67 counts per degree. Measure it in stage C (360-degree turn test).
+  # counts_per_degree from Minecraft's sensitivity formula at 100%:
+  # f = 0.5*0.6+0.2, degrees per count = f^3 * 8 * 0.15 = 0.15, so ~6.67 counts
+  # per degree. Calibrated 2026-10-07 in the Legion VM: the card's 360-degree
+  # turn ended facing the start (mouse sensitivity 100%, raw input on).
   look_yaw:   { device: mouse_relative_x, unit: deg_per_s, counts_per_degree: 6.67, max: 360, description: "turn right (+) / left (-)" }
   look_pitch: { device: mouse_relative_y, unit: deg_per_s, counts_per_degree: 6.67, max: 180, description: "look down (+) / up (-)" }
 

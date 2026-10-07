@@ -183,3 +183,40 @@ def test_the_first_move_of_a_session_keeps_its_lease(real_redis, guest, database
 
     assert _wait_for(lambda: outcome() is not None, timeout=6)
     assert (outcome()["state"], outcome()["ended_by"]) == ("expired", "valid_for_ms")
+
+
+def _env_row(database, env_id):
+    from app.db.models import DesktopEnvironment
+
+    with database() as db:
+        return db.get(DesktopEnvironment, env_id)
+
+
+CLICK_CENTRE = {
+    "intent": "click", "events": [
+        {"type": "move", "point": [320, 180]}, {"type": "click", "at_ms": 40, "button": "menu_click", "point": [320, 180]},
+    ], "valid_for_ms": 400,
+}
+
+
+def test_clicks_land_in_menus_and_are_refused_in_play(real_redis, guest, database, alice):
+    session = _start_playing(database, alice, guest.env)
+    assert _wait_for(lambda: _env_row(database, guest.env.id).input_context == "playing", timeout=3)
+    with database() as db:
+        refused = svc.send_decision(db, alice.id, session.id, CLICK_CENTRE)
+    assert _wait_for(lambda: any(
+        r.get("decision_id") == refused and r.get("rejection_code") == "context_mismatch"
+        for r in desktop_commands.recent_reports(session.id)
+    ), timeout=3)
+    assert not any(e[1] == "move_to" for e in guest.input.log)  # nothing moved the camera
+
+    guest.input.cursor_shown = True  # e.g. the inventory is open
+    assert _wait_for(lambda: _env_row(database, guest.env.id).input_context == "menu", timeout=3)
+    with database() as db:
+        svc.send_decision(db, alice.id, session.id, CLICK_CENTRE)
+    assert _wait_for(lambda: any(e[1:] == ("up", "MOUSE_LEFT") for e in guest.input.log), timeout=3)
+    pointer = [e for e in guest.input.log if e[1] == "move_to"]
+    assert pointer[-1][2:] == (640, 360)  # the centre of the 1280x720 game window
+    presses = [e for e in guest.input.log if e[1] in ("down", "up")]
+    assert [e[1:] for e in presses] == [("down", "MOUSE_LEFT"), ("up", "MOUSE_LEFT")]
+    assert presses[0][0] - pointer[0][0] >= 30  # pressed after the pointer had arrived

@@ -268,6 +268,9 @@ class _Play:
             session_id=self.session_id, viewport=self.runtime.scheduler.viewport_size, context=self.runtime.context(),
         )
 
+    def context(self) -> str | None:
+        return self.runtime.context() if self.runtime is not None else None
+
     def retry(self) -> list:
         return self.start(self.pending) if self.pending is not None else []
 
@@ -385,7 +388,7 @@ async def run_once(
         async def heartbeat() -> None:
             while True:
                 await send(Heartbeat(
-                    gate_epoch_seen=state.config.epoch, target_state=state.target_state,
+                    gate_epoch_seen=state.config.epoch, target_state=state.target_state, context=play.context(),
                 ).model_dump_json())
                 await reply(play.retry() + play.reports())
                 # Faster beats during a session keep the lease short (plan §19).
