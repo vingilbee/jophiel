@@ -3,7 +3,8 @@
 The game-agnostic action contract for Columbina's desktop agent, and its enforcement.
 Spec: `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md` §7.
 
-This package is standalone (its own uv project, only `pydantic` + `pyyaml`) because the
+This package is standalone (only `pydantic` + `pyyaml`; a uv workspace member of
+`backend/`, which it lives inside so the backend Docker image can build it) because the
 same code runs in two places: inside the game VM as the controller, and in the backend,
 which validates decisions before sending them. The controller re-validates everything
 itself, so a backend bug can never bypass the safety rules.
@@ -22,12 +23,15 @@ itself, so a backend bug can never bypass the safety rules.
 
 Profiles live in `../desktop_profiles/`.
 
+From `backend/`:
+
 ```bash
-cd desktop_controller
 uv sync
-uv run pytest                                             # all tests, no VM or game needed
-uv run desktop-profile-check ../desktop_profiles/*.yaml   # check profiles
+uv run pytest desktop_controller/tests                 # these tests only, no VM or game needed
+uv run desktop-profile-check desktop_profiles/*.yaml   # check profiles
 ```
+
+In the guest VM, install it on its own: `pip install ./desktop_controller`.
 
 `generic_keyboard_mouse.yaml` is a template and fails the check until its
 `target.process` is set to a real game executable.

@@ -1,6 +1,6 @@
 # Minecraft Java Edition, single-player in a disposable world (plan §7.4).
 # Trusted configuration: reviewed by a human, versioned, validated at load.
-# Check with:  uv run --directory desktop_controller desktop-profile-check ../desktop_profiles/*.yaml
+# Check with:  uv run desktop-profile-check desktop_profiles/*.yaml   (from backend/)
 #
 # Game settings this profile assumes (set them in the guest):
 #   windowed 1280x720, GUI scale auto (2), FOV 70 (Minecraft's FOV is vertical),

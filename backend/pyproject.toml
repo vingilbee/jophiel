@@ -30,6 +30,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "matplotlib>=3.11.1",
     "langchain-openai>=1.1.11",
+    "desktop-controller",
 ]
 
 [dependency-groups]
@@ -42,3 +43,13 @@ package = false
 
 [tool.uv.sources]
 transformers = { git = "https://github.com/huggingface/transformers", rev = "main" }
+desktop-controller = { workspace = true, editable = true }
+
+[tool.uv.workspace]
+members = [
+    "desktop_controller",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "desktop_controller/tests"]
+pythonpath = ["."]

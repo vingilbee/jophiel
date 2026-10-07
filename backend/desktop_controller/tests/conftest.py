@@ -8,7 +8,7 @@ import yaml
 
 from desktop_controller.profile import Profile, parse_profile
 
-PROFILES = Path(__file__).resolve().parents[2] / "desktop_profiles"
+PROFILES = Path(__file__).resolve().parents[2] / "desktop_profiles"  # backend/desktop_profiles
 
 
 def raw_profile(name: str) -> dict:
