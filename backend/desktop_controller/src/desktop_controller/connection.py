@@ -17,6 +17,7 @@ import os
 import secrets
 import ssl
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -24,25 +25,32 @@ import websockets
 from websockets.asyncio.client import ClientConnection, connect
 
 from . import __version__
+from .capture import CaptureBackend
 from .link import (
+    MAX_FRAME_BYTES,
     HEARTBEAT_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
+    CaptureConfig,
+    FrameHeader,
     Hello,
     Heartbeat,
+    HeartbeatAck,
     LinkError,
     Pair,
     Paired,
+    TargetState,
     Welcome,
     cert_fingerprint,
     client_proof,
     code_lookup,
     display_fingerprint,
+    pack_frame,
     proofs_match,
     relay_message,
     server_proof,
 )
 
-MAX_MESSAGE_BYTES = 64 * 1024
+MAX_MESSAGE_BYTES = MAX_FRAME_BYTES
 RECONNECT_DELAYS = (1, 2, 5, 10, 30)
 # Refusals after which reconnecting cannot help.
 FATAL = {"not_authorized", "revoked", "superseded", "unsupported_protocol"}
@@ -166,8 +174,39 @@ async def pair(host: str, port: int, code: str, *, config_path: Path | None = No
 # --------------------------------------------------------------------------- #
 
 
-async def run_once(config: ControllerConfig, *, on_welcome=None) -> None:
-    """One connection, until it ends. Raises ``LinkFailure`` with the reason."""
+class _CaptureState:
+    """What the relay last allowed, and what the capture loop last saw."""
+
+    def __init__(self) -> None:
+        self.config = CaptureConfig()
+        self.target_state: TargetState = "capture_off"
+        self.changed = asyncio.Event()
+
+    def apply(self, config: CaptureConfig) -> bool:
+        if config == self.config:
+            return False
+        self.config = config
+        if config.gate != "allowed":
+            self.target_state = "capture_off"
+        self.changed.set()
+        return True
+
+    async def wait_for_change(self, timeout: float | None = None) -> None:
+        try:
+            await asyncio.wait_for(self.changed.wait(), timeout)
+        except TimeoutError:
+            pass
+        self.changed.clear()
+
+
+async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None = None, on_welcome=None) -> None:
+    """One connection, until it ends. Raises ``LinkFailure`` with the reason.
+
+    Three loops share the socket: the reader (relay replies, refusals), the
+    heartbeat, and capture. Capture runs only while the relay says
+    ``allowed``; a frame grabbed under a setting that changed meanwhile is
+    discarded, so "I'm signing in" wins over a grab already in progress.
+    """
     async with connect(
         config.url, ssl=_pinned_context(config.relay_cert_pem), max_size=MAX_MESSAGE_BYTES, open_timeout=10
     ) as ws:
@@ -180,23 +219,73 @@ async def run_once(config: ControllerConfig, *, on_welcome=None) -> None:
         print(f"connected (generation {welcome.controller_generation})")
         if on_welcome:
             on_welcome(welcome)
-        while True:
+        state = _CaptureState()
+
+        async def send(data) -> None:
             try:
-                await ws.send(Heartbeat().model_dump_json())
+                await ws.send(data)
             except websockets.ConnectionClosed:
-                await _expect(ws, 1)  # read the refusal the relay sent before closing
-                raise
-            await _expect(ws, HEARTBEAT_TIMEOUT_SECONDS)
-            # Wait for the next beat while listening, so a refusal (revoked,
-            # superseded) is acted on at once rather than on the next send.
-            try:
-                await _expect(ws, HEARTBEAT_SECONDS)
-            except TimeoutError:
-                continue
-            raise LinkFailure("unexpected message from the relay")
+                # The reader is about to read the relay's reason; let it raise.
+                await asyncio.Future()
+
+        async def reader() -> None:
+            while True:
+                message = await _expect(ws, HEARTBEAT_TIMEOUT_SECONDS)
+                if not isinstance(message, HeartbeatAck):
+                    raise LinkFailure("unexpected message from the relay")
+                if state.apply(message.capture) and message.capture.gate != "allowed":
+                    # Confirm a stop right away instead of at the next beat. The
+                    # capture loop checks the setting before and after every
+                    # grab, so nothing is captured from here on.
+                    await send(Heartbeat(
+                        gate_epoch_seen=message.capture.epoch, target_state="capture_off",
+                    ).model_dump_json())
+
+        async def heartbeat() -> None:
+            while True:
+                await send(Heartbeat(
+                    gate_epoch_seen=state.config.epoch, target_state=state.target_state,
+                ).model_dump_json())
+                await asyncio.sleep(HEARTBEAT_SECONDS)
+
+        async def capturer() -> None:
+            seq = 0
+            while True:
+                allowed = state.config
+                if allowed.gate != "allowed" or (allowed.scope == "game_window" and not allowed.target_process):
+                    state.target_state = "capture_off"
+                    await state.wait_for_change()
+                    continue
+                if capture is None:
+                    state.target_state = "error"  # this machine has no capture backend
+                    await state.wait_for_change()
+                    continue
+                started = time.monotonic()
+                grab = await asyncio.to_thread(capture.grab, allowed)
+                if state.config != allowed:
+                    continue  # the setting changed during the grab: discard it
+                state.target_state = grab.state
+                if grab.jpeg is not None:
+                    seq += 1
+                    header = FrameHeader(
+                        seq=seq, captured_ms=int(started * 1000), width=grab.width, height=grab.height,
+                        gate_epoch=allowed.epoch,
+                    )
+                    await send(pack_frame(header, grab.jpeg))
+                await state.wait_for_change(max(0.0, 1 / allowed.fps - (time.monotonic() - started)))
+
+        try:
+            async with asyncio.TaskGroup() as group:
+                group.create_task(reader())
+                group.create_task(heartbeat())
+                group.create_task(capturer())
+        except BaseExceptionGroup as group_error:
+            # Report the relay's reason if there is one, else the first error.
+            failures = [e for e in group_error.exceptions if isinstance(e, LinkFailure)]
+            raise (failures or list(group_error.exceptions))[0] from None
 
 
-async def run_forever(config: ControllerConfig) -> int:
+async def run_forever(config: ControllerConfig, *, capture: CaptureBackend | None = None) -> int:
     """Reconnect with backoff until a refusal that retrying can't fix."""
     attempt = 0
 
@@ -206,7 +295,7 @@ async def run_forever(config: ControllerConfig) -> int:
 
     while True:
         try:
-            await run_once(config, on_welcome=connected)
+            await run_once(config, capture=capture, on_welcome=connected)
         except LinkFailure as exc:
             reason = str(exc)
             if reason in FATAL:

@@ -9,8 +9,11 @@ import { api, ApiError } from '../api/client'
 import { desktopApi } from '../api/desktop'
 import { useAuth } from './useAuth'
 import type {
+  DesktopCaptureGate,
+  DesktopCaptureScope,
   DesktopEnvironment,
   DesktopPairing,
+  DesktopPreviewFrame,
   DesktopProfile,
   DesktopSession,
   DesktopSessionEvent,
@@ -19,6 +22,9 @@ import type {
 const POLL_MS = 3000
 // Connection health (the VM coming online or dropping) without a live session.
 const HEALTH_POLL_MS = 5000
+// Faster while a capture change waits for the VM's confirmation.
+const CONFIRM_POLL_MS = 1000
+const PREVIEW_POLL_MS = 1000
 const MAX_EVENTS = 20
 const TERMINAL = new Set(['ended', 'failed'])
 
@@ -26,6 +32,10 @@ interface DesktopSessionContextValue {
   enabled: boolean
   profiles: DesktopProfile[]
   environments: DesktopEnvironment[]
+  /** The environment the card is about: the live session's, else the first usable one. */
+  environment: DesktopEnvironment | null
+  /** Latest game picture while capture is allowed; null otherwise. */
+  preview: DesktopPreviewFrame | null
   session: DesktopSession | null
   events: DesktopSessionEvent[]
   /** Input was taken from gameplay and the VM hasn't confirmed releasing it. */
@@ -39,6 +49,8 @@ interface DesktopSessionContextValue {
   pair: (environmentId: string) => Promise<void>
   cancelPairing: () => void
   revokeEnvironment: (environmentId: string) => Promise<void>
+  setCapture: (gate: DesktopCaptureGate) => Promise<void>
+  setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>
@@ -61,6 +73,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<DesktopSessionEvent[]>([])
   const [releasePending, setReleasePending] = useState(false)
   const [pairing, setPairing] = useState<DesktopPairing | null>(null)
+  const [preview, setPreview] = useState<DesktopPreviewFrame | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastEventId = useRef(0)
@@ -139,8 +152,14 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   }, [liveId, adopt, refreshEvents])
 
   // Environment health while there's no live session (that poll covers it otherwise).
+  const environment =
+    environments.find((e) => e.id === session?.environment_id && !e.revoked_at) ??
+    environments.find((e) => !e.revoked_at) ??
+    null
+  const awaitingConfirm = Boolean(environment && environment.status === 'online' && !environment.capture_confirmed)
+
   useEffect(() => {
-    if (!user || !enabled || liveId) return
+    if (!user || !enabled || (liveId && !awaitingConfirm)) return
     const timer = window.setInterval(() => {
       desktopApi
         .environments()
@@ -154,9 +173,39 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
           }
         })
         .catch(() => {})
-    }, HEALTH_POLL_MS)
+    }, awaitingConfirm ? CONFIRM_POLL_MS : HEALTH_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [user, enabled, liveId])
+  }, [user, enabled, liveId, awaitingConfirm])
+
+  // The picture: only fetched while capture is allowed and the VM is online,
+  // and not while the browser tab is hidden.
+  const previewEnvId =
+    environment && environment.status === 'online' && environment.capture_gate === 'allowed' ? environment.id : null
+  useEffect(() => {
+    if (!previewEnvId) {
+      setPreview(null)
+      return
+    }
+    let cancelled = false
+    let current: string | null = null
+    const tick = async () => {
+      if (document.hidden) return
+      const frame = await desktopApi.preview(previewEnvId).catch(() => null)
+      if (cancelled) return
+      const url = frame ? URL.createObjectURL(frame.blob) : null
+      if (current) URL.revokeObjectURL(current)
+      current = url
+      setPreview(frame && url ? { url, ageMs: frame.ageMs } : null)
+    }
+    void tick()
+    const timer = window.setInterval(tick, PREVIEW_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      if (current) URL.revokeObjectURL(current)
+      setPreview(null)
+    }
+  }, [previewEnvId])
 
   const run = useCallback(
     async (fn: () => Promise<DesktopSession | null | void>) => {
@@ -183,6 +232,8 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     enabled,
     profiles,
     environments,
+    environment,
+    preview,
     session,
     events,
     releasePending,
@@ -221,6 +272,20 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         setPairing(null)
         setEnvironments((prev) => prev.map((e) => (e.id === revoked.id ? revoked : e)))
         if (session && session.environment_id === environmentId) return desktopApi.session(session.id)
+      }),
+    setCapture: (gate) =>
+      run(async () => {
+        if (!environment) return
+        if (gate !== 'allowed') setPreview(null) // drop the picture at once, before the server answers
+        const updated = await desktopApi.setCapture(environment.id, { gate })
+        setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
+      }),
+    setCaptureScope: (scope) =>
+      run(async () => {
+        if (!environment) return
+        setPreview(null) // the old picture shows the wrong area
+        const updated = await desktopApi.setCapture(environment.id, { scope })
+        setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
       }),
     pause: () => run(async () => (session ? desktopApi.pause(session.id) : null)),
     resume: () => run(async () => (session ? desktopApi.resume(session.id, session.state_revision) : null)),

@@ -125,8 +125,19 @@ class Hello(_Msg):
     controller_version: _Version
 
 
+# "sensitive": a Windows sign-in or admin-permission prompt is in front, so the
+# picture is withheld even in whole-screen mode.
+TargetState = Literal["ok", "not_found", "not_foreground", "minimized", "sensitive", "capture_off", "error"]
+
+
 class Heartbeat(_Msg):
     type: Literal["heartbeat"] = "heartbeat"
+    # The capture setting this controller is obeying (its epoch), so the app can
+    # say "capture off — confirmed" rather than just "requested".
+    gate_epoch_seen: int = Field(default=0, ge=0)
+    # Why there is or isn't a picture: the game window missing, behind another
+    # window, minimized, or capture switched off.
+    target_state: TargetState = "capture_off"
 
 
 # relay -> controller
@@ -143,8 +154,29 @@ class Welcome(_Msg):
     controller_generation: int
 
 
+CaptureGate = Literal["allowed", "blocked", "manual_auth"]
+CaptureScope = Literal["desktop", "game_window"]
+
+
+class CaptureConfig(_Msg):
+    """What the controller may capture. Anything but ``allowed`` means no
+    pixels at all; ``epoch`` fences frames taken under an older setting."""
+
+    gate: CaptureGate = "blocked"
+    epoch: int = Field(default=0, ge=0)
+    # "desktop": the VM's whole primary screen. "game_window": only the window
+    # of ``target_process`` (from the trusted profile), only while it is the
+    # foreground window.
+    scope: CaptureScope = "desktop"
+    target_process: str | None = Field(default=None, max_length=64)
+    max_width: int = Field(default=1280, ge=64, le=1920)
+    max_height: int = Field(default=720, ge=64, le=1080)
+    fps: float = Field(default=2.0, gt=0, le=4)
+
+
 class HeartbeatAck(_Msg):
     type: Literal["heartbeat_ack"] = "heartbeat_ack"
+    capture: CaptureConfig = CaptureConfig()
 
 
 class LinkError(_Msg):
@@ -161,3 +193,39 @@ ControllerMessage = Annotated[Union[Pair, Hello, Heartbeat], Field(discriminator
 RelayMessage = Annotated[Union[Paired, Welcome, HeartbeatAck, LinkError], Field(discriminator="type")]
 controller_message = TypeAdapter(ControllerMessage)
 relay_message = TypeAdapter(RelayMessage)
+
+
+# --------------------------------------------------------------------------- #
+# Frames: binary messages, [4-byte header length][JSON FrameHeader][JPEG]
+# --------------------------------------------------------------------------- #
+
+MAX_FRAME_BYTES = 512 * 1024
+
+
+class FrameHeader(_Msg):
+    seq: int = Field(ge=0)
+    # Controller's monotonic clock at capture, ms (never compared across machines).
+    captured_ms: int = Field(ge=0)
+    width: int = Field(ge=1, le=1920)
+    height: int = Field(ge=1, le=1080)
+    encoding: Literal["jpeg"] = "jpeg"
+    gate_epoch: int = Field(ge=0)
+
+
+def pack_frame(header: FrameHeader, image: bytes) -> bytes:
+    head = header.model_dump_json().encode()
+    return len(head).to_bytes(4, "big") + head + image
+
+
+def unpack_frame(data: bytes) -> tuple[FrameHeader, bytes]:
+    """Raises ``ValueError`` on anything malformed; frames are untrusted input."""
+    if len(data) > MAX_FRAME_BYTES or len(data) < 4:
+        raise ValueError("frame size out of bounds")
+    size = int.from_bytes(data[:4], "big")
+    if not 0 < size <= 1024 or len(data) < 4 + size:
+        raise ValueError("bad frame header length")
+    header = FrameHeader.model_validate_json(data[4:4 + size])
+    image = data[4 + size:]
+    if not image:
+        raise ValueError("empty frame")
+    return header, image

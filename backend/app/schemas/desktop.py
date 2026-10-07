@@ -15,6 +15,8 @@ ControlOwner = Literal["none", "gameplay", "manual"]
 CommentaryMode = Literal["quiet", "occasional", "commentary"]
 StepState = Literal["pending", "active", "done", "skipped", "abandoned"]
 PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "user_api"]
+CaptureGate = Literal["allowed", "blocked", "manual_auth"]
+CaptureScope = Literal["desktop", "game_window"]
 
 ProfileId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
@@ -57,6 +59,17 @@ class EnvironmentOut(BaseModel):
     created_at: datetime
     paired_at: datetime | None
     controller_version: str | None
+    capture_gate: CaptureGate
+    capture_scope: CaptureScope
+    # The VM has acknowledged the current capture setting (vs. only requested).
+    capture_confirmed: bool
+    # Why there is or isn't a picture, as last reported by the VM.
+    target_state: str | None
+
+
+class CaptureGateIn(_In):
+    gate: CaptureGate | None = None
+    scope: CaptureScope | None = None
 
 
 class PairingOut(BaseModel):

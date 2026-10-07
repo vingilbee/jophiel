@@ -18,6 +18,7 @@ from app.core.limiter import limiter
 from app.db.models import DesktopSession, User
 from app.db.session import get_db
 from app.schemas.desktop import (
+    CaptureGateIn,
     EnvironmentCreate,
     EnvironmentOut,
     PlanAppend,
@@ -32,7 +33,7 @@ from app.schemas.desktop import (
     SessionResume,
 )
 from app.ai.desktop.tls import ensure_relay_certificate
-from app.services import desktop_link
+from app.services import desktop_link, desktop_preview
 from app.services import desktop_sessions as service
 from desktop_controller.link import display_fingerprint
 from app.services.desktop_sessions import CommandResult, DesktopError
@@ -133,6 +134,40 @@ def create_pairing(
         expires_at=created.pairing.expires_at,
         relay_address=f"{host}:{settings.desktop_controller_port}",
         relay_fingerprint=display_fingerprint(ensure_relay_certificate().fingerprint),
+    )
+
+
+@router.put("/environments/{environment_id}/capture", response_model=EnvironmentOut, dependencies=mutation)
+def set_capture(
+    environment_id: uuid.UUID, payload: CaptureGateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return _call(desktop_link.set_capture_gate, db, user.id, environment_id, payload.gate, scope=payload.scope)
+
+
+@router.get("/environments/{environment_id}/preview")
+def get_preview(environment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The latest game frame, only while capture is allowed and the frame was
+    taken under the current setting by the current connection. Never cached."""
+    env = _call(service.get_environment, db, user.id, environment_id)
+    frame = desktop_preview.load(env.id)
+    if (
+        frame is None
+        or env.status != "online"
+        or env.capture_gate != "allowed"
+        or frame.epoch != env.capture_epoch
+        or frame.generation != env.controller_generation
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail={"code": "no_frame", "message": "no current picture"}
+        )
+    return Response(
+        content=frame.jpeg,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Frame-Seq": str(frame.seq),
+            "X-Frame-Age-Ms": str(int(frame.age_seconds * 1000)),
+        },
     )
 
 

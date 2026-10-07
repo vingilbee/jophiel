@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from './Button'
 import { useDesktopSession } from '../hooks/useDesktopSession'
-import type { DesktopSessionEvent, DesktopSessionState } from '../types/desktop'
+import type { DesktopSessionEvent, DesktopSessionState, DesktopTargetState } from '../types/desktop'
 
 /**
  * Columbina's game session: who has the controls, the plan, and the buttons
@@ -66,6 +66,118 @@ export function DesktopSessionPanel({ className = '' }: { className?: string }) 
   )
 }
 
+const NO_PICTURE: Record<DesktopTargetState, string> = {
+  ok: 'Waiting for the first picture…',
+  capture_off: 'Turning the preview on…',
+  not_found: "The game isn't running in the VM.",
+  not_foreground: "The game isn't the active window in the VM, so nothing is captured.",
+  minimized: 'The game window is minimized.',
+  sensitive: 'A Windows sign-in or permission prompt is open in the VM, so nothing is captured.',
+  error: "The VM can't capture its screen. Check the program's window in the VM.",
+}
+
+/**
+ * What Columbina can see. Off by default. "I'm signing in" stops capture in
+ * the VM itself and stays off until turned back on; the line under it says
+ * whether the VM has *confirmed* that, not just been asked.
+ */
+function GamePreview() {
+  const { environment: env, preview, busy, setCapture, setCaptureScope } = useDesktopSession()
+  if (!env || !env.paired_at) return null
+  const online = env.status === 'online'
+  const gate = env.capture_gate
+  const stale = preview !== null && preview.ageMs > 5000
+
+  let body: string | null = null
+  if (!online) body = 'Game VM not connected.'
+  else if (gate === 'manual_auth') body = 'Capture is off while you sign in.'
+  else if (gate === 'blocked') body = 'Preview is off. Columbina sees nothing from the VM.'
+  else if (!preview)
+    body =
+      env.target_state === 'ok' || !env.target_state
+        ? 'Waiting for the first picture…'
+        : NO_PICTURE[env.target_state]
+
+  return (
+    <div className="space-y-2">
+      <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-[#D9E8F6] bg-[#EEF3FA]">
+        {preview && !body ? (
+          <>
+            <img
+              src={preview.url}
+              alt={env.capture_scope === 'desktop' ? "Live view of the VM's screen" : 'Live view of the game window'}
+              className="h-full w-full object-contain"
+            />
+            <span
+              className={`absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-wider uppercase ${
+                stale ? 'bg-amber-100 text-amber-800' : 'bg-white/80 text-[#527998]'
+              }`}
+            >
+              {stale ? `stale · ${Math.round(preview.ageMs / 1000)}s` : 'live'}
+            </span>
+          </>
+        ) : (
+          <p className="flex h-full items-center justify-center px-4 text-center text-xs text-[#7183A3]">{body}</p>
+        )}
+      </div>
+
+      {online && (
+        <div className="flex flex-wrap items-center gap-2">
+          {gate === 'allowed' ? (
+            <>
+              <Button variant="outline" disabled={busy} onClick={() => void setCapture('blocked')}>
+                Hide preview
+              </Button>
+              <Button variant="ghost" disabled={busy} onClick={() => void setCapture('manual_auth')}>
+                I'm signing in
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" disabled={busy} onClick={() => void setCapture('allowed')}>
+              {gate === 'manual_auth' ? "I'm done signing in" : 'Show preview'}
+            </Button>
+          )}
+        </div>
+      )}
+      {online && (
+        <div role="group" aria-label="What Columbina can see" className="flex gap-1 text-[11px]">
+          {(
+            [
+              ['desktop', 'Whole VM screen'],
+              ['game_window', 'Game window only'],
+            ] as const
+          ).map(([scope, label]) => (
+            <button
+              key={scope}
+              type="button"
+              aria-pressed={env.capture_scope === scope}
+              disabled={busy || env.capture_scope === scope}
+              onClick={() => void setCaptureScope(scope)}
+              className={`rounded-full border px-2.5 py-1 transition-colors ${
+                env.capture_scope === scope
+                  ? 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]'
+                  : 'border-[#D9E8F6] text-[#7183A3] hover:text-[#23314F]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {online && env.capture_scope === 'desktop' && gate === 'allowed' && (
+        <p className="text-[11px] text-[#7183A3]">
+          Everything on the VM's screen is visible. Press “I'm signing in” before typing a password there.
+        </p>
+      )}
+      {online && gate !== 'allowed' && (
+        <p className="text-[11px] text-[#7183A3]" aria-live="polite">
+          {env.capture_confirmed ? 'Capture off — confirmed by the VM.' : 'Turning capture off… waiting for the VM to confirm.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function RegisterForm() {
   const { profiles, busy, registerEnvironment } = useDesktopSession()
   const [name, setName] = useState('Game VM')
@@ -109,6 +221,8 @@ function StartForm() {
         {env.display_name} ·{' '}
         {online ? 'connected' : env.paired_at ? 'not connected' : 'not paired yet'}
       </p>
+
+      {!pairing && <GamePreview />}
 
       {pairing ? (
         <PairingBox />
@@ -201,6 +315,7 @@ function SessionView() {
 
   return (
     <div className="mt-3 space-y-3">
+      <GamePreview />
       {/* Announced: state changes are the one thing a listener must not miss. */}
       <div aria-live="polite">
         <span className={`inline-block rounded-full border px-3 py-1 font-mono text-[10px] tracking-[0.18em] uppercase ${copy.tone}`}>

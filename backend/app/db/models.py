@@ -1234,6 +1234,11 @@ class DesktopEnvironment(Base):
 
     __tablename__ = "desktop_environments"
 
+    @property
+    def capture_confirmed(self) -> bool:
+        """The connected controller has acknowledged the current capture setting."""
+        return self.status == "online" and self.capture_confirmed_epoch == self.capture_epoch
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
@@ -1253,6 +1258,17 @@ class DesktopEnvironment(Base):
     controller_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     controller_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Screen capture (plan §10, §23): off until the owner allows it. Every
+    # change bumps ``capture_epoch``; frames carry the epoch they were taken
+    # under, and the controller reports the epoch it is obeying
+    # (``capture_confirmed_epoch``), so "off" can be shown as confirmed.
+    capture_gate: Mapped[str] = mapped_column(String(16), nullable=False, default="blocked", server_default="blocked")
+    capture_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    capture_confirmed_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # "desktop" (the VM's whole screen) or "game_window" (the profile's game only).
+    capture_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="desktop", server_default="desktop")
+    # The controller's last reason for having or not having a picture.
+    target_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -1263,6 +1279,12 @@ class DesktopEnvironment(Base):
     __table_args__ = (
         CheckConstraint("hosting_kind IN ('local_vm', 'cloud_vm')", name="ck_desktop_environments_hosting_kind"),
         CheckConstraint("status IN ('offline', 'online')", name="ck_desktop_environments_status"),
+        CheckConstraint(
+            "capture_gate IN ('allowed', 'blocked', 'manual_auth')", name="ck_desktop_environments_capture_gate"
+        ),
+        CheckConstraint(
+            "capture_scope IN ('desktop', 'game_window')", name="ck_desktop_environments_capture_scope"
+        ),
     )
 
 

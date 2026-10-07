@@ -2,7 +2,8 @@
 
 Runbook for plan §5.1 (`docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`): backend on the Mac, game in
 a Windows 11 VM on the Legion. This connects the two. **Nothing here sends input to the game yet**;
-that is stage C. After this, the Dashboard's Game session card shows the VM as *connected*.
+that is stage C. After this, the Dashboard's Game session card shows the VM as *connected*, with
+an optional live preview of the VM's screen.
 
 The VM itself (VMware settings, local account, isolation, Minecraft settings) is set up as in
 plan §5.1 steps 1-4.
@@ -57,15 +58,15 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.1.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.1.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.2.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.1.0-py3-none-any.whl SHA256
-   py -m pip install --user $HOME\Downloads\desktop_controller-0.1.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl SHA256
+   py -m pip install --user $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
@@ -92,9 +93,30 @@ It prints `connected (generation N)` and the card turns *connected* within ~5 s.
 its own if the Mac or network goes away, and stops for good (with a reason) if the VM is removed
 in the app, paired again elsewhere, or the relay's certificate changes.
 
+### The preview
+
+The card's **Show preview** button turns on capture; it is off until you press it. Choose
+what Columbina can see:
+
+- **Whole VM screen** (default): everything on the VM's screen, about two pictures a second.
+  Press **I'm signing in** before typing a password in the VM; capture stops inside the VM until
+  you press **I'm done signing in**, and the card says when the VM has confirmed it. Windows'
+  own sign-in and permission prompts are never captured.
+- **Game window only**: just the game's window, and only while it is the active window. A
+  launcher login or browser in front means no picture, even without the button.
+
+Pictures are never saved: the Mac keeps only the latest one, in memory, for 10 seconds. The
+preview needs Redis (`REDIS_URL`, already in `.env`).
+
 To start it at logon (once the manual run works): Task Scheduler → *Create Task* → trigger
 *At log on* of your user, *Run only when user is logged on* (input needs the desktop session,
 so never a service), action `pythonw.exe` with arguments `-m desktop_controller run`.
+
+## Updating the VM program
+
+When the program changes, repeat §2 and §3 with the new file name (the version is in it,
+e.g. `desktop_controller-0.2.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
+no new code is needed.
 
 ## 6. Check what the VM can reach (stage B gate)
 

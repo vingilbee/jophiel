@@ -12,13 +12,14 @@ with its first message, within a few seconds, or it is closed. Afterwards it
 must heartbeat; each heartbeat re-checks the database, so a revoke, a re-pair
 or a newer connection ends this one within one heartbeat.
 
-Stage B carries health only. Leases, decisions, and frames arrive in stage C.
+Stage B carries health and preview frames. Leases and decisions arrive in stage C.
 """
 from __future__ import annotations
 
 import asyncio
 import ipaddress
 import logging
+import time
 import uuid
 from collections.abc import Callable
 
@@ -29,10 +30,11 @@ from sqlalchemy.orm import Session
 
 from app.ai.desktop.tls import ensure_relay_certificate
 from app.core.config import get_settings
-from app.services import desktop_link
+from app.services import desktop_link, desktop_preview
 from app.services.desktop_link import LinkRefused
 from desktop_controller.link import (
     HEARTBEAT_TIMEOUT_SECONDS,
+    MAX_FRAME_BYTES,
     PROTOCOL,
     Hello,
     HeartbeatAck,
@@ -41,13 +43,16 @@ from desktop_controller.link import (
     Paired,
     Welcome,
     controller_message,
+    unpack_frame,
 )
 
 log = logging.getLogger(__name__)
 
 FIRST_MESSAGE_SECONDS = 10.0
-# Health only for now; stage C raises this for frames on their own channel.
+# Text (control) messages; frames are binary and bounded by MAX_FRAME_BYTES.
 MAX_MESSAGE_BYTES = 64 * 1024
+# At most 4 frames a second per connection, whatever the controller sends.
+MIN_FRAME_INTERVAL_SECONDS = 0.25
 
 SessionFactory = Callable[[], Session]
 
@@ -86,12 +91,32 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             environment_id, generation = await db_call(desktop_link.authenticate, first)
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
             await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
+            last_frame_at = 0.0
+            last_heartbeat_at = time.monotonic()
             while True:
-                message = await _receive(ws, HEARTBEAT_TIMEOUT_SECONDS)
+                # Timed from the last *heartbeat*: a stream of frames alone must
+                # not keep a connection alive (heartbeats are where revoke is checked).
+                remaining = HEARTBEAT_TIMEOUT_SECONDS - (time.monotonic() - last_heartbeat_at)
+                if remaining <= 0:
+                    raise TimeoutError
+                message = await _receive(ws, remaining, allow_frames=True)
+                if isinstance(message, bytes):
+                    # Frames are best-effort: anything malformed, too fast, or
+                    # taken under an outdated capture setting is dropped quietly.
+                    now = time.monotonic()
+                    if now - last_frame_at < MIN_FRAME_INTERVAL_SECONDS:
+                        continue
+                    last_frame_at = now
+                    await _accept_frame(db_call, environment_id, generation, message)
+                    continue
                 if message.type != "heartbeat":
                     raise LinkRefused("bad_message")
-                await db_call(desktop_link.heartbeat, environment_id, generation)
-                await ws.send_text(HeartbeatAck().model_dump_json())
+                last_heartbeat_at = time.monotonic()
+                capture = await db_call(
+                    desktop_link.heartbeat, environment_id, generation,
+                    gate_epoch_seen=message.gate_epoch_seen, target_state=message.target_state,
+                )
+                await ws.send_text(HeartbeatAck(capture=capture).model_dump_json())
         except LinkRefused as refused:
             reason = {"superseded": "controller_replaced", "revoked": "environment_revoked"}.get(
                 refused.code, "controller_lost"
@@ -110,8 +135,27 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
     return app
 
 
-async def _receive(ws: WebSocket, timeout: float):
-    raw = await asyncio.wait_for(ws.receive_text(), timeout)
+async def _accept_frame(db_call, environment_id: uuid.UUID, generation: int, data: bytes) -> None:
+    try:
+        header, jpeg = unpack_frame(data)
+    except ValueError:
+        return
+    if not await db_call(desktop_link.frame_allowed, environment_id, generation, header.gate_epoch):
+        return
+    if not await asyncio.to_thread(desktop_preview.check_jpeg, header, jpeg):
+        return
+    await asyncio.to_thread(desktop_preview.store, environment_id, header, jpeg, generation=generation)
+
+
+async def _receive(ws: WebSocket, timeout: float, *, allow_frames: bool = False):
+    message = await asyncio.wait_for(ws.receive(), timeout)
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000))
+    if message.get("bytes") is not None:
+        if not allow_frames:
+            raise LinkRefused("bad_message")
+        return message["bytes"]
+    raw = message.get("text") or ""
     if len(raw) > MAX_MESSAGE_BYTES:
         raise LinkRefused("bad_message")
     try:
@@ -162,7 +206,7 @@ def main() -> None:
         port=settings.desktop_controller_port,
         ssl_certfile=str(cert.cert_path),
         ssl_keyfile=str(cert.key_path),
-        ws_max_size=MAX_MESSAGE_BYTES,
+        ws_max_size=MAX_FRAME_BYTES,
         proxy_headers=False,
         server_header=False,
         log_level="info",

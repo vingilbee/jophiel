@@ -781,7 +781,22 @@ Status 2026-10-06, part B1 built (Mac side + the guest's connection client), not
 
 Verified on the actual setup 2026-10-07 (manual, by the user, following `infra/desktop/README.md` §1-6): the package installed in the Windows 11 guest from a wheel served by the Mac; pairing with a card code succeeded and the fingerprint matched; `run` showed *connected* on the card; Remove disconnected the guest with "access was revoked"; from the guest only the relay port answered (plain HTTP to it, 8000, 5432 and 6379 did not).
 
-Remaining for stage B (part B2): guest screen capture, private preview, and the authentication-mode capture gate. Then run the §5.1 checks and this gate's port checks from the actual VM (runbook §6).
+Status 2026-10-07, part B2 built, not yet independently reviewed; the Windows capture path has not yet run in the guest:
+
+- **Capture gate.** Each environment has a `capture_gate` (`blocked` by default, `allowed`, or `manual_auth` = "I'm signing in"). Every change bumps `capture_epoch`. The relay returns the current `CaptureConfig` on each heartbeat. The controller obeys it, re-checks it after every grab and discards a grab taken under an older setting. It confirms a stop with an immediate heartbeat carrying `gate_epoch_seen`, which becomes `capture_confirmed` on the card ("requested" vs "confirmed"). `manual_auth` stays until the owner turns capture back on, and revoke resets the gate to `blocked`.
+- **Guest capture** (`desktop_controller/capture.py`, Win32 via ctypes + `mss`). There are two scopes, set per environment by the owner (`capture_scope`); the default is `desktop`, by user decision 2026-10-07, because the VM is dedicated and the agent is meant to be general, not Minecraft-only.
+  - `desktop` captures the VM's whole primary screen at up to 1280×720. It withholds the picture (`target_state=sensitive`) while a Windows credential, UAC, lock or sign-in process is the foreground window, checked before and after the grab. Otherwise the owner relies on "I'm signing in" before typing a password.
+  - `game_window` captures only the visible window of the profile's `target.process`, only while it is foreground, re-checked after grabbing, at the profile's `observation.size`. The launcher's sign-in then never reaches capture, even without the button.
+  - When there is no picture, only a `target_state` is sent (`not_found`, `not_foreground`, `minimized`, `sensitive`, `capture_off`, `error`).
+  - Changing scope also bumps the epoch.
+  - Input scope for stage C (the whole desktop or only the game window) is a separate, still-open decision.
+- **Relay.** Frames are binary messages (`[len][FrameHeader][JPEG]`, at most 512 KiB). The relay limits them to 4 per second, keeps one only if capture is allowed under the frame's epoch from the current connection, and checks it is a real JPEG of the declared size. Heartbeats are timed separately, so frames alone can't keep a connection alive.
+- **Preview.** The latest frame per environment is kept in Redis with a 10 s TTL and never written to the image store, database or memory. `GET /environments/{id}/preview` (owner-only, `no-store`) serves it only if the gate is `allowed` and both epoch and generation are current. `PUT /environments/{id}/capture` changes the gate and wipes the stored frame. The card gains a preview with live/stale badges, Show/Hide, "I'm signing in", and a reason when there is no picture.
+- **Tests.** 12 new tests, including the real relay and client loop with a fake screen: no grabs while blocked; frames flow once allowed; "I'm signing in" is confirmed, grabs stop in the VM and the preview is gone; a non-foreground game sends nothing. A manual rehearsal with the real programs (`run --fake-capture`) passed; the VM confirms a stop within about one heartbeat (2 s), and the Mac stops showing frames immediately.
+
+Verified on the actual setup 2026-10-07 (manual, by the user): controller 0.2.0 in the Windows 11 guest captures the desktop and Minecraft (not black) with the `mss` backend; the card's preview shows it; "I'm signing in" stops capture and the card confirms it. Stage B gate status: port exposure, TLS-only, pairing, revoke, and the authentication-mode capture gate verified; the Windows credential-prompt withholding (`sensitive`) is tested only with a fake screen.
+
+Previously remaining (now done except the `sensitive` check in the guest): run the Windows capture in the guest in both scopes (a black game area would mean switching to DXGI duplication), and check there that "I'm signing in", a Windows sign-in prompt (`desktop`), and a non-foreground game (`game_window`) produce no picture.
 
 ### C. Timed input without a model
 

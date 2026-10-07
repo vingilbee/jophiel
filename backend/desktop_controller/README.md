@@ -3,7 +3,7 @@
 The game-agnostic action contract for Columbina's desktop agent, and its enforcement.
 Spec: `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md` §7.
 
-This package is standalone (only `pydantic`, `pyyaml`, and `websockets`; a uv workspace member of
+This package is standalone (only `pydantic`, `pyyaml`, `websockets`, `pillow`, and on Windows `mss`; a uv workspace member of
 `backend/`, which it lives inside so the backend Docker image can build it) because the
 same code runs in two places: inside the game VM as the controller, and in the backend,
 which validates decisions before sending them. The controller re-validates everything
@@ -21,6 +21,7 @@ itself, so a backend bug can never bypass the safety rules.
 | `fake.py` | Manual clock + recording backend: the real scheduler with no OS (stage A "fake controller") |
 | `link.py` | Relay link messages, pairing codes and proofs (shared with the relay) |
 | `connection.py` | Guest client: `pair` (verify the relay by the code, pin its certificate) and `run` (connect + heartbeat) |
+| `capture.py` | Screen capture: Windows (ctypes + `mss`; whole screen, or the foreground game window only) and a fake screen |
 | `cli.py` | `desktop-profile-check`, `desktop-controller pair/run` (also `python -m desktop_controller`) |
 
 Profiles live in `../desktop_profiles/`.
@@ -43,5 +44,5 @@ In the guest VM, install it on its own: `pip install ./desktop_controller`.
 - OS input drivers (`SendInput` on Windows) and screen capture: stage C. The scheduler
   takes any `InputBackend`, so a driver plugs in without touching the core.
 - Turning pixels into the region-change ratios `until.py` consumes: stage C capture.
-- Screen capture and the private preview: stage B2. Connecting a VM is in `infra/desktop/README.md`.
+- Connecting a VM and turning on the preview: `infra/desktop/README.md`.
 - Macros and typing: refused by the profile checker until designed.

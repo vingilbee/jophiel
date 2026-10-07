@@ -32,6 +32,28 @@ export interface DesktopEnvironment {
   created_at: string
   paired_at: string | null
   controller_version: string | null
+  capture_gate: DesktopCaptureGate
+  capture_scope: DesktopCaptureScope
+  /** The VM has acknowledged the current capture setting (not just been asked). */
+  capture_confirmed: boolean
+  /** Why there is or isn't a picture, as last reported by the VM. */
+  target_state: DesktopTargetState | null
+}
+
+export type DesktopCaptureGate = 'allowed' | 'blocked' | 'manual_auth'
+export type DesktopCaptureScope = 'desktop' | 'game_window'
+export type DesktopTargetState =
+  | 'ok'
+  | 'not_found'
+  | 'not_foreground'
+  | 'minimized'
+  | 'sensitive'
+  | 'capture_off'
+  | 'error'
+
+export interface DesktopPreviewFrame {
+  url: string
+  ageMs: number
 }
 
 /** Shown once: the code can't be fetched again. */

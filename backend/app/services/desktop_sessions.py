@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -51,6 +52,7 @@ from app.schemas.desktop import (
     ProfileOut,
     SessionCreate,
 )
+from app.services import desktop_preview
 from desktop_controller import Profile, ProfileError, load_profile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -102,12 +104,18 @@ def get_profile(profile_id: str) -> Profile:
     if not path.is_file():
         raise DesktopError("profile_not_found", 422, f"no profile named {profile_id!r}")
     try:
-        profile = load_profile(path)
+        profile = _load_cached(str(path), path.stat().st_mtime_ns)
     except ProfileError as exc:
         raise DesktopError("profile_invalid", 422, f"profile {profile_id!r} failed its checks: {exc.issues[0]}")
     if profile.id != profile_id:
         raise DesktopError("profile_invalid", 422, f"profile file {path.name} declares id {profile.id!r}")
     return profile
+
+
+@lru_cache(maxsize=32)
+def _load_cached(path: str, mtime_ns: int) -> Profile:
+    """Profiles are read on every relay heartbeat; reload only when the file changes."""
+    return load_profile(path)
 
 
 def list_profiles() -> list[ProfileOut]:
@@ -135,6 +143,10 @@ def list_environments(db: Session, owner_user_id: uuid.UUID) -> list[DesktopEnvi
             .order_by(DesktopEnvironment.created_at)
         )
     )
+
+
+def get_environment(db: Session, owner_user_id: uuid.UUID, environment_id: uuid.UUID) -> DesktopEnvironment:
+    return _owned_environment(db, owner_user_id, environment_id)
 
 
 def _owned_environment(
@@ -177,6 +189,8 @@ def revoke_environment(db: Session, owner_user_id: uuid.UUID, environment_id: uu
     # controller at its next heartbeat (it re-reads this row every time).
     env.controller_token_hash = None
     env.controller_generation += 1
+    env.capture_gate = "blocked"
+    env.capture_epoch += 1
     for pairing in db.scalars(
         select(DesktopPairing).where(DesktopPairing.environment_id == env.id, DesktopPairing.consumed_at.is_(None))
     ):
@@ -185,6 +199,7 @@ def revoke_environment(db: Session, owner_user_id: uuid.UUID, environment_id: uu
     for session in _live_sessions_locked(db, env.id):
         _transition(session, "ended", reason="environment_revoked", db=db)
     db.commit()
+    desktop_preview.clear(env.id)
     return env
 
 

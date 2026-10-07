@@ -1,12 +1,14 @@
 [project]
 name = "desktop-controller"
-version = "0.1.0"
+version = "0.2.0"
 description = "Desktop agent controller: decision contract, game profiles, safety rules, and input scheduler."
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "websockets>=13",
+    "pillow>=10",
+    "mss>=9.0.1; sys_platform == 'win32'",
 ]
 
 [project.scripts]

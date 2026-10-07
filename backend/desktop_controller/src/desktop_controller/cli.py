@@ -49,7 +49,10 @@ def controller(argv: list[str] | None = None) -> int:
     pairing = commands.add_parser("pair", help="pair with a code from the app's Game session card")
     pairing.add_argument("relay", help="the relay address shown with the code, e.g. 192.168.1.76:8765")
     pairing.add_argument("code", help="the pairing code, e.g. ABCD-EFGH-JKMN")
-    commands.add_parser("run", help="connect and stay connected (reconnects on its own)")
+    running = commands.add_parser("run", help="connect and stay connected (reconnects on its own)")
+    running.add_argument(
+        "--fake-capture", action="store_true", help="send a test picture instead of the screen (for dry runs)"
+    )
     args = parser.parse_args(argv)
     config_path = args.config or default_config_path()
 
@@ -61,7 +64,10 @@ def controller(argv: list[str] | None = None) -> int:
             asyncio.run(pair(host, int(port), args.code, config_path=config_path))
             print(f"saved to {config_path}. Next: desktop-controller run")
             return 0
-        return asyncio.run(run_forever(load_config(config_path)))
+        from .capture import FakeCapture, default_backend
+
+        capture = FakeCapture() if args.fake_capture else default_backend()
+        return asyncio.run(run_forever(load_config(config_path), capture=capture))
     except (LinkFailure, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
