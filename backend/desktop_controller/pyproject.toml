@@ -1,6 +1,6 @@
 [project]
 name = "desktop-controller"
-version = "0.2.0"
+version = "0.3.0"
 description = "Desktop agent controller: decision contract, game profiles, safety rules, and input scheduler."
 requires-python = ">=3.12"
 dependencies = [

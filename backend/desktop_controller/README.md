@@ -22,6 +22,9 @@ itself, so a backend bug can never bypass the safety rules.
 | `link.py` | Relay link messages, pairing codes and proofs (shared with the relay) |
 | `connection.py` | Guest client: `pair` (verify the relay by the code, pin its certificate) and `run` (connect + heartbeat) |
 | `capture.py` | Screen capture: Windows (ctypes + `mss`; whole screen, or the foreground game window only) and a fake screen |
+| `win32.py` | Win32 helpers (windows, foreground, cursor, `SendInput`) shared by capture and input |
+| `input_windows.py` | Windows keyboard/mouse driver: scancodes, relative look, absolute pointer, wheel; refuses any input unless the game window is in front |
+| `runtime.py` | The session runtime: scheduler tick thread, lease, generation fence, watchdog thread |
 | `cli.py` | `desktop-profile-check`, `desktop-controller pair/run` (also `python -m desktop_controller`) |
 
 Profiles live in `../desktop_profiles/`.
@@ -41,8 +44,6 @@ In the guest VM, install it on its own: `pip install ./desktop_controller`.
 
 ## Not here yet
 
-- OS input drivers (`SendInput` on Windows) and screen capture: stage C. The scheduler
-  takes any `InputBackend`, so a driver plugs in without touching the core.
-- Turning pixels into the region-change ratios `until.py` consumes: stage C capture.
+- Turning pixels into the region-change ratios `until.py` consumes (so `until` never fires yet).
 - Connecting a VM and turning on the preview: `infra/desktop/README.md`.
 - Macros and typing: refused by the profile checker until designed.

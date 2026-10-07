@@ -50,7 +50,8 @@ def _client(url: str) -> redis.Redis:
     return redis.from_url(url)
 
 
-def _redis() -> redis.Redis | None:
+def redis_client() -> redis.Redis | None:
+    """The shared desktop Redis client (preview frames, commands), or None."""
     url = get_settings().redis_url
     return _client(url) if url else None
 
@@ -60,7 +61,7 @@ def _key(environment_id: uuid.UUID) -> str:
 
 
 def available() -> bool:
-    return _redis() is not None
+    return redis_client() is not None
 
 
 def check_jpeg(header: FrameHeader, jpeg: bytes) -> bool:
@@ -77,7 +78,7 @@ def check_jpeg(header: FrameHeader, jpeg: bytes) -> bool:
 
 
 def store(environment_id: uuid.UUID, header: FrameHeader, jpeg: bytes, *, generation: int) -> None:
-    client = _redis()
+    client = redis_client()
     if client is None:
         return
     meta = {
@@ -91,7 +92,7 @@ def store(environment_id: uuid.UUID, header: FrameHeader, jpeg: bytes, *, genera
 
 
 def load(environment_id: uuid.UUID) -> StoredFrame | None:
-    client = _redis()
+    client = redis_client()
     if client is None:
         return None
     raw = client.hgetall(_key(environment_id))
@@ -102,7 +103,7 @@ def load(environment_id: uuid.UUID) -> StoredFrame | None:
 
 
 def clear(environment_id: uuid.UUID) -> None:
-    client = _redis()
+    client = redis_client()
     if client is not None:
         try:
             client.delete(_key(environment_id))

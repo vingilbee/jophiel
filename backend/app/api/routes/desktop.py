@@ -19,6 +19,8 @@ from app.db.models import DesktopSession, User
 from app.db.session import get_db
 from app.schemas.desktop import (
     CaptureGateIn,
+    DecisionIn,
+    DecisionSent,
     EnvironmentCreate,
     EnvironmentOut,
     PlanAppend,
@@ -33,7 +35,7 @@ from app.schemas.desktop import (
     SessionResume,
 )
 from app.ai.desktop.tls import ensure_relay_certificate
-from app.services import desktop_link, desktop_preview
+from app.services import desktop_commands, desktop_link, desktop_preview
 from app.services import desktop_sessions as service
 from desktop_controller.link import display_fingerprint
 from app.services.desktop_sessions import CommandResult, DesktopError
@@ -271,6 +273,33 @@ def append_plan_steps(
     session_id: uuid.UUID, payload: PlanAppend, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return _session_out(_call(service.append_plan_steps, db, user.id, session_id, payload))
+
+
+@router.post(
+    "/sessions/{session_id}/decisions",
+    response_model=DecisionSent,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=mutation,
+)
+@limiter.limit("120/minute")
+def send_decision(
+    request: Request,
+    response: Response,
+    session_id: uuid.UUID,
+    payload: DecisionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stage C test input. Accepted means sent, not done: see GET .../decisions."""
+    decision_id = _call(service.send_decision, db, user.id, session_id, payload.decision, payload.decision_id)
+    return DecisionSent(decision_id=decision_id)
+
+
+@router.get("/sessions/{session_id}/decisions")
+def list_decisions(session_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """What happened to recent decisions, newest first (kept about an hour)."""
+    _call(service.get_session, db, user.id, session_id)
+    return desktop_commands.recent_reports(session_id)
 
 
 @router.get("/sessions/{session_id}/events", response_model=list[SessionEventOut])

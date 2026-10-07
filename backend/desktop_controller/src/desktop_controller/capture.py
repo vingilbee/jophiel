@@ -21,7 +21,6 @@ import io
 import sys
 import threading
 from dataclasses import dataclass
-from pathlib import PureWindowsPath
 from typing import Protocol
 
 from PIL import Image
@@ -78,77 +77,20 @@ class FakeCapture:
 
 
 class WindowsCapture:
-    """Win32: find the game's window by process, require it to be foreground,
-    grab its client area from the screen."""
+    """Win32: the whole primary screen, or the game's window while it is the
+    foreground window."""
 
     def __init__(self) -> None:
-        import ctypes
-        from ctypes import wintypes
-
         import mss
 
-        self._ctypes, self._wt = ctypes, wintypes
-        self._user32 = ctypes.WinDLL("user32", use_last_error=True)
-        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        # Declare every signature: ctypes defaults to C int, which truncates
-        # 64-bit window and process handles.
-        u, k, w = self._user32, self._kernel32, wintypes
-        self._enum_proc = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
-        for fn, args, res in (
-            (u.EnumWindows, [self._enum_proc, w.LPARAM], w.BOOL),
-            (u.IsWindowVisible, [w.HWND], w.BOOL),
-            (u.IsIconic, [w.HWND], w.BOOL),
-            (u.GetForegroundWindow, [], w.HWND),
-            (u.GetAncestor, [w.HWND, w.UINT], w.HWND),
-            (u.GetWindowThreadProcessId, [w.HWND, ctypes.POINTER(w.DWORD)], w.DWORD),
-            (u.GetClientRect, [w.HWND, ctypes.POINTER(w.RECT)], w.BOOL),
-            (u.ClientToScreen, [w.HWND, ctypes.POINTER(w.POINT)], w.BOOL),
-            (k.OpenProcess, [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
-            (k.QueryFullProcessImageNameW, [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)], w.BOOL),
-            (k.CloseHandle, [w.HANDLE], w.BOOL),
-        ):
-            fn.argtypes, fn.restype = args, res
-        # Physical pixels, so window coordinates match the screen on scaled displays.
-        try:
-            self._user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
-        except (AttributeError, OSError):
-            pass
+        from .win32 import win32
+
+        self._win = win32()
         # mss 10.2 renamed mss.mss to mss.MSS; support both. Its Windows GDI
         # handles belong to the thread that made them, and grabs run on a
         # worker thread, so each thread gets its own instance.
         self._mss_factory = getattr(mss, "MSS", None) or mss.mss
         self._local = threading.local()
-
-    def _process_name(self, hwnd) -> str | None:
-        ctypes, wt = self._ctypes, self._wt
-        pid = wt.DWORD()
-        self._user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        handle = self._kernel32.OpenProcess(0x1000, False, pid.value)  # QUERY_LIMITED_INFORMATION
-        if not handle:
-            return None
-        try:
-            size = wt.DWORD(1024)
-            buffer = ctypes.create_unicode_buffer(size.value)
-            if not self._kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
-                return None
-            return PureWindowsPath(buffer.value).name.lower()
-        finally:
-            self._kernel32.CloseHandle(handle)
-
-    def _game_window(self, target_process: str):
-        """The visible top-level window of the game process, if any."""
-        found = []
-        want = target_process.lower()
-
-        @self._enum_proc
-        def visit(hwnd, _):
-            if self._user32.IsWindowVisible(hwnd) and self._process_name(hwnd) == want:
-                found.append(hwnd)
-                return False
-            return True
-
-        self._user32.EnumWindows(visit, 0)
-        return found[0] if found else None
 
     def _shooter(self):
         if not hasattr(self._local, "sct"):
@@ -163,44 +105,40 @@ class WindowsCapture:
         return self._grab_window(config)
 
     def _grab_desktop(self, config: CaptureConfig) -> Grab:
-        foreground = self._user32.GetForegroundWindow()
-        if foreground and self._process_name(foreground) in SENSITIVE_PROCESSES:
+        win = self._win
+        foreground = win.foreground()
+        if foreground and win.process_name(foreground) in SENSITIVE_PROCESSES:
             return Grab("sensitive")
         sct = self._shooter()
         shot = sct.grab(sct.monitors[1])  # the primary screen
-        after = self._user32.GetForegroundWindow()
-        if after != foreground and after and self._process_name(after) in SENSITIVE_PROCESSES:
+        after = win.foreground()
+        if after != foreground and after and win.process_name(after) in SENSITIVE_PROCESSES:
             return Grab("sensitive")  # a prompt appeared during the grab: drop it
         image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
         return encode(image, config.max_width, config.max_height)
 
     def _grab_window(self, config: CaptureConfig) -> Grab:
-        ctypes, wt = self._ctypes, self._wt
-        max_width, max_height = config.max_width, config.max_height
-        hwnd = self._game_window(config.target_process)
+        win = self._win
+        hwnd = win.find_window(config.target_process)
         if hwnd is None:
             return Grab("not_found")
-        if self._user32.IsIconic(hwnd):
+        if win.is_minimized(hwnd):
             return Grab("minimized")
-        foreground = self._user32.GetForegroundWindow()
-        root = self._user32.GetAncestor(foreground, 3) if foreground else None  # GA_ROOTOWNER
-        if foreground != hwnd and root != hwnd:
+        foreground = win.foreground()
+        if not win.is_foreground(hwnd, foreground):
             return Grab("not_foreground")
-        rect = wt.RECT()
-        if not self._user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        rect = win.client_rect(hwnd)
+        if rect is None:
             return Grab("error")
-        origin = wt.POINT(0, 0)
-        self._user32.ClientToScreen(hwnd, ctypes.byref(origin))
-        width, height = rect.right - rect.left, rect.bottom - rect.top
-        if width < 16 or height < 16:
+        if rect.width < 16 or rect.height < 16:
             return Grab("minimized")
-        shot = self._shooter().grab({"left": origin.x, "top": origin.y, "width": width, "height": height})
+        shot = self._shooter().grab({"left": rect.left, "top": rect.top, "width": rect.width, "height": rect.height})
         # Re-check after grabbing: if another window came to the front during
         # the grab, the pixels may show it, so drop them.
-        if self._user32.GetForegroundWindow() != foreground:
+        if win.foreground() != foreground:
             return Grab("not_foreground")
         image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-        return encode(image, max_width, max_height)
+        return encode(image, config.max_width, config.max_height)
 
 
 def default_backend() -> CaptureBackend | None:

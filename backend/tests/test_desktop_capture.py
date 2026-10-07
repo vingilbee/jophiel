@@ -23,48 +23,14 @@ from desktop_controller import connection
 from desktop_controller.capture import FakeCapture, encode
 from desktop_controller.link import MAX_FRAME_BYTES, FrameHeader, pack_frame, unpack_frame
 from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_link import _env, _hello, _paired, _wait_for, relay  # noqa: F401  (fixtures/helpers)
 from tests.test_desktop_sessions import _user, alice, bob, client, db  # noqa: F401  (fixtures)
 
 
-class FakeRedis:
-    def __init__(self):
-        self.data: dict[str, dict[bytes, bytes]] = {}
-        self.lock = threading.Lock()
-
-    def pipeline(self):
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def hset(self, key, mapping):
-        with self.lock:
-            self.data[key] = {k.encode(): (v.encode() if isinstance(v, str) else v) for k, v in mapping.items()}
-
-    def expire(self, key, seconds):
-        pass
-
-    def execute(self):
-        pass
-
-    def hgetall(self, key):
-        with self.lock:
-            return dict(self.data.get(key, {}))
-
-    def delete(self, key):
-        with self.lock:
-            self.data.pop(key, None)
-
-
-@pytest.fixture(autouse=True)
-def fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(desktop_preview, "_redis", lambda: fake)
-    return fake
+@pytest.fixture
+def fake_redis(isolated_redis):
+    return isolated_redis
 
 
 def _jpeg(width=64, height=36) -> bytes:

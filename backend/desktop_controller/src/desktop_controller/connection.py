@@ -18,6 +18,7 @@ import secrets
 import ssl
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -26,11 +27,18 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from . import __version__
 from .capture import CaptureBackend
+from .profile import Profile, ProfileError, parse_profile
+from .runtime import GuardedBackend, SessionRuntime, TargetLost
 from .link import (
     MAX_FRAME_BYTES,
+    HEARTBEAT_ACTIVE_SECONDS,
     HEARTBEAT_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
+    Cancel,
     CaptureConfig,
+    ControlGrant,
+    DecisionCommand,
+    DecisionReport,
     FrameHeader,
     Hello,
     Heartbeat,
@@ -38,6 +46,11 @@ from .link import (
     LinkError,
     Pair,
     Paired,
+    PauseRequest,
+    SessionProblem,
+    SessionReady,
+    SessionStart,
+    SessionStop,
     TargetState,
     Welcome,
     cert_fingerprint,
@@ -199,7 +212,116 @@ class _CaptureState:
         self.changed.clear()
 
 
-async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None = None, on_welcome=None) -> None:
+InputFactory = Callable[[Profile], GuardedBackend]
+
+
+class _Play:
+    """The session side of a connection: one ``SessionRuntime`` at a time.
+
+    Everything here is a reaction to the relay. Input is only possible while
+    the latest heartbeat reply carried a grant for this session; anything else
+    (no grant, a cancel, a stop, the connection ending) releases everything.
+    """
+
+    def __init__(self, input_factory: InputFactory | None):
+        self.input_factory = input_factory
+        self.session_id: str | None = None
+        self.runtime: SessionRuntime | None = None
+        self.pending: SessionStart | None = None
+        self._told_missing = False
+        # Set when a session starts, so the heartbeat loop drops its slow idle
+        # wait at once instead of letting the first lease lapse.
+        self.woke = asyncio.Event()
+
+    @property
+    def active(self) -> bool:
+        return self.session_id is not None
+
+    def start(self, message: SessionStart) -> list:
+        if message.session_id == self.session_id and self.runtime is not None:
+            return [self._ready()]  # the relay repeats starts until it hears "ready"
+        if message.session_id != self.session_id:
+            self.close()
+            self.session_id, self._told_missing = message.session_id, False
+            self.woke.set()
+        try:
+            profile = parse_profile(message.profile, source="relay")
+        except ProfileError:
+            return [SessionProblem(session_id=message.session_id, reason="profile_invalid")]
+        if self.input_factory is None:
+            return [SessionProblem(session_id=message.session_id, reason="no_input")]
+        try:
+            self.runtime = SessionRuntime(profile, self.input_factory(profile))
+        except TargetLost:
+            self.pending = message
+            if self._told_missing:
+                return []
+            self._told_missing = True
+            return [SessionProblem(session_id=message.session_id, reason="target_missing")]
+        self.pending = None
+        print(f"session {message.session_id}: ready ({profile.display_name})")
+        return [self._ready()]
+
+    def _ready(self) -> SessionReady:
+        assert self.runtime is not None and self.session_id is not None
+        return SessionReady(
+            session_id=self.session_id, viewport=self.runtime.scheduler.viewport_size, context=self.runtime.context(),
+        )
+
+    def retry(self) -> list:
+        return self.start(self.pending) if self.pending is not None else []
+
+    def control(self, grant: ControlGrant | None) -> None:
+        if self.runtime is None:
+            return
+        if grant is not None and grant.session_id == self.session_id:
+            self.runtime.grant(grant.generation, grant.lease_ms)
+        else:
+            self.runtime.revoke("no_control")
+
+    def decision(self, message: DecisionCommand) -> None:
+        if self.runtime is not None and message.session_id == self.session_id:
+            self.runtime.apply(message.decision_id, message.decision, message.generation)
+
+    def cancel(self, message: Cancel) -> None:
+        if self.runtime is not None and message.session_id == self.session_id:
+            self.runtime.revoke(message.reason)
+
+    def stop(self, message: SessionStop) -> None:
+        if message.session_id == self.session_id:
+            self.close()
+
+    def reports(self) -> list:
+        if self.runtime is None or self.session_id is None:
+            return []
+        out: list = []
+        for report in self.runtime.drain():
+            if report.kind == "pause":
+                print(f"session {self.session_id}: stopped ({report.reason})")
+                out.append(PauseRequest(session_id=self.session_id, reason=report.reason or "controller"))
+            else:
+                out.append(DecisionReport(
+                    session_id=self.session_id, decision_id=report.decision_id or "", state=report.state or "",
+                    ended_by=report.ended_by, ran_ms=report.ran_ms, rejection_code=report.rejection_code,
+                    rejection_reason=report.rejection_reason,
+                ))
+        return out
+
+    def close(self) -> None:
+        if self.runtime is not None:
+            self.runtime.close()
+        self.runtime = None
+        self.session_id = None
+        self.pending = None
+
+
+async def run_once(
+    config: ControllerConfig,
+    *,
+    capture: CaptureBackend | None = None,
+    input_factory: InputFactory | None = None,
+    on_welcome=None,
+) -> None:
     """One connection, until it ends. Raises ``LinkFailure`` with the reason.
 
     Three loops share the socket: the reader (relay replies, refusals), the
@@ -220,6 +342,7 @@ async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None =
         if on_welcome:
             on_welcome(welcome)
         state = _CaptureState()
+        play = _Play(input_factory)
 
         async def send(data) -> None:
             try:
@@ -228,11 +351,29 @@ async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None =
                 # The reader is about to read the relay's reason; let it raise.
                 await asyncio.Future()
 
+        async def reply(messages: list) -> None:
+            for message in messages:
+                await send(message.model_dump_json())
+
         async def reader() -> None:
             while True:
                 message = await _expect(ws, HEARTBEAT_TIMEOUT_SECONDS)
+                if isinstance(message, SessionStart):
+                    await reply(play.start(message))
+                    continue
+                if isinstance(message, DecisionCommand):
+                    play.decision(message)
+                    await reply(play.reports())
+                    continue
+                if isinstance(message, Cancel):
+                    play.cancel(message)
+                    continue
+                if isinstance(message, SessionStop):
+                    play.stop(message)
+                    continue
                 if not isinstance(message, HeartbeatAck):
                     raise LinkFailure("unexpected message from the relay")
+                play.control(message.control)
                 if state.apply(message.capture) and message.capture.gate != "allowed":
                     # Confirm a stop right away instead of at the next beat. The
                     # capture loop checks the setting before and after every
@@ -246,7 +387,15 @@ async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None =
                 await send(Heartbeat(
                     gate_epoch_seen=state.config.epoch, target_state=state.target_state,
                 ).model_dump_json())
-                await asyncio.sleep(HEARTBEAT_SECONDS)
+                await reply(play.retry() + play.reports())
+                # Faster beats during a session keep the lease short (plan §19).
+                play.woke.clear()
+                try:
+                    await asyncio.wait_for(
+                        play.woke.wait(), HEARTBEAT_ACTIVE_SECONDS if play.active else HEARTBEAT_SECONDS
+                    )
+                except TimeoutError:
+                    pass
 
         async def capturer() -> None:
             seq = 0
@@ -283,9 +432,13 @@ async def run_once(config: ControllerConfig, *, capture: CaptureBackend | None =
             # Report the relay's reason if there is one, else the first error.
             failures = [e for e in group_error.exceptions if isinstance(e, LinkFailure)]
             raise (failures or list(group_error.exceptions))[0] from None
+        finally:
+            play.close()  # no connection, no control: release everything now
 
 
-async def run_forever(config: ControllerConfig, *, capture: CaptureBackend | None = None) -> int:
+async def run_forever(
+    config: ControllerConfig, *, capture: CaptureBackend | None = None, input_factory: InputFactory | None = None
+) -> int:
     """Reconnect with backoff until a refusal that retrying can't fix."""
     attempt = 0
 
@@ -295,7 +448,7 @@ async def run_forever(config: ControllerConfig, *, capture: CaptureBackend | Non
 
     while True:
         try:
-            await run_once(config, capture=capture, on_welcome=connected)
+            await run_once(config, capture=capture, input_factory=input_factory, on_welcome=connected)
         except LinkFailure as exc:
             reason = str(exc)
             if reason in FATAL:

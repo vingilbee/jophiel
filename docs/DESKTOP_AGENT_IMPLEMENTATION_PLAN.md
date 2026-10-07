@@ -729,7 +729,7 @@ Suggested additions, subject to repository inspection. The controller package an
 backend/desktop_controller/         # uv workspace member of backend/ (pydantic + pyyaml + websockets); runs in the guest AND is imported by the backend
   protocol, profile (loader/validator), safety, validate, geometry, until, scheduler, fake, cli   # stage A, built
   link (messages + pairing proofs), connection (pair/run client)                                # stage B1, built
-  capture, input (per-OS drivers), watchdog                                                     # stages B2-C
+  capture, win32, input_windows, runtime (lease + watchdog)                                     # stages B2-C, built
 backend/desktop_profiles/           # trusted, versioned game profiles (YAML), checked by desktop-profile-check
   generic_keyboard_mouse.yaml (template), minecraft_java.yaml
 backend/app/schemas/desktop.py
@@ -803,6 +803,29 @@ Previously remaining (now done except the `sensitive` check in the guest): run t
 Exercise every primitive through hand-written decisions: holds, simultaneous holds + look axes, supersede-by-diff, expiry, pointer clicks, pointer-targeted taps, drag, scroll, context detection. Use synthetic targets first, then the Minecraft profile in the guest. Run look-axis calibration and validate coordinate mapping and target changes.
 
 Gate: injected relative motion turns the in-game camera (manually verified with a standalone script, §5.1; re-verify through the controller); supersede keeps shared held buttons down without re-press; expiry releases everything; pause cancels within measured bounds; watchdog works when backend/process/network fail; duplicate/ambiguous decisions do not cause blind repeated inputs; wrong-window input pauses.
+
+Status 2026-10-07, stage C part 1 built, not yet independently reviewed or run in the Windows guest:
+
+- **Input policy (user decision 2026-10-07).** Input only reaches the game window for now: before every press or movement the profile's `target.process` window must be foreground, otherwise nothing is sent, everything is released, and the session pauses (`not_found` / `minimized` / `not_foreground`). Releases are never guarded. Whole-VM input is a possible later per-environment switch, like `capture_scope`.
+- **Guest** (`desktop_controller`).
+  - `win32.py`: Win32 helpers shared with capture.
+  - `input_windows.py`: `SendInput`, scancodes, relative mouse split into steps of at most 127, absolute pointer over the virtual desktop, wheel.
+  - `runtime.py`: the scheduler on its own 100 Hz tick thread, the lease, server-owned generation fencing, `TargetLost` → pause, and a watchdog thread that releases every profile key if ticking stalls for more than 250 ms, then pauses.
+  - `fake.FakeInput` and `run --fake-input` for dry runs. Context comes from cursor visibility. Controller 0.3.0.
+- **Link.** `session_start` carries the trusted profile, which the guest re-validates; the guest replies `session_ready` (viewport, context) or `session_problem`. The lease is a `ControlGrant` in every heartbeat reply, with 1500 ms leases and heartbeats every 0.4 s during a session. It is present only while the session is `running` with `control_owner=gameplay`, and it is pushed immediately on ready and on resume. Commands (`decision`, `cancel`, `refresh`) go API → Redis stream (not durable, so no replay) → relay. Reports (`decision_report`, `pause_request`) are honoured only for the session the relay started on that connection.
+- **Server.**
+  - `controller_ready` now happens (`starting → running` when the guest finds the game window).
+  - `controller_pause` handles a guest-initiated pause, and `control_state` serves the relay.
+  - Pause, takeover, end, plan replace and revoke publish a cancel after commit; the lease is the backstop.
+  - `POST/GET /sessions/{id}/decisions` (hand-written decisions; only the shape is checked server-side, full validation in the guest; outcomes in a capped Redis list).
+  - Card: Test controls (preset Minecraft moves, Stop, a 360° calibration turn, custom JSON, recent outcomes).
+- **Evidence.**
+  - 13 runtime tests and 7 end-to-end tests with the real relay, real Redis and the real client loop. They cover: input only with a lease; a lapsed lease releases; a new generation fences; pause releases in under 1 s; a stale decision after resume is refused; a lost window pauses; the lease stops input even if the cancel is lost; input works immediately after resume; the first move of a session keeps its lease.
+  - The last test is a regression caught only by a rehearsal with the real programs. The guest slept through its 2 s idle heartbeat at session start and the first lease lapsed.
+
+Verified on the actual setup 2026-10-07 (manual, by the user): controller 0.3.0 in the Windows 11 guest; sessions start and play, and the card's test moves drive Minecraft, stopping as expected. The 360° calibration result is not yet reported.
+
+Remaining for the stage C gate (beyond the user's check): a detailed run in the guest (the camera turns, W walks, clicking away pauses), measure `counts_per_degree` with the 360° turn, pointer actions in menus (click, drag, scroll), crash/kill behaviour of the guest process, and `until` (needs region-change ratios from capture).
 
 ### D. Model gameplay
 

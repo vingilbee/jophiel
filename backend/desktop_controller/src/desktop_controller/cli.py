@@ -53,6 +53,9 @@ def controller(argv: list[str] | None = None) -> int:
     running.add_argument(
         "--fake-capture", action="store_true", help="send a test picture instead of the screen (for dry runs)"
     )
+    running.add_argument(
+        "--fake-input", action="store_true", help="print key presses instead of sending them (for dry runs)"
+    )
     args = parser.parse_args(argv)
     config_path = args.config or default_config_path()
 
@@ -67,9 +70,24 @@ def controller(argv: list[str] | None = None) -> int:
         from .capture import FakeCapture, default_backend
 
         capture = FakeCapture() if args.fake_capture else default_backend()
-        return asyncio.run(run_forever(load_config(config_path), capture=capture))
+        return asyncio.run(run_forever(
+            load_config(config_path), capture=capture, input_factory=_input_factory(args.fake_input),
+        ))
     except (LinkFailure, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 0
+
+
+def _input_factory(fake: bool):
+    """Real keyboard and mouse on Windows, bound to the profile's game window."""
+    if fake:
+        from .fake import FakeInput
+
+        return lambda profile: FakeInput(echo=True)
+    if sys.platform != "win32":
+        return None  # sessions report "no_input" instead of pressing anything
+    from .input_windows import WindowsInput
+
+    return lambda profile: WindowsInput(profile.target.process)

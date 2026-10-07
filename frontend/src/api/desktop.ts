@@ -4,6 +4,7 @@ import { api } from './client'
 import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
+  DesktopDecisionReport,
   DesktopEnvironment,
   DesktopPairing,
   DesktopProfile,
@@ -41,6 +42,9 @@ export const desktopApi = {
     api.post<DesktopSession>(`${s(id)}/resume`, { expected_state_revision }),
   takeover: (id: string) => api.post<DesktopSession>(`${s(id)}/takeover`),
   end: (id: string) => api.post<DesktopSession>(`${s(id)}/end`),
+  sendDecision: (id: string, decision: Record<string, unknown>) =>
+    api.post<{ decision_id: string }>(`${s(id)}/decisions`, { decision }),
+  decisions: (id: string) => api.get<DesktopDecisionReport[]>(`${s(id)}/decisions`),
   events: (id: string, afterId = 0) =>
     api.get<DesktopSessionEvent[]>(`${s(id)}/events?after_id=${afterId}&limit=50`),
 }

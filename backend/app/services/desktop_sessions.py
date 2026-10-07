@@ -53,7 +53,7 @@ from app.schemas.desktop import (
     SessionCreate,
 )
 from app.services import desktop_preview
-from desktop_controller import Profile, ProfileError, load_profile
+from desktop_controller import Profile, ProfileError, Rejection, load_profile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -196,10 +196,14 @@ def revoke_environment(db: Session, owner_user_id: uuid.UUID, environment_id: uu
     ):
         pairing.code = None
         pairing.expires_at = _now()
+    ended = []
     for session in _live_sessions_locked(db, env.id):
         _transition(session, "ended", reason="environment_revoked", db=db)
+        ended.append(session)
     db.commit()
     desktop_preview.clear(env.id)
+    for session in ended:
+        _stop_input(session)
     return env
 
 
@@ -354,6 +358,7 @@ def pause_session(
     had_control = session.control_owner == "gameplay"
     _transition(session, "paused", reason=reason or "user_pause", db=db)
     db.commit()
+    _stop_input(session)
     return CommandResult(session, release_pending=had_control)
 
 
@@ -372,6 +377,7 @@ def takeover_session(
     had_control = session.control_owner == "gameplay"
     _transition(session, "manual", reason=reason or "user_takeover", db=db)
     db.commit()
+    _stop_input(session)
     return CommandResult(session, release_pending=had_control)
 
 
@@ -405,6 +411,9 @@ def resume_session(
         raise DesktopError("environment_offline", 409, "the game VM's controller is not connected")
     _transition(session, "running", reason="user_resume", db=db)
     db.commit()
+    from app.services import desktop_commands
+
+    desktop_commands.publish_refresh(session.environment_id)
     return CommandResult(session)
 
 
@@ -419,6 +428,7 @@ def end_session(
     had_control = session.control_owner == "gameplay"
     _transition(session, "ended", reason=reason or "user_end", db=db)
     db.commit()
+    _stop_input(session)
     return CommandResult(session, release_pending=had_control)
 
 
@@ -437,6 +447,7 @@ def replace_plan(
     _check_plan_revision(session, data.expected_plan_revision)
     _set_plan(db, session, data, source=data.source)
     db.commit()
+    _stop_input(session, "plan_replaced")
     return session
 
 
@@ -576,6 +587,71 @@ def controller_ready(db: Session, session_id: uuid.UUID) -> DesktopSession:
     return session
 
 
+def send_decision(
+    db: Session, owner_user_id: uuid.UUID, session_id: uuid.UUID, decision: dict, decision_id: str | None = None
+) -> str:
+    """Stage C: a hand-written decision for the controller (no model yet).
+
+    Only while the session is playing; the controller does the full check
+    (profile, current context, frame) and reports the outcome. Here only the
+    shape is checked, for a quick, readable refusal.
+    """
+    from app.services import desktop_commands
+    from desktop_controller.validate import parse_decision
+
+    session = get_session(db, owner_user_id, session_id)
+    db.commit()
+    if session.state != "running" or session.control_owner != "gameplay":
+        raise DesktopError("invalid_state", 409, "start or resume the session before sending input")
+    parsed = parse_decision(decision)
+    if isinstance(parsed, Rejection):
+        raise DesktopError("invalid_decision", 422, f"{parsed.field}: {parsed.reason}")
+    if not desktop_commands.available():
+        raise DesktopError("unavailable", 503, "sending input needs Redis (REDIS_URL)")
+    decision_id = decision_id or uuid.uuid4().hex[:16]
+    desktop_commands.publish_decision(
+        session.environment_id, session.id, decision_id, session.execution_generation, decision,
+    )
+    return decision_id
+
+
+def controller_pause(db: Session, session_id: uuid.UUID, *, reason: str) -> DesktopSession | None:
+    """The controller stopped on its own (game window lost, watchdog): a
+    playing session pauses, and stays paused until the user resumes."""
+    session = db.scalar(select(DesktopSession).where(DesktopSession.id == session_id).with_for_update())
+    if session is None or session.state != "running":
+        db.commit()
+        return session
+    _transition(session, "paused", reason=reason, db=db)
+    db.commit()
+    return session
+
+
+@dataclass(frozen=True)
+class ControlState:
+    """What the relay needs about an environment's live session."""
+
+    session_id: uuid.UUID
+    state: str
+    execution_generation: int
+    control_owner: str
+    profile_id: str
+
+
+def control_state(db: Session, environment_id: uuid.UUID) -> ControlState | None:
+    session = db.scalar(
+        select(DesktopSession).where(
+            DesktopSession.environment_id == environment_id, DesktopSession.state.not_in(DESKTOP_TERMINAL_STATES)
+        )
+    )
+    db.commit()
+    if session is None:
+        return None
+    return ControlState(
+        session.id, session.state, session.execution_generation, session.control_owner, session.profile_id
+    )
+
+
 def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
     """End live sessions past their ``max_duration_seconds``. Returns how many."""
     now = now or _now()
@@ -596,6 +672,14 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
 # --------------------------------------------------------------------------- #
 # Internals
 # --------------------------------------------------------------------------- #
+
+
+def _stop_input(session: DesktopSession, reason: str | None = None) -> None:
+    """Tell the controller to let go now, after the stop is committed. Best
+    effort: the next heartbeat reply carries no lease anyway."""
+    from app.services import desktop_commands
+
+    desktop_commands.publish_cancel(session.environment_id, session.id, reason or session.reason_code or "cancelled")
 
 
 def _now() -> datetime:

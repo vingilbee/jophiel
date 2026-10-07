@@ -12,12 +12,14 @@ with its first message, within a few seconds, or it is closed. Afterwards it
 must heartbeat; each heartbeat re-checks the database, so a revoke, a re-pair
 or a newer connection ends this one within one heartbeat.
 
-Stage B carries health and preview frames. Leases and decisions arrive in stage C.
+It carries health, preview frames, and (stage C) the session: the lease rides
+every heartbeat reply, and decisions/cancels are forwarded from the API.
 """
 from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import logging
 import time
 import uuid
@@ -30,17 +32,29 @@ from sqlalchemy.orm import Session
 
 from app.ai.desktop.tls import ensure_relay_certificate
 from app.core.config import get_settings
-from app.services import desktop_link, desktop_preview
+from app.services import desktop_commands, desktop_link, desktop_preview, desktop_sessions
+from app.services.desktop_sessions import DesktopError
 from app.services.desktop_link import LinkRefused
 from desktop_controller.link import (
     HEARTBEAT_TIMEOUT_SECONDS,
+    LEASE_MS,
     MAX_FRAME_BYTES,
     PROTOCOL,
+    Cancel,
+    CaptureConfig,
+    ControlGrant,
+    DecisionCommand,
+    DecisionReport,
     Hello,
     HeartbeatAck,
     LinkError,
     Pair,
     Paired,
+    PauseRequest,
+    SessionProblem,
+    SessionReady,
+    SessionStart,
+    SessionStop,
     Welcome,
     controller_message,
     unpack_frame,
@@ -75,6 +89,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
         await ws.accept()
         environment_id: uuid.UUID | None = None
         generation: int | None = None
+        commands: asyncio.Task | None = None
         reason = "controller_lost"
         try:
             first = await _receive(ws, FIRST_MESSAGE_SECONDS)
@@ -91,6 +106,8 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             environment_id, generation = await db_call(desktop_link.authenticate, first)
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
             await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
+            link = _SessionLink(ws, environment_id, db_call)
+            commands = asyncio.create_task(link.forward_commands())
             last_frame_at = 0.0
             last_heartbeat_at = time.monotonic()
             while True:
@@ -110,13 +127,16 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                     await _accept_frame(db_call, environment_id, generation, message)
                     continue
                 if message.type != "heartbeat":
-                    raise LinkRefused("bad_message")
+                    await link.handle(message)
+                    continue
                 last_heartbeat_at = time.monotonic()
                 capture = await db_call(
                     desktop_link.heartbeat, environment_id, generation,
                     gate_epoch_seen=message.gate_epoch_seen, target_state=message.target_state,
                 )
-                await ws.send_text(HeartbeatAck(capture=capture).model_dump_json())
+                link.last_capture = capture
+                control = await link.control()
+                await link.send(HeartbeatAck(capture=capture, control=control))
         except LinkRefused as refused:
             reason = {"superseded": "controller_replaced", "revoked": "environment_revoked"}.get(
                 refused.code, "controller_lost"
@@ -128,11 +148,127 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
         except WebSocketDisconnect:
             pass
         finally:
+            if commands is not None:
+                commands.cancel()
             if environment_id is not None and generation is not None:
                 await db_call(desktop_link.disconnected, environment_id, generation, reason=reason)
                 log.info("desktop relay: environment %s connection %s closed (%s)", environment_id, generation, reason)
 
     return app
+
+
+class _SessionLink:
+    """One authenticated connection's session traffic (stage C).
+
+    Tracks which session the controller was told to prepare, sends the lease
+    with each heartbeat reply only while that session is playing, forwards
+    decisions and cancels from the API, and acts on the controller's reports.
+    A session id coming *from* the controller is honoured only if it is the
+    one this relay started on this connection, so a controller can't act on
+    another environment's session.
+    """
+
+    def __init__(self, ws: WebSocket, environment_id: uuid.UUID, db_call):
+        self.ws = ws
+        self.environment_id = environment_id
+        self.db_call = db_call
+        self.started: str | None = None
+        self.ready: set[str] = set()
+        self.last_capture = CaptureConfig()
+        self._send_lock = asyncio.Lock()
+
+    async def send(self, message) -> None:
+        async with self._send_lock:  # heartbeat replies and forwarded commands share the socket
+            await self.ws.send_text(message.model_dump_json())
+
+    async def control(self) -> ControlGrant | None:
+        state = await self.db_call(desktop_sessions.control_state, self.environment_id)
+        if state is None:
+            if self.started is not None:
+                await self.send(SessionStop(session_id=self.started))
+                self.started = None
+            return None
+        session_id = str(state.session_id)
+        if session_id not in self.ready:
+            # Repeated each beat until the controller reports ready.
+            profile = await asyncio.to_thread(desktop_sessions.get_profile, state.profile_id)
+            self.started = session_id
+            await self.send(SessionStart(session_id=session_id, profile=profile.model_dump(mode="json")))
+            return None
+        self.started = session_id
+        if state.state == "running" and state.control_owner == "gameplay":
+            return ControlGrant(session_id=session_id, generation=state.execution_generation, lease_ms=LEASE_MS)
+        return None
+
+    async def handle(self, message) -> None:
+        session_id = getattr(message, "session_id", None)
+        if session_id is None or session_id != self.started:
+            return  # not the session this connection is serving: ignore
+        if isinstance(message, SessionReady):
+            self.ready.add(session_id)
+            log.info("desktop relay: session %s ready (viewport %s, %s)", session_id, message.viewport, message.context)
+            try:
+                await self.db_call(desktop_sessions.controller_ready, uuid.UUID(session_id))
+            except DesktopError:
+                pass  # not "starting" any more (e.g. resumed later): nothing to do
+            await self.push_control()
+        elif isinstance(message, SessionProblem):
+            log.info("desktop relay: session %s not ready: %s", session_id, message.reason)
+            await asyncio.to_thread(desktop_commands.record_report, session_id, {"problem": message.reason})
+        elif isinstance(message, DecisionReport):
+            await asyncio.to_thread(
+                desktop_commands.record_report, session_id, message.model_dump(exclude={"type", "session_id"}),
+            )
+        elif isinstance(message, PauseRequest):
+            log.info("desktop relay: session %s paused by the controller (%s)", session_id, message.reason)
+            await self.db_call(desktop_sessions.controller_pause, uuid.UUID(session_id), reason=message.reason)
+
+    async def push_control(self) -> None:
+        """Send the current lease now rather than at the next heartbeat, so
+        input works the moment a session starts playing or is resumed."""
+        await self.send(HeartbeatAck(capture=self.last_capture, control=await self.control()))
+
+    async def forward_commands(self) -> None:
+        """Decisions and cancels the API publishes for this environment, sent
+        on as they arrive. Only entries newer than this connection are read."""
+        client = desktop_commands.async_client()
+        if client is None:
+            return
+        key = desktop_commands.stream_key(self.environment_id)
+        last = "$"
+        try:
+            while True:
+                try:
+                    result = await client.xread({key: last}, block=1000, count=20)
+                except Exception:  # Redis down or restarting: retry, the lease still guards input
+                    await asyncio.sleep(2)
+                    continue
+                for _, entries in result or []:
+                    for entry_id, fields in entries:
+                        last = entry_id
+                        if fields.get(b"kind") == b"refresh":
+                            await self.push_control()
+                            continue
+                        command = _command(fields)
+                        if command is not None and command.session_id == self.started:
+                            await self.send(command)
+        finally:
+            await client.aclose()
+
+
+def _command(fields: dict) -> DecisionCommand | Cancel | None:
+    data = {k.decode(): v.decode() for k, v in fields.items()}
+    try:
+        if data.get("kind") == "decision":
+            return DecisionCommand(
+                session_id=data["session_id"], decision_id=data["decision_id"],
+                generation=int(data["generation"]), decision=json.loads(data["decision"]),
+            )
+        if data.get("kind") == "cancel":
+            return Cancel(session_id=data["session_id"], reason=data.get("reason", "cancelled")[:48])
+    except (KeyError, ValueError, ValidationError):
+        return None
+    return None
 
 
 async def _accept_frame(db_call, environment_id: uuid.UUID, generation: int, data: bytes) -> None:

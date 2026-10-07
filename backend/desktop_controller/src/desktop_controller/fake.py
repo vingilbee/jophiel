@@ -73,3 +73,64 @@ class FakeController:
             self.clock.advance(dt)
             self.scheduler.tick(samples(self.clock.now_ms()) if callable(samples) else samples)
             remaining -= dt
+
+
+class FakeInput:
+    """A guarded input backend with no OS: records input, and can pretend the
+    game window was lost (``lost = "not_foreground"``) to exercise the guard.
+    Used by tests and ``desktop-controller run --fake-input`` dry runs."""
+
+    def __init__(self, clock=None, viewport: tuple[int, int] = (1280, 720), echo: bool = False):
+        from .runtime import MonotonicClock
+
+        self.clock = clock or MonotonicClock()
+        self.viewport = viewport
+        self.cursor_shown = False
+        self.lost: str | None = None
+        self.echo = echo
+        self.log: list[tuple] = []
+        self.down: set[str] = set()
+
+    def _guard(self) -> None:
+        if self.lost:
+            from .runtime import TargetLost
+
+            raise TargetLost(self.lost)
+
+    def _record(self, *event) -> None:
+        self.log.append((self.clock.now_ms(), *event))
+        if self.echo:
+            print("input:", *event, flush=True)
+
+    def viewport_size(self) -> tuple[int, int]:
+        self._guard()
+        return self.viewport
+
+    def cursor_visible(self) -> bool:
+        return self.cursor_shown
+
+    def key_down(self, key: str) -> None:
+        self._guard()
+        self.down.add(key)
+        self._record("down", key)
+
+    def key_up(self, key: str) -> None:
+        if key in self.down:
+            self.down.discard(key)
+            self._record("up", key)
+
+    def mouse_move_relative(self, dx: int, dy: int) -> None:
+        self._guard()
+        self._record("rel", dx, dy)
+
+    def mouse_move_to(self, x: int, y: int) -> None:
+        self._guard()
+        self._record("move_to", x, y)
+
+    def scroll(self, amount: int) -> None:
+        self._guard()
+        self._record("scroll", amount)
+
+    def relative_total(self) -> tuple[int, int]:
+        rel = [e for e in self.log if e[1] == "rel"]
+        return (sum(e[2] for e in rel), sum(e[3] for e in rel))

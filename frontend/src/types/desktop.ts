@@ -130,3 +130,17 @@ export interface DesktopSessionCreate {
   plan?: DesktopPlanInput
   idempotency_key?: string
 }
+
+/** What happened to a test decision (newest first from the server). */
+export interface DesktopDecisionReport {
+  decision_id?: string
+  state?: string
+  intent?: string
+  ended_by?: string | null
+  ran_ms?: number | null
+  rejection_code?: string | null
+  rejection_reason?: string | null
+  /** Set instead of a decision when the VM couldn't get ready (e.g. target_missing). */
+  problem?: string
+  at: number
+}

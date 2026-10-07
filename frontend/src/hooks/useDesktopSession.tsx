@@ -11,6 +11,7 @@ import { useAuth } from './useAuth'
 import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
+  DesktopDecisionReport,
   DesktopEnvironment,
   DesktopPairing,
   DesktopPreviewFrame,
@@ -36,6 +37,8 @@ interface DesktopSessionContextValue {
   environment: DesktopEnvironment | null
   /** Latest game picture while capture is allowed; null otherwise. */
   preview: DesktopPreviewFrame | null
+  /** Recent test decisions and their outcomes, newest first. */
+  decisions: DesktopDecisionReport[]
   session: DesktopSession | null
   events: DesktopSessionEvent[]
   /** Input was taken from gameplay and the VM hasn't confirmed releasing it. */
@@ -51,6 +54,7 @@ interface DesktopSessionContextValue {
   revokeEnvironment: (environmentId: string) => Promise<void>
   setCapture: (gate: DesktopCaptureGate) => Promise<void>
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
+  sendDecision: (decision: Record<string, unknown>) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>
@@ -74,6 +78,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const [releasePending, setReleasePending] = useState(false)
   const [pairing, setPairing] = useState<DesktopPairing | null>(null)
   const [preview, setPreview] = useState<DesktopPreviewFrame | null>(null)
+  const [decisions, setDecisions] = useState<DesktopDecisionReport[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastEventId = useRef(0)
@@ -177,6 +182,26 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer)
   }, [user, enabled, liveId, awaitingConfirm])
 
+  // Test decision outcomes, while a session is live.
+  useEffect(() => {
+    if (!liveId) {
+      setDecisions([])
+      return
+    }
+    let cancelled = false
+    const tick = () =>
+      desktopApi
+        .decisions(liveId)
+        .then((list) => !cancelled && setDecisions(list))
+        .catch(() => {})
+    void tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [liveId])
+
   // The picture: only fetched while capture is allowed and the VM is online,
   // and not while the browser tab is hidden.
   const previewEnvId =
@@ -234,6 +259,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     environments,
     environment,
     preview,
+    decisions,
     session,
     events,
     releasePending,
@@ -286,6 +312,12 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         setPreview(null) // the old picture shows the wrong area
         const updated = await desktopApi.setCapture(environment.id, { scope })
         setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
+      }),
+    sendDecision: (decision) =>
+      run(async () => {
+        if (!session) return
+        await desktopApi.sendDecision(session.id, decision)
+        setDecisions(await desktopApi.decisions(session.id))
       }),
     pause: () => run(async () => (session ? desktopApi.pause(session.id) : null)),
     resume: () => run(async () => (session ? desktopApi.resume(session.id, session.state_revision) : null)),

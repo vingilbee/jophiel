@@ -1,8 +1,7 @@
 # Desktop agent: connecting the game VM
 
 Runbook for plan §5.1 (`docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`): backend on the Mac, game in
-a Windows 11 VM on the Legion. This connects the two. **Nothing here sends input to the game yet**;
-that is stage C. After this, the Dashboard's Game session card shows the VM as *connected*, with
+a Windows 11 VM on the Legion. This connects the two. After this, the Dashboard's Game session card shows the VM as *connected*, with
 an optional live preview of the VM's screen.
 
 The VM itself (VMware settings, local account, isolation, Minecraft settings) is set up as in
@@ -58,15 +57,15 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.2.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.3.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl SHA256
-   py -m pip install --user $HOME\Downloads\desktop_controller-0.2.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl SHA256
+   py -m pip install --user $HOME\Downloads\desktop_controller-0.3.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
@@ -108,6 +107,15 @@ what Columbina can see:
 Pictures are never saved: the Mac keeps only the latest one, in memory, for 10 seconds. The
 preview needs Redis (`REDIS_URL`, already in `.env`).
 
+### Test controls (stage C)
+
+Start a session on the card with the game open **and in front** in the VM. The session turns
+*Playing* once the VM finds the game window. The card's **Test controls** then send hand-written
+moves (walk, jump, turn, mine, …). Keys only ever go to the game window: click any other window in
+the VM and the VM lets go of everything and the session pauses ("not_foreground"). Pause, Take
+over, and End stop input within a second; if the Mac or the network goes away, the VM lets go
+on its own within 1.5 s.
+
 To start it at logon (once the manual run works): Task Scheduler → *Create Task* → trigger
 *At log on* of your user, *Run only when user is logged on* (input needs the desktop session,
 so never a service), action `pythonw.exe` with arguments `-m desktop_controller run`.
@@ -115,7 +123,7 @@ so never a service), action `pythonw.exe` with arguments `-m desktop_controller 
 ## Updating the VM program
 
 When the program changes, repeat §2 and §3 with the new file name (the version is in it,
-e.g. `desktop_controller-0.2.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
+e.g. `desktop_controller-0.3.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
 no new code is needed.
 
 ## 6. Check what the VM can reach (stage B gate)

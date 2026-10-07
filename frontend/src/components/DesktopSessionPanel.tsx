@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { Button } from './Button'
 import { useDesktopSession } from '../hooks/useDesktopSession'
-import type { DesktopSessionEvent, DesktopSessionState, DesktopTargetState } from '../types/desktop'
+import type {
+  DesktopDecisionReport,
+  DesktopSessionEvent,
+  DesktopSessionState,
+  DesktopTargetState,
+} from '../types/desktop'
 
 /**
  * Columbina's game session: who has the controls, the plan, and the buttons
@@ -16,7 +21,7 @@ import type { DesktopSessionEvent, DesktopSessionState, DesktopTargetState } fro
 const STATE_COPY: Record<DesktopSessionState, { label: string; detail: string; tone: string }> = {
   starting: {
     label: 'Starting',
-    detail: 'Waiting for the game VM to connect and confirm the game window.',
+    detail: 'Waiting for the game VM to find the game. Open it in the VM and click into it.',
     tone: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#765E94]',
   },
   running: {
@@ -178,6 +183,135 @@ function GamePreview() {
   )
 }
 
+// Stage C: hand-written moves for the Minecraft profile (no AI yet).
+const MINECRAFT_MOVES: { label: string; decision: Record<string, unknown> }[] = [
+  { label: 'Walk forward 2 s', decision: { intent: 'walk forward', hold: ['forward'], valid_for_ms: 2000 } },
+  { label: 'Jump', decision: { intent: 'jump', events: [{ type: 'tap', button: 'jump' }], valid_for_ms: 300 } },
+  { label: 'Turn left 90°', decision: { intent: 'turn left', axes: { look_yaw: -90 }, valid_for_ms: 1000 } },
+  { label: 'Turn right 90°', decision: { intent: 'turn right', axes: { look_yaw: 90 }, valid_for_ms: 1000 } },
+  { label: 'Look up', decision: { intent: 'look up', axes: { look_pitch: -45 }, valid_for_ms: 1000 } },
+  { label: 'Look down', decision: { intent: 'look down', axes: { look_pitch: 45 }, valid_for_ms: 1000 } },
+  {
+    label: 'Sprint-jump',
+    decision: {
+      intent: 'sprint jump',
+      hold: ['forward', 'sprint'],
+      events: [{ type: 'tap', button: 'jump', at_ms: 500 }],
+      valid_for_ms: 2000,
+    },
+  },
+  { label: 'Mine 2 s', decision: { intent: 'mine', hold: ['attack'], valid_for_ms: 2000 } },
+  { label: 'Inventory', decision: { intent: 'toggle inventory', events: [{ type: 'tap', button: 'inventory' }], valid_for_ms: 300 } },
+  { label: 'Turn 360° (calibrate)', decision: { intent: 'calibrate yaw', axes: { look_yaw: 360 }, valid_for_ms: 1000 } },
+]
+
+function TestControls() {
+  const { session, decisions, busy, sendDecision } = useDesktopSession()
+  const [custom, setCustom] = useState('{ "hold": ["forward"], "valid_for_ms": 1000 }')
+  const [customError, setCustomError] = useState<string | null>(null)
+  if (!session) return null
+  const playing = session.state === 'running'
+  const moves = session.profile_id === 'minecraft_java' ? MINECRAFT_MOVES : []
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-[#7183A3]">Test controls</p>
+      {!playing && <p className="text-[11px] text-[#7183A3]">Available while the session is playing.</p>}
+      <div className="flex flex-wrap gap-1.5">
+        {moves.map((move) => (
+          <button
+            key={move.label}
+            type="button"
+            disabled={busy || !playing}
+            onClick={() => void sendDecision(move.decision)}
+            className="rounded-md border border-[#D9E8F6] bg-white px-2 py-1 text-[11px] text-[#23314F] hover:border-accent disabled:opacity-40"
+          >
+            {move.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={busy || !playing}
+          onClick={() => void sendDecision({ intent: 'stop' })}
+          className="rounded-md border border-red-300/60 bg-red-50 px-2 py-1 text-[11px] text-red-700 disabled:opacity-40"
+        >
+          Stop (let go)
+        </button>
+      </div>
+
+      <details className="text-[11px] text-[#7183A3]">
+        <summary className="cursor-pointer select-none">Custom move (JSON)</summary>
+        <textarea
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          rows={3}
+          spellCheck={false}
+          className="mt-1 w-full rounded-md border border-[#D9E8F6] bg-white p-2 font-mono text-[11px] text-[#23314F]"
+        />
+        <Button
+          variant="outline"
+          disabled={busy || !playing}
+          onClick={() => {
+            try {
+              const parsed: unknown = JSON.parse(custom)
+              if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error()
+              setCustomError(null)
+              void sendDecision(parsed as Record<string, unknown>)
+            } catch {
+              setCustomError('That isn’t a JSON object.')
+            }
+          }}
+        >
+          Send
+        </Button>
+        {customError && <p className="mt-1 text-red-700">{customError}</p>}
+      </details>
+
+      {decisions.length > 0 && (
+        <ul className="space-y-0.5 font-mono text-[10px] text-[#4C5D7D]" aria-label="Recent moves">
+          {latestPerDecision(decisions)
+            .slice(0, 6)
+            .map((d, i) => (
+              <li key={d.decision_id ?? `p${i}`}>{describeDecision(d)}</li>
+            ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** The server lists "sent" and then the outcome; show one line per decision. */
+function latestPerDecision(reports: DesktopDecisionReport[]): DesktopDecisionReport[] {
+  const seen = new Set<string>()
+  return reports.filter((r) => {
+    const key = r.decision_id ?? `problem:${r.at}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function describeDecision(d: DesktopDecisionReport): string {
+  if (d.problem) return d.problem === 'target_missing' ? 'VM: game window not found yet' : `VM: ${d.problem}`
+  const name = d.intent || d.decision_id || 'move'
+  switch (d.state) {
+    case 'sent':
+      return `${name} · sent…`
+    case 'expired':
+      return `${name} · done (${Math.round((d.ran_ms ?? 0) / 100) / 10} s)`
+    case 'completed':
+      return `${name} · done early`
+    case 'superseded':
+      return `${name} · replaced by the next move`
+    case 'cancelled':
+      return `${name} · stopped (${d.ended_by ?? 'cancelled'})`
+    case 'rejected':
+      return `${name} · refused: ${d.rejection_reason ?? d.rejection_code}`
+    default:
+      return `${name} · ${d.state ?? '?'}`
+  }
+}
+
 function RegisterForm() {
   const { profiles, busy, registerEnvironment } = useDesktopSession()
   const [name, setName] = useState('Game VM')
@@ -329,6 +463,8 @@ function SessionView() {
         )}
         {session.reason_code && <p className="mt-1 font-mono text-[10px] text-[#7183A3]">reason: {session.reason_code}</p>}
       </div>
+
+      {live && <TestControls />}
 
       {session.plan && (
         <div>

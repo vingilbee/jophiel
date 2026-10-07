@@ -28,6 +28,9 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 PROTOCOL = "desktop-link/1"
 HEARTBEAT_SECONDS = 2.0
+# While a session is set up, beats come faster so the lease can stay short.
+HEARTBEAT_ACTIVE_SECONDS = 0.4
+LEASE_MS = 1500
 # The relay drops a controller after this long without a heartbeat.
 HEARTBEAT_TIMEOUT_SECONDS = 6.0
 
@@ -130,6 +133,41 @@ class Hello(_Msg):
 TargetState = Literal["ok", "not_found", "not_foreground", "minimized", "sensitive", "capture_off", "error"]
 
 
+class SessionReady(_Msg):
+    type: Literal["session_ready"] = "session_ready"
+    session_id: str
+    viewport: tuple[int, int]
+    context: str = Field(max_length=32)
+
+
+class SessionProblem(_Msg):
+    """Not ready yet (the game isn't running) or never (the profile is bad)."""
+
+    type: Literal["session_problem"] = "session_problem"
+    session_id: str
+    reason: Literal["target_missing", "profile_invalid", "no_input"]
+
+
+class DecisionReport(_Msg):
+    type: Literal["decision_report"] = "decision_report"
+    session_id: str
+    decision_id: str = Field(max_length=64)
+    state: str = Field(max_length=16)
+    ended_by: str | None = Field(default=None, max_length=48)
+    ran_ms: int | None = None
+    rejection_code: str | None = Field(default=None, max_length=48)
+    rejection_reason: str | None = Field(default=None, max_length=300)
+
+
+class PauseRequest(_Msg):
+    """The controller stopped on its own (game window lost, watchdog): the
+    session must pause until the user resumes."""
+
+    type: Literal["pause_request"] = "pause_request"
+    session_id: str
+    reason: str = Field(max_length=48)
+
+
 class Heartbeat(_Msg):
     type: Literal["heartbeat"] = "heartbeat"
     # The capture setting this controller is obeying (its epoch), so the app can
@@ -174,9 +212,51 @@ class CaptureConfig(_Msg):
     fps: float = Field(default=2.0, gt=0, le=4)
 
 
+class ControlGrant(_Msg):
+    """The lease (plan §19): input is allowed for ``session_id`` under
+    ``generation`` until ``lease_ms`` after this arrives, unless renewed. No
+    grant in a heartbeat reply means no control: release everything."""
+
+    session_id: str
+    generation: int = Field(ge=1)
+    lease_ms: int = Field(ge=200, le=5000)
+
+
 class HeartbeatAck(_Msg):
     type: Literal["heartbeat_ack"] = "heartbeat_ack"
     capture: CaptureConfig = CaptureConfig()
+    control: ControlGrant | None = None
+
+
+class SessionStart(_Msg):
+    """Prepare to play: the trusted profile (validated again on arrival) and
+    the session it belongs to. Repeated until the controller reports ready."""
+
+    type: Literal["session_start"] = "session_start"
+    session_id: str
+    profile: dict
+
+
+class SessionStop(_Msg):
+    type: Literal["session_stop"] = "session_stop"
+    session_id: str
+
+
+class DecisionCommand(_Msg):
+    type: Literal["decision"] = "decision"
+    session_id: str
+    decision_id: str = Field(min_length=1, max_length=64)
+    generation: int = Field(ge=1)
+    decision: dict
+
+
+class Cancel(_Msg):
+    """Stop now (pause, take over, end, new plan). Faster than waiting for the
+    lease to lapse; the lease is the backstop if this is lost."""
+
+    type: Literal["cancel"] = "cancel"
+    session_id: str
+    reason: str = Field(default="cancelled", max_length=48)
 
 
 class LinkError(_Msg):
@@ -189,8 +269,14 @@ class LinkError(_Msg):
     ]
 
 
-ControllerMessage = Annotated[Union[Pair, Hello, Heartbeat], Field(discriminator="type")]
-RelayMessage = Annotated[Union[Paired, Welcome, HeartbeatAck, LinkError], Field(discriminator="type")]
+ControllerMessage = Annotated[
+    Union[Pair, Hello, Heartbeat, SessionReady, SessionProblem, DecisionReport, PauseRequest],
+    Field(discriminator="type"),
+]
+RelayMessage = Annotated[
+    Union[Paired, Welcome, HeartbeatAck, LinkError, SessionStart, SessionStop, DecisionCommand, Cancel],
+    Field(discriminator="type"),
+]
 controller_message = TypeAdapter(ControllerMessage)
 relay_message = TypeAdapter(RelayMessage)
 

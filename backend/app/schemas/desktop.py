@@ -180,3 +180,14 @@ class SessionEventOut(BaseModel):
     state_revision: int
     payload: dict
     occurred_at: datetime
+
+
+class DecisionIn(_In):
+    """A hand-written decision (plan §7.2), for stage C testing."""
+
+    decision: dict
+    decision_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,64}$")] | None = None
+
+
+class DecisionSent(BaseModel):
+    decision_id: str
