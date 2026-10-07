@@ -22,6 +22,7 @@ from app.schemas.desktop import (
     EnvironmentOut,
     PlanAppend,
     PlanOut,
+    PairingOut,
     PlanReplace,
     ProfileOut,
     SessionCommand,
@@ -30,7 +31,10 @@ from app.schemas.desktop import (
     SessionOut,
     SessionResume,
 )
+from app.ai.desktop.tls import ensure_relay_certificate
+from app.services import desktop_link
 from app.services import desktop_sessions as service
+from desktop_controller.link import display_fingerprint
 from app.services.desktop_sessions import CommandResult, DesktopError
 
 
@@ -105,6 +109,31 @@ def register_environment(
     request: Request, response: Response, payload: EnvironmentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return _call(service.register_environment, db, user.id, payload)
+
+
+@router.post(
+    "/environments/{environment_id}/pairings",
+    response_model=PairingOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=mutation,
+)
+@limiter.limit("10/hour")
+def create_pairing(
+    request: Request,
+    response: Response,
+    environment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    created = _call(desktop_link.create_pairing, db, user.id, environment_id)
+    host = settings.desktop_controller_public_host or settings.desktop_controller_bind_host
+    return PairingOut(
+        code=created.code,
+        expires_at=created.pairing.expires_at,
+        relay_address=f"{host}:{settings.desktop_controller_port}",
+        relay_fingerprint=display_fingerprint(ensure_relay_certificate().fingerprint),
+    )
 
 
 @router.post("/environments/{environment_id}/revoke", response_model=EnvironmentOut, dependencies=mutation)

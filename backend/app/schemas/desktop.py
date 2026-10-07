@@ -55,6 +55,19 @@ class EnvironmentOut(BaseModel):
     last_heartbeat_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
+    paired_at: datetime | None
+    controller_version: str | None
+
+
+class PairingOut(BaseModel):
+    """Shown once. The code is never retrievable again."""
+
+    code: str
+    expires_at: datetime
+    # What the VM dials: `desktop-controller pair <relay_address> <code>`.
+    relay_address: str
+    # For an optional by-eye check against what the controller prints.
+    relay_fingerprint: str
 
 
 # --- plan ---------------------------------------------------------------------

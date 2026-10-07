@@ -499,6 +499,7 @@ source = { editable = "desktop_controller" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -510,6 +511,7 @@ dev = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "websockets", specifier = ">=13" },
 ]
 
 [package.metadata.requires-dev]

@@ -8,9 +8,17 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { api, ApiError } from '../api/client'
 import { desktopApi } from '../api/desktop'
 import { useAuth } from './useAuth'
-import type { DesktopEnvironment, DesktopProfile, DesktopSession, DesktopSessionEvent } from '../types/desktop'
+import type {
+  DesktopEnvironment,
+  DesktopPairing,
+  DesktopProfile,
+  DesktopSession,
+  DesktopSessionEvent,
+} from '../types/desktop'
 
 const POLL_MS = 3000
+// Connection health (the VM coming online or dropping) without a live session.
+const HEALTH_POLL_MS = 5000
 const MAX_EVENTS = 20
 const TERMINAL = new Set(['ended', 'failed'])
 
@@ -22,10 +30,15 @@ interface DesktopSessionContextValue {
   events: DesktopSessionEvent[]
   /** Input was taken from gameplay and the VM hasn't confirmed releasing it. */
   releasePending: boolean
+  /** The code just made for pairing; cleared once the VM pairs. */
+  pairing: DesktopPairing | null
   busy: boolean
   error: string | null
   registerEnvironment: (name: string, profileIds: string[]) => Promise<void>
   start: (environmentId: string, profileId: string) => Promise<void>
+  pair: (environmentId: string) => Promise<void>
+  cancelPairing: () => void
+  revokeEnvironment: (environmentId: string) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>
@@ -47,9 +60,11 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<DesktopSession | null>(null)
   const [events, setEvents] = useState<DesktopSessionEvent[]>([])
   const [releasePending, setReleasePending] = useState(false)
+  const [pairing, setPairing] = useState<DesktopPairing | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastEventId = useRef(0)
+  const pairingFor = useRef<{ environmentId: string; pairedAt: string | null } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -123,6 +138,26 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [liveId, adopt, refreshEvents])
 
+  // Environment health while there's no live session (that poll covers it otherwise).
+  useEffect(() => {
+    if (!user || !enabled || liveId) return
+    const timer = window.setInterval(() => {
+      desktopApi
+        .environments()
+        .then((envs) => {
+          setEnvironments(envs)
+          // The code has been used once its environment's pairing time changes.
+          const target = pairingFor.current
+          if (target && envs.some((e) => e.id === target.environmentId && e.paired_at !== target.pairedAt)) {
+            pairingFor.current = null
+            setPairing(null)
+          }
+        })
+        .catch(() => {})
+    }, HEALTH_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [user, enabled, liveId])
+
   const run = useCallback(
     async (fn: () => Promise<DesktopSession | null | void>) => {
       setBusy(true)
@@ -151,6 +186,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     session,
     events,
     releasePending,
+    pairing,
     busy,
     error,
     registerEnvironment: (name, profileIds) =>
@@ -166,6 +202,26 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
           idempotency_key: crypto.randomUUID(),
         }),
       ),
+    pair: (environmentId) =>
+      run(async () => {
+        const created = await desktopApi.createPairing(environmentId)
+        pairingFor.current = {
+          environmentId,
+          pairedAt: environments.find((e) => e.id === environmentId)?.paired_at ?? null,
+        }
+        setPairing(created)
+      }),
+    cancelPairing: () => {
+      pairingFor.current = null
+      setPairing(null)
+    },
+    revokeEnvironment: (environmentId) =>
+      run(async () => {
+        const revoked = await desktopApi.revokeEnvironment(environmentId)
+        setPairing(null)
+        setEnvironments((prev) => prev.map((e) => (e.id === revoked.id ? revoked : e)))
+        if (session && session.environment_id === environmentId) return desktopApi.session(session.id)
+      }),
     pause: () => run(async () => (session ? desktopApi.pause(session.id) : null)),
     resume: () => run(async () => (session ? desktopApi.resume(session.id, session.state_revision) : null)),
     takeover: () => run(async () => (session ? desktopApi.takeover(session.id) : null)),

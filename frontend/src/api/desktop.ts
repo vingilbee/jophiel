@@ -3,6 +3,7 @@
 import { api } from './client'
 import type {
   DesktopEnvironment,
+  DesktopPairing,
   DesktopProfile,
   DesktopSession,
   DesktopSessionCreate,
@@ -17,6 +18,8 @@ export const desktopApi = {
   environments: () => api.get<DesktopEnvironment[]>('/desktop/environments'),
   registerEnvironment: (display_name: string, allowed_profile_ids: string[]) =>
     api.post<DesktopEnvironment>('/desktop/environments', { display_name, allowed_profile_ids }),
+  createPairing: (id: string) =>
+    api.post<DesktopPairing>(`/desktop/environments/${encodeURIComponent(id)}/pairings`),
   revokeEnvironment: (id: string) =>
     api.post<DesktopEnvironment>(`/desktop/environments/${encodeURIComponent(id)}/revoke`),
 

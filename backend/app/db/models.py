@@ -1248,6 +1248,11 @@ class DesktopEnvironment(Base):
     policy_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="offline", server_default="offline")
     controller_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Device credential from pairing: only its SHA-256 is stored. Re-pairing
+    # replaces it, which locks the previous controller out.
+    controller_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    controller_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -1259,6 +1264,32 @@ class DesktopEnvironment(Base):
         CheckConstraint("hosting_kind IN ('local_vm', 'cloud_vm')", name="ck_desktop_environments_hosting_kind"),
         CheckConstraint("status IN ('offline', 'online')", name="ck_desktop_environments_status"),
     )
+
+
+class DesktopPairing(Base):
+    """A one-time pairing code for an environment (plan §10: expiring,
+    single-use, bound to the user who created it).
+
+    The relay needs the code itself to check the controller's proof, so it is
+    stored until the pairing is used or dies, then cleared. ``code_lookup`` is
+    how the relay finds the row without the controller ever sending the code.
+    """
+
+    __tablename__ = "desktop_pairings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    code_lookup: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class DesktopSession(Base):

@@ -30,6 +30,16 @@ export interface DesktopEnvironment {
   last_heartbeat_at: string | null
   revoked_at: string | null
   created_at: string
+  paired_at: string | null
+  controller_version: string | null
+}
+
+/** Shown once: the code can't be fetched again. */
+export interface DesktopPairing {
+  code: string
+  expires_at: string
+  relay_address: string
+  relay_fingerprint: string
 }
 
 export interface DesktopPlanStepInput {

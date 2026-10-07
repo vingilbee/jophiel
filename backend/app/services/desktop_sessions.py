@@ -39,6 +39,7 @@ from app.db.models import (
     DESKTOP_TERMINAL_STATES,
     Conversation,
     DesktopEnvironment,
+    DesktopPairing,
     DesktopSession,
     DesktopSessionEvent,
 )
@@ -172,6 +173,15 @@ def revoke_environment(db: Session, owner_user_id: uuid.UUID, environment_id: uu
     if env.revoked_at is None:
         env.revoked_at = _now()
     env.status = "offline"
+    # The device key stops working at once, and the relay drops a connected
+    # controller at its next heartbeat (it re-reads this row every time).
+    env.controller_token_hash = None
+    env.controller_generation += 1
+    for pairing in db.scalars(
+        select(DesktopPairing).where(DesktopPairing.environment_id == env.id, DesktopPairing.consumed_at.is_(None))
+    ):
+        pairing.code = None
+        pairing.expires_at = _now()
     for session in _live_sessions_locked(db, env.id):
         _transition(session, "ended", reason="environment_revoked", db=db)
     db.commit()
@@ -502,17 +512,36 @@ def controller_online(db: Session, environment_id: uuid.UUID, *, controller_gene
     return env
 
 
-def controller_offline(db: Session, environment_id: uuid.UUID, *, reason: str = "controller_lost") -> None:
+def controller_offline(
+    db: Session,
+    environment_id: uuid.UUID,
+    *,
+    reason: str = "controller_lost",
+    controller_generation: int | None = None,
+) -> bool:
     """Connection or lease lost: sessions that had (or were about to get)
-    gameplay control become ``disconnected`` and stay there."""
+    gameplay control become ``disconnected`` and stay there.
+
+    With ``controller_generation``, only that connection may mark the
+    environment offline: an old socket closing after a newer one connected
+    must not knock the new one offline. Returns whether anything changed.
+    """
     env = db.scalar(select(DesktopEnvironment).where(DesktopEnvironment.id == environment_id).with_for_update())
-    if env is None:
-        return
+    if env is None or (controller_generation is not None and env.controller_generation != controller_generation):
+        db.commit()
+        return False
     env.status = "offline"
-    for session in _live_sessions_locked(db, env.id):
-        if session.state in _DISCONNECTABLE:
-            _transition(session, "disconnected", reason=reason, db=db)
+    disconnect_sessions_locked(db, env.id, reason=reason, states=_DISCONNECTABLE)
     db.commit()
+    return True
+
+
+def disconnect_sessions_locked(db: Session, environment_id: uuid.UUID, *, reason: str, states=_DISCONNECTABLE) -> None:
+    """Move this environment's live sessions in ``states`` to ``disconnected``.
+    The caller holds the environment row lock and commits."""
+    for session in _live_sessions_locked(db, environment_id):
+        if session.state in states:
+            _transition(session, "disconnected", reason=reason, db=db)
 
 
 def controller_ready(db: Session, session_id: uuid.UUID) -> DesktopSession:

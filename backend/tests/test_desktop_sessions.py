@@ -530,10 +530,21 @@ def client(database, monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_routes_are_hidden_while_the_flag_is_off(database, alice):
+def test_routes_are_hidden_while_the_flag_is_off(database, alice, monkeypatch):
     from app.api import deps
+    from app.api.routes import desktop as routes
+    from app.db.session import get_db
     from app.main import app
 
+    # Independent of the local .env, and must never reach a real database.
+    disabled = get_settings().model_copy(update={"desktop_agent_enabled": False})
+    monkeypatch.setattr(routes, "get_settings", lambda: disabled)
+
+    def no_db():
+        raise AssertionError("a disabled route touched the database")
+        yield  # pragma: no cover
+
+    app.dependency_overrides[get_db] = no_db
     app.dependency_overrides[deps.get_current_user] = lambda: alice
     try:
         response = TestClient(app).get("/api/desktop/environments")

@@ -56,7 +56,7 @@ export function DesktopSessionPanel({ className = '' }: { className?: string }) 
       <h2 id="desktop-heading" className="text-[11px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">
         Game session
       </h2>
-      {desktop.session ? <SessionView /> : desktop.environments.length === 0 ? <RegisterForm /> : <StartForm />}
+      {desktop.session ? <SessionView /> : <StartForm />}
       {desktop.error && (
         <p role="alert" className="mt-3 rounded-md border border-red-300/60 bg-red-50 px-3 py-2 text-xs text-red-700">
           {desktop.error}
@@ -94,22 +94,80 @@ function RegisterForm() {
 }
 
 function StartForm() {
-  const { environments, busy, start } = useDesktopSession()
+  const { environments, pairing, busy, start, pair, revokeEnvironment } = useDesktopSession()
   const usable = environments.filter((e) => !e.revoked_at)
   const env = usable[0]
   const [profileId, setProfileId] = useState('')
-  if (!env) return <p className="mt-3 text-sm text-[#7183A3]">This game VM's access was revoked.</p>
+  if (!env) return <RegisterForm />
   const chosen = profileId || env.allowed_profile_ids[0]
+  const online = env.status === 'online'
 
   return (
     <div className="mt-3 space-y-2">
-      <p className="flex items-center gap-2 text-sm">
-        <span className={`h-2 w-2 rounded-full ${env.status === 'online' ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
-        {env.display_name} · {env.status === 'online' ? 'connected' : 'not connected'}
+      <p className="flex items-center gap-2 text-sm" aria-live="polite">
+        <span className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
+        {env.display_name} ·{' '}
+        {online ? 'connected' : env.paired_at ? 'not connected' : 'not paired yet'}
       </p>
-      <ProfileSelect value={chosen} onChange={setProfileId} ids={env.allowed_profile_ids} />
-      <Button disabled={busy || !chosen} onClick={() => void start(env.id, chosen)}>
-        Start session
+
+      {pairing ? (
+        <PairingBox />
+      ) : (
+        !online && (
+          <Button variant={env.paired_at ? 'ghost' : 'primary'} disabled={busy} onClick={() => void pair(env.id)}>
+            {env.paired_at ? 'Pair again' : 'Pair game VM'}
+          </Button>
+        )
+      )}
+
+      {env.paired_at && !pairing && (
+        <>
+          <ProfileSelect value={chosen} onChange={setProfileId} ids={env.allowed_profile_ids} />
+          <Button disabled={busy || !chosen} onClick={() => void start(env.id, chosen)}>
+            Start session
+          </Button>
+        </>
+      )}
+
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          if (window.confirm(`Remove ${env.display_name}? Its pairing stops working at once.`)) {
+            void revokeEnvironment(env.id)
+          }
+        }}
+        className="block text-[11px] text-[#7183A3] underline-offset-2 hover:text-red-700 hover:underline"
+      >
+        Remove this game VM
+      </button>
+    </div>
+  )
+}
+
+function PairingBox() {
+  const { pairing, cancelPairing } = useDesktopSession()
+  if (!pairing) return null
+  const command = `desktop-controller pair ${pairing.relay_address} ${pairing.code}`
+  const expires = new Date(pairing.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="space-y-2 rounded-xl border border-[#DCCFF2] bg-[#F7F4FD] p-3">
+      <p className="text-xs text-[#765E94]">In the game VM, run this once (works until {expires}):</p>
+      <code className="block rounded-md bg-white px-2 py-1.5 font-mono text-xs break-all text-[#23314F] select-all">
+        {command}
+      </code>
+      <p className="text-xs text-[#765E94]">
+        Then keep <span className="font-mono">desktop-controller run</span> going. This card switches to
+        “connected” on its own.
+      </p>
+      <details className="text-[10px] text-[#7183A3]">
+        <summary className="cursor-pointer select-none">Relay fingerprint</summary>
+        <p className="mt-1 font-mono break-all">{pairing.relay_fingerprint}</p>
+        <p className="mt-1">The VM prints the same fingerprint after pairing.</p>
+      </details>
+      <Button variant="ghost" onClick={cancelPairing}>
+        Close
       </Button>
     </div>
   )

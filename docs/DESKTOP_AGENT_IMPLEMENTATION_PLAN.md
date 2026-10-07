@@ -723,12 +723,13 @@ Keep normal screen-awareness consent separate from hosted desktop pairing. The c
 
 ## 12. Suggested implementation modules and API surface
 
-Suggested additions, subject to repository inspection. The controller package and profiles live **inside `backend/`**: the backend Docker image builds from `backend/` only, so a path dependency outside it would break the image. `backend/pyproject.toml` declares `desktop_controller` as a uv workspace member (editable), the backend's single `uv.lock` covers both, `uv run pytest` from `backend/` runs both test suites, and the Dockerfile copies `desktop_controller/` before `uv sync`. The package itself still depends only on pydantic and pyyaml, so the guest installs it alone (`pip install ./desktop_controller` or `uv pip install`) without pulling in the backend.
+Suggested additions, subject to repository inspection. The controller package and profiles live **inside `backend/`**: the backend Docker image builds from `backend/` only, so a path dependency outside it would break the image. `backend/pyproject.toml` declares `desktop_controller` as a uv workspace member (editable), the backend's single `uv.lock` covers both, `uv run pytest` from `backend/` runs both test suites, and the Dockerfile copies `desktop_controller/` before `uv sync`. The package itself depends only on pydantic, pyyaml and websockets, so the guest installs it alone (a wheel built with `uv build --package desktop-controller`; see `infra/desktop/README.md`) without pulling in the backend.
 
 ```text
-backend/desktop_controller/         # uv workspace member of backend/ (pydantic + pyyaml only); runs in the guest AND is imported by the backend
+backend/desktop_controller/         # uv workspace member of backend/ (pydantic + pyyaml + websockets); runs in the guest AND is imported by the backend
   protocol, profile (loader/validator), safety, validate, geometry, until, scheduler, fake, cli   # stage A, built
-  capture, input (per-OS drivers), watchdog, connection                                         # stages B-C
+  link (messages + pairing proofs), connection (pair/run client)                                # stage B1, built
+  capture, input (per-OS drivers), watchdog                                                     # stages B2-C
 backend/desktop_profiles/           # trusted, versioned game profiles (YAML), checked by desktop-profile-check
   generic_keyboard_mouse.yaml (template), minecraft_java.yaml
 backend/app/schemas/desktop.py
@@ -740,8 +741,10 @@ backend/app/workers/desktop.py      # dedicated session execution supervision
 frontend/src/api/desktop.ts
 frontend/src/hooks/useDesktopSession.tsx
 frontend/src/components/DesktopSessionPanel.tsx
-backend/app/ai/desktop/relay.py      # controller relay: separate process/port, Mac LAN address only, TLS
-infra/desktop/                      # local VM runbook (v1: VMware on the Legion); cloud config later
+backend/app/ai/desktop/relay.py      # controller relay: separate process/port, Mac LAN address only, TLS (built, B1)
+backend/app/ai/desktop/tls.py        # relay's self-signed certificate (built, B1)
+backend/app/services/desktop_link.py # pairing codes, device tokens, controller generations (built, B1)
+infra/desktop/                      # local VM runbook (v1: VMware on the Legion); cloud config later (B1 part written)
 ```
 
 Potential endpoints: create/status/pause/resume/plan (replace, append)/questions/takeover/end session, pair/revoke environment, authorized preview stream, and controller outbound connection. REST mutations follow existing origin/CSRF checks. WebSocket authorization must include origin checks where relevant, active revocation, and reconnect ownership verification.
@@ -767,6 +770,16 @@ Status 2026-10-06, part 2 built, not yet committed or independently reviewed: pe
 Set up the §5.1 guest (or §5.2), the controller relay with TLS, pairing, guest controller startup, fresh capture, private preview, and revoke/disconnect behavior. Bind Postgres/Redis to `127.0.0.1` first.
 
 Gate: game renders acceptably in the actual guest session (done for Minecraft, §5.1); from the guest and from another LAN device, only the relay port on the Mac is reachable (not 5432, 6379, or 8000), and it refuses unauthenticated or non-TLS connections; unauthorized preview/control rejected; authentication mode suppresses all capture.
+
+Status 2026-10-06, part B1 built (Mac side + the guest's connection client), not yet independently reviewed or run on the Legion:
+
+- **Relay** (`python -m app.ai.desktop.relay`). A separate uvicorn process speaking TLS only, with its own self-signed certificate (`backend/var/desktop_relay/`). It refuses wildcard binds and serves `/health` plus one WebSocket (`/controller`) carrying `desktop-link/1` messages, 64 KiB max.
+- **Pairing.** The user creates a 12-character (60-bit), 10-minute, single-use code (`POST /environments/{id}/pairings`). The code never crosses the wire. The controller proves it with an HMAC bound to the certificate fingerprint it saw, and the relay answers with the mirror proof. Only then does the controller pin that certificate as its sole trust anchor and keep its device token, which the database stores as a hash. A relayed or mistyped proof counts against the code (5 attempts).
+- **Connection.** Each connection gets a new `controller_generation`. Heartbeats run every 2 s with a 6 s timeout. Every heartbeat re-checks the environment row, so revoke, re-pair, or a newer connection drops the old socket within one beat, and only the current generation can mark the environment offline. A connection replacing another moves running sessions to `disconnected` (never auto-resume). Relay startup marks stale environments offline.
+- **UI and runbook.** The card gains Pair / Pair again / Remove and live connected status. `infra/desktop/README.md` is the Mac + VM runbook.
+- **Tests.** 19 link tests: proof math, service on real Postgres, and the real relay over TLS with the real client (pair, connect, revoke end to end; silent controller dropped; plain connection refused; wrong certificate refused). A manual rehearsal with the real `python -m` relay and `desktop-controller` CLI passed.
+
+Remaining for stage B (part B2): guest screen capture, private preview, and the authentication-mode capture gate. Then run the §5.1 checks and this gate's port checks from the actual VM (runbook §6).
 
 ### C. Timed input without a model
 

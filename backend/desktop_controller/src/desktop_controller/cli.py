@@ -34,3 +34,36 @@ def profile_check(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(profile_check())
+
+
+def controller(argv: list[str] | None = None) -> int:
+    """Pair this machine with the Columbina relay, then stay connected."""
+    import argparse
+    import asyncio
+
+    from .connection import LinkFailure, default_config_path, load_config, pair, run_forever
+
+    parser = argparse.ArgumentParser(prog="desktop-controller", description=controller.__doc__)
+    parser.add_argument("--config", type=Path, default=None, help="where the pairing is saved")
+    commands = parser.add_subparsers(dest="command", required=True)
+    pairing = commands.add_parser("pair", help="pair with a code from the app's Game session card")
+    pairing.add_argument("relay", help="the relay address shown with the code, e.g. 192.168.1.76:8765")
+    pairing.add_argument("code", help="the pairing code, e.g. ABCD-EFGH-JKMN")
+    commands.add_parser("run", help="connect and stay connected (reconnects on its own)")
+    args = parser.parse_args(argv)
+    config_path = args.config or default_config_path()
+
+    try:
+        if args.command == "pair":
+            host, _, port = args.relay.rpartition(":")
+            if not host or not port.isdigit():
+                parser.error("relay must look like HOST:PORT, e.g. 192.168.1.76:8765")
+            asyncio.run(pair(host, int(port), args.code, config_path=config_path))
+            print(f"saved to {config_path}. Next: desktop-controller run")
+            return 0
+        return asyncio.run(run_forever(load_config(config_path)))
+    except (LinkFailure, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
