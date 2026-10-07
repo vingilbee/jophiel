@@ -3,6 +3,7 @@
 Route handlers stay thin and call into here (per CLAUDE.md conventions).
 """
 from datetime import timedelta
+from functools import lru_cache
 import redis
 import json
 
@@ -47,9 +48,15 @@ def authenticate(db: Session, *, email: str, password: str) -> User | None:
         return None
     return user
 
+@lru_cache(maxsize=4)
+def _redis_for(url: str) -> redis.Redis:
+    # Shared per process: every session check reuses a pooled connection
+    # instead of opening a new one.
+    return redis.from_url(url)
+
+
 def get_redis():
-    settings = get_settings()
-    return redis.from_url(settings.redis_url)
+    return _redis_for(get_settings().redis_url)
 
 def create_session(user: User) -> str:
     """Create a Redis session and return the raw token for the cookie."""

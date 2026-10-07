@@ -6,13 +6,13 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // Proxy API calls to the FastAPI backend so the browser treats them as
-    // same-origin — the httpOnly session cookie just works, no CORS dance.
+    // Proxy API calls to the local FastAPI backend so the browser treats them
+    // as same-origin. This also carries the WebSocket upgrade for live chat.
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        ws: true, // proxy the /api/chat/ws WebSocket upgrade too
+        ws: true,
       },
     },
   },

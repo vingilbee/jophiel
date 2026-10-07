@@ -1,5 +1,7 @@
 # MacroVision / Columbina — pre-release test plan
 
+> Scope clarification (2026-10-05): This is a historical pre-release inventory of implemented surfaces. Columbina's current product focus is a general conversational agent with identity and personality. The prediction and tracking cases below cover specialist capabilities. Use [the conversational test plan](COLUMBINA_CONVERSATIONAL_TEST_PLAN.md) for primary conversational quality evaluation.
+
 Prepared: 2026-09-07. Baseline: source files in this workspace; no Git revision available (`git status` reports this directory is not a repository).
 
 **Execution status: NOT RUN.** This document is the requested first step: application discovery and detailed test cases. Reading source and finding existing tests does not establish that the app works. No production deployment, GitHub publication, external messages, or account mutations were performed in preparing this plan.

@@ -1,5 +1,7 @@
 # Columbina-inspired UI research
 
+> Historical research: The nutrition-centered recommendations below reflect the earlier app focus. The current product is Columbina, a general conversational agent with persistent identity and personality. These references do not define current product requirements; see `CLAUDE.md` and the [conversational test plan](../../docs/COLUMBINA_CONVERSATIONAL_TEST_PLAN.md).
+
 This folder contains web-sourced visual references for a possible redesign of the NutritionDetection app. It is research material only; no application code has been changed.
 
 ## Proposed visual direction

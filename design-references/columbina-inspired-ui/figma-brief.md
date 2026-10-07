@@ -1,5 +1,7 @@
 # Figma handoff brief — Columbina NutritionDetection
 
+> Historical brief: The nutrition-first product framing and dashboard requirements below are superseded. Columbina is now a general conversational agent with persistent identity and personality; nutrition is a specialist capability. Retain these visual references as research, and derive future product requirements from `CLAUDE.md` and the [conversational test plan](../../docs/COLUMBINA_CONVERSATIONAL_TEST_PLAN.md).
+
 Use this brief when creating the first Figma project/file for the app.
 
 ## Product context
