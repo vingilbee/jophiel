@@ -7,7 +7,7 @@
 #   mouse sensitivity 100% (default), raw input on, pause on lost focus off (F3+P).
 format_version: 1
 id: minecraft_java
-revision: 1
+revision: 3
 display_name: "Minecraft (Java Edition)"
 target: { process: javaw.exe, window_title_hint: "Minecraft" }   # process identity is authoritative
 online_allowed: false
@@ -49,9 +49,12 @@ camera: { fov_v_deg: 70 }
 
 fact_keys: ["inventory.*", "hotbar.selected", "health", "hunger", "location", "time_of_day", "activity"]
 game_notes: >
-  The crosshair is the screen centre. Breaking a block needs attack held until it
-  breaks. The hotbar (bottom) and health/hunger are always visible; the full
-  inventory needs "inventory". Night is dangerous outdoors.
+  The crosshair (screen centre) is what you hit. You only reach blocks about 4 blocks
+  away: walk until the target fills a good part of the centre first. Breaking needs
+  attack held, with no look axes, until it breaks; a log takes about 3 s by hand, and
+  moving the view restarts it. Broken blocks drop items you pick up by walking over
+  them. If attacking changes nothing for 3 s, walk closer or re-aim. The hotbar is at
+  the bottom; "inventory" opens the full one. Avoid caves and water; night is dangerous.
 
 observation:
   size: [640, 360]
@@ -72,7 +75,7 @@ macros: {}
 contexts:
   detect: { method: cursor_visibility, cursor_hidden: playing, cursor_visible: menu }
   modes:
-    playing: { allow: [hold, axes, tap, look_at] }
+    playing: { allow: [hold, axes, tap, look_at, turn] }
     menu:
       allow: [hold, click, drag, scroll, move, tap]
       buttons: [inventory, sneak, menu_click, menu_alt_click]

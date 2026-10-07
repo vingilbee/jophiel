@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from . import safety
-from .geometry import crop_size
+from .geometry import turn_duration_ms, crop_size
 from .profile import BUILTIN_REGIONS, Profile
 from .protocol import (
     ClickEvent,
@@ -25,6 +25,7 @@ from .protocol import (
     Decision,
     DragEvent,
     LookAtEvent,
+    TurnEvent,
     MacroEvent,
     MoveEvent,
     Point,
@@ -223,6 +224,11 @@ def _validate(d: Decision, profile: Profile, context: str) -> ValidatedDecision:
                 _fail(C.LOOK_AT_UNCALIBRATED, path, "this profile has no calibrated camera")
             need_point(ev.point, f"{path}.point", moves_pointer=False)
             need_within(ev.at_ms, ev.duration_ms, path)
+        elif isinstance(ev, TurnEvent):
+            axes = profile.look_axes()
+            if axes is None:
+                _fail(C.LOOK_AT_UNCALIBRATED, path, "this profile has no calibrated look axes")
+            need_within(ev.at_ms, turn_duration_ms(ev.yaw, ev.pitch, axes, ev.duration_ms), path)
 
     press_times.sort()
     for i, start in enumerate(press_times):

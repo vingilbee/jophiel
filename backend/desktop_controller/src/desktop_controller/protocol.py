@@ -88,13 +88,29 @@ class LookAtEvent(_Strict):
     duration_ms: Ms = 150
 
 
+class TurnEvent(_Strict):
+    """Turn the view by an exact amount, then stop (relative degrees).
+
+    Unlike a look axis (a rate that keeps turning until the decision ends or
+    is replaced), the total turn doesn't depend on when the next decision
+    arrives. The speed is capped by the look axes' ``max`` (deg/s), so a large
+    turn takes proportionally longer; ``duration_ms`` can only slow it down.
+    """
+
+    type: Literal["turn"]
+    at_ms: Ms = 0
+    yaw: Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)] = 0.0  # + right, - left
+    pitch: Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)] = 0.0  # + down, - up
+    duration_ms: Ms | None = None
+
+
 Event = Annotated[
-    Union[TapEvent, ClickEvent, DragEvent, MoveEvent, ScrollEvent, MacroEvent, LookAtEvent],
+    Union[TapEvent, ClickEvent, DragEvent, MoveEvent, ScrollEvent, MacroEvent, LookAtEvent, TurnEvent],
     Field(discriminator="type"),
 ]
 
 EVENT_KINDS: frozenset[str] = frozenset(
-    {"tap", "click", "drag", "move", "scroll", "macro", "look_at"}
+    {"tap", "click", "drag", "move", "scroll", "macro", "look_at", "turn"}
 )
 
 

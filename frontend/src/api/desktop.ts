@@ -5,6 +5,8 @@ import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
   DesktopDecisionReport,
+  DesktopDriverState,
+  DesktopPlanInput,
   DesktopEnvironment,
   DesktopPairing,
   DesktopProfile,
@@ -44,6 +46,9 @@ export const desktopApi = {
   end: (id: string) => api.post<DesktopSession>(`${s(id)}/end`),
   sendDecision: (id: string, decision: Record<string, unknown>) =>
     api.post<{ decision_id: string }>(`${s(id)}/decisions`, { decision }),
+  driver: (id: string) => api.get<DesktopDriverState>(`${s(id)}/driver`),
+  replacePlan: (id: string, plan: DesktopPlanInput, expected_plan_revision: number) =>
+    api.put<DesktopSession>(`${s(id)}/plan`, { ...plan, expected_plan_revision }),
   decisions: (id: string) => api.get<DesktopDecisionReport[]>(`${s(id)}/decisions`),
   events: (id: string, afterId = 0) =>
     api.get<DesktopSessionEvent[]>(`${s(id)}/events?after_id=${afterId}&limit=50`),

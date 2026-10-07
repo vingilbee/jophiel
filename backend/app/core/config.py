@@ -365,6 +365,25 @@ class Settings(BaseSettings):
     desktop_relay_dir: str = "var/desktop_relay"
     desktop_pairing_ttl_seconds: int = Field(default=600, ge=60, le=3600)
     desktop_pairing_max_attempts: int = Field(default=5, ge=1, le=20)
+    # Driver model (stage D, plan §8.5): plays one step per call. No fallback:
+    # a missing or failing driver pauses the session.
+    desktop_driver_backend: str = "openai"
+    desktop_driver_model: str = "gpt-6-luna"
+    # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*); "none"
+    # keeps a step to one quick answer instead of seconds of thinking.
+    desktop_driver_reasoning_effort: str | None = "none"
+    desktop_driver_image_detail: str = Field(default="auto", pattern="^(low|high|auto)$")
+    desktop_driver_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    desktop_driver_max_tokens: int = Field(default=400, ge=64, le=2000)
+    # A frame older than this is never decided on.
+    desktop_driver_freshness_ms: int = Field(default=3000, ge=200, le=10_000)
+    # Spending bound: model steps per session before it pauses ("budget").
+    desktop_driver_max_steps: int = Field(default=1500, ge=1, le=100_000)
+    desktop_driver_metrics_path: str = "var/desktop_driver.jsonl"
+    # Opt-in tuning aid: when set, every driver step's frame, prompt and raw
+    # reply are saved here (one folder per session). Off by default: it keeps
+    # screenshots of the VM on disk. Relative paths resolve against the backend root.
+    desktop_driver_debug_dir: str | None = None
 
 
 @lru_cache

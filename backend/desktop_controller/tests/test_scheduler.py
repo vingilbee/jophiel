@@ -248,3 +248,39 @@ def test_startup_releases_every_profile_key(minecraft):
     released = {e[2] for e in backend.log if e[1] == "up"}
     assert {"W", "SPACE", "CTRL", "MOUSE_LEFT", "MOUSE_RIGHT", "E", "1", "9"} <= released
     assert all(e[1] == "up" for e in backend.log)
+
+
+# --- turn: exact relative degrees (stage D) ----------------------------------
+
+def test_turn_moves_exactly_the_requested_degrees(minecraft):
+    from desktop_controller.fake import FakeController
+
+    fc = FakeController(minecraft)
+    fc.scheduler.grant_lease(5000, fc.scheduler.generation)
+    fc.scheduler.apply("t", {"events": [{"type": "turn", "yaw": -30, "pitch": 10}], "valid_for_ms": 1000},
+                       "playing", fc.scheduler.generation)
+    fc.step(1000)
+    assert fc.backend.relative_total() == (round(-30 * 6.67), round(10 * 6.67))
+
+
+def test_turn_speed_is_capped_by_the_look_axes(minecraft):
+    from desktop_controller.fake import FakeController
+
+    fc = FakeController(minecraft)
+    fc.scheduler.grant_lease(5000, fc.scheduler.generation)
+    fc.scheduler.apply("t", {"events": [{"type": "turn", "yaw": 180, "pitch": 0}], "valid_for_ms": 1500},
+                       "playing", fc.scheduler.generation)
+    fc.step(250)
+    assert abs(fc.backend.relative_total()[0] - 600) <= 2  # half of 180 deg at 360 deg/s after 250 ms
+    fc.step(500)
+    assert fc.backend.relative_total()[0] == round(180 * 6.67)
+
+
+def test_a_turn_must_fit_its_decision_and_needs_a_calibrated_camera(minecraft, generic):
+    from desktop_controller.protocol import Rejection
+    from desktop_controller.validate import validate_decision
+
+    too_long = validate_decision({"events": [{"type": "turn", "yaw": 180}], "valid_for_ms": 300}, minecraft, "playing")
+    assert isinstance(too_long, Rejection) and too_long.code.value == "limit_exceeded"
+    in_menu = validate_decision({"events": [{"type": "turn", "yaw": 10}]}, minecraft, "menu")
+    assert isinstance(in_menu, Rejection) and in_menu.code.value == "context_mismatch"

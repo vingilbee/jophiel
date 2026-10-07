@@ -7,7 +7,7 @@ clock. It owns the five rules of the action contract:
 2. it expires: at ``valid_for_ms`` everything is released;
 3. a newer decision supersedes by diff (keys held in both stay down);
 4. ``until`` conditions stop it early, checked on every tick;
-5. ``look_at`` turns the camera by computed mouse counts.
+5. ``look_at`` and ``turn`` turn the camera by computed mouse counts.
 
 It also enforces the lease (no input without a live lease), generation fencing
 (cancel bumps the generation; older work is refused), and decision-id dedupe.
@@ -31,6 +31,7 @@ from .geometry import (
     frame_to_viewport,
     look_at_degrees,
     point_to_frame,
+    turn_duration_ms,
 )
 from .profile import Profile
 from .protocol import (
@@ -39,6 +40,7 @@ from .protocol import (
     DragEvent,
     LookAtEvent,
     MoveEvent,
+    TurnEvent,
     Point,
     Rejection,
     RejectionCode,
@@ -376,6 +378,13 @@ class Scheduler:
             dy = pitch * axes[1].counts_per_degree  # type: ignore[operator]
             duration = max(ev.duration_ms, 1)
             rates.append(_Rate(dx / duration, dy / duration, start_ms=t, end_ms=t + duration, last_ms=t))
+        elif isinstance(ev, TurnEvent):
+            axes = self.profile.look_axes()
+            assert axes is not None  # validated
+            duration = turn_duration_ms(ev.yaw, ev.pitch, axes, ev.duration_ms)
+            dx = ev.yaw * axes[0].counts_per_degree  # type: ignore[operator]
+            dy = ev.pitch * axes[1].counts_per_degree  # type: ignore[operator]
+            rates.append(_Rate(dx / duration, dy / duration, start_ms=t, end_ms=t + duration, last_ms=t))
 
     # -- running ------------------------------------------------------------
 
@@ -426,7 +435,11 @@ class Scheduler:
             dt = stop - start
             rate.acc_x += rate.dx_per_ms * dt
             rate.acc_y += rate.dy_per_ms * dt
-            step_x, step_y = int(rate.acc_x), int(rate.acc_y)
+            if rate.end_ms is not None and stop >= rate.end_ms:
+                # A timed motion (turn, look_at) ends exactly: round the leftover.
+                step_x, step_y = round(rate.acc_x), round(rate.acc_y)
+            else:
+                step_x, step_y = int(rate.acc_x), int(rate.acc_y)
             rate.acc_x -= step_x
             rate.acc_y -= step_y
             total_dx += step_x

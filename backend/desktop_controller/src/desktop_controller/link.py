@@ -213,6 +213,20 @@ class CaptureConfig(_Msg):
     max_width: int = Field(default=1280, ge=64, le=1920)
     max_height: int = Field(default=720, ge=64, le=1080)
     fps: float = Field(default=2.0, gt=0, le=4)
+    # Model observations (stage D): the game window at exactly this size,
+    # separate from the preview. Only sent while capture is allowed and a
+    # session is playing; None means no observations.
+    observe: "ObserveConfig | None" = None
+
+
+class ObserveConfig(_Msg):
+    target_process: str = Field(max_length=64)
+    width: int = Field(ge=160, le=1920)
+    height: int = Field(ge=90, le=1080)
+    fps: float = Field(default=2.0, gt=0, le=4)
+
+
+CaptureConfig.model_rebuild()
 
 
 class ControlGrant(_Msg):
@@ -299,6 +313,10 @@ class FrameHeader(_Msg):
     height: int = Field(ge=1, le=1080)
     encoding: Literal["jpeg"] = "jpeg"
     gate_epoch: int = Field(ge=0)
+    # "preview" for the card; "observation" for the driver model (game window,
+    # exact observation size, with the input context at capture).
+    kind: Literal["preview", "observation"] = "preview"
+    context: str | None = Field(default=None, max_length=32)
 
 
 def pack_frame(header: FrameHeader, image: bytes) -> bytes:

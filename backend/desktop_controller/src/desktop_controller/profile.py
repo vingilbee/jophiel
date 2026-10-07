@@ -25,7 +25,7 @@ BUILTIN_REGIONS = frozenset({"full", "center"})
 # Input kinds a context can allow. "text" (typing) exists in the plan but is
 # off in v1, so a profile that allows it is refused.
 INPUT_KINDS = frozenset(
-    {"hold", "axes", "tap", "click", "drag", "move", "scroll", "macro", "look_at"}
+    {"hold", "axes", "tap", "click", "drag", "move", "scroll", "macro", "look_at", "turn"}
 )
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -282,6 +282,8 @@ def profile_issues(p: Profile) -> list[str]:
                 add(f"contexts.modes.{mode_name}: typing (text) is off in v1")
             elif kind not in INPUT_KINDS:
                 add(f"contexts.modes.{mode_name}: unknown input kind {kind!r}")
+        if "turn" in mode.allow and p.look_axes() is None:
+            add(f"contexts.modes.{mode_name}: turn needs calibrated deg_per_s axes on mouse x and y")
         if "look_at" in mode.allow and (p.camera is None or p.look_axes() is None):
             add(
                 f"contexts.modes.{mode_name}: look_at needs a camera block and calibrated "

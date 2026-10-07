@@ -39,6 +39,8 @@ class StoredFrame:
     epoch: int
     generation: int
     received_at: float  # Unix seconds, on the Mac
+    captured_ms: int = 0  # controller's monotonic clock: only compare with the same controller
+    context: str | None = None
 
     @property
     def age_seconds(self) -> float:
@@ -56,8 +58,8 @@ def redis_client() -> redis.Redis | None:
     return _client(url) if url else None
 
 
-def _key(environment_id: uuid.UUID) -> str:
-    return f"desktop:preview:{environment_id}"
+def _key(environment_id: uuid.UUID, kind: str = "preview") -> str:
+    return f"desktop:{kind}:{environment_id}"
 
 
 def available() -> bool:
@@ -78,24 +80,28 @@ def check_jpeg(header: FrameHeader, jpeg: bytes) -> bool:
 
 
 def store(environment_id: uuid.UUID, header: FrameHeader, jpeg: bytes, *, generation: int) -> None:
+    """Keep the latest frame of its kind ("preview" for the card,
+    "observation" for the driver model)."""
     client = redis_client()
     if client is None:
         return
     meta = {
         "seq": header.seq, "width": header.width, "height": header.height,
         "epoch": header.gate_epoch, "generation": generation, "received_at": time.time(),
+        "captured_ms": header.captured_ms, "context": header.context,
     }
+    key = _key(environment_id, header.kind)
     with client.pipeline() as pipe:
-        pipe.hset(_key(environment_id), mapping={"meta": json.dumps(meta), "jpeg": jpeg})
-        pipe.expire(_key(environment_id), FRAME_TTL_SECONDS)
+        pipe.hset(key, mapping={"meta": json.dumps(meta), "jpeg": jpeg})
+        pipe.expire(key, FRAME_TTL_SECONDS)
         pipe.execute()
 
 
-def load(environment_id: uuid.UUID) -> StoredFrame | None:
+def load(environment_id: uuid.UUID, kind: str = "preview") -> StoredFrame | None:
     client = redis_client()
     if client is None:
         return None
-    raw = client.hgetall(_key(environment_id))
+    raw = client.hgetall(_key(environment_id, kind))
     if not raw or b"meta" not in raw or b"jpeg" not in raw:
         return None
     meta = json.loads(raw[b"meta"])
@@ -103,9 +109,11 @@ def load(environment_id: uuid.UUID) -> StoredFrame | None:
 
 
 def clear(environment_id: uuid.UUID) -> None:
+    """Drop every stored frame (preview and observation) for the environment."""
     client = redis_client()
     if client is not None:
         try:
-            client.delete(_key(environment_id))
+            client.delete(_key(environment_id, "preview"))
+            client.delete(_key(environment_id, "observation"))
         except redis.RedisError:
-            pass  # the epoch check still keeps a leftover frame from being served
+            pass  # the epoch check still keeps a leftover frame from being used

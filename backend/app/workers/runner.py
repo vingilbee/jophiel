@@ -7,7 +7,7 @@ import threading
 import redis
 
 from app.core.config import get_settings
-from app.workers import chat, cognitive_shadow, dialogue_memory, file_deletion, memory, whatsapp
+from app.workers import chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, memory, whatsapp
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,10 @@ def run(stop: threading.Event | None = None) -> None:
                 getattr(settings, "cognitive_dialogue_memory_queue_name", "macrovision:dialogue-memory:wakeups"),
                 getattr(settings, "cognitive_dialogue_memory_worker_poll_seconds", 2.0),
             ))
+        if getattr(settings, "desktop_agent_enabled", False):
+            # The gameplay driver: its own thread (and one thread per playing
+            # session), so a model call never sits in front of a chat reply.
+            worker_specs.append(("desktop-driver", desktop.run_once, "macrovision:desktop:wakeups", 1.0))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

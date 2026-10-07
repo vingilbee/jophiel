@@ -148,3 +148,16 @@ export interface DesktopDecisionReport {
   problem?: string
   at: number
 }
+
+/** What the driver last said and measured. Everything but timings is untrusted game observation. */
+export interface DesktopDriverState {
+  steps?: number
+  notes?: string
+  facts?: Record<string, { value: string; at: number }>
+  reports?: { kind: string; text: string; at: number }[]
+  last?: { intent: string; decision_id: string } | null
+  model_ms?: number
+  frame_age_ms?: number
+  waiting?: string
+  updated_at?: number
+}

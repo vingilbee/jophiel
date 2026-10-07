@@ -38,6 +38,7 @@ from app.services.desktop_sessions import (
 from desktop_controller.link import (
     CaptureConfig,
     Hello,
+    ObserveConfig,
     Pair,
     client_proof,
     code_lookup,
@@ -224,16 +225,50 @@ def heartbeat(
     gate, epoch, scope = row
     if gate != "allowed":
         return CaptureConfig(gate=gate, epoch=epoch, scope=scope)
+    observe = _observe_config(db, environment_id)
     if scope == "desktop":
-        return CaptureConfig(gate="allowed", epoch=epoch, scope="desktop")
+        return CaptureConfig(gate="allowed", epoch=epoch, scope="desktop", observe=observe)
     profile = _capture_profile(db, environment_id)
     if profile is None:
         return CaptureConfig(gate="blocked", epoch=epoch)
     width, height = profile.observation.size
     return CaptureConfig(
         gate="allowed", epoch=epoch, scope="game_window", target_process=profile.target.process,
-        max_width=width, max_height=height,
+        max_width=width, max_height=height, observe=observe,
     )
+
+
+def _playing_profile(db: Session, environment_id: uuid.UUID):
+    """The profile of a session that is playing right now (gameplay has control), else None."""
+    profile_id = db.scalar(
+        select(DesktopSession.profile_id).where(
+            DesktopSession.environment_id == environment_id,
+            DesktopSession.state == "running",
+            DesktopSession.control_owner == "gameplay",
+        )
+    )
+    if profile_id is None:
+        return None
+    try:
+        return get_profile(profile_id)
+    except DesktopError:
+        return None
+
+
+def _observe_config(db: Session, environment_id: uuid.UUID) -> ObserveConfig | None:
+    """Driver observations: the game window at the profile's observation size,
+    only while a session plays (capture being allowed is checked by the caller)."""
+    profile = _playing_profile(db, environment_id)
+    if profile is None:
+        return None
+    width, height = profile.observation.size
+    return ObserveConfig(target_process=profile.target.process, width=width, height=height)
+
+
+def observation_wanted(db: Session, environment_id: uuid.UUID, width: int, height: int) -> bool:
+    profile = _playing_profile(db, environment_id)
+    db.commit()
+    return profile is not None and tuple(profile.observation.size) == (width, height)
 
 
 def _capture_profile(db: Session, environment_id: uuid.UUID):

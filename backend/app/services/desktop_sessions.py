@@ -25,6 +25,7 @@ are for the trusted relay/worker side (stage B+); no route exposes them.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
@@ -628,6 +629,135 @@ def controller_pause(db: Session, session_id: uuid.UUID, *, reason: str) -> Desk
     _transition(session, "paused", reason=reason, db=db)
     db.commit()
     return session
+
+
+# --------------------------------------------------------------------------- #
+# Driver side (stage D): the gameplay worker, never a user or the controller
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class DriverView:
+    """Everything one driver step needs to know, read in one go."""
+
+    session_id: uuid.UUID
+    environment_id: uuid.UUID
+    state: str
+    control_owner: str
+    execution_generation: int
+    plan: dict | None
+    plan_revision: int
+    profile_id: str
+    current_step_id: str | None
+    capture_gate: str
+    capture_epoch: int
+
+    @property
+    def playing(self) -> bool:
+        return self.state == "running" and self.control_owner == "gameplay"
+
+    def current_step(self) -> dict | None:
+        """The active step, else the first pending one."""
+        steps = (self.plan or {}).get("steps", [])
+        return next((st for st in steps if st["state"] == "active"), None) or next(
+            (st for st in steps if st["state"] == "pending"), None
+        )
+
+    def upcoming(self) -> list[dict]:
+        current = self.current_step()
+        steps = (self.plan or {}).get("steps", [])
+        return [st for st in steps if st["state"] == "pending" and st is not current]
+
+
+def driver_candidates(db: Session) -> list[uuid.UUID]:
+    """Sessions that are playing and have a plan: the driver should run for them."""
+    ids = list(db.scalars(
+        select(DesktopSession.id).where(
+            DesktopSession.state == "running",
+            DesktopSession.control_owner == "gameplay",
+            DesktopSession.plan.is_not(None),
+        )
+    ))
+    db.commit()
+    return ids
+
+
+def driver_view(db: Session, session_id: uuid.UUID) -> DriverView | None:
+    row = db.execute(
+        select(DesktopSession, DesktopEnvironment)
+        .join(DesktopEnvironment, DesktopEnvironment.id == DesktopSession.environment_id)
+        .where(DesktopSession.id == session_id)
+    ).first()
+    db.commit()
+    if row is None:
+        return None
+    session, env = row
+    return DriverView(
+        session.id, session.environment_id, session.state, session.control_owner, session.execution_generation,
+        session.plan, session.plan_revision, session.profile_id, session.current_step_id,
+        env.capture_gate, env.capture_epoch,
+    )
+
+
+def driver_progress(
+    db: Session,
+    session_id: uuid.UUID,
+    *,
+    plan_revision: int,
+    step_id: str,
+    status: str,
+    note: str | None = None,
+) -> bool:
+    """Record the driver's progress on ``step_id`` under ``plan_revision``.
+
+    ``working`` marks the step active; ``step_done`` completes it and activates
+    the next; ``stuck`` / ``needs_human`` pause the session. Ignored (False) if
+    the plan was replaced meanwhile or the session stopped playing: the driver
+    never changes a plan it didn't act on. Step states change, the revision
+    doesn't (only a replace bumps it).
+    """
+    session = db.scalar(select(DesktopSession).where(DesktopSession.id == session_id).with_for_update())
+    if session is None or session.plan is None or session.plan_revision != plan_revision or session.state != "running":
+        db.commit()
+        return False
+    plan = json.loads(json.dumps(session.plan))  # deep copy: JSONB changes need reassignment
+    step = next((st for st in plan["steps"] if st["id"] == step_id), None)
+    if step is None or step["state"] not in ("pending", "active"):
+        db.commit()
+        return False
+    session.driver_status = status
+    stopping = False
+    if status == "step_done":
+        step["state"] = "done"
+        upcoming = next((st for st in plan["steps"] if st["state"] == "pending"), None)
+        if upcoming is not None:
+            upcoming["state"] = "active"
+        session.current_step_id = upcoming["id"] if upcoming else None
+        _record(db, session, "desktop.step_done", {"step_id": step_id})
+        if upcoming is None:
+            _record(db, session, "desktop.steps_exhausted", {"plan_revision": plan_revision})
+    else:
+        step["state"] = "active"
+        session.current_step_id = step_id
+        if status in ("stuck", "needs_human"):
+            # The note is the driver's words about the game: untrusted.
+            _record(db, session, f"desktop.{status}", {
+                "step_id": step_id, "note": (note or "")[:200], "source": "game_observation",
+            })
+            _transition(session, "paused", reason="driver_stuck" if status == "stuck" else "needs_human", db=db)
+            stopping = True
+    session.plan = plan
+    db.commit()
+    if stopping:
+        _stop_input(session)
+    return True
+
+
+def driver_pause(db: Session, session_id: uuid.UUID, *, reason: str) -> None:
+    """The driver stops the session (plan finished, errors, budget, no picture)."""
+    session = controller_pause(db, session_id, reason=reason)
+    if session is not None and session.state == "paused" and session.reason_code == reason:
+        _stop_input(session, reason)
 
 
 @dataclass(frozen=True)

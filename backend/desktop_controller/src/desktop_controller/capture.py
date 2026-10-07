@@ -25,7 +25,7 @@ from typing import Protocol
 
 from PIL import Image
 
-from .link import CaptureConfig, TargetState
+from .link import CaptureConfig, ObserveConfig, TargetState
 
 # Windows' own credential and elevation prompts. Whole-screen capture withholds
 # the picture while one of these is the foreground window.
@@ -49,6 +49,16 @@ class Grab:
 
 class CaptureBackend(Protocol):
     def grab(self, config: CaptureConfig) -> Grab: ...
+    def observe(self, config: ObserveConfig) -> Grab: ...
+
+
+def encode_exact(image: Image.Image, width: int, height: int) -> Grab:
+    """Resize to exactly ``width`` x ``height`` (model observations: decision
+    points are fractions of this frame, mapped per axis to the game window)."""
+    image = image.convert("RGB").resize((width, height), Image.Resampling.BILINEAR)
+    out = io.BytesIO()
+    image.save(out, format="JPEG", quality=JPEG_QUALITY)
+    return Grab("ok", out.getvalue(), width, height)
 
 
 def encode(image: Image.Image, max_width: int, max_height: int) -> Grab:
@@ -71,9 +81,18 @@ class FakeCapture:
         self.grabs += 1
         if self.state != "ok":
             return Grab(self.state)
+        return encode(self._picture(), config.max_width, config.max_height)
+
+    def observe(self, config: ObserveConfig) -> Grab:
+        self.grabs += 1
+        if self.state != "ok":
+            return Grab(self.state)
+        return encode_exact(self._picture(), config.width, config.height)
+
+    def _picture(self) -> Image.Image:
         image = Image.new("RGB", (1920, 1080), (30, 90, 40))
         image.paste((200, 200, 60), (60 * (self.grabs % 20), 450, 60 * (self.grabs % 20) + 120, 570))
-        return encode(image, config.max_width, config.max_height)
+        return image
 
 
 class WindowsCapture:
@@ -118,8 +137,17 @@ class WindowsCapture:
         return encode(image, config.max_width, config.max_height)
 
     def _grab_window(self, config: CaptureConfig) -> Grab:
+        image = self._window_image(config.target_process or "")
+        return image if isinstance(image, Grab) else encode(image, config.max_width, config.max_height)
+
+    def observe(self, config: ObserveConfig) -> Grab:
+        image = self._window_image(config.target_process)
+        return image if isinstance(image, Grab) else encode_exact(image, config.width, config.height)
+
+    def _window_image(self, target_process: str) -> Image.Image | Grab:
+        """The game window's pixels, or a ``Grab`` saying why there are none."""
         win = self._win
-        hwnd = win.find_window(config.target_process)
+        hwnd = win.find_window(target_process)
         if hwnd is None:
             return Grab("not_found")
         if win.is_minimized(hwnd):
@@ -137,8 +165,7 @@ class WindowsCapture:
         # the grab, the pixels may show it, so drop them.
         if win.foreground() != foreground:
             return Grab("not_foreground")
-        image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-        return encode(image, config.max_width, config.max_height)
+        return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 
 
 def default_backend() -> CaptureBackend | None:

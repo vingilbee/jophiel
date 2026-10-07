@@ -29,7 +29,8 @@ from .scheduler import DecisionRecord, DecisionState, InputBackend, Scheduler
 
 TICK_MS = 10
 # The watchdog releases everything if the tick thread hasn't run for this long.
-WATCHDOG_STALL_MS = 250
+# Well under the 1.5 s lease; a VM busy grabbing screenshots can stall ~300 ms.
+WATCHDOG_STALL_MS = 750
 WATCHDOG_EVERY_MS = 50
 
 
@@ -180,8 +181,11 @@ class SessionRuntime:
         """Independent of the scheduler's lock: if ticking stalls, let go of
         every key this profile can press, directly through the backend."""
         while not self._stop.wait(WATCHDOG_EVERY_MS / 1000):
-            if self.clock.now_ms() - self._last_tick_ms > WATCHDOG_STALL_MS:
+            stalled_ms = self.clock.now_ms() - self._last_tick_ms
+            if stalled_ms > WATCHDOG_STALL_MS:
                 self.release_everything()
+                if not self._stalled:
+                    print(f"watchdog: input loop stalled {stalled_ms} ms; released every key", flush=True)
                 self._stalled = True
 
     def release_everything(self) -> None:

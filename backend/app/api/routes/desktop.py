@@ -302,6 +302,13 @@ def list_decisions(session_id: uuid.UUID, db: Session = Depends(get_db), user: U
     return desktop_commands.recent_reports(session_id)
 
 
+@router.get("/sessions/{session_id}/driver")
+def driver_state(session_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The driver's notes, facts, reports and timings: untrusted game observation."""
+    _call(service.get_session, db, user.id, session_id)
+    return desktop_commands.load_driver_state(session_id) or {}
+
+
 @router.get("/sessions/{session_id}/events", response_model=list[SessionEventOut])
 def list_events(
     session_id: uuid.UUID,

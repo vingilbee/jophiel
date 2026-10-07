@@ -108,7 +108,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
             link = _SessionLink(ws, environment_id, db_call)
             commands = asyncio.create_task(link.forward_commands())
-            last_frame_at = 0.0
+            last_frame_at: dict[int, float] = {}
             last_heartbeat_at = time.monotonic()
             while True:
                 # Timed from the last *heartbeat*: a stream of frames alone must
@@ -120,10 +120,13 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                 if isinstance(message, bytes):
                     # Frames are best-effort: anything malformed, too fast, or
                     # taken under an outdated capture setting is dropped quietly.
+                    # Rate-limited per kind: a preview and an observation arrive
+                    # back to back.
+                    kind = _frame_kind(message)
                     now = time.monotonic()
-                    if now - last_frame_at < MIN_FRAME_INTERVAL_SECONDS:
+                    if now - last_frame_at.get(kind, 0.0) < MIN_FRAME_INTERVAL_SECONDS:
                         continue
-                    last_frame_at = now
+                    last_frame_at[kind] = now
                     await _accept_frame(db_call, environment_id, generation, message)
                     continue
                 if message.type != "heartbeat":
@@ -272,6 +275,11 @@ def _command(fields: dict) -> DecisionCommand | Cancel | None:
     return None
 
 
+def _frame_kind(data: bytes) -> int:
+    """Cheap pre-parse for rate limiting: 1 for observations, 0 otherwise."""
+    return 1 if b'"kind":"observation"' in data[:1100] else 0
+
+
 async def _accept_frame(db_call, environment_id: uuid.UUID, generation: int, data: bytes) -> None:
     try:
         header, jpeg = unpack_frame(data)
@@ -279,6 +287,10 @@ async def _accept_frame(db_call, environment_id: uuid.UUID, generation: int, dat
         return
     if not await db_call(desktop_link.frame_allowed, environment_id, generation, header.gate_epoch):
         return
+    if header.kind == "observation":
+        # Only for a playing session, and only at the profile's observation size.
+        if not await db_call(desktop_link.observation_wanted, environment_id, header.width, header.height):
+            return
     if not await asyncio.to_thread(desktop_preview.check_jpeg, header, jpeg):
         return
     await asyncio.to_thread(desktop_preview.store, environment_id, header, jpeg, generation=generation)

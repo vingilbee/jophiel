@@ -65,3 +65,13 @@ def axis_counts_per_s(spec: AxisSpec, value: float) -> float:
         assert spec.counts_per_degree is not None
         return value * spec.counts_per_degree
     return value
+
+
+MIN_TURN_MS = 100
+
+
+def turn_duration_ms(yaw: float, pitch: float, axes, requested_ms: int | None) -> int:
+    """How long a turn takes: never faster than the look axes' max speed."""
+    yaw_axis, pitch_axis = axes
+    needed = max(abs(yaw) / yaw_axis.max, abs(pitch) / pitch_axis.max) * 1000
+    return max(MIN_TURN_MS, int(-(-needed // 1)), requested_ms or 0)

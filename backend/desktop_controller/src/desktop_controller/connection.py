@@ -424,6 +424,18 @@ async def run_once(
                         gate_epoch=allowed.epoch,
                     )
                     await send(pack_frame(header, grab.jpeg))
+                if allowed.observe is not None:
+                    # The driver's view: the game window at exactly the decision
+                    # frame size, stamped with the input mode at capture.
+                    shot_at = time.monotonic()
+                    context = play.context()
+                    seen = await asyncio.to_thread(capture.observe, allowed.observe)
+                    if state.config == allowed and seen.jpeg is not None:
+                        seq += 1
+                        await send(pack_frame(FrameHeader(
+                            seq=seq, captured_ms=int(shot_at * 1000), width=seen.width, height=seen.height,
+                            gate_epoch=allowed.epoch, kind="observation", context=context,
+                        ), seen.jpeg))
                 await state.wait_for_change(max(0.0, 1 / allowed.fps - (time.monotonic() - started)))
 
         try:

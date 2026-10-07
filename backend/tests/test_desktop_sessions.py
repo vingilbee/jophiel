@@ -124,7 +124,7 @@ def test_environments_are_listed_per_owner(db, alice, bob):
 def test_start_creates_a_starting_session_without_control(db, alice):
     session = _start(db, alice, _env(db, alice))
     assert (session.state, session.control_owner, session.state_revision) == ("starting", "none", 1)
-    assert session.profile_revision == 1
+    assert session.profile_revision == svc.get_profile("minecraft_java").revision
     assert _event_types(db, session) == [("desktop.session_state", "starting")]
 
 

@@ -736,8 +736,8 @@ backend/app/schemas/desktop.py
 backend/app/services/desktop_sessions.py
 backend/app/api/routes/desktop.py
 backend/app/ai/tools/desktop/        # persistent MCP adapter/interface
-backend/app/ai/desktop/runtime.py    # gameplay loop; no web/DB ownership logic
-backend/app/workers/desktop.py      # dedicated session execution supervision
+backend/app/ai/desktop/driver.py, driver_loop.py  # driver model + gameplay loop (built, D1)
+backend/app/workers/desktop.py      # one driver thread per playing session (built, D1)
 frontend/src/api/desktop.ts
 frontend/src/hooks/useDesktopSession.tsx
 frontend/src/components/DesktopSessionPanel.tsx
@@ -841,6 +841,37 @@ Run dedicated loop with bounded observations/actions, spending limits, and prove
 Run the driver with pipelining, then add Columbina planning turns and the game snapshot (§8.2–8.4).
 
 Gate: measure actual latency distribution, expiry rate (decisions that arrived too late to keep input continuous), and task suitability; a disposable Minecraft task succeeds reproducibly enough to report honestly; injected game text cannot obtain extra capabilities.
+
+Status 2026-10-07, stage D part 1 (the driver) built, not yet run in the guest. Part 2, Columbina's planning turns, the game snapshot, `say` and `ask_desktop_agent` (§8.2-8.4), is not started:
+
+- **Observations.** While a session plays and capture is allowed, the heartbeat reply carries an `ObserveConfig`. The guest then also sends `kind="observation"` frames: the game window at exactly the profile's `observation_size`, stamped with the input context, at 2 per second, rate-limited per kind at the relay. The relay keeps them only for a playing session at the right size (`desktop:observation:<env>`, 10 s TTL); they never reach the image store, database or memory. The driver only sees what the capture gate allows, and "I'm signing in" or a hidden preview stop it (`capture_off`). Controller 0.5.0.
+- **Model** (`app/ai/desktop/driver.py`). OpenAI Chat Completions, strict JSON schema generated from the profile (button, axis and event enums; nullable optionals), one image, no tools, `store=False`, no SDK retries, no fallback model. The prompt is the §8.6 draft without `until`, crops and questions, which are not available yet. Settings: `DESKTOP_DRIVER_MODEL` (default `gpt-4.1-mini`), `_BACKEND`, `_IMAGE_DETAIL`, `_TIMEOUT_SECONDS`, `_MAX_TOKENS`, `_FRESHNESS_MS` (3000), `_MAX_STEPS` (1500, the spending bound), `_METRICS_PATH`.
+- **Loop** (`app/ai/desktop/driver_loop.py`, run by `workers/desktop.py`: one thread per playing session holding a PostgreSQL advisory lock, so a session is never driven twice).
+  - Each step uses the newest fresh frame and gives the model the last decision's controller-reported outcome and the screen change since it.
+  - The answer is dropped if the generation or plan revision changed, or the frame aged past freshness, while the model thought.
+  - `driver_progress` marks steps active/done (never bumping the revision, ignored under an old revision); stuck and needs_human pause with the note stored as `game_observation`.
+  - The session pauses on 3 model errors, 3 identical rejections (as stuck), no usable frame for 10 s, plan complete, or the step budget.
+  - Notes, facts and reports are untrusted and kept in Redis for the card only. Every step writes a metrics line (model ms, frame age at ask and at send, tokens, cached tokens, screen change).
+- **Card.** "Give Columbina a goal" (goal plus step lines `what | done when`, replacing the plan via the existing API) and a driver panel: current step, last move, timings, notes and facts marked unverified, and the pause reason in words.
+- **Evidence.**
+  - 18 driver tests with a scripted model: no API calls; real PostgreSQL for `driver_progress`.
+  - Rehearsal with every real program and the real `gpt-4.1-mini` on a fake screen: 21 decisions in 30 s; model p50 1.26 s / p95 2.04 s; frame age at send p50 1.6 s / p95 2.25 s; ~2.4k input tokens per step with ~1.7k cached and ~67 output; 15/15 decisions superseded by the next before expiring (continuous input, 0% expiry); no discards or errors; the driver stopped on pause.
+  - Not yet measured: the Minecraft task success rate (the stage D gate). Possible latency work: 4 observations per second and streaming the decision first.
+- **First real run in the guest (2026-10-07, "collect oak logs").**
+  - Speed was good: 96 decisions; model p50 1.13 s / p95 1.43 s; frame age at send p50 1.4 s; the user found the pace fine.
+  - Behaviour was poor: long runs (20-30 decisions) of "break oak log in front" with 0% screen change, i.e. attacking out of reach or off target, then wandering into a cave.
+  - The run ended on a watchdog release: the guest's input loop stalled more than 250 ms.
+  - Changes:
+    - The prompt now says when the screen has barely changed for 3 or more decisions, and how long the driver has been on the step.
+    - Minecraft profile r2 adds game notes on reach, break time, holding still while breaking, item pickup and caves.
+    - The watchdog threshold is now 750 ms, and stalls are printed (controller 0.6.0).
+    - Metrics log each full decision, and an opt-in `DESKTOP_DRIVER_DEBUG_DIR` saves every step's frame, prompt and reply for tuning.
+  - Second run: still poor. At the user's request the default driver model is now `gpt-6-luna` (the model the cognitive stages use), with `reasoning_effort: none`. That parameter is sent only to models with reasoning controls (`DESKTOP_DRIVER_REASONING_EFFORT`). Test calls with a fake frame took about 1.8 s per step once cached (2.5 s cold), against about 1.1 s for `gpt-4.1-mini`, and it correctly turned toward an off-centre target where mini walked straight ahead.
+  - The second run's log (127 steps) showed the real cause: **rate-based look axes don't fit a pipelined model.** The driver treated `look_pitch: -90` (a speed) as "look up 90 degrees" and re-sent it each ~1 s, so it spun to the sky (0% screen change while "looking up to find logs") and walked in circles with `forward` plus a small yaw rate.
+  - Fix: a new `turn` event with exact relative degrees, speed capped by the look axes' `max` (so a 180 degree turn takes 0.5 s), compiled like `look_at`; timed motions now round their final fraction. Minecraft profile r3 allows `turn` in `playing`, and the profile checker requires calibrated look axes for it. Controller 0.7.0.
+  - The driver schema no longer offers rate axes, only `turn` and `look_at`, and adds a `target` field filled first (what it is going for, and its pixel x), with the frame's degrees per pixel in the vocabulary (102 degrees / 640 px, about 0.16 degrees per px).
+  - Real Luna checks on simple frames: a tree at x=120 or x=560 gives `look_at` that pixel, a centred tree gives `forward`, at 1.6-1.9 s per step.
+  - Third run in the guest (2026-10-07, "collect 5 oak logs", `gpt-6-luna`): it found trees, walked to them and **collected 2 logs**. The remaining failures are game knowledge, e.g. it kept aiming at a trunk two blocks up without breaking the dirt in the way. The user accepted D1 at this point and asked to treat experience-to-skill learning as a later design topic.
 
 ### E. Concurrent voice and UI polish
 

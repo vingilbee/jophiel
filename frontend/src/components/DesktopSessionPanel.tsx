@@ -439,6 +439,158 @@ function describeDecision(d: DesktopDecisionReport): string {
   }
 }
 
+const PAUSE_REASONS: Record<string, string> = {
+  plan_complete: 'Columbina finished every step of the goal.',
+  driver_stuck: 'Columbina got stuck and stopped. Change the goal or resume to let her try again.',
+  needs_human: 'Columbina saw something outside the game (a login, a crash, a dialog) and needs you.',
+  driver_error: 'The driver model kept failing, so she stopped. Resume to try again.',
+  driver_unavailable: 'The driver model is not available (check OPENAI_API_KEY).',
+  observation_stale: "She couldn't see the game for 10 seconds. Is the game in front in the VM?",
+  capture_off: 'She can only drive while the preview is on (Show preview).',
+  budget: 'The step budget for this session ran out.',
+  not_foreground: 'The game stopped being the active window in the VM.',
+}
+
+function ago(at?: number): string {
+  if (!at) return ''
+  const s = Math.max(0, Math.round(Date.now() / 1000 - at))
+  return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`
+}
+
+/** The plan and what the driver is doing with it (stage D1). */
+function DriverPanel() {
+  const { session, environment, driver } = useDesktopSession()
+  if (!session?.plan) return null
+  const playing = session.state === 'running'
+  const blind = environment?.capture_gate !== 'allowed'
+  const facts = Object.entries(driver?.facts ?? {})
+
+  return (
+    <div className="space-y-1.5 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3">
+      <p className="text-xs font-semibold text-[#7183A3]">
+        {playing ? (blind ? 'Columbina is waiting to see the game' : 'Columbina is driving') : 'Goal'}
+      </p>
+      <p className="text-sm">{session.plan.goal}</p>
+      <ol className="space-y-0.5 text-xs text-[#4C5D7D]">
+        {session.plan.steps.map((step) => (
+          <li key={step.id} className={step.state === 'active' ? 'font-semibold text-[#23314F]' : ''}>
+            {step.state === 'done' ? '✓' : step.state === 'active' ? '▶' : '·'} {step.do}
+            <span className="text-[#7183A3]"> — done when {step.done_when}</span>
+          </li>
+        ))}
+      </ol>
+      {playing && blind && (
+        <p className="text-[11px] text-[#9A5B36]">Turn on the preview (Show preview) so she can see the game.</p>
+      )}
+      {!playing && session.reason_code && PAUSE_REASONS[session.reason_code] && (
+        <p className="text-[11px] text-[#9A5B36]">{PAUSE_REASONS[session.reason_code]}</p>
+      )}
+      {driver && (
+        <div className="space-y-1 text-[11px] text-[#4C5D7D]">
+          {driver.last && <p>Last move: “{driver.last.intent}” · step {driver.steps}</p>}
+          {driver.model_ms !== undefined && (
+            <p className="text-[#7183A3]">
+              Thinking took {(driver.model_ms / 1000).toFixed(1)} s; the picture was{' '}
+              {((driver.frame_age_ms ?? 0) / 1000).toFixed(1)} s old when the move went out.
+            </p>
+          )}
+          {driver.notes && <p>Her notes: “{driver.notes}”</p>}
+          {facts.length > 0 && (
+            <p>
+              Noticed:{' '}
+              {facts
+                .slice(0, 8)
+                .map(([key, f]) => `${key} = ${f.value} (${ago(f.at)})`)
+                .join(' · ')}
+            </p>
+          )}
+          {(driver.reports ?? []).slice(-3).map((r, i) => (
+            <p key={i}>
+              {r.kind === 'danger' ? '⚠' : '•'} {r.text} <span className="text-[#7183A3]">({ago(r.at)})</span>
+            </p>
+          ))}
+          <p className="text-[10px] text-[#7183A3]">Notes, facts and reports are what she read from the game: unverified.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Give or change the goal (Columbina will write plans herself in stage D2). */
+function GoalForm() {
+  const { session, busy, setPlan } = useDesktopSession()
+  const [goal, setGoal] = useState('')
+  const [steps, setSteps] = useState('')
+  if (!session) return null
+  const lines = steps
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12)
+  const typed = lines.map((line) => {
+    const [act, done] = line.split('|').map((part) => part.trim())
+    return { do: act.slice(0, 120), done_when: (done || `${act} is done`).slice(0, 120) }
+  })
+  // No steps written: the goal itself is the one step.
+  const goalText = goal.trim()
+  const parsed = typed.length
+    ? typed
+    : goalText
+      ? [{ do: goalText.slice(0, 120), done_when: `${goalText} is done`.slice(0, 120) }]
+      : []
+  const missing = !goalText ? 'Write a goal first.' : busy ? 'Working…' : null
+
+  return (
+    <details className="text-[11px] text-[#7183A3]" open={!session.plan}>
+      <summary className="cursor-pointer select-none font-semibold">
+        {session.plan ? 'Change the goal' : 'Give Columbina a goal'}
+      </summary>
+      <form
+        className="mt-1 space-y-1.5"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (goal.trim() && parsed.length) void setPlan({ goal: goal.trim().slice(0, 200), steps: parsed })
+        }}
+      >
+        <input
+          className={INPUT}
+          placeholder="Goal, e.g. Collect 5 oak logs"
+          value={goal}
+          maxLength={200}
+          onChange={(e) => setGoal(e.target.value)}
+        />
+        <textarea
+          className={`${INPUT} font-mono text-[11px]`}
+          rows={4}
+          placeholder={'Steps (optional), one per line: what to do | when it is done'}
+          value={steps}
+          onChange={(e) => setSteps(e.target.value)}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" disabled={missing !== null}>
+            {session.plan ? 'Replace the goal' : 'Start driving'}
+          </Button>
+          <button
+            type="button"
+            className="underline-offset-2 hover:underline"
+            onClick={() => {
+              setGoal('Collect 5 oak logs')
+              setSteps('Find an oak tree | a tree trunk fills the crosshair\nBreak the trunk | 5 oak logs in the hotbar')
+            }}
+          >
+            Use example
+          </button>
+        </div>
+        {missing && <p className="text-[#9A5B36]">{missing}</p>}
+        <p>
+          Steps are optional (one per line, “what to do | when it is done”). She drives while the session plays and
+          the preview is on. Pause stops her at once.
+        </p>
+      </form>
+    </details>
+  )
+}
+
 function RegisterForm() {
   const { profiles, busy, registerEnvironment } = useDesktopSession()
   const [name, setName] = useState('Game VM')
@@ -593,19 +745,8 @@ function SessionView() {
 
       {live && <TestControls />}
 
-      {session.plan && (
-        <div>
-          <p className="text-xs font-semibold text-[#7183A3]">Goal</p>
-          <p className="text-sm">{session.plan.goal}</p>
-          <ol className="mt-1 space-y-0.5 text-xs text-[#4C5D7D]">
-            {session.plan.steps.map((step) => (
-              <li key={step.id} className={step.id === session.current_step_id ? 'font-semibold' : ''}>
-                {step.state === 'done' ? '✓' : '·'} {step.do}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+      {live && <DriverPanel />}
+      {live && <GoalForm />}
 
       {live ? (
         <div className="flex flex-wrap gap-2">

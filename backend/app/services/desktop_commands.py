@@ -108,3 +108,34 @@ def async_client():
     import redis.asyncio as aioredis
 
     return aioredis.from_url(url)
+
+
+# --------------------------------------------------------------------------- #
+# Driver state for the card (notes, facts, reports, timings): untrusted game
+# observation, kept in Redis for an hour, never in Postgres or memory.
+# --------------------------------------------------------------------------- #
+
+DRIVER_STATE_TTL_SECONDS = 3600
+
+
+def driver_key(session_id: uuid.UUID | str) -> str:
+    return f"desktop:driver:{session_id}"
+
+
+def save_driver_state(session_id: uuid.UUID, state: dict) -> None:
+    client = desktop_preview.redis_client()
+    if client is None:
+        return
+    try:
+        client.set(driver_key(session_id), json.dumps({**state, "updated_at": time.time()}),
+                   ex=DRIVER_STATE_TTL_SECONDS)
+    except redis.RedisError:
+        log.warning("desktop: could not save driver state for session %s", session_id)
+
+
+def load_driver_state(session_id: uuid.UUID) -> dict | None:
+    client = desktop_preview.redis_client()
+    if client is None:
+        return None
+    raw = client.get(driver_key(session_id))
+    return json.loads(raw) if raw else None

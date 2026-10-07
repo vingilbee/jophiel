@@ -10,7 +10,7 @@ See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7. Public surface:
 - ``link`` / ``connection``: the relay link (pairing, authentication, heartbeat).
 """
 
-__version__ = "0.4.0"
+__version__ = "0.7.0"
 
 from .profile import Profile, ProfileError, load_profile
 from .protocol import Decision, Rejection, RejectionCode, StepOutput

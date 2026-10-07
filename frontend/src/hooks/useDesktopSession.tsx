@@ -12,6 +12,8 @@ import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
   DesktopDecisionReport,
+  DesktopDriverState,
+  DesktopPlanInput,
   DesktopEnvironment,
   DesktopPairing,
   DesktopPreviewFrame,
@@ -39,6 +41,8 @@ interface DesktopSessionContextValue {
   preview: DesktopPreviewFrame | null
   /** Recent test decisions and their outcomes, newest first. */
   decisions: DesktopDecisionReport[]
+  /** The driver's notes, facts and timings (untrusted game observation). */
+  driver: DesktopDriverState | null
   session: DesktopSession | null
   events: DesktopSessionEvent[]
   /** Input was taken from gameplay and the VM hasn't confirmed releasing it. */
@@ -55,6 +59,7 @@ interface DesktopSessionContextValue {
   setCapture: (gate: DesktopCaptureGate) => Promise<void>
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
   sendDecision: (decision: Record<string, unknown>) => Promise<void>
+  setPlan: (plan: DesktopPlanInput) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>
@@ -79,6 +84,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const [pairing, setPairing] = useState<DesktopPairing | null>(null)
   const [preview, setPreview] = useState<DesktopPreviewFrame | null>(null)
   const [decisions, setDecisions] = useState<DesktopDecisionReport[]>([])
+  const [driver, setDriver] = useState<DesktopDriverState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastEventId = useRef(0)
@@ -182,18 +188,24 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer)
   }, [user, enabled, liveId, awaitingConfirm])
 
-  // Test decision outcomes, while a session is live.
+  // Decision outcomes and the driver's state, while a session is live.
   useEffect(() => {
     if (!liveId) {
       setDecisions([])
+      setDriver(null)
       return
     }
     let cancelled = false
-    const tick = () =>
+    const tick = () => {
       desktopApi
         .decisions(liveId)
         .then((list) => !cancelled && setDecisions(list))
         .catch(() => {})
+      desktopApi
+        .driver(liveId)
+        .then((state) => !cancelled && setDriver(Object.keys(state).length ? state : null))
+        .catch(() => {})
+    }
     void tick()
     const timer = window.setInterval(tick, 1000)
     return () => {
@@ -260,6 +272,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     environment,
     preview,
     decisions,
+    driver,
     session,
     events,
     releasePending,
@@ -313,6 +326,8 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         const updated = await desktopApi.setCapture(environment.id, { scope })
         setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
       }),
+    setPlan: (plan) =>
+      run(async () => (session ? desktopApi.replacePlan(session.id, plan, session.plan_revision) : null)),
     sendDecision: (decision) =>
       run(async () => {
         if (!session) return
