@@ -132,6 +132,11 @@ Columbina is a general conversational agent with a persistent identity, personal
   uv.lock                # uv lockfile (committed)
   alembic/              # DB migrations (if using Alembic)
 
+/desktop_controller     # desktop agent action contract + controller core (own uv project; runs in the game VM,
+                        #   also imported by the backend). See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7.
+                        #   `cd desktop_controller && uv run pytest`
+/desktop_profiles       # trusted per-game input profiles (YAML), checked by `desktop-profile-check`
+
 /model_weights          # pretrained weights copied/downloaded from the separate training repo (gitignored)
 
 docker-compose.yml      # local dev: postgres + backend + frontend (if used)

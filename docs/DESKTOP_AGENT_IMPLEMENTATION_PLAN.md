@@ -227,7 +227,7 @@ The gameplay model returns exactly one decision per step (strict structured outp
 }
 ```
 
-Only `intent` is always written. Every other field is optional with a default: `hold`/`axes`/`events` empty, `at_ms` 0, `hold_ms` the profile's `default_tap_ms`, `valid_for_ms` the profile's `default_valid_for_ms` (see §8 "Output size").
+Every field is optional, including `intent` (expected on any decision that acts), so `{}` is the valid "release everything" decision. Defaults: `hold`/`axes`/`events` empty, `at_ms` 0, `hold_ms` the profile's `default_tap_ms`, `valid_for_ms` the profile's `default_valid_for_ms` (see §8 "Output size").
 
 Semantics:
 
@@ -299,7 +299,7 @@ The driver's structured output wraps the decision with fields that carry informa
 
 ### 7.3 Contexts (input modes)
 
-Games switch between modes with different valid inputs, e.g. *playing* (cursor captured, relative look) and *menu* (cursor visible, pointer actions). The profile declares contexts and what each allows. The controller detects the current context where it can (cursor visibility: `GetCursorInfo` on Windows, the v1 guest; an equivalent per other guest OS) and reports it with every observation. A decision that uses inputs not allowed in the current context is **rejected**, which catches the common "model thinks the inventory is still open" error. If a profile declares no detector, the context is `unknown` and only inputs allowed in every context are accepted.
+Games switch between modes with different valid inputs, e.g. *playing* (cursor captured, relative look) and *menu* (cursor visible, pointer actions). The profile declares contexts and what each allows. The controller detects the current context where it can (cursor visibility: `GetCursorInfo` on Windows, the v1 guest; an equivalent per other guest OS) and reports it with every observation. A decision that uses inputs not allowed in the current context is **rejected**, which catches the common "model thinks the inventory is still open" error. If a profile declares no detector, the context is `unknown` and only inputs allowed in every context are accepted. Any event that positions the pointer (`click`, `drag`, `move`, and `tap`/`scroll` with a `point`) also requires `move` in the context, because moving the pointer while the game captures it for mouse-look would jerk the camera; `look_at` is exempt (its point is a view target, executed as relative motion).
 
 ### 7.4 Game profiles
 
@@ -325,15 +325,15 @@ buttons:            # name -> physical input + description shown to the driver
   hotbar_1:  { key: "1",         description: "select hotbar slot 1" }   # ... through hotbar_9
 
 axes:               # name -> device + unit
-  look_yaw:   { device: mouse_relative_x, unit: deg_per_s, counts_per_degree: 8.2, max: 360, description: "turn right (+) / left (-)" }
-  look_pitch: { device: mouse_relative_y, unit: deg_per_s, counts_per_degree: 8.2, max: 180, description: "look down (+) / up (-)" }
+  look_yaw:   { device: mouse_relative_x, unit: deg_per_s, counts_per_degree: 6.67, max: 360, description: "turn right (+) / left (-)" }
+  look_pitch: { device: mouse_relative_y, unit: deg_per_s, counts_per_degree: 6.67, max: 180, description: "look down (+) / up (-)" }
 
 fact_keys: ["inventory.*", "hotbar.selected", "health", "hunger", "location", "time_of_day", "activity"]
 game_notes: >      # short game knowledge for the driver prompt; optional
   Crosshair is screen center. Breaking a block needs attack held until it breaks.
   The hotbar (bottom) and health/hunger are always visible; full inventory needs "inventory".
 
-camera: { fov_h_deg: 100, fov_v_deg: 70 }   # from game settings; verified during calibration
+camera: { fov_v_deg: 70 }   # Minecraft's FOV setting is vertical; horizontal is derived from the frame aspect
 
 regions:            # named rectangles in observation-frame pixels (640x360 here)
   crosshair: [304, 164, 336, 196]
@@ -341,9 +341,10 @@ regions:            # named rectangles in observation-frame pixels (640x360 here
 macros: {}          # e.g. fighting games: { hadouken: [down@0, down+forward@16, forward+punch@33] }
 
 contexts:
-  detect: cursor_visibility
-  playing: { allow: [hold, axes, tap] }
-  menu:    { allow: [click, drag, scroll, move, tap], buttons: [inventory, sneak] }
+  detect: { method: cursor_visibility, cursor_hidden: playing, cursor_visible: menu }
+  modes:
+    playing: { allow: [hold, axes, tap, look_at] }
+    menu:    { allow: [hold, click, drag, scroll, move, tap], buttons: [inventory, sneak, menu_click, menu_alt_click] }
 
 limits: { default_valid_for_ms: 1500, max_valid_for_ms: 3000, max_until_ms: 8000, default_tap_ms: 50,
           max_events: 12, max_taps_per_s: 10, max_drag_points: 32, max_until_conditions: 3 }
@@ -354,7 +355,9 @@ Other genres are new profiles, not code changes. A MOBA profile maps `move: MOUS
 
 **Calibration:** relative-look axes are expressed in degrees because raw mouse counts are meaningless across sensitivity settings. Calibration measures `counts_per_degree` once per profile and game settings (automatically by frame comparison, or by hand with a 360° turn) and stores it in the profile.
 
-**Generic fallback profile:** `generic_keyboard_mouse` exposes letters, digits, arrows, Space/Shift/Ctrl, mouse buttons, relative and absolute mouse movement, and scroll under raw names, with conservative limits and no macros. It allows trying a new game the same day. A tuned profile replaces it once the game's needs are known.
+The example above is abridged; the implemented profile is `desktop_profiles/minecraft_java.yaml` (it adds `drop`, `swap_hands`, menu-only click buttons, a `status_bars` region, and the assumed game settings). Its `counts_per_degree` 6.67 is an uncalibrated estimate from Minecraft's sensitivity formula at 100% (0.15° per count) until stage C measures it.
+
+**Generic fallback profile:** `generic_keyboard_mouse` exposes letters, digits, arrows, Space/Shift/Ctrl, mouse buttons, relative mouse movement in counts per second, pointer moves, and scroll under raw names, with conservative limits and no camera, macros, Esc, Tab or Alt. It is a **template**: the checker refuses it until `target.process` names a real game executable, so copying it and setting the process allows trying a new game the same day. A tuned profile replaces it once the game's needs are known.
 
 ### 7.5 Global safety rules
 
@@ -723,10 +726,11 @@ Keep normal screen-awareness consent separate from hosted desktop pairing. The c
 Suggested additions, subject to repository inspection:
 
 ```text
-desktop_controller/                 # guest-local package, narrow dependencies
-  protocol, capture, input (per-OS drivers), scheduler, watchdog, connection, tests
-desktop_profiles/                   # trusted, versioned game profiles (YAML) + loader/validator
-  generic_keyboard_mouse.yaml, minecraft_java.yaml
+desktop_controller/                 # own uv project (pydantic + pyyaml); runs in the guest AND is imported by the backend
+  protocol, profile (loader/validator), safety, validate, geometry, until, scheduler, fake, cli   # stage A, built
+  capture, input (per-OS drivers), watchdog, connection                                         # stages B-C
+desktop_profiles/                   # trusted, versioned game profiles (YAML), checked by desktop-profile-check
+  generic_keyboard_mouse.yaml (template), minecraft_java.yaml
 backend/app/schemas/desktop.py
 backend/app/services/desktop_sessions.py
 backend/app/api/routes/desktop.py
@@ -753,6 +757,8 @@ Feature flags: desktop connection, gameplay execution, recording, and any future
 Implement typed protocols, the decision schema (§7.2), profile loader/validator with the global safety rules (§7.5), session service/state machine, fake controller/capture/input, ownership checks, and UI skeleton. Demonstrate session lifecycle without a real game.
 
 Gate: two concurrent users cannot access/control each other's environment; simultaneous starts yield one owner; stop invalidates late decisions; profiles mapping OS-level inputs fail validation; decisions using unknown names or inputs outside the current context are rejected.
+
+Status 2026-10-06, part 1 built (`desktop_controller/`, 88 tests passing against the fake controller): decision and step-output schema, profile loader/validator with global safety rules, generic and Minecraft profiles, decision validator, `until` evaluation, `look_at` math, and the input scheduler (complete state, expiry, supersede by diff, lease, generation fence, dedupe, startup release, blocked-combination guard). Gates met so far: OS-input profiles fail validation; unknown names and out-of-context inputs are rejected; stop invalidates late decisions (generation fence). Remaining for stage A: the backend session service and state machine, ownership checks and atomic start, the persistence models, and the UI skeleton.
 
 ### B. Local VM observation and runbook
 
