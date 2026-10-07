@@ -355,7 +355,7 @@ Other genres are new profiles, not code changes. A MOBA profile maps `move: MOUS
 
 **Calibration:** relative-look axes are expressed in degrees because raw mouse counts are meaningless across sensitivity settings. Calibration measures `counts_per_degree` once per profile and game settings (automatically by frame comparison, or by hand with a 360° turn) and stores it in the profile.
 
-The example above is abridged; the implemented profile is `desktop_profiles/minecraft_java.yaml` (it adds `drop`, `swap_hands`, menu-only click buttons, a `status_bars` region, and the assumed game settings). Its `counts_per_degree` 6.67 is an uncalibrated estimate from Minecraft's sensitivity formula at 100% (0.15° per count) until stage C measures it.
+The example above is abridged; the implemented profile is `backend/desktop_profiles/minecraft_java.yaml` (it adds `drop`, `swap_hands`, menu-only click buttons, a `status_bars` region, and the assumed game settings). Its `counts_per_degree` 6.67 is an uncalibrated estimate from Minecraft's sensitivity formula at 100% (0.15° per count) until stage C measures it.
 
 **Generic fallback profile:** `generic_keyboard_mouse` exposes letters, digits, arrows, Space/Shift/Ctrl, mouse buttons, relative mouse movement in counts per second, pointer moves, and scroll under raw names, with conservative limits and no camera, macros, Esc, Tab or Alt. It is a **template**: the checker refuses it until `target.process` names a real game executable, so copying it and setting the process allows trying a new game the same day. A tuned profile replaces it once the game's needs are known.
 
@@ -723,13 +723,13 @@ Keep normal screen-awareness consent separate from hosted desktop pairing. The c
 
 ## 12. Suggested implementation modules and API surface
 
-Suggested additions, subject to repository inspection:
+Suggested additions, subject to repository inspection. The controller package and profiles live **inside `backend/`**: the backend Docker image builds from `backend/` only, so a path dependency outside it would break the image. `backend/pyproject.toml` declares `desktop_controller` as a uv workspace member (editable), the backend's single `uv.lock` covers both, `uv run pytest` from `backend/` runs both test suites, and the Dockerfile copies `desktop_controller/` before `uv sync`. The package itself still depends only on pydantic and pyyaml, so the guest installs it alone (`pip install ./desktop_controller` or `uv pip install`) without pulling in the backend.
 
 ```text
-desktop_controller/                 # own uv project (pydantic + pyyaml); runs in the guest AND is imported by the backend
+backend/desktop_controller/         # uv workspace member of backend/ (pydantic + pyyaml only); runs in the guest AND is imported by the backend
   protocol, profile (loader/validator), safety, validate, geometry, until, scheduler, fake, cli   # stage A, built
   capture, input (per-OS drivers), watchdog, connection                                         # stages B-C
-desktop_profiles/                   # trusted, versioned game profiles (YAML), checked by desktop-profile-check
+backend/desktop_profiles/           # trusted, versioned game profiles (YAML), checked by desktop-profile-check
   generic_keyboard_mouse.yaml (template), minecraft_java.yaml
 backend/app/schemas/desktop.py
 backend/app/services/desktop_sessions.py
@@ -758,7 +758,9 @@ Implement typed protocols, the decision schema (§7.2), profile loader/validator
 
 Gate: two concurrent users cannot access/control each other's environment; simultaneous starts yield one owner; stop invalidates late decisions; profiles mapping OS-level inputs fail validation; decisions using unknown names or inputs outside the current context are rejected.
 
-Status 2026-10-06, part 1 built (`desktop_controller/`, 88 tests passing against the fake controller): decision and step-output schema, profile loader/validator with global safety rules, generic and Minecraft profiles, decision validator, `until` evaluation, `look_at` math, and the input scheduler (complete state, expiry, supersede by diff, lease, generation fence, dedupe, startup release, blocked-combination guard). Gates met so far: OS-input profiles fail validation; unknown names and out-of-context inputs are rejected; stop invalidates late decisions (generation fence). Remaining for stage A: the backend session service and state machine, ownership checks and atomic start, the persistence models, and the UI skeleton.
+Status 2026-10-06, part 1 built (`backend/desktop_controller/`, 88 tests passing against the fake controller): decision and step-output schema, profile loader/validator with global safety rules, generic and Minecraft profiles, decision validator, `until` evaluation, `look_at` math, and the input scheduler (complete state, expiry, supersede by diff, lease, generation fence, dedupe, startup release, blocked-combination guard). Gates met so far: OS-input profiles fail validation; unknown names and out-of-context inputs are rejected; stop invalidates late decisions (generation fence). Remaining for stage A: the backend session service and state machine, ownership checks and atomic start, the persistence models, and the UI skeleton.
+
+Status 2026-10-06, part 2 built, not yet committed or independently reviewed: persistence (`DesktopEnvironment`, `DesktopSession`, `DesktopSessionEvent`; migration `e5b8c2d4f6a1`), `backend/app/services/desktop_sessions.py` (state machine with row-locked transitions, `state_revision` / `execution_generation` / `plan_revision`, idempotent start, plan replace/append with service-assigned step ids), `/api/desktop` routes behind `DESKTOP_AGENT_ENABLED` (off by default; 404 when off), `desktop_enabled` in `/api/capabilities`, and the `DesktopSessionProvider` + `DesktopSessionPanel` skeleton on the Dashboard (polls every 3 s; no preview). 35 tests in `backend/tests/test_desktop_sessions.py` against real PostgreSQL (`TEST_DATABASE_URL`). All stage A gates now have tests: users cannot see or control each other's sessions (foreign ids are 404); simultaneous starts yield exactly one owner (6 threads); stop invalidates late decisions (every stop bumps `execution_generation`); End beats a stale Resume. Stage A deviations, by design until stage B: environments are registered directly by their owner (no pairing or device credential yet); `starting -> running` happens only through `controller_ready`, which no route exposes, so nothing reaches `running` from the UI until a controller exists; release after Pause/Take over/End is reported as *requested* (`release_pending`), never confirmed; the duration limit (`expire_overdue`) has no worker calling it yet; questions, snapshot and preview endpoints are not built.
 
 ### B. Local VM observation and runbook
 

@@ -344,6 +344,17 @@ class Settings(BaseSettings):
     cognitive_dialogue_memory_worker_poll_seconds: float = Field(default=2.0, gt=0)
     cognitive_dialogue_memory_max_attempts: int = Field(default=5, gt=0)
 
+    # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md) ---
+    # Off by default: the /api/desktop routes answer 404 and the UI hides the
+    # panel. Enabling it creates no VM and sends no input on its own.
+    desktop_agent_enabled: bool = False
+    # Trusted game profiles. A relative path resolves against the backend root.
+    desktop_profiles_dir: str = "desktop_profiles"
+    # Upper bound for one gameplay session's requested duration.
+    desktop_max_session_seconds: int = Field(default=2 * 60 * 60, gt=0, le=24 * 60 * 60)
+    # Plan bounds (plan §17): steps per plan revision.
+    desktop_plan_max_steps: int = Field(default=12, ge=1, le=50)
+
 
 @lru_cache
 def get_settings() -> Settings:

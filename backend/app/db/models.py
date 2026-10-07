@@ -1216,3 +1216,135 @@ event.listen(
     CognitiveDialogueMemorySnapshot.__table__, "after_create",
     DDL(DIALOGUE_SNAPSHOT_GUARD_DDL).execute_if(dialect="postgresql"),
 )
+
+
+# --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §6, §17) -------
+
+DESKTOP_SESSION_STATES = ("starting", "running", "paused", "manual", "disconnected", "ended", "failed")
+DESKTOP_TERMINAL_STATES = ("ended", "failed")
+
+
+class DesktopEnvironment(Base):
+    """A controlled desktop (v1: the game VM) owned by one user.
+
+    Connection health and session state are separate: an environment can be
+    online with no session. Stage B adds the controller's device credential and
+    pairing; until then environments are registered directly by their owner.
+    """
+
+    __tablename__ = "desktop_environments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    hosting_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="local_vm", server_default="local_vm")
+    guest_os: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Trusted policy: the profile ids this environment may run. Never model-supplied.
+    allowed_profile_ids: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="offline", server_default="offline")
+    controller_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("hosting_kind IN ('local_vm', 'cloud_vm')", name="ck_desktop_environments_hosting_kind"),
+        CheckConstraint("status IN ('offline', 'online')", name="ck_desktop_environments_status"),
+    )
+
+
+class DesktopSession(Base):
+    """One gameplay session: lifecycle, input ownership, and the current plan.
+
+    ``state_revision`` is the compare-and-swap counter for lifecycle changes;
+    ``execution_generation`` fences input (bumped by anything that stops it);
+    ``plan_revision`` is bumped only by a plan replace, never by an append.
+    """
+
+    __tablename__ = "desktop_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    profile_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    state_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    reason_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    control_owner: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
+    execution_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    plan_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_step_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    current_step_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    driver_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    commentary_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="occasional", server_default="occasional"
+    )
+    max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Retried start requests (e.g. a repeated tool call) return the same session.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('starting', 'running', 'paused', 'manual', 'disconnected', 'ended', 'failed')",
+            name="ck_desktop_sessions_state",
+        ),
+        CheckConstraint("control_owner IN ('none', 'gameplay', 'manual')", name="ck_desktop_sessions_control_owner"),
+        CheckConstraint(
+            "commentary_mode IN ('quiet', 'occasional', 'commentary')", name="ck_desktop_sessions_commentary_mode"
+        ),
+        # One live session per environment: concurrent starts cannot both win.
+        Index(
+            "uq_desktop_sessions_active_environment",
+            "environment_id",
+            unique=True,
+            postgresql_where=text("state NOT IN ('ended', 'failed')"),
+        ),
+        Index(
+            "uq_desktop_sessions_owner_idempotency",
+            "owner_user_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+
+class DesktopSessionEvent(Base):
+    """Bounded, persisted lifecycle/plan history. High-rate decision events
+    never land here (plan §17 Events)."""
+
+    __tablename__ = "desktop_session_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(String(48), nullable=False)
+    state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_desktop_session_events_session_id", "session_id", "id"),)

@@ -34,13 +34,15 @@ Columbina is a general conversational agent with a persistent identity, personal
 ```
 /frontend                 # Vite + React 19 + TS, styled with Tailwind v4
   /src
-    /components       # reusable UI: Logo, Button, ProtectedRoute, AppHeader, ProviderIcon, VoiceOrb, SenseStrip, CognitiveInspector
+    /components       # reusable UI: Logo, Button, ProtectedRoute, AppHeader, ProviderIcon, VoiceOrb, SenseStrip, CognitiveInspector,
+                       #   DesktopSessionPanel
     /pages             # route-level pages: LandingPage, LoginPage, DashboardPage (voice), ChatPage, PredictPage, IntegrationsPage
     /audio             # mic capture worklet client, PCM playback, VAD, wake word
     /senses            # the eye: screen.ts (getDisplayMedia + sampling) + screen.worker.ts (diff/encode)
     /hooks             # custom React hooks: useAuth (session context), useChatSocket, useVoiceSession,
-                       #   useAwareness (report senses up), useScreenSense (the eye toggle)
-    /api               # API client: client.ts (fetch wrapper), auth.ts, predict.ts, chat.ts, integrations.ts
+                       #   useAwareness (report senses up), useScreenSense (the eye toggle),
+                       #   useDesktopSession (app-level desktop agent session provider)
+    /api               # API client: client.ts (fetch wrapper), auth.ts, predict.ts, chat.ts, integrations.ts, desktop.ts
     /types             # shared TypeScript types
     App.tsx            # react-router-dom routes
     main.tsx           # entry: BrowserRouter + AuthProvider
@@ -57,6 +59,7 @@ Columbina is a general conversational agent with a persistent identity, personal
         chat.py         # chatbot: WebSocket /api/chat/ws (streams reply) + REST conversation history
         dashboard.py    # weight/calorie CRUD endpoints
         integrations.py # Google OAuth connect/callback/status/disconnect
+        desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED)
         auth.py
       deps.py           # shared deps (get_current_user, get_current_user_optional)
     /models            # (empty — nutrition inference lives in /ai/MacroVision)
@@ -122,20 +125,21 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   salience.py: whether it's worth speaking first,
                        #   cognitive_shadow.py: live-shadow capture + durable queue,
                        #   dialogue_memory.py: dialogue snapshots, CAS head, jobs, catch-up, cache,
+                       #   desktop_sessions.py: desktop agent ownership + session state machine + plan,
                        #   voice_latency.py: per-stage voice-turn timing marks -> var/voice_latency.jsonl,
                        #   read with `uv run python scripts/voice_latency_report.py`)
     /workers           # external workers: chat, memory, whatsapp, file_deletion, cognitive_shadow,
                        #   dialogue_memory
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
     main.py             # FastAPI app entrypoint
-  pyproject.toml         # uv-managed deps
-  uv.lock                # uv lockfile (committed)
+  /desktop_controller   # desktop agent action contract + controller core. uv workspace member (pydantic + pyyaml
+                        #   only): runs in the game VM, also imported by the backend. Lives inside backend/ because
+                        #   the Docker image builds from backend/ only. See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7.
+                        #   Its tests run with the backend's: `uv run pytest` (testpaths includes it)
+  /desktop_profiles     # trusted per-game input profiles (YAML): `uv run desktop-profile-check desktop_profiles/*.yaml`
+  pyproject.toml         # uv-managed deps; [tool.uv.workspace] member desktop_controller
+  uv.lock                # uv lockfile (committed; covers the workspace member too)
   alembic/              # DB migrations (if using Alembic)
-
-/desktop_controller     # desktop agent action contract + controller core (own uv project; runs in the game VM,
-                        #   also imported by the backend). See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7.
-                        #   `cd desktop_controller && uv run pytest`
-/desktop_profiles       # trusted per-game input profiles (YAML), checked by `desktop-profile-check`
 
 /model_weights          # pretrained weights copied/downloaded from the separate training repo (gitignored)
 
@@ -250,6 +254,7 @@ docker-compose.yml      # local dev: postgres + backend + frontend (if used)
 - **Goal V0 remediation (2026-09-29, SH-EVAL-013/014):** implemented, not yet independently audited; normative text is `GOAL_V0_IMPLEMENTATION.md` §26. Formation and adoption are closed, validated manifests (`goal_v0/formation_policy.py`, `goal_v0/adoption_policy.py`): a candidate forms per eligible act-local frame and is adopted against its own act's hypotheses only, with per-definition minimum support (a strong greeting + moderate social goal is adopted); every reject transition carries a structured `rejection_detail`. `goal_v0/evidence_producer.py` is the pure, exact-target producer of reconciliation evidence under an authority table (no event class exists for generated text, plans, sentiment, or Dynamic State); a failed outcome never satisfies. Focus precedence: blocking prerequisite of the current request > current request > this turn's response obligation > compatible history > social maintenance, so a response turn's primary always belongs to that turn. Live shadow emits no outcome events yet (the capture has no exact per-turn outcome binding). Changing Goal versions changes Action/Realization request digests: update `conversational_action_design_results_v0.json` via `build_expected_results()` and the Realization golden only after confirming the old version strings reproduce the old digests.
 - **Typed Requirement Resolution V0 (2026-09-30, SH-EVAL-020/022/023/024):** implemented, not yet independently audited; normative text is `app/ai/Cognitive/system/v0/REQUIREMENT_RESOLUTION_V0_IMPLEMENTATION.md`, evidence in `REQUIREMENT_RESOLUTION_V0_BEHAVIORAL_RESULTS_2026-09-30.md`, status in the Cognitive README. A deterministic stage between Goal and the Cognitive Turn decides, per current-turn request goal, whether user input, trusted content, capability, authorization, consent, and safety are satisfied, using closed tiers (0 safety, 1 user input, 2 capability, 3 execution, 4 consent, 5 content) where **only the lowest unsatisfied tier blocks**. Action requests form the non-committing goal `interaction.handle_action_request`. Trusted content comes only from installed `producers_v0` producers (application identity, and the runtime date taken from the capture's `captured_at`, in UTC); everything else is an explicit knowledge gap, never model knowledge. Blockers become resolution-sourced `ActionPlanningCondition`s that only the truthful move kind can address at an exact target (clarify / gap answer / grounded decline); acknowledgement can never address one. A free-text `action_request` effect is never mapped to a capability, so it is declined as unregistered — fixing that needs typed Interpretation arguments, not text matching. Realization content uses reviewed anchors only ("your request", "that", "Today's date in UTC", `ELICITATION_ANCHORS`) and negative-polarity decline reasons; the Realization validator is unchanged. Changing Goal/Action versions requires regenerating `conversational_action_design_results_v0.json` via `build_expected_results()` only after confirming the old version strings reproduce the old digests. Durable tests that need scripted outcomes fail if the local `.env` enables the real shadow providers; pin the worker to the offline grounder and disable Realization/Dialogue Memory for those runs.
 - **Conversational Workspace + Collaborative Content V0 (2026-10-02, shadow-only):** implemented through Gate 6 of `app/ai/Cognitive/system/v0/COLLABORATIVE_CONTENT_AND_INQUIRY_V0_IMPLEMENTATION_INSTRUCTIONS.md`; not audited. The report is `CONVERSATIONAL_WORKSPACE_AND_COLLABORATIVE_CONTENT_V0_IMPLEMENTATION.md` and the evidence is `COLLABORATIVE_CONTENT_AND_INQUIRY_V0_BEHAVIORAL_RESULTS_2026-10-02.md`. A third requested outcome, a **conversational artifact** (outline, draft, summary), is neither an answer nor an external action, so it never needs a capability. Pipeline: Goal → `workspace_resolution` → Requirement Resolution (now with `criticality`; only blocking requirements gate) → `collaborative_content` (separate structured provider plus deterministic compiler, **no fallback**; `COGNITIVE_SHADOW_COLLABORATION_ENABLED` defaults to false, so a deliverable is a typed failure that Action declines) → Action (`collaborate.deliver_artifact`, `seek_information.inquire` only after the primary). Only a `DeliveredResponseOutcome` can satisfy a deliverable, open an inquiry, or advance a head (compare-and-set), and only under `simulated_authority`, the explicit offline harness `conversation_workspace_v0/simulation.py`. Observational live shadow never commits a proposal (`shadow_only_not_delivered`), and live authority fails closed. Replay re-runs the compiler on recorded candidates and never calls the provider. Gate 7 (durable tables and workers) is deliberately **not** built: no approved mode may write yet. Gate 8 has not been run.
+- **Desktop agent sessions (stage A, flag-gated):** Spec is `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md` (§6, §17-18 for this layer). `DESKTOP_AGENT_ENABLED` defaults to false and makes every `/api/desktop` route 404. `services/desktop_sessions.py` owns the rules. One live session per environment is enforced by the partial unique index `uq_desktop_sessions_active_environment` (a losing start becomes `already_owned`), not by check-then-insert. Every transition locks the session row, bumps `state_revision`, and writes a `DesktopSessionEvent` in the same transaction. Lock order is always environment then session. Anything that stops input (pause, takeover, end, disconnect, plan replace) bumps `execution_generation`, which the controller uses to drop late decisions. Nothing resumes on its own: resume needs `expected_state_revision` and an online environment. User-facing queries filter by owner, so foreign ids are 404. Refusals carry `{"detail": {"code", "message"}}` (`ApiError.code` on the frontend). `controller_*` and `expire_overdue` are for the future relay/worker and have no route. Tests need real Postgres (`TEST_DATABASE_URL`, a throwaway container on 127.0.0.1, never the dev DB).
 - **Cognitive inspector:** The Chat page's `Cognitive test` button opens a right-side diagnostic panel. `POST /api/cognitive/inspect` is authenticated and runs the isolated local pipeline against a test message plus recent user-message context and attachment counts. It returns the complete typed perception and interpretation along with processing time, input counts, and an explicit zero online-call count. Inspection never creates a conversation, invokes the orchestrator, or changes live agent behavior.
 - **Cognitive two-call protocol v1 (2026-10-05, shadow-only, opt-in):** `COGNITIVE_SHADOW_TWO_CALL_PROTOCOL=cognitive-two-call-v1` implements `CONTEXT_CONDITIONED_TWO_CALL_PIPELINE_REDESIGN.md`. Report: `app/ai/Cognitive/system/v0/COGNITIVE_TWO_CALL_V1_IMPLEMENTATION_REPORT.md`. Not audited; the default and local `.env` stay on `context-conditioned-two-call-v0.1`.
   - **Call 1** returns typed events, nested readings and named appraisal. Open-world values are `span:i[-j]` refs over code-owned focus tokens, or supplied `entity:`/`object:` refs; there is no prose and there are no model handles.

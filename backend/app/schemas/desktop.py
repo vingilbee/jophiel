@@ -1,0 +1,156 @@
+"""Request/response schemas for the desktop agent (plan §17-18).
+
+Text fields that end up in a model prompt (goal, steps, constraints) are
+bounded here, so the service never has to re-check lengths. None of them is
+ever a permission: authorization lives on the environment record.
+"""
+import uuid
+from datetime import datetime
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+SessionState = Literal["starting", "running", "paused", "manual", "disconnected", "ended", "failed"]
+ControlOwner = Literal["none", "gameplay", "manual"]
+CommentaryMode = Literal["quiet", "occasional", "commentary"]
+StepState = Literal["pending", "active", "done", "skipped", "abandoned"]
+PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "user_api"]
+
+ProfileId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
+ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+PlanText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class _In(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+# --- profiles and environments ---------------------------------------------
+
+
+class ProfileOut(BaseModel):
+    id: str
+    revision: int
+    display_name: str
+
+
+class EnvironmentCreate(_In):
+    """Stage A registration by the owner; stage B replaces it with pairing."""
+
+    display_name: PlanText = Field(max_length=64)
+    guest_os: Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)] | None = None
+    allowed_profile_ids: list[ProfileId] = Field(min_length=1, max_length=16)
+
+
+class EnvironmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    display_name: str
+    hosting_kind: str
+    guest_os: str | None
+    allowed_profile_ids: list[str]
+    policy_revision: int
+    status: Literal["offline", "online"]
+    last_heartbeat_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+# --- plan ---------------------------------------------------------------------
+
+
+class PlanStepIn(_In):
+    do: ShortText
+    done_when: ShortText
+
+
+class PlanIn(_In):
+    goal: PlanText
+    steps: list[PlanStepIn] = Field(min_length=1, max_length=50)  # the configured cap is enforced by the service
+    if_stuck: PlanText | None = None
+    constraints: list[ShortText] = Field(default_factory=list, max_length=5)
+
+
+class PlanReplace(PlanIn):
+    expected_plan_revision: int = Field(ge=0)
+    source: PlanSource = "user_api"
+
+
+class PlanAppend(_In):
+    expected_plan_revision: int = Field(ge=1)
+    steps: list[PlanStepIn] = Field(min_length=1, max_length=50)
+
+
+class PlanStepOut(BaseModel):
+    id: str
+    do: str
+    done_when: str
+    state: StepState
+
+
+class PlanOut(BaseModel):
+    plan_revision: int
+    goal: str
+    steps: list[PlanStepOut]
+    if_stuck: str | None
+    constraints: list[str]
+    source: PlanSource
+
+
+# --- sessions -------------------------------------------------------------------
+
+
+class SessionCreate(_In):
+    environment_id: uuid.UUID
+    profile_id: ProfileId
+    conversation_id: uuid.UUID | None = None
+    commentary_mode: CommentaryMode = "occasional"
+    max_duration_seconds: int | None = Field(default=None, gt=0)
+    plan: PlanIn | None = None
+    # A retried start (e.g. a repeated tool call) with the same key returns the
+    # same session instead of starting a second one.
+    idempotency_key: Annotated[str, StringConstraints(min_length=8, max_length=64)] | None = None
+
+
+class SessionCommand(_In):
+    reason: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,47}$")] | None = None
+
+
+class SessionResume(_In):
+    expected_state_revision: int = Field(ge=1)
+
+
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    environment_id: uuid.UUID
+    conversation_id: uuid.UUID | None
+    profile_id: str
+    profile_revision: int
+    state: SessionState
+    state_revision: int
+    reason_code: str | None
+    control_owner: ControlOwner
+    execution_generation: int
+    plan_revision: int
+    plan: PlanOut | None
+    current_step_id: str | None
+    driver_status: str | None
+    commentary_mode: CommentaryMode
+    max_duration_seconds: int
+    started_at: datetime
+    ended_at: datetime | None
+    # Pause/takeover/end ask the controller to release held input. Until the
+    # controller acknowledges (stage B), release is only requested, never
+    # confirmed: the UI must not claim the game is safely idle.
+    release_pending: bool = False
+
+
+class SessionEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    type: str
+    state_revision: int
+    payload: dict
+    occurred_at: datetime
