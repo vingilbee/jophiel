@@ -148,7 +148,7 @@ function StartForm() {
 function PairingBox() {
   const { pairing, cancelPairing } = useDesktopSession()
   if (!pairing) return null
-  const command = `desktop-controller pair ${pairing.relay_address} ${pairing.code}`
+  const command = `py -m desktop_controller pair ${pairing.relay_address} ${pairing.code}`
   const expires = new Date(pairing.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
   return (
@@ -158,7 +158,7 @@ function PairingBox() {
         {command}
       </code>
       <p className="text-xs text-[#765E94]">
-        Then keep <span className="font-mono">desktop-controller run</span> going. This card switches to
+        Then keep <span className="font-mono">py -m desktop_controller run</span> going. This card switches to
         “connected” on its own.
       </p>
       <details className="text-[10px] text-[#7183A3]">

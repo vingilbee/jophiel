@@ -779,6 +779,8 @@ Status 2026-10-06, part B1 built (Mac side + the guest's connection client), not
 - **UI and runbook.** The card gains Pair / Pair again / Remove and live connected status. `infra/desktop/README.md` is the Mac + VM runbook.
 - **Tests.** 19 link tests: proof math, service on real Postgres, and the real relay over TLS with the real client (pair, connect, revoke end to end; silent controller dropped; plain connection refused; wrong certificate refused). A manual rehearsal with the real `python -m` relay and `desktop-controller` CLI passed.
 
+Verified on the actual setup 2026-10-07 (manual, by the user, following `infra/desktop/README.md` §1-6): the package installed in the Windows 11 guest from a wheel served by the Mac; pairing with a card code succeeded and the fingerprint matched; `run` showed *connected* on the card; Remove disconnected the guest with "access was revoked"; from the guest only the relay port answered (plain HTTP to it, 8000, 5432 and 6379 did not).
+
 Remaining for stage B (part B2): guest screen capture, private preview, and the authentication-mode capture gate. Then run the §5.1 checks and this gate's port checks from the actual VM (runbook §6).
 
 ### C. Timed input without a model

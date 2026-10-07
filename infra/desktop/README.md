@@ -53,7 +53,14 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
 ## 3. VM: install
 
 1. Install Python 3.12 or newer from python.org (tick *Add python.exe to PATH*).
-2. In the VM's browser open `http://192.168.1.76:8090/` and download the `.whl` file.
+2. Download the `.whl` file into the VM. Don't open it (Windows has no app for it; pip installs it
+   below). From PowerShell, which avoids browser download prompts:
+
+   ```powershell
+   curl.exe -o $HOME\Downloads\desktop_controller-0.1.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.1.0-py3-none-any.whl
+   ```
+
+   (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
