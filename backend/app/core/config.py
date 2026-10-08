@@ -86,7 +86,9 @@ class Settings(BaseSettings):
 
     # --- AI chatbot (LangChain + OpenAI) ---
     # Uses OPENAI_API_KEY below, shared with memory, vision, and speech.
-    chat_model: str = "gpt-4.1"
+    chat_model: str = "gpt-6-luna"
+    # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*).
+    chat_reasoning_effort: str | None = "none"
     # Optional override for the isolated, single-call cognitive inspector.
     cognitive_model: str | None = None
     chat_max_tokens: int = 4096
@@ -202,7 +204,7 @@ class Settings(BaseSettings):
     # Voice turns use a faster model than typed chat: opus-4-8's time-to-first
     # -token is fine when you're reading and bad when you're waiting to hear a
     # reply. Set to None to use `chat_model` for voice too.
-    voice_chat_model: str | None = "gpt-4.1-mini"
+    voice_chat_model: str | None = "gpt-6-luna"
     # Per-stage timestamps for voice turns, appended as JSON lines by the
     # browser, API, and worker (see app/services/voice_latency.py). Ids, stage
     # names, and numbers only, never transcript or audio. Read with

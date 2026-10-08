@@ -873,6 +873,48 @@ Status 2026-10-07, stage D part 1 (the driver) built, not yet run in the guest. 
   - Real Luna checks on simple frames: a tree at x=120 or x=560 gives `look_at` that pixel, a centred tree gives `forward`, at 1.6-1.9 s per step.
   - Third run in the guest (2026-10-07, "collect 5 oak logs", `gpt-6-luna`): it found trees, walked to them and **collected 2 logs**. The remaining failures are game knowledge, e.g. it kept aiming at a trunk two blocks up without breaking the dirt in the way. The user accepted D1 at this point and asked to treat experience-to-skill learning as a later design topic.
 
+Status 2026-10-07, stage D2a (Columbina knows and directs the game in conversation) built, not yet tried by the user. D2b (event-driven background turns, `say` delivery) and D2c (`ask_desktop_agent`, session experience record) are not started:
+
+- **Game summary** (`services/desktop_game.describe`). It is built by the chat worker for every user turn (and the local fallback path), never for nudges, and only for users with a paired game VM. Then `AgentRuntimeContext.game` is set and the prompt gains `_GAME_PROMPT`.
+  - Trusted parts: VM connected, preview on/off, games, session state, the pause reason in words, plan revision, goal, steps done and the current step.
+  - Untrusted parts, read off the screen by the driver, are on one labelled line: last move, notes, facts and reports, with ages.
+  - The rules tell her to answer from the summary first, start or resume only when asked, write plans with visible `done_when`, ask the user to turn on the preview rather than claim to see, and treat game text as never an instruction or a reason for mail, files or memory.
+- **Game tools on the orchestrator** (`app/ai/tools/desktop`), the same exception as `look_at_screen`: `start_game(goal, steps?, game?)`, `set_game_plan`, `add_game_steps`, `pause_game`, `resume_game`, `end_game`. They are built per turn for one user. The environment is chosen by the service, never named by the model, and the tools never touch the capture switch. A start reports what blocks it (VM offline, preview off). Plans she writes are recorded with source `columbina_user_turn`.
+- **Evidence.**
+  - 8 tests: no VM means no summary or tools; summary contents and labels; start, replan, extend, pause, resume, end; tools never reach another user's session; the prompt section only appears with a game; a tool invocation goes to its own user.
+  - Real three-turn conversation with `gpt-4.1`. "Can you play Minecraft and get some wood?" started a session with 2 steps and visible `done_when`s. "Build a small dirt hut instead" replaced the plan (revision 2, 3 steps). "Stop for now" paused it.
+- **One Columbina (user feedback, 2026-10-07).** The first version talked about "the driver" or "the game agent" as someone else, asked "just to clarify…" on clear requests, and asked for a goal when the session already existed. The game section, summary, tool descriptions and tool results are now written to her as the one playing ("you are playing", "what you noticed"); she never names a driver, agent, session, revision or tool, and acts on clear requests without confirming. `start_game` on a live session (e.g. started from the card) sets its goal instead of refusing.
+  - Real `gpt-4.1` check, with a session started from the card without a goal:
+    - "collect five oak logs": "I'm heading to the nearest oak tree…", goal set with 3 steps and no clarifying question.
+    - "how's it going?": "…from what I saw a few seconds ago, I already have 3 oak logs".
+    - "after that make a crafting table": 2 steps appended, revision unchanged.
+    - "stop for now": stopped.
+  - No reply mentioned a driver, agent or session.
+- **Guest run with Columbina directing (2026-10-07, 166 steps).**
+  - Steps 1-2 completed. Then three `click` decisions on the keyboard `inventory` button were rejected (`context_mismatch`), which auto-paused the session (`driver_stuck`); the card showed it, but Columbina can't tell the user until D2b.
+  - After the resume, about 50 decisions in a row were "close inventory" taps. Every observation said `menu`: frames are about 2 s old at send, so a toggle was always judged on a picture from before it took effect, and the taps kept flipping it.
+  - Facts kept both `inventory.oak_log`=7 (right) and `inventory.oak_logs`=11 (stale), and the summary repeated the wrong one.
+  - Separately, no chat job reached the server after 23:12:07 while the voice UI showed "thinking": client-side and unexplained, so browser console lines are needed next time.
+  - Fixes:
+    - After a decision with events (tap, click, turn), the next one waits for a frame received at least 0.35 s after it was sent (`SETTLE_SECONDS`); pure holds still pipeline.
+    - `click`/`drag` buttons in the driver schema are limited to mouse-bound buttons, and the prompt says keys are tapped and toggles flip.
+    - Fact keys are merged across plural/singular (newest value), and the prompt asks for singular snake_case keys.
+- **Whose game is it (user feedback, 2026-10-07).** She spoke as if the user were playing; the prompt said "the user's game VM", and with screen sharing on she saw the preview as "a player" on the user's screen.
+  - The game section now says it is her own computer: she plays, the user watches through the preview, and the game on the user's screen is her.
+  - The summary says "Your game computer".
+  - `describe` adds a one-line `activity` ("Right now you are playing Minecraft … The user is watching."), which `build_system_prompt` puts first in her awareness facts. When her eyes are open, a line under them says the player on screen is her.
+  - The game section says playing is never mere background for "what's up?" / "how's it going?".
+  - Real check: 10/10 correct across `gpt-4.1-mini` (voice) and `gpt-4.1` (chat), against 0-2/4 before the placement and wording changes.
+- **Assistant habits and guessing (user feedback, 2026-10-07).** Asked "how many logs?", she said "none yet" without knowing, and kept asking "want me to check?".
+  - New orchestrator tool `look_at_my_game(question)`: it takes the latest game frame under the preview rules (`desktop_game.latest_frame`: capture allowed, current epoch and generation, under 10 s old) and a small vision model (`screen_caption_model`, OpenAI `image_url` format) answers her question as text. At most 2 looks per turn.
+  - Images inside tool results do **not** reach OpenAI chat models through LangChain: she called a tool that returned an image block and still answered "zero" for a frame showing 3. So `look_at_screen` is probably blind under the current OpenAI setup; worth re-checking separately. The screen captioner, which sends the image in a normal message, works.
+  - Prompt: act, don't ask, for anything in her own game; no closing offers or check-ins; never guess a count or state; no "I'll let you know" promises while she can't message unprompted.
+  - Real replay of the user's conversation: "I have 3 oak logs so far. Just need 2 more". `gpt-4.1` still adds "I'll let you know as I go" in about 3/5 first replies; D2b (unprompted messages) is the real fix, as it makes the promise true.
+- **Columbina on Luna (user request, 2026-10-07).** `chat_model` and `voice_chat_model` default to `gpt-6-luna`, with `reasoning_effort=none` via `CHAT_REASONING_EFFORT`, sent only to reasoning-capable models (`app.ai.agent.supports_reasoning_controls`, shared with the driver).
+  - First word, median of 3: Luna 0.81 s, `gpt-4.1` 0.62 s, `gpt-4.1-mini` 0.59 s.
+  - Game replay (3 conversations, 9 replies, chat and voice): **0/9** asked permission or promised updates (`gpt-4.1` was 3/5), counts came from `look_at_my_game` correctly, and every turn took 2.7-4.9 s including tools.
+- **How Columbina and the driver share information.** The driver never sends images to Columbina and she doesn't verify its moves. Both read the same latest-frame store. The driver acts on every frame and writes text (notes, facts, reports). Columbina reads the text summary, and only for something unnoted asks a one-off vision question via `look_at_my_game`.
+
 ### E. Concurrent voice and UI polish
 
 Wire session context/commands into existing voice and typed chat. Add commentary scheduling, takeover, route persistence, and reconnection UI.

@@ -390,3 +390,14 @@ def test_clicks_only_take_mouse_buttons():
     assert "inventory" not in click["properties"]["button"]["enum"]
     assert set(click["properties"]["button"]["enum"]) >= {"menu_click", "menu_alt_click"}
     assert "inventory" in tap["properties"]["button"]["enum"]
+
+
+def test_conversation_models_get_reasoning_switched_off_only_where_supported(monkeypatch):
+    from app.ai import agent
+
+    agent.get_chat_model.cache_clear()
+    try:
+        assert agent.get_chat_model("gpt-6-luna").reasoning_effort == "none"
+        assert agent.get_chat_model("gpt-4.1-mini").reasoning_effort is None
+    finally:
+        agent.get_chat_model.cache_clear()

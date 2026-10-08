@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.ai.agent import supports_reasoning_controls
 from desktop_controller.profile import Profile
 from desktop_controller.protocol import StepOutput
 
@@ -292,10 +293,6 @@ class OpenAIDriver:
             output_tokens=getattr(usage, "completion_tokens", 0) or 0,
             cached_tokens=cached,
         )
-
-
-def supports_reasoning_controls(model: str) -> bool:
-    return model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4"))
 
 
 def build_driver_model() -> DriverModel:
