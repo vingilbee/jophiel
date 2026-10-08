@@ -241,8 +241,9 @@ def _active_jobs_for_user(user_id: uuid.UUID):
     finally:
         db.close()
 
-# A client that opens an utterance and never closes it would otherwise buffer
-# without bound. 60s at 16kHz/16-bit is ~1.9MB; well past any real utterance.
+# An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
+# client that opens one and never closes it can't buffer without bound, and a
+# long silent wait before speaking still ends in a turn.
 MAX_UTTERANCE_BYTES = 16000 * 2 * 60
 
 # An interruption that says only this was a request to stop talking, not a
@@ -1339,13 +1340,14 @@ async def chat_ws(websocket: WebSocket) -> None:
             if (data := event.get("bytes")) is not None:
                 if utterance is None:
                     continue  # no utterance open; ignore stray audio
-                if len(utterance) + len(data) > MAX_UTTERANCE_BYTES:
-                    utterance = None
-                    await send_json(
-                        {"type": "error", "detail": "Utterance too long."}
-                    )
-                    continue
                 utterance.extend(data)
+                # Listening can stay open a long time before anyone speaks
+                # (e.g. watching her play). Keep the most recent audio rather
+                # than dropping the utterance: what's trimmed is the oldest,
+                # usually silence, and the words that end it are kept.
+                excess = len(utterance) - MAX_UTTERANCE_BYTES
+                if excess > 0:
+                    del utterance[: excess + (excess % 2)]  # whole 16-bit samples
                 continue
 
             raw_text = event.get("text")
@@ -1490,6 +1492,9 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             if isinstance(message, VoiceEndRequest):
                 if utterance is None:
+                    # Never leave the client waiting on a turn that won't
+                    # happen: it re-arms listening on this error.
+                    await send_json({"type": "error", "detail": "I didn't catch that. Please say it again."})
                     continue
                 pcm, rate = bytes(utterance), utterance_rate
                 conversation_id = utterance_conversation

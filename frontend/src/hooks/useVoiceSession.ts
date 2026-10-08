@@ -40,6 +40,8 @@ export type VoiceState =
  * normal onset (150ms) to skip clicks and her own echo; kept low because a
  * false trigger now only pauses her briefly (the hold resumes on noise).
  */
+// How long 'thinking' may last with no reply and no audio before giving up.
+const NO_ANSWER_TIMEOUT_MS = 60_000
 const BARGE_IN_MIN_SPEECH_MS = 250
 /** Noise-floor multiple that counts as speech while she talks (2.5 otherwise). */
 const BARGE_IN_SPEECH_RATIO = 2.0
@@ -273,6 +275,24 @@ export function useVoiceSession(opts: Options): VoiceSession {
     clearTimer()
     setPhase('thinking')
     audioArrivedRef.current = false
+    // Safety net: if nothing at all comes back, don't think forever. Give up on
+    // the turn (fencing any late reply), say so, and listen again.
+    const turnEpoch = epochRef.current
+    const noAnswer = window.setTimeout(() => {
+      if (epochRef.current !== turnEpoch || stateRef.current !== 'thinking' || audioArrivedRef.current) return
+      if (holdRef.current) return
+      epochRef.current += 1
+      const { conversationId, socket } = optsRef.current
+      // Settles the stuck turn (its late events are fenced) and opens a new
+      // utterance in the same frame.
+      if (!socket.interruptVoiceStart(conversationId, CAPTURE_SAMPLE_RATE)) {
+        setError(NOT_CONNECTED)
+        setPhase('idle')
+        return
+      }
+      setError('No answer came back. Please try again.')
+      enterListening(false)
+    }, NO_ANSWER_TIMEOUT_MS)
     replyDoneRef.current = false
     playbackDoneRef.current = false
     const { onReplyComplete } = optsRef.current
@@ -289,6 +309,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
       },
     }
     const reply = request()
+    reply.finally(() => window.clearTimeout(noAnswer)).catch(() => {})
     try {
       const result = await reply
       if (epochRef.current !== epoch) {
@@ -331,7 +352,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
         }
       }, 4000)
     }
-  }, [beginUtterance, clearAudioGraceTimer, clearTimer, reportLatency, setPhase])
+  }, [beginUtterance, clearAudioGraceTimer, clearTimer, enterListening, reportLatency, setPhase])
 
   /** Close the utterance, run the turn, then re-arm for a follow-up. */
   const finishUtterance = useCallback(() => {

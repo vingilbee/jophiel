@@ -426,3 +426,43 @@ def test_each_clause_announces_its_span_of_the_reply(voice_turn) -> None:
     kinds = [e["type"] for e in result["events"] if e["type"].startswith("audio")]
     assert kinds[:3] == ["audio_start", "audio_segment", "audio_chunk"]
     assert all(e["turn_id"] == result["turn_id"] for e in segments)
+
+
+def test_a_long_silent_wait_before_speaking_still_makes_a_turn(socket_client, monkeypatch) -> None:
+    """Listening can stay open for minutes (e.g. watching her play). The words
+    at the end must reach transcription; the oldest silence is what gets cut."""
+    import time
+
+    client, chat, headers, heard = _voice_socket(socket_client, monkeypatch, transcript="Collect some wood")
+    add_message = Mock(side_effect=RuntimeError("persisted"))  # end the task here
+    monkeypatch.setattr(chat.chat_service, "add_message", add_message)
+    monkeypatch.setattr(chat.chat_service, "get_or_create_conversation", Mock())
+
+    turn = str(uuid.uuid4())
+    silence, words = b"\x00\x00" * 16000, b"\x05\x00" * 16000  # 1 s each
+    with client.websocket_connect("/api/chat/ws", headers=headers) as ws:
+        assert ws.receive_json()["type"] == "state"
+        ws.send_json({"type": "voice_start", "turn_id": turn, "sample_rate": 16000})
+        for _ in range(65):
+            ws.send_bytes(silence)
+        ws.send_bytes(words)
+        ws.send_json({"type": "voice_end", "turn_id": turn})
+        transcript = _receive_until(ws, lambda f: f["type"] in {"done", "transcript", "error"})
+        deadline = time.monotonic() + 2
+        while not add_message.called and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+    assert transcript["type"] == "transcript"
+    pcm, rate = heard[0]
+    assert len(pcm) == chat.MAX_UTTERANCE_BYTES and pcm.endswith(words)
+    assert add_message.call_args.kwargs["content"] == "Collect some wood"
+
+
+def test_a_done_with_nothing_open_is_answered_not_ignored(socket_client, monkeypatch) -> None:
+    """The client waits on every voice_end; silence from the server froze it in "thinking"."""
+    client, chat, headers, _heard = _voice_socket(socket_client, monkeypatch, transcript="")
+    with client.websocket_connect("/api/chat/ws", headers=headers) as ws:
+        assert ws.receive_json()["type"] == "state"
+        ws.send_json({"type": "voice_end", "turn_id": str(uuid.uuid4())})
+        frame = _receive_until(ws, lambda f: f["type"] == "error")
+    assert "say it again" in frame["detail"]
