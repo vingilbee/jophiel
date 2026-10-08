@@ -109,9 +109,13 @@ def drive(session_id: uuid.UUID) -> None:
                 metric=write_metric,
                 profile=sessions.get_profile,
                 model=model,
+                notice=lambda sid, kind, text: _db(sessions.driver_noticed)(sid, kind=kind, text=text),
+                auto_goals=_db(sessions.auto_goals_set),
             )
             run = DriverRun(session_id, deps, freshness_ms=settings.desktop_driver_freshness_ms,
-                            max_steps=settings.desktop_driver_max_steps, debug=_debug_writer(session_id))
+                            max_steps=settings.desktop_driver_max_steps, debug=_debug_writer(session_id),
+                            planning_wait_seconds=settings.desktop_planning_wait_seconds,
+                            max_auto_goals=settings.desktop_max_auto_goals)
             log.info("desktop driver started for session %s (%s)", session_id, settings.desktop_driver_model)
             while run.step():
                 pass

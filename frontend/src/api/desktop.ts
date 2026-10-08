@@ -4,6 +4,7 @@ import { api } from './client'
 import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
+  DesktopCommentaryMode,
   DesktopDecisionReport,
   DesktopDriverState,
   DesktopPlanInput,
@@ -46,6 +47,8 @@ export const desktopApi = {
   end: (id: string) => api.post<DesktopSession>(`${s(id)}/end`),
   sendDecision: (id: string, decision: Record<string, unknown>) =>
     api.post<{ decision_id: string }>(`${s(id)}/decisions`, { decision }),
+  setOptions: (id: string, options: { autonomy?: 'continue' | 'stop'; commentary_mode?: DesktopCommentaryMode }) =>
+    api.patch<DesktopSession>(`${s(id)}/options`, options),
   driver: (id: string) => api.get<DesktopDriverState>(`${s(id)}/driver`),
   replacePlan: (id: string, plan: DesktopPlanInput, expected_plan_revision: number) =>
     api.put<DesktopSession>(`${s(id)}/plan`, { ...plan, expected_plan_revision }),

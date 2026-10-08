@@ -441,6 +441,7 @@ function describeDecision(d: DesktopDecisionReport): string {
 
 const PAUSE_REASONS: Record<string, string> = {
   plan_complete: 'Columbina finished every step of the goal.',
+  planning_timeout: "She finished her goal but didn't pick a new one in time.",
   driver_stuck: 'Columbina got stuck and stopped. Change the goal or resume to let her try again.',
   needs_human: 'Columbina saw something outside the game (a login, a crash, a dialog) and needs you.',
   driver_error: 'The driver model kept failing, so she stopped. Resume to try again.',
@@ -457,6 +458,41 @@ function ago(at?: number): string {
   return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`
 }
 
+/** Keep playing on her own after a goal, and how often she speaks up (stage D2b). */
+function PlayOptions() {
+  const { session, busy, setOptions } = useDesktopSession()
+  if (!session) return null
+  const chip = (active: boolean) =>
+    `rounded-full border px-2 py-0.5 ${active ? 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]' : 'border-[#D9E8F6]'}`
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7183A3]">
+      <label className="flex items-center gap-1">
+        <input
+          type="checkbox"
+          checked={session.autonomy === 'continue'}
+          disabled={busy}
+          onChange={(e) => void setOptions({ autonomy: e.target.checked ? 'continue' : 'stop' })}
+        />
+        Keep playing on her own
+      </label>
+      <span role="group" aria-label="How often she speaks up" className="flex gap-1">
+        {(['quiet', 'occasional', 'commentary'] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={session.commentary_mode === mode}
+            disabled={busy || session.commentary_mode === mode}
+            onClick={() => void setOptions({ commentary_mode: mode })}
+            className={chip(session.commentary_mode === mode)}
+          >
+            {mode}
+          </button>
+        ))}
+      </span>
+    </div>
+  )
+}
+
 /** The plan and what the driver is doing with it (stage D1). */
 function DriverPanel() {
   const { session, environment, driver } = useDesktopSession()
@@ -468,7 +504,13 @@ function DriverPanel() {
   return (
     <div className="space-y-1.5 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3">
       <p className="text-xs font-semibold text-[#7183A3]">
-        {playing ? (blind ? 'Columbina is waiting to see the game' : 'Columbina is driving') : 'Goal'}
+        {playing
+          ? blind
+            ? 'Columbina is waiting to see the game'
+            : driver?.waiting === 'next_goal'
+              ? 'Columbina is choosing her next goal'
+              : 'Columbina is playing'
+          : 'Goal'}
       </p>
       <p className="text-sm">{session.plan.goal}</p>
       <ol className="space-y-0.5 text-xs text-[#4C5D7D]">
@@ -746,6 +788,7 @@ function SessionView() {
       {live && <TestControls />}
 
       {live && <DriverPanel />}
+      {live && <PlayOptions />}
       {live && <GoalForm />}
 
       {live ? (

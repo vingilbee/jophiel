@@ -170,7 +170,7 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     # The game tools: same exception as the eye (few, cheap, latency-sensitive),
     # and only for a user with a game VM.
     if context.game is not None:
-        direct_tools.extend(build_desktop_tools(context.user_id))
+        direct_tools.extend(build_desktop_tools(context.user_id, context.game_event))
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)

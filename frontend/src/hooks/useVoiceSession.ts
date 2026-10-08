@@ -92,6 +92,13 @@ export interface VoiceSession {
    * 60 Hz visualiser doesn't re-render the page 60 times a second.
    */
   getLevel: () => number
+  /**
+   * She's about to speak first (unprompted). If the mic is open but nobody has
+   * started talking, close that empty utterance so her audio plays, then
+   * listen again afterwards. If the user is mid-sentence, do nothing: her
+   * words still show as text, and she never talks over them.
+   */
+  beginUnpromptedSpeech: () => void
   /** Feed streamed reply audio in. Wire to the socket's onAudio. */
   handleAudio: (pcm: Int16Array, sampleRate: number) => void
   /** Reply audio finished streaming. Wire to the socket's onAudioEnd. */
@@ -694,6 +701,24 @@ export function useVoiceSession(opts: Options): VoiceSession {
     return phase === 'idle' ? level * 0.35 : level
   }, [])
 
+  const beginUnpromptedSpeech = useCallback(() => {
+    const phase = stateRef.current
+    if (phase === 'off' || holdRef.current) return
+    if (phase === 'listening') {
+      if (speechDetectedRef.current || vadRef.current?.speaking) return
+      clearTimer()
+      optsRef.current.socket.cancelVoice()
+    } else if (phase !== 'idle') {
+      return // replying already: this audio isn't for now
+    }
+    // Same bookkeeping as a reply, so playback re-arms listening when done.
+    epochRef.current += 1
+    audioArrivedRef.current = false
+    playbackDoneRef.current = false
+    replyDoneRef.current = true
+    setPhase('speaking')
+  }, [clearTimer, setPhase])
+
   const handleAudio = useCallback(
     (pcm: Int16Array, sampleRate: number) => {
       // Reply audio only belongs to thinking/speaking (or a nudge while idle).
@@ -783,6 +808,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
     endTurn,
     interrupt,
     getLevel,
+    beginUnpromptedSpeech,
     handleAudio,
     handleAudioEnd,
     handleBargeResolved: resolveHold,

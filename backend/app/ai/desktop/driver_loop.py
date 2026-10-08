@@ -64,6 +64,10 @@ class DriverDeps:
     model: DriverModel
     now: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
+    # A report worth waking Columbina for (danger; notable in commentary mode).
+    notice: Callable[[uuid.UUID, str, str], None] | None = None
+    # Goals Columbina already picked herself this session (playing on her own).
+    auto_goals: Callable[[uuid.UUID], int] | None = None
 
 
 def screen_change(before: bytes, after: bytes) -> float:
@@ -92,6 +96,9 @@ class DriverRun:
     errors: int = 0
     rejections: tuple[str | None, int] = (None, 0)
     waiting_since: float | None = None
+    planning_since: float | None = None
+    planning_wait_seconds: float = 60.0
+    max_auto_goals: int = 10
     still_steps: int = 0
     still_since: float | None = None
     step_started: tuple[str, float, int] | None = None  # (plan step id, time, driver step count)
@@ -110,9 +117,8 @@ class DriverRun:
             return False
         current = view.current_step()
         if current is None:
-            deps.pause(self.session_id, "plan_complete")
-            self._save()
-            return False
+            return self._between_goals(view)
+        self.planning_since = None
         if view.capture_gate != "allowed":
             return self._wait("capture_off")
 
@@ -224,6 +230,26 @@ class DriverRun:
 
     # -- helpers ----------------------------------------------------------------
 
+    def _between_goals(self, view: DriverView) -> bool:
+        """Every step is done. Playing on her own, wait (keys released: no new
+        decisions) for the goal Columbina is choosing; otherwise stop here."""
+        deps = self.deps
+        picked = deps.auto_goals(self.session_id) if deps.auto_goals else 0
+        if view.autonomy != "continue" or picked >= self.max_auto_goals:
+            deps.pause(self.session_id, "plan_complete")
+            self._save()
+            return False
+        now = deps.now()
+        if self.planning_since is None:
+            self.planning_since = now
+            self._save(waiting="next_goal")
+        elif now - self.planning_since > self.planning_wait_seconds:
+            deps.pause(self.session_id, "planning_timeout")
+            self._save()
+            return False
+        deps.sleep(0.25)
+        return True
+
     def _wait(self, reason: str) -> bool:
         now = self.deps.now()
         if self.waiting_since is None:
@@ -259,6 +285,8 @@ class DriverRun:
             self.facts.pop(min(self.facts, key=lambda k: self.facts[k]["at"]))
         for entry in output.report:
             self.reports.append({"kind": entry.kind, "text": entry.text, "at": at})
+            if self.deps.notice is not None and entry.kind in ("danger", "notable"):
+                self.deps.notice(self.session_id, entry.kind, entry.text)
         self.reports = self.reports[-MAX_REPORTS:]
 
     def describe_outcome(self, outcome: dict | None) -> str:

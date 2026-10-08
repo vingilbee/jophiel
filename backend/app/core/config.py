@@ -386,6 +386,13 @@ class Settings(BaseSettings):
     # reply are saved here (one folder per session). Off by default: it keeps
     # screenshots of the VM on disk. Relative paths resolve against the backend root.
     desktop_driver_debug_dir: str | None = None
+    # Stage D2b: Columbina acting on game events.
+    # Goals she may pick herself per session when playing on her own.
+    desktop_max_auto_goals: int = Field(default=10, ge=0, le=100)
+    # After a goal is done, how long the driver waits for her next one.
+    desktop_planning_wait_seconds: float = Field(default=60.0, ge=5, le=600)
+    # Minimum gap between unprompted messages she sends (needs-you ignores it).
+    agent_say_min_gap_seconds: float = Field(default=60.0, ge=0, le=3600)
 
 
 @lru_cache

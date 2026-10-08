@@ -110,6 +110,8 @@ export interface DesktopSession {
   current_step_id: string | null
   driver_status: string | null
   commentary_mode: DesktopCommentaryMode
+  /** After a goal: "continue" = she picks the next one herself; "stop" = she pauses and tells you. */
+  autonomy: 'continue' | 'stop'
   max_duration_seconds: number
   started_at: string
   ended_at: string | null

@@ -147,6 +147,11 @@ class SessionCommand(_In):
     reason: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,47}$")] | None = None
 
 
+class SessionOptions(_In):
+    autonomy: Literal["continue", "stop"] | None = None
+    commentary_mode: CommentaryMode | None = None
+
+
 class SessionResume(_In):
     expected_state_revision: int = Field(ge=1)
 
@@ -167,6 +172,7 @@ class SessionOut(BaseModel):
     current_step_id: str | None
     driver_status: str | None
     commentary_mode: CommentaryMode
+    autonomy: Literal["continue", "stop"] = "continue"
     max_duration_seconds: int
     started_at: datetime
     ended_at: datetime | None

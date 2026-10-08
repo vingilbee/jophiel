@@ -7,7 +7,7 @@ import threading
 import redis
 
 from app.core.config import get_settings
-from app.workers import chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, memory, whatsapp
+from app.workers import agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, memory, whatsapp
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,9 @@ def run(stop: threading.Event | None = None) -> None:
             # The gameplay driver: its own thread (and one thread per playing
             # session), so a model call never sits in front of a chat reply.
             worker_specs.append(("desktop-driver", desktop.run_once, "macrovision:desktop:wakeups", 1.0))
+            # Columbina waking on game events: its own thread, so a background
+            # turn never sits in front of a reply (and vice versa).
+            worker_specs.append(("agent-events", agent_events.run_once, "macrovision:agent-events:wakeups", 1.0))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

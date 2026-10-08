@@ -23,6 +23,7 @@ class FakeRedis:
         self.lists: dict[str, list[bytes]] = {}
         self.streams: dict[str, list[dict]] = {}
         self.strings: dict[str, bytes] = {}
+        self.published: list[tuple[str, str]] = []
         self.lock = threading.Lock()
 
     def pipeline(self):
@@ -76,6 +77,11 @@ class FakeRedis:
     def get(self, key):
         with self.lock:
             return self.strings.get(key)
+
+    def publish(self, channel, message):
+        with self.lock:
+            self.published.append((channel, message))
+        return 1
 
     def xadd(self, key, fields, maxlen=None, approximate=True):
         with self.lock:

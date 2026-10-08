@@ -145,7 +145,8 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
     with database() as setup:
         _paired_env(setup, alice)
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
-    assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "pause_game", "resume_game", "end_game"}
+    assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "pause_game",
+                          "resume_game", "end_game", "keep_playing"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))
     assert reply.startswith("Started; you're playing")

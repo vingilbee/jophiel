@@ -32,7 +32,7 @@ from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -388,7 +388,8 @@ def takeover_session(
 
 
 def resume_session(
-    db: Session, owner_user_id: uuid.UUID, session_id: uuid.UUID, *, expected_state_revision: int
+    db: Session, owner_user_id: uuid.UUID, session_id: uuid.UUID, *, expected_state_revision: int,
+    reason: str = "user_resume",
 ) -> CommandResult:
     """Explicitly give control back to gameplay.
 
@@ -415,7 +416,7 @@ def resume_session(
         raise DesktopError("not_authorized", 403, "this environment's access was revoked")
     if env.status != "online":
         raise DesktopError("environment_offline", 409, "the game VM's controller is not connected")
-    _transition(session, "running", reason="user_resume", db=db)
+    _transition(session, "running", reason=reason, db=db)
     db.commit()
     from app.services import desktop_commands
 
@@ -629,7 +630,12 @@ def controller_pause(db: Session, session_id: uuid.UUID, *, reason: str) -> Desk
         db.commit()
         return session
     _transition(session, "paused", reason=reason, db=db)
+    if reason != "plan_complete":  # a finished goal was already announced (goal_done)
+        _game_event(db, session, f"paused:{reason}")
     db.commit()
+    from app.services import agent_events
+
+    agent_events.wake()
     return session
 
 
@@ -653,6 +659,8 @@ class DriverView:
     current_step_id: str | None
     capture_gate: str
     capture_epoch: int
+    autonomy: str = "stop"
+    commentary_mode: str = "occasional"
 
     @property
     def playing(self) -> bool:
@@ -697,7 +705,7 @@ def driver_view(db: Session, session_id: uuid.UUID) -> DriverView | None:
     return DriverView(
         session.id, session.environment_id, session.state, session.control_owner, session.execution_generation,
         session.plan, session.plan_revision, session.profile_id, session.current_step_id,
-        env.capture_gate, env.capture_epoch,
+        env.capture_gate, env.capture_epoch, session.autonomy, session.commentary_mode,
     )
 
 
@@ -729,6 +737,7 @@ def driver_progress(
         return False
     session.driver_status = status
     stopping = False
+    event = None
     if status == "step_done":
         step["state"] = "done"
         upcoming = next((st for st in plan["steps"] if st["state"] == "pending"), None)
@@ -736,8 +745,12 @@ def driver_progress(
             upcoming["state"] = "active"
         session.current_step_id = upcoming["id"] if upcoming else None
         _record(db, session, "desktop.step_done", {"step_id": step_id})
+        left = sum(1 for st in plan["steps"] if st["state"] in ("pending", "active"))
         if upcoming is None:
             _record(db, session, "desktop.steps_exhausted", {"plan_revision": plan_revision})
+            event = "goal_done"
+        elif left == 1:
+            event = "plan_low"  # on the last step: time to line up what's next
     else:
         step["state"] = "active"
         session.current_step_id = step_id
@@ -748,11 +761,57 @@ def driver_progress(
             })
             _transition(session, "paused", reason="driver_stuck" if status == "stuck" else "needs_human", db=db)
             stopping = True
+            event = status
     session.plan = plan
+    if event is not None:
+        _game_event(db, session, event)
     db.commit()
     if stopping:
         _stop_input(session)
+    if event is not None:
+        from app.services import agent_events
+
+        agent_events.wake()
     return True
+
+
+def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) -> None:
+    """A report from the driver worth Columbina's attention: danger always;
+    notable things only when she's in commentary mode. Untrusted game text."""
+    session = db.get(DesktopSession, session_id)
+    if session is None or session.state != "running":
+        return
+    if kind == "danger" or (kind == "notable" and session.commentary_mode == "commentary"):
+        _game_event(db, session, f"{kind}: {text[:120]}")
+        db.commit()
+        from app.services import agent_events
+
+        agent_events.wake()
+
+
+def auto_goals_set(db: Session, session_id: uuid.UUID) -> int:
+    """How many goals Columbina picked herself (background turns) this session."""
+    return db.scalar(
+        select(func.count()).select_from(DesktopSessionEvent).where(
+            DesktopSessionEvent.session_id == session_id,
+            DesktopSessionEvent.type == "desktop.plan_set",
+            DesktopSessionEvent.payload["source"].astext == "columbina_planning_turn",
+        )
+    ) or 0
+
+
+def set_session_options(
+    db: Session, owner_user_id: uuid.UUID, session_id: uuid.UUID, *,
+    autonomy: str | None = None, commentary_mode: str | None = None,
+) -> DesktopSession:
+    session = _locked(db, owner_user_id, session_id)
+    _require_live(session)
+    if autonomy is not None:
+        session.autonomy = autonomy
+    if commentary_mode is not None:
+        session.commentary_mode = commentary_mode
+    db.commit()
+    return session
 
 
 def driver_pause(db: Session, session_id: uuid.UUID, *, reason: str) -> None:
@@ -807,6 +866,17 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
 # --------------------------------------------------------------------------- #
 # Internals
 # --------------------------------------------------------------------------- #
+
+
+def _game_event(db: Session, session: DesktopSession, reason: str) -> None:
+    """Wake Columbina about this session (in the caller's transaction; the
+    caller commits, then calls ``agent_events.wake``)."""
+    from app.services import agent_events
+
+    agent_events.enqueue(
+        db, user_id=session.owner_user_id, source="desktop", dedupe_key=str(session.id), reason=reason,
+        payload={"session_id": str(session.id)},
+    )
 
 
 def _stop_input(session: DesktopSession, reason: str | None = None) -> None:

@@ -125,6 +125,10 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
     lines.append(f"Game: {state}; started {_ago(now - session.started_at.timestamp())}.")
     if session.reason_code and session.state != "running":
         lines.append(f"Why: {REASONS.get(session.reason_code, session.reason_code)}.")
+    if session.state not in DESKTOP_TERMINAL_STATES:
+        lines.append("After each goal: " + ("you pick the next one yourself (keep playing is on)."
+                                            if session.autonomy == "continue" else
+                                            "you stop and tell the user (keep playing is off)."))
     if session.plan:
         steps = session.plan["steps"]
         done = [st for st in steps if st["state"] == "done"]
@@ -260,11 +264,17 @@ def _blockers(env: DesktopEnvironment) -> str:
     return f" But: {'; '.join(notes)}." if notes else ""
 
 
-def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None) -> str:
+def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
+             source: str = "columbina_user_turn") -> str:
     session = _live(db, user_id)
+    if source == "columbina_planning_turn":
+        limit = get_settings().desktop_max_auto_goals
+        if sessions.auto_goals_set(db, session.id) >= limit:
+            raise DesktopError("limit_reached", 409, f"you've picked {limit} goals yourself this session; "
+                               "pause and tell the user instead of starting another")
     plan = _plan(goal, steps)
     sessions.replace_plan(db, user_id, session.id, PlanReplace(
-        expected_plan_revision=session.plan_revision, source="columbina_user_turn", **plan.model_dump(),
+        expected_plan_revision=session.plan_revision, source=source, **plan.model_dump(),
     ))
     return f"Done; you're now on: {plan.steps[0].do}."
 
@@ -284,12 +294,26 @@ def pause(db: Session, user_id: uuid.UUID) -> str:
     return "Paused; you've let go of the controls."
 
 
-def resume(db: Session, user_id: uuid.UUID) -> str:
+# Pauses Columbina may undo on her own: ones she caused. Never the user's.
+SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete")
+
+
+def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) -> str:
     session = _live(db, user_id)
-    sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision)
+    if only_own_pauses and session.reason_code not in SELF_RESUMABLE:
+        raise DesktopError("not_yours", 409, "this pause wasn't yours to undo; tell the user instead")
+    sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
+                            reason="columbina_resume" if only_own_pauses else "user_resume")
     return "Resumed; you're playing again."
 
 
 def end(db: Session, user_id: uuid.UUID) -> str:
     sessions.end_session(db, user_id, _live(db, user_id).id, reason="user_end")
     return "Stopped playing."
+
+
+def set_keep_playing(db: Session, user_id: uuid.UUID, *, keep_playing: bool) -> str:
+    session = _live(db, user_id)
+    sessions.set_session_options(db, user_id, session.id, autonomy="continue" if keep_playing else "stop")
+    return ("You'll keep picking new goals yourself after each one." if keep_playing
+            else "You'll stop and tell the user when this goal is done.")

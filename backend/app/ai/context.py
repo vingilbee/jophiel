@@ -11,7 +11,18 @@ agent.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class GameEvent:
+    """Why a background turn woke her (desktop game events), and how chatty
+    the session lets her be. Set only on background turns."""
+
+    reasons: tuple[str, ...]
+    commentary_mode: str = "occasional"
+    keep_playing: bool = True
+    described: tuple[str, ...] = field(default=())
 
 
 @dataclass
@@ -84,6 +95,9 @@ class AgentRuntimeContext:
     # One line for her sense of the moment while a game is on ("Right now you
     # are playing Minecraft..."), added to the awareness facts.
     game_activity: str | None = None
+    # A background turn about the game (no user message): her game tools
+    # become the background set (with ``say``) and the prompt says why she woke.
+    game_event: GameEvent | None = None
 
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,

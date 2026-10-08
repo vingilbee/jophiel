@@ -31,6 +31,7 @@ from app.schemas.desktop import (
     SessionCommand,
     SessionCreate,
     SessionEventOut,
+    SessionOptions,
     SessionOut,
     SessionResume,
 )
@@ -82,6 +83,7 @@ def _session_out(session: DesktopSession, release_pending: bool = False) -> Sess
         current_step_id=session.current_step_id,
         driver_status=session.driver_status,
         commentary_mode=session.commentary_mode,
+        autonomy=session.autonomy,
         max_duration_seconds=session.max_duration_seconds,
         started_at=session.started_at,
         ended_at=session.ended_at,
@@ -251,6 +253,17 @@ def end_session(
 ):
     reason = payload.reason if payload else None
     return _command_out(_call(service.end_session, db, user.id, session_id, reason=reason))
+
+
+@router.patch("/sessions/{session_id}/options", response_model=SessionOut, dependencies=mutation)
+def set_options(
+    session_id: uuid.UUID, payload: SessionOptions, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Keep playing on her own after a goal, and how chatty she is."""
+    return _session_out(_call(
+        service.set_session_options, db, user.id, session_id,
+        autonomy=payload.autonomy, commentary_mode=payload.commentary_mode,
+    ))
 
 
 # --- plan -------------------------------------------------------------------------

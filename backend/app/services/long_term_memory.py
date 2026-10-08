@@ -31,7 +31,9 @@ Extract only durable, future-useful information explicitly stated or corrected b
 Good memories include stable preferences, goals, constraints, explicit personal facts, important
 episodes, relationships, ongoing projects, routines, and interaction preferences. Ignore greetings,
 one-off questions, assistant suggestions, guesses, transient moods, and facts already represented by
-an authoritative application record. Never infer diagnoses, sensitive traits, relationships, or
+an authoritative application record. Requests for the assistant to do things in a game it is playing
+("collect five oak logs", "build a house", "stop playing") are game tasks, not the user's goals:
+never store them; preferences about how the assistant talks or behaves still count. Never infer diagnoses, sensitive traits, relationships, or
 emotional conditions. A model interpretation is not a user fact. Use `forget` only when the user
 explicitly retracts something or asks for it to be forgotten. Give related facts a stable lowercase
 namespaced normalized_key such as `preference:communication_style`, `relationship:sister_name`,

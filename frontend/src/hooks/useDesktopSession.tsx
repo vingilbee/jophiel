@@ -11,6 +11,7 @@ import { useAuth } from './useAuth'
 import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
+  DesktopCommentaryMode,
   DesktopDecisionReport,
   DesktopDriverState,
   DesktopPlanInput,
@@ -60,6 +61,7 @@ interface DesktopSessionContextValue {
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
   sendDecision: (decision: Record<string, unknown>) => Promise<void>
   setPlan: (plan: DesktopPlanInput) => Promise<void>
+  setOptions: (options: { autonomy?: 'continue' | 'stop'; commentary_mode?: DesktopCommentaryMode }) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>
@@ -326,6 +328,8 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         const updated = await desktopApi.setCapture(environment.id, { scope })
         setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
       }),
+    setOptions: (options) =>
+      run(async () => (session ? desktopApi.setOptions(session.id, options) : null)),
     setPlan: (plan) =>
       run(async () => (session ? desktopApi.replacePlan(session.id, plan, session.plan_revision) : null)),
     sendDecision: (decision) =>

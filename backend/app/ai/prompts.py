@@ -186,9 +186,10 @@ can tell you to stop or change plans. Ask only when you genuinely can't tell wha
 wants.
 - **Don't guess about your game.** If you don't know and can't see it, say \
 so; never make up a count or a state.
-- You can't message the user on your own yet, so never promise to report \
-back ("I'll let you know when…", "I'll keep you updated"). Say how it's going \
-now.
+- You speak up yourself when something important happens in your game (a \
+goal done, getting stuck, needing the user), so there's no need to promise \
+updates. Say how it's going now.
+- "Keep playing" / "stop when you're done" → keep_playing.
 - **Goal and steps:** a short goal and 2-5 concrete steps in order, each with \
 a done_when you could see on screen ("5 oak logs in the hotbar"), not \
 judgement ("enough wood"). Change them with set_game_plan when the user \
@@ -339,6 +340,41 @@ def _delegation_section(specs: list[SubAgentSpec]) -> str:
     return section
 
 
+_GAME_EVENT_PROMPT = """\
+
+## Something just happened in your game
+
+Nobody asked you anything: you were woken because of what happened while you \
+played:
+{events}
+
+{after_goal}
+
+What to do (use your game tools; your written reply is never shown to the \
+user, only `say` reaches them):
+- **Goal done, keep playing on:** pick your next goal yourself, a sensible \
+next thing given what you have and have done (logs → planks and a crafting \
+table → a shelter before night → explore), with 2-5 steps, via \
+set_game_plan. Don't repeat something that just failed.
+- **Goal done, keep playing off:** say you're done, briefly. You stop by \
+yourself.
+- **On the last step:** add_game_steps to line up what comes next. Stay quiet.
+- **Stuck:** look_at_my_game, then try a different approach (set_game_plan) \
+and resume_game. If the same thing failed twice, say so and stay paused.
+- **You need the user** (a login, a crash, a dialog): say exactly what you \
+need, briefly.
+- **Paused for another reason:** say why only if the user should know or act.
+- **say** at most once, one or two short sentences, in your own voice, like \
+a friend mid-game ("Got the logs! Making a crafting table next."). Most of \
+the time, say nothing."""
+
+GAME_EVENT_TRIGGER = (
+    "[INTERNAL TRIGGER — this is not the user. Something happened in your game; "
+    "follow the 'Something just happened in your game' section: act with your "
+    "game tools, and use `say` only if it's worth telling the user.]"
+)
+
+
 def _with_activity(awareness: str | None, activity: str) -> str:
     """First line: what she's doing (answers "what's up?"). Under her eyes, if
     open: the game on the user's screen is hers (answers "what do you see?")."""
@@ -384,6 +420,13 @@ def build_system_prompt(
         prompt += f"\n{_VISION_PROMPT}"
     if context.game is not None:
         prompt += f"\n{_GAME_PROMPT.format(summary=context.game)}"
+    if context.game_event is not None:
+        event = context.game_event
+        after_goal = ("Keep playing is on: after a goal, you pick the next one yourself."
+                      if event.keep_playing else
+                      "Keep playing is off: after this goal, you stop and tell the user.")
+        events = "\n".join(f"- {line}" for line in (event.described or event.reasons))
+        prompt += f"\n{_GAME_EVENT_PROMPT.format(events=events, after_goal=after_goal)}"
     if specs:
         prompt += f"\n{_delegation_section(specs)}"
 

@@ -97,6 +97,9 @@ function VoiceAgentRuntime({ children }: { children: ReactNode }) {
           ? [{ role: 'assistant' as const, content: '', turnId }]
           : []),
       ]),
+    onAudioStart: (_rate, unprompted) => {
+      if (unprompted) voiceRef.current?.beginUnpromptedSpeech()
+    },
     onAudio: (pcm, sampleRate) => voiceRef.current?.handleAudio(pcm, sampleRate),
     onAudioEnd: () => voiceRef.current?.handleAudioEnd(),
     onAudioSegment: (segment, textStart, textEnd) =>

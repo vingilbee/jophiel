@@ -21,7 +21,7 @@ type ServerEvent =
   | { type: 'nudge_subagent_end'; agent: string }
   | { type: 'nudge_end' }
   | { type: 'state'; awareness: AwarenessSnapshot }
-  | { type: 'audio_start'; turn_id?: string; sample_rate: number }
+  | { type: 'audio_start'; turn_id?: string; sample_rate: number; unprompted?: boolean }
   | { type: 'audio_end'; turn_id?: string }
   | {
     type: 'audio_segment'
@@ -70,7 +70,8 @@ export interface SocketHandlers {
   onHistory?: (history: { conversationId: string | null; messages: StoredChatMessage[] }) => void
   /** What the server transcribed from the user's speech. */
   onTranscript?: (text: string, turnId?: string) => void
-  onAudioStart?: (sampleRate: number) => void
+  /** `unprompted`: she's speaking first (a game event), not replying. */
+  onAudioStart?: (sampleRate: number, unprompted: boolean) => void
   onAudio?: (pcm: Int16Array, sampleRate: number) => void
   onAudioEnd?: () => void
   /** The audio that follows speaks this span of the reply's text. */
@@ -249,7 +250,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
         if (dropAudioRef.current) return
         audioTurnIdRef.current = msg.turn_id ?? null
         audioRateRef.current = msg.sample_rate
-        handlersRef.current.onAudioStart?.(msg.sample_rate)
+        handlersRef.current.onAudioStart?.(msg.sample_rate, msg.unprompted === true)
         return
       }
       if (msg.type === 'audio_segment') {

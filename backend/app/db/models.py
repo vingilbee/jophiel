@@ -1351,6 +1351,9 @@ class DesktopSession(Base):
     commentary_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="occasional", server_default="occasional"
     )
+    # When a goal is done: "continue" = Columbina picks the next goal herself;
+    # "stop" = she says so and the session pauses.
+    autonomy: Mapped[str] = mapped_column(String(16), nullable=False, default="continue", server_default="continue")
     max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     # Retried start requests (e.g. a repeated tool call) return the same session.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1370,6 +1373,7 @@ class DesktopSession(Base):
         CheckConstraint(
             "commentary_mode IN ('quiet', 'occasional', 'commentary')", name="ck_desktop_sessions_commentary_mode"
         ),
+        CheckConstraint("autonomy IN ('continue', 'stop')", name="ck_desktop_sessions_autonomy"),
         # One live session per environment: concurrent starts cannot both win.
         Index(
             "uq_desktop_sessions_active_environment",
@@ -1384,6 +1388,45 @@ class DesktopSession(Base):
             unique=True,
             postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
+    )
+
+
+class AgentEventJob(Base):
+    """Something that should wake Columbina without a user message (plan §8.2).
+
+    One *pending* job per ``(source, dedupe_key)`` (e.g. per desktop session):
+    new events append their reason to it instead of queueing a second turn. A
+    worker claims it with a lease, runs one background turn, and marks it
+    done. Postgres is authoritative; Redis only wakes the worker.
+    """
+
+    __tablename__ = "agent_event_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    reasons: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed')", name="ck_agent_event_jobs_status"
+        ),
+        Index(
+            "uq_agent_event_jobs_pending", "source", "dedupe_key",
+            unique=True, postgresql_where=text("status = 'pending'"),
+        ),
+        Index("ix_agent_event_jobs_claim", "status", "not_before"),
     )
 
 

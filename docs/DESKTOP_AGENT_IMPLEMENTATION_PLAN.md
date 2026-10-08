@@ -915,6 +915,36 @@ Status 2026-10-07, stage D2a (Columbina knows and directs the game in conversati
   - Game replay (3 conversations, 9 replies, chat and voice): **0/9** asked permission or promised updates (`gpt-4.1` was 3/5), counts came from `look_at_my_game` correctly, and every turn took 2.7-4.9 s including tools.
 - **How Columbina and the driver share information.** The driver never sends images to Columbina and she doesn't verify its moves. Both read the same latest-frame store. The driver acts on every frame and writes text (notes, facts, reports). Columbina reads the text summary, and only for something unnoted asks a one-off vision question via `look_at_my_game`.
 
+Status 2026-10-07, stage D2b (Columbina acts and speaks on game events) built, not yet tried in the guest. User choices: commentary mode **occasional**, and **keep playing on her own** (picks her next goal) by default.
+
+- **Event queue** (`agent_event_jobs`, migration `d5a9c3f7e1b4`, `services/agent_events.py`). One pending job per `(source, dedupe_key)`: events append reasons, de-duplicated and capped when read. Claims are leased (180 s) and never run two jobs for the same key at once; failures retry twice then fail, and a retry is folded into a newer pending job. Redis only wakes the worker (`macrovision:agent-events:wakeups`).
+- **Events** (desktop source, `dedupe_key` = session id):
+  - `plan_low` when the last step becomes active.
+  - `goal_done` when the last step is done.
+  - `stuck` and `needs_human` from the driver.
+  - `paused:<reason>` for any controller or driver pause (not the user's own, not `plan_complete`).
+  - `danger: <text>` from driver reports; `notable` too in commentary mode.
+- **Background turn** (`services/game_events.py`, worker thread `agent-events`).
+  - It waits up to 30 s for a user turn in flight, then runs Luna with her prompt, the last 10 conversation messages, the game summary, `GameEvent` (reasons described in words, commentary mode, keep playing) and a never-persisted `GAME_EVENT_TRIGGER`.
+  - Background tools: `look_at_my_game`, `set_game_plan` (source `columbina_planning_turn`, capped by `DESKTOP_MAX_AUTO_GOALS`=10), `add_game_steps`, `pause_game`, `resume_game` (only her own pauses: `driver_stuck`, `planning_timeout`, `plan_complete`; recorded as `columbina_resume`), `end_game`, `say`. No `start_game`, no other integrations.
+  - Her written reply is discarded; only `say` reaches the user.
+- **Saying** (`services/agent_say.py`).
+  - Restraint: `needs_human` always; quiet adds only self-stops; occasional adds goal_done, stuck, danger and paused, with a gap of `AGENT_SAY_MIN_GAP_SECONDS`=60 (self-stops ignore the gap); commentary adds anything, with a third of the gap. At most once per turn.
+  - The message is saved in the latest conversation (dialogue memory scheduled, like nudges) and published on `agent:say:<user>`. Each open socket shows it as `nudge_start/token/end` and speaks it only if its voice session is live and idle, after any reply in flight.
+- **Keep playing.** `desktop_sessions.autonomy` (`continue`/`stop`, default `continue`). When all steps are done with `continue` and under the cap, the driver waits up to `DESKTOP_PLANNING_WAIT_SECONDS`=60 with keys released for her next goal, then pauses `planning_timeout`; with `stop` it pauses `plan_complete`. Users set it through `keep_playing` (her tool in user turns), `PATCH /sessions/{id}/options` and the card (also commentary mode). The game prompt drops "you can't message yet".
+- **Evidence.**
+  - 20 tests in `test_agent_events.py` cover the queue, event sources, the user's pause not waking her, restraint, delivery, background tool limits, the goal cap and the driver between goals.
+  - Real Luna background turns:
+    - Goal done: a new goal of her own, "Make wooden planks and a crafting table", in 2 steps, plus *"Got all five oak logs! I'm turning them into planks and making a crafting table next."*
+    - Stuck: a new plan and self-resume, silently.
+    - Sign-in screen: stayed paused, plus *"Minecraft is paused at a Microsoft sign-in prompt. I can't get past that myself, so please handle the sign-in when you're ready."*
+  - Both messages landed in the chat history.
+- **"You are in a dark area" (user feedback, 2026-10-07).** The `look_at_my_game` vision answer was written to the player ("You are currently…"), and Columbina relayed it verbatim, so it sounded like the user was in the game. The vision prompt now asks for neutral scene notes (no "you", no "the player"), and the tool result tells her to say it in her own words as herself. Real check: 0/4 replies addressed the user as the player ("It's very dark right now. I can only make out part of my hotbar: thirteen dirt blocks…").
+- **Two leaks found from the user's transcript (2026-10-07).**
+  - The `look_at_my_game` vision call streamed its own tokens into her reply, and that text was saved to the chat history as hers, so she looked verbose and "forgot" a brevity request. The call is now tagged `SUBAGENT_TAG`, so `stream_chat` drops it; a real streamed check showed no leak.
+  - The conversation memory extractor stored game requests as user goals (`goal:collect_oak_logs`, and a misheard `goal:collect_old_tanks`). The extraction prompt now excludes requests to do things in her game, while preferences about how she talks still count; a real check stores nothing for "collect five oak logs" and keeps "keep it short".
+- **Unprompted speech wasn't voiced.** It was spoken only when the voice session was `idle`, but the app keeps it `listening`. The server now also speaks while listening, marking `audio_start.unprompted`. When the mic is open with no speech yet, the client (`beginUnpromptedSpeech`) cancels the empty utterance, plays her message, and re-arms listening. If the user is talking it doesn't play; the text still shows.
+
 ### E. Concurrent voice and UI polish
 
 Wire session context/commands into existing voice and typed chat. Add commentary scheduling, takeover, route persistence, and reconnection UI.
