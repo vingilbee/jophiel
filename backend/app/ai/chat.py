@@ -41,6 +41,7 @@ from app.ai.prompts import build_system_prompt
 from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
+from app.ai.tools.desktop import build_desktop_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -166,6 +167,10 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         direct_tools.append(
             build_look_at_screen(context.user_id, context.screen_image_id)
         )
+    # The game tools: same exception as the eye (few, cheap, latency-sensitive),
+    # and only for a user with a game VM.
+    if context.game is not None:
+        direct_tools.extend(build_desktop_tools(context.user_id))
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)

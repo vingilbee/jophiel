@@ -133,6 +133,7 @@ from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import cognitive_shadow
+from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import stickers
@@ -240,6 +241,11 @@ def _active_jobs_for_user(user_id: uuid.UUID):
             return []
     finally:
         db.close()
+
+def _game_fields(game) -> dict:
+    """The game summary and activity line for a turn's context (none without a game VM)."""
+    return {"game": game.summary if game else None, "game_activity": game.activity if game else None}
+
 
 # An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
 # client that opens one and never closes it can't buffer without bound, and a
@@ -893,6 +899,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             long_term_memory=long_term_memory,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
+            **_game_fields(await asyncio.to_thread(desktop_game.summary_for, user_id)),
         )
         clauses: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = (

@@ -76,6 +76,15 @@ class AgentRuntimeContext:
     # None while sharing is on but no frame has arrived yet.
     screen_image_id: str | None = None
 
+    # --- The game (desktop agent) ---
+    # The game summary for this turn, rendered by `app.services.desktop_game`
+    # (trusted session state plus untrusted driver observations, labelled).
+    # None when the user has no paired game VM: then no section and no tools.
+    game: str | None = None
+    # One line for her sense of the moment while a game is on ("Right now you
+    # are playing Minecraft..."), added to the awareness facts.
+    game_activity: str | None = None
+
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,
     # rather than a reply. Carries the directive from the salience rule that

@@ -22,6 +22,7 @@ class FakeRedis:
         self.hashes: dict[str, dict[bytes, bytes]] = {}
         self.lists: dict[str, list[bytes]] = {}
         self.streams: dict[str, list[dict]] = {}
+        self.strings: dict[str, bytes] = {}
         self.lock = threading.Lock()
 
     def pipeline(self):
@@ -67,6 +68,14 @@ class FakeRedis:
     def lrange(self, key, start, stop):
         with self.lock:
             return list(self.lists.get(key, [])[start:stop + 1])
+
+    def set(self, key, value, ex=None):
+        with self.lock:
+            self.strings[key] = self._b(value)
+
+    def get(self, key):
+        with self.lock:
+            return self.strings.get(key)
 
     def xadd(self, key, fields, maxlen=None, approximate=True):
         with self.lock:

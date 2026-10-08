@@ -23,6 +23,7 @@ from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
+from app.services import desktop_game
 from app.services import asset_store, chat as chat_service, google_account
 from app.services import cognitive_shadow
 from app.services import dialogue_memory
@@ -170,6 +171,7 @@ async def _generate(job: ChatJob) -> None:
             raise
 
     long_term_memory, _ = await asyncio.gather(*background)
+    game = await asyncio.to_thread(desktop_game.summary_for, job.user_id)
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -187,6 +189,8 @@ async def _generate(job: ChatJob) -> None:
         long_term_memory=long_term_memory,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
+        game=game.summary if game else None,
+        game_activity=game.activity if game else None,
     )
     mark("context_ready", model=settings.voice_chat_model or settings.chat_model)
     turn_id = job.turn_id

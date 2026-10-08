@@ -253,7 +253,9 @@ def list_events(
 # --------------------------------------------------------------------------- #
 
 
-def start_session(db: Session, owner_user_id: uuid.UUID, data: SessionCreate) -> tuple[DesktopSession, bool]:
+def start_session(
+    db: Session, owner_user_id: uuid.UUID, data: SessionCreate, *, plan_source: str = "user_api"
+) -> tuple[DesktopSession, bool]:
     """Acquire the environment and create a session in ``starting``.
 
     Returns ``(session, created)``; ``created`` is False when an idempotency
@@ -308,7 +310,7 @@ def start_session(db: Session, owner_user_id: uuid.UUID, data: SessionCreate) ->
     db.add(session)
     _record(db, session, "desktop.session_state", {"state": "starting", "previous_state": None, "reason": None})
     if data.plan is not None:
-        _set_plan(db, session, data.plan, source="user_api")
+        _set_plan(db, session, data.plan, source=plan_source)
     try:
         db.commit()
     except IntegrityError as exc:
