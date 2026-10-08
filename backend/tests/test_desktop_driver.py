@@ -348,3 +348,45 @@ def test_reasoning_is_switched_off_only_where_the_model_supports_it():
     luna = OpenAIDriver("gpt-6-luna", "k", timeout_seconds=5, max_tokens=100, image_detail="auto", reasoning_effort="none")
     mini = OpenAIDriver("gpt-4.1-mini", "k", timeout_seconds=5, max_tokens=100, image_detail="auto", reasoning_effort="none")
     assert luna.reasoning_effort == "none" and mini.reasoning_effort is None
+
+
+def test_after_a_tap_the_next_step_waits_for_a_picture_from_after_it():
+    tap = {**WALK, "decision": {"intent": "close inventory", "hold": [], "events": [
+        {"type": "tap", "at_ms": None, "button": "inventory", "hold_ms": None, "point": None}], "valid_for_ms": 300}}
+    script = Script([tap, WALK])
+    frames = iter([0.0, 0.0, 0.0, 0.5])  # seconds after the tap was sent: 3 stale frames, then a fresh one
+
+    def observation(_env):
+        script.seq += 1
+        received = (run.last["sent_at"] + next(frames, 0.5)) if run.last else script.clock - 0.2
+        return StoredFrame(jpeg=_jpeg(40 + script.seq), seq=script.seq, width=640, height=360, epoch=2,
+                           generation=1, received_at=received, context="menu")
+
+    script.observation = observation
+    run = _run(script)
+    run.step()                       # sends the tap
+    for _ in range(3):
+        run.step()                   # frames from before the tap took effect: wait, don't decide
+    assert len(script.published) == 1
+    run.step()                       # a frame from after it: decide
+    assert len(script.published) == 2
+
+
+def test_plural_and_singular_fact_keys_are_one_fact():
+    first = {**WALK, "facts": [{"key": "inventory.oak_log", "value": "7"}]}
+    second = {**WALK, "facts": [{"key": "inventory.oak_logs", "value": "8"}]}
+    script = Script([first, second])
+    run = _run(script)
+    run.step()
+    run.step()
+    assert {k: v["value"] for k, v in run.facts.items()} == {"inventory.oak_log": "8"}
+
+
+def test_clicks_only_take_mouse_buttons():
+    schema = driver_schema(svc.get_profile("minecraft_java"))
+    events = schema["properties"]["decision"]["properties"]["events"]["items"]["anyOf"]
+    click = next(e for e in events if e["properties"]["type"]["enum"] == ["click"])
+    tap = next(e for e in events if e["properties"]["type"]["enum"] == ["tap"])
+    assert "inventory" not in click["properties"]["button"]["enum"]
+    assert set(click["properties"]["button"]["enum"]) >= {"menu_click", "menu_alt_click"}
+    assert "inventory" in tap["properties"]["button"]["enum"]

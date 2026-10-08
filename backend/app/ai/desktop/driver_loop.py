@@ -43,6 +43,11 @@ MAX_FACTS = 40
 STILL_CHANGE = 0.02
 # After this many still decisions in a row, the prompt says so plainly.
 STILL_WARN_AFTER = 3
+# After a decision that *does* something discrete (a tap, click, turn), the
+# next decision waits for a frame received at least this long after it was
+# sent, so a toggle isn't judged on a picture from before it happened (the
+# inventory flip-flop seen in the guest). Pure holds keep pipelining.
+SETTLE_SECONDS = 0.35
 
 
 @dataclass
@@ -118,6 +123,8 @@ class DriverRun:
             or frame.epoch != view.capture_epoch
             or (self.last_frame is not None and frame.seq <= self.last_frame.seq)
             or (now - frame.received_at) * 1000 > self.freshness_ms
+            or (self.last is not None and self.last.get("discrete")
+                and frame.received_at < self.last["sent_at"] + SETTLE_SECONDS)
         ):
             return self._wait("observation_stale")
         self.waiting_since = None
@@ -186,6 +193,7 @@ class DriverRun:
         self.last = {
             "decision_id": decision_id, "intent": decision.get("intent", ""), "sent_at": sent_at,
             "valid_for_ms": decision.get("valid_for_ms", profile.limits.default_valid_for_ms),
+            "discrete": bool(decision.get("events")),
         }
         self.last_frame = frame
 
@@ -240,7 +248,13 @@ class DriverRun:
         if output.notes is not None:
             self.notes = output.notes
         for fact in output.facts:
-            self.facts[fact.key] = {"value": fact.value, "at": at, "frame_seq": frame.seq}
+            key = fact.key
+            # "inventory.oak_logs" and "inventory.oak_log" are one thing: keep
+            # one key (the singular), with the newest value.
+            if key.endswith("s") and key[:-1] in self.facts:
+                key = key[:-1]
+            self.facts.pop(key + "s", None)
+            self.facts[key] = {"value": fact.value, "at": at, "frame_seq": frame.seq}
         while len(self.facts) > MAX_FACTS:
             self.facts.pop(min(self.facts, key=lambda k: self.facts[k]["at"]))
         for entry in output.report:

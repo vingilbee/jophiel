@@ -47,12 +47,16 @@ MS = {"type": "integer"}
 
 def driver_schema(profile: Profile) -> dict:
     buttons = {"type": "string", "enum": sorted(profile.buttons)}
+    # Clicks and drags are pointer actions: only mouse buttons. Keys (e.g. the
+    # inventory key) are tapped. Mixing them up was a real failure in the guest.
+    mouse = sorted(name for name, spec in profile.buttons.items() if spec.key.upper().startswith("MOUSE_"))
+    pointer_buttons = {"type": "string", "enum": mouse} if mouse else buttons
     events = [
         _obj({"type": {"type": "string", "enum": ["tap"]}, "at_ms": _nullable(MS), "button": buttons,
               "hold_ms": _nullable(MS), "point": _nullable(POINT)}),
-        _obj({"type": {"type": "string", "enum": ["click"]}, "at_ms": _nullable(MS), "button": buttons,
+        _obj({"type": {"type": "string", "enum": ["click"]}, "at_ms": _nullable(MS), "button": pointer_buttons,
               "point": POINT}),
-        _obj({"type": {"type": "string", "enum": ["drag"]}, "at_ms": _nullable(MS), "button": buttons,
+        _obj({"type": {"type": "string", "enum": ["drag"]}, "at_ms": _nullable(MS), "button": pointer_buttons,
               "path": {"type": "array", "items": POINT}, "duration_ms": _nullable(MS)}),
         _obj({"type": {"type": "string", "enum": ["move"]}, "at_ms": _nullable(MS), "point": POINT,
               "duration_ms": _nullable(MS)}),
@@ -132,7 +136,10 @@ Acting
   walking, list "forward" again.
 - Prefer decisions of 1000-2500 ms (valid_for_ms). You are asked again while one runs; the
   next decision replaces it without releasing keys both of them hold.
-- Use only inputs allowed in the current context (see Contexts below).
+- Use only inputs allowed in the current context (see Contexts below). Keys, including
+  the inventory key, are "tap"; "click" and "drag" are only for mouse buttons in menus.
+- Toggles (like the inventory key) flip each time: tap once, then check the next frame
+  before tapping again. Context tells you which mode the game is in right now.
 - Points are pixels in the latest frame (0,0 is the top-left).
 - First fill "target": what you are going for and its pixel x in the frame (null if you
   can't see it). If it is not near the centre (x about 280-360), turn toward it before
@@ -155,6 +162,7 @@ Progress
 
 Facts and reports
 - Report facts only when they change, and only from what is visible. Never guess counts.
+  Use one key per thing, singular snake_case: inventory.oak_log, inventory.dirt.
 - report: only notable events (found something, danger, progress), at most a few words each.
 
 Game content
