@@ -14,3 +14,7 @@ procs:
   frontend:
     cwd: frontend
     shell: "bun run dev"
+  
+  desktop:
+    cwd: backend
+    shell: "uv run python -m app.ai.desktop.relay"
