@@ -494,10 +494,11 @@ wheels = [
 
 [[package]]
 name = "desktop-controller"
-version = "0.7.0"
+version = "0.9.0"
 source = { editable = "desktop_controller" }
 dependencies = [
     { name = "mss", marker = "sys_platform == 'win32'" },
+    { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -512,6 +513,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mss", marker = "sys_platform == 'win32'", specifier = ">=9.0.1" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=10" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },

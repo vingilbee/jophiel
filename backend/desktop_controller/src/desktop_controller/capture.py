@@ -12,6 +12,9 @@
 In both, the caller re-checks the capture setting after each grab and throws
 away a frame taken under an older one (see ``connection``).
 
+``sample`` is the reflexes' picture: the game window only, only while it is
+the foreground window, small and grey, and it never leaves the VM.
+
 ``WindowsCapture`` is the real backend (Win32 via ctypes + ``mss`` for pixels);
 ``FakeCapture`` draws a test picture anywhere, for tests and dry runs.
 """
@@ -50,6 +53,11 @@ class Grab:
 class CaptureBackend(Protocol):
     def grab(self, config: CaptureConfig) -> Grab: ...
     def observe(self, config: ObserveConfig) -> Grab: ...
+    def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None: ...
+
+
+def small_grey(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+    return image.convert("L").resize(size, Image.Resampling.BILINEAR)
 
 
 def encode_exact(image: Image.Image, width: int, height: int) -> Grab:
@@ -88,6 +96,9 @@ class FakeCapture:
         if self.state != "ok":
             return Grab(self.state)
         return encode_exact(self._picture(), config.width, config.height)
+
+    def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None:
+        return small_grey(self._picture(), size) if self.state == "ok" else None
 
     def _picture(self) -> Image.Image:
         image = Image.new("RGB", (1920, 1080), (30, 90, 40))
@@ -143,6 +154,10 @@ class WindowsCapture:
     def observe(self, config: ObserveConfig) -> Grab:
         image = self._window_image(config.target_process)
         return image if isinstance(image, Grab) else encode_exact(image, config.width, config.height)
+
+    def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None:
+        image = self._window_image(target_process)
+        return None if isinstance(image, Grab) else small_grey(image, size)
 
     def _window_image(self, target_process: str) -> Image.Image | Grab:
         """The game window's pixels, or a ``Grab`` saying why there are none."""

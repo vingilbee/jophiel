@@ -21,9 +21,11 @@ from sqlalchemy import text
 
 from app.ai.desktop.driver import DriverModelError, build_driver_model
 from app.ai.desktop.driver_loop import DriverDeps, DriverRun
+from app.ai.desktop.pack_client import PackClient
+from app.ai.desktop.skill_driver import SkillDriverDeps, SkillDriverRun
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
-from app.services import desktop_commands, desktop_preview
+from app.services import desktop_commands, desktop_preview, game_pack
 from app.services import desktop_sessions as sessions
 
 log = logging.getLogger(__name__)
@@ -37,6 +39,11 @@ def run_once() -> bool:
     if not get_settings().desktop_agent_enabled:
         return False
     with SessionLocal() as db:
+        try:
+            game_pack.sync(db, PackClient.from_settings())
+        except Exception:  # pragma: no cover - the link retries next poll
+            log.exception("game pack link failed")
+            db.rollback()
         candidates = sessions.driver_candidates(db)
     for session_id in candidates:
         thread = _threads.get(session_id)
@@ -85,6 +92,30 @@ def _debug_writer(session_id: uuid.UUID):
     return write
 
 
+def _drive_skills(session_id: uuid.UUID, model) -> None:
+    """A game pack session: her hands pick skills (stage G, phase 3)."""
+    settings = get_settings()
+    deps = SkillDriverDeps(
+        view=_db(sessions.driver_view),
+        progress=_db(sessions.driver_progress),
+        pause=lambda sid, reason: _db(sessions.driver_pause)(sid, reason=reason),
+        pack=PackClient.from_settings(),
+        model=model,
+        metric=write_metric,
+        save_state=desktop_commands.save_driver_state,
+        notice=lambda sid, kind, text: _db(sessions.driver_noticed)(sid, kind=kind, text=text),
+        auto_goals=_db(sessions.auto_goals_set),
+        messages=desktop_commands.hands_messages,
+    )
+    run = SkillDriverRun(session_id, deps, max_decisions=settings.minecraft_pack_max_decisions,
+                         planning_wait_seconds=settings.desktop_planning_wait_seconds,
+                         max_auto_goals=settings.desktop_max_auto_goals)
+    log.info("skill driver started for session %s (%s)", session_id, settings.desktop_driver_model)
+    while run.step():
+        pass
+    log.info("skill driver stopped for session %s after %d decisions", session_id, run.decisions)
+
+
 def drive(session_id: uuid.UUID) -> None:
     settings = get_settings()
     with engine.connect() as lock_conn:
@@ -97,6 +128,10 @@ def drive(session_id: uuid.UUID) -> None:
             except DriverModelError as exc:
                 log.warning("desktop driver unavailable for %s: %s", session_id, exc)
                 _db(sessions.driver_pause)(session_id, reason="driver_unavailable")
+                return
+            view = _db(sessions.driver_view)(session_id)
+            if view is not None and game_pack.is_pack_profile(view.profile_id):
+                _drive_skills(session_id, model)
                 return
             deps = DriverDeps(
                 view=_db(sessions.driver_view),
@@ -111,6 +146,9 @@ def drive(session_id: uuid.UUID) -> None:
                 model=model,
                 notice=lambda sid, kind, text: _db(sessions.driver_noticed)(sid, kind=kind, text=text),
                 auto_goals=_db(sessions.auto_goals_set),
+                messages=desktop_commands.hands_messages,
+                careful=desktop_commands.careful_state,
+                history=lambda env_id, at: desktop_preview.frame_at(env_id, at, "observation"),
             )
             run = DriverRun(session_id, deps, freshness_ms=settings.desktop_driver_freshness_ms,
                             max_steps=settings.desktop_driver_max_steps, debug=_debug_writer(session_id),

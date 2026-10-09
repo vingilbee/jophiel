@@ -7,7 +7,7 @@
 #   mouse sensitivity 100% (default), raw input on, pause on lost focus off (F3+P).
 format_version: 1
 id: minecraft_java
-revision: 3
+revision: 5
 display_name: "Minecraft (Java Edition)"
 target: { process: javaw.exe, window_title_hint: "Minecraft" }   # process identity is authoritative
 online_allowed: false
@@ -58,7 +58,7 @@ game_notes: >
 
 observation:
   size: [640, 360]
-  frames: 1
+  frames: 2                     # the latest, and one from ~1 s before: what moves, and which way
   crops:
     - { region: hotbar, scale: 2 }
     - { region: status_bars, scale: 2 }
@@ -92,3 +92,22 @@ limits:
   max_drag_points: 32
   max_until_conditions: 3
   max_hold_buttons: 4
+
+# Reflexes run in the VM ~15 times a second and can only let go of keys.
+# "watch" only records when one would have fired (in var/desktop_driver.jsonl);
+# switch to "act" once a real session shows they fire at the right moments.
+reflexes:
+  mode: watch
+  contexts: [playing]
+  status_region: status_bars    # hearts and hunger: changed since the move began = hurt (or healed)
+  status_change: 0.12
+  jolt_change: 0.5              # whole picture jumped while not turning: a fall, a hit, lava
+  move_buttons: [forward, back, left, right]
+  ahead_region: center
+  blocked_ms: 900               # walking but the middle of the view hasn't moved
+
+# Careful mode (near danger): short steps with a fresh look between them. No
+# sneaking: it only helps at cliff edges and gets in the way near lava, in water
+# or with mobs (user decision, 2026-10-08); the driver can still sneak itself.
+careful:
+  move_ms: 500

@@ -148,6 +148,14 @@ class SessionProblem(_Msg):
     reason: Literal["target_missing", "profile_invalid", "no_input"]
 
 
+class ReflexReport(_Msg):
+    """A reflex that fired during a move (``acted`` False: watch mode, it only would have)."""
+
+    name: str = Field(max_length=32)
+    at_ms: int = Field(ge=0)
+    acted: bool
+
+
 class DecisionReport(_Msg):
     type: Literal["decision_report"] = "decision_report"
     session_id: str
@@ -157,6 +165,9 @@ class DecisionReport(_Msg):
     ran_ms: int | None = None
     rejection_code: str | None = Field(default=None, max_length=48)
     rejection_reason: str | None = Field(default=None, max_length=300)
+    reflexes: list[ReflexReport] = Field(default_factory=list, max_length=8)
+    # A pursue move: {"seen": samples it was found in, "attacks": taps, "lost": bool}.
+    pursuit: dict[str, int | bool] | None = None
 
 
 class PauseRequest(_Msg):

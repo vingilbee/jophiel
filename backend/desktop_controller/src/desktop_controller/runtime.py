@@ -9,7 +9,11 @@ delay a release:
   expiry, and the lease: no renewal within ``lease_ms`` means release all);
 - the **watchdog thread** checks the tick thread is alive. If it stalls
   while keys may be down, the watchdog releases every key the profile can
-  press, straight through the backend.
+  press, straight through the backend;
+- the **sample thread** (when given a sampler) grabs a small picture of the
+  game ~15 times a second while a move runs and ticks the scheduler with
+  per-region change ratios, for ``until`` stop rules and reflexes
+  (``reflexes``). The picture stays in this process.
 
 Anything the game-window guard refuses (``TargetLost``) cancels the decision,
 releases everything, and is reported so the session pauses; so does a
@@ -20,12 +24,21 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from PIL import Image
+
 from . import safety
 from .profile import UNKNOWN_CONTEXT, Profile
+from .pursuit import Tracker, template_pixels
+from .reflexes import SAMPLE_HZ, ReflexHit, RegionMeter
 from .scheduler import DecisionRecord, DecisionState, InputBackend, Scheduler
+
+# Returns the game window's picture now (any size; it is scaled down), or None
+# when there is none to take (capture not allowed, game not in front).
+Sampler = Callable[[], "Image.Image | None"]
 
 TICK_MS = 10
 # The watchdog releases everything if the tick thread hasn't run for this long.
@@ -56,6 +69,8 @@ class Report:
     rejection_code: str | None = None
     rejection_reason: str | None = None
     reason: str | None = None
+    reflexes: tuple[ReflexHit, ...] = ()
+    pursuit: dict | None = None
 
 
 class TargetLost(Exception):
@@ -68,7 +83,10 @@ class TargetLost(Exception):
 
 
 class SessionRuntime:
-    def __init__(self, profile: Profile, backend: GuardedBackend, *, clock=None, threads: bool = True):
+    def __init__(
+        self, profile: Profile, backend: GuardedBackend, *, clock=None, threads: bool = True,
+        sampler: Sampler | None = None,
+    ):
         self.profile = profile
         self.backend = backend
         self.clock = clock or MonotonicClock()
@@ -80,8 +98,12 @@ class SessionRuntime:
         self._stop = threading.Event()
         self._stalled = False
         self._threads: list[threading.Thread] = []
+        self.sampler = sampler
+        self.meter = RegionMeter(profile)
+        self._tracker: tuple[str, Tracker] | None = None
         if threads:
-            for target in (self._tick_loop, self._watchdog_loop):
+            loops = [self._tick_loop, self._watchdog_loop] + ([self._sample_loop] if sampler else [])
+            for target in loops:
                 thread = threading.Thread(target=target, daemon=True)
                 thread.start()
                 self._threads.append(thread)
@@ -113,6 +135,10 @@ class SessionRuntime:
                 record = self.scheduler.records.get(decision_id) or DecisionRecord(
                     decision_id, "", DecisionState.CANCELLED, ended_by="target_lost"
                 )
+            if record.state == DecisionState.REJECTED and self.scheduler.records.get(decision_id) is not record:
+                # Refused without being remembered (an id already used for a
+                # different move): still say so, or the sender never finds out.
+                self._reports.append(self._report(record))
             self._collect()
             return record
 
@@ -135,6 +161,37 @@ class SessionRuntime:
             except TargetLost as lost:
                 self._pause(lost.reason)
             self._last_tick_ms = self.clock.now_ms()
+            self._collect()
+
+    def observe(self, image: Image.Image) -> None:
+        """Tick with one screen sample (the sample thread; tests call it directly)."""
+        with self._lock:
+            active = self.scheduler.active
+            decision_id = active.decision_id if active is not None else None
+            pursuing = self.scheduler.pursuing()
+        if decision_id is None:
+            return  # nothing running: nothing to stop
+        if image.mode != "L" or image.size != self.meter.size:
+            image = image.convert("L").resize(self.meter.size, Image.Resampling.BILINEAR)
+        samples = self.meter.measure(image, decision_id)
+        sighting = None
+        if pursuing is not None:
+            pursue_id, event = pursuing
+            if self._tracker is None or self._tracker[0] != pursue_id:
+                template = template_pixels(event, self.profile)
+                self._tracker = (pursue_id, Tracker(template, event.point)) if template is not None else None
+            if self._tracker is not None:
+                sighting = self._tracker[1].locate(image)
+        with self._lock:
+            active = self.scheduler.active
+            if active is None or active.decision_id != decision_id:
+                return  # the move changed while measuring: this sample belongs to the old one
+            try:
+                self.scheduler.tick(samples)
+                if pursuing is not None:
+                    self.scheduler.steer(pursuing[0], sighting)
+            except TargetLost as lost:
+                self._pause(lost.reason)
             self._collect()
 
     def drain(self) -> list[Report]:
@@ -166,16 +223,34 @@ class SessionRuntime:
             self._reported.add(record.decision_id)
             if len(self._reported) > 4096:
                 self._reported.clear()
-            self._reports.append(Report(
-                "decision", decision_id=record.decision_id, state=record.state.value, ended_by=record.ended_by,
-                ran_ms=record.ran_ms,
-                rejection_code=record.rejection.code.value if record.rejection else None,
-                rejection_reason=record.rejection.reason if record.rejection else None,
-            ))
+            self._reports.append(self._report(record))
+
+    @staticmethod
+    def _report(record: DecisionRecord) -> Report:
+        return Report(
+            "decision", decision_id=record.decision_id, state=record.state.value, ended_by=record.ended_by,
+            ran_ms=record.ran_ms,
+            rejection_code=record.rejection.code.value if record.rejection else None,
+            rejection_reason=record.rejection.reason if record.rejection else None,
+            reflexes=tuple(record.reflexes),
+            pursuit=dict(record.pursuit) if record.pursuit is not None else None,
+        )
 
     def _tick_loop(self) -> None:
         while not self._stop.wait(TICK_MS / 1000):
             self.tick()
+
+    def _sample_loop(self) -> None:
+        assert self.sampler is not None
+        while not self._stop.wait(1 / SAMPLE_HZ):
+            if self.scheduler.active is None:
+                continue
+            try:
+                image = self.sampler()
+            except Exception:
+                image = None  # a failed grab is just a missed sample
+            if image is not None:
+                self.observe(image)
 
     def _watchdog_loop(self) -> None:
         """Independent of the scheduler's lock: if ticking stalls, let go of

@@ -150,3 +150,18 @@ def test_pointer_positions_map_to_the_virtual_desktop():
     desktop = Rect(0, 0, 1920, 1080)
     assert absolute_coords(0, 0, client, desktop) == (round(100 * 65535 / 1919), round(50 * 65535 / 1079))
     assert absolute_coords(1819, 1029, client, desktop) == (65535, 65535)  # the desktop's last pixel
+
+
+def test_a_reused_id_with_a_different_move_is_refused_out_loud(setup):
+    """After a resume the driver once restarted its move ids; the VM refused
+    every move and, since the refusal wasn't remembered, never said so."""
+    runtime, backend, _ = setup
+    runtime.grant(1, 1500)
+    runtime.apply("drv1-abc", WALK, generation=1)
+    runtime.drain()
+    record = runtime.apply("drv1-abc", {"intent": "turn", "events": [{"type": "turn", "yaw": 30}]}, generation=1)
+    assert record.rejection.code.value == "action_duplicate_conflict"
+    reports = runtime.drain()
+    assert [(r.decision_id, r.state, r.rejection_code) for r in reports] == [
+        ("drv1-abc", "rejected", "action_duplicate_conflict")]
+    assert runtime.scheduler.records["drv1-abc"].state.value == "running"  # the original move is untouched

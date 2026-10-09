@@ -57,15 +57,15 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.7.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.5.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.9.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.7.0-py3-none-any.whl SHA256
-   py -m pip install --user $HOME\Downloads\desktop_controller-0.7.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl SHA256
+   py -m pip install --user --force-reinstall $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
@@ -135,7 +135,7 @@ so never a service), action `pythonw.exe` with arguments `-m desktop_controller 
 ## Updating the VM program
 
 When the program changes, repeat §2 and §3 with the new file name (the version is in it,
-e.g. `desktop_controller-0.7.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
+e.g. `desktop_controller-0.9.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
 no new code is needed.
 
 ## 6. Check what the VM can reach (stage B gate)

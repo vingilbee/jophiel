@@ -945,6 +945,98 @@ Status 2026-10-07, stage D2b (Columbina acts and speaks on game events) built, n
   - The conversation memory extractor stored game requests as user goals (`goal:collect_oak_logs`, and a misheard `goal:collect_old_tanks`). The extraction prompt now excludes requests to do things in her game, while preferences about how she talks still count; a real check stores nothing for "collect five oak logs" and keeps "keep it short".
 - **Unprompted speech wasn't voiced.** It was spoken only when the voice session was `idle`, but the app keeps it `listening`. The server now also speaks while listening, marking `audio_start.unprompted`. When the mic is open with no speech yet, the client (`beginUnpromptedSpeech`) cancels the empty utterance, plays her message, and re-arms listening. If the user is talking it doesn't play; the text still shows.
 
+#### D3. Fixing how she plays (agreed 2026-10-08)
+
+**The problem: the cave session (2026-10-07).**
+- 109 decisions: 108 turns and 5 with a key held. The turns' pitches add up to −642° (always "up": −8°, sometimes −25°), so the view ended at straight up. The yaws add up to ~3,280°, about nine full spins.
+- Turning changes the whole screen, so the "barely changed" warning never fired.
+- The user's "look straight" never reached the hands: Columbina could only replace the plan, and a plan change drops the move in progress (the session's last log line is `discarded: session_changed`).
+
+**Build order.**
+1. **Messages to her hands.** Columbina sends the driver a message separate from the plan, with the user's exact words. It shows on every step and takes effect on the next move.
+2. **Counted facts.** Her up/down view angle and the recent-play line, as plain code: no model, no VM reinstall.
+3. **Checking in (the slow mind).** Every ~30-60 s, and when it's going badly, Columbina thinks with reasoning on. She looks at the counted moves, a few recent screenshots and the goal, then fixes it: a message to her hands, a new plan, or telling the user. About $0.10 each. Not built.
+4. **Lasting tips.** When a fix works, she saves it as a tip for that game (a per-profile playbook). Not built.
+- Undecided: recording training data.
+
+**Status 2026-10-08: steps 1 and 2 built**, unit-tested, not yet tried in the guest.
+- **Messages to her hands.**
+  - New tool `tell_my_hands(message, replace_previous)`, offered both in user turns and in background turns (`desktop_game.tell_hands`).
+  - Storage is Redis: `desktop:hands:<session>`, the 3 newest messages, with the driver-state TTL. Empty text with `replace_previous` clears them.
+  - It is not a plan change: no revision bump, and the move in progress keeps running.
+  - The driver lists them every step, marking a new one `NEW`. If one arrives while the model is thinking, that answer is discarded (`discarded: message_arrived`) and the driver asks again.
+  - Driver instructions: messages say *how* to play, the plan says *what*. Messages outrank the driver's own habits. Game text still never counts.
+  - Columbina's summary shows what she told her hands. Her prompt sends tips there rather than to `set_game_plan`, and the stuck-event guidance checks her counted moves first.
+- **Counted facts** (`app/ai/desktop/play_log.py`).
+  - **View angle.** The pitch is tracked as an interval clamped at ±90°. It starts unknown and narrows as turns clamp.
+  - **`level_view`.** A boolean in the driver schema, which code expands into 90° down, 90° down, then 90° up. This levels the view from any angle and makes it known. The plain "90° down then 90° up" fails when starting from looking up, which was exactly the cave case.
+  - **When turns count.** A turn counts once its decision's outcome is known: rejected counts as 0, a move cut short counts for the share that ran, and a lost report counts in full after 30 s.
+  - **Recent play.** Over the last 60 s: number of turns, total and net yaw, seconds each key was held, and taps.
+  - **Facts, not warnings.** No runtime warning is added. The driver's static instructions teach how to read the facts: keep the view level, use `level_view`, a full circle is 6-8 turns, and many turns with no keys held means stop turning and walk.
+  - **Where it shows.** The driver gets all of this every step. The driver state (`play`) carries it to Columbina's summary as "Your moves, counted", trusted because code counted it.
+  - **Replay.** On the cave log, the line reads "turned 11 times (550° in all), held no keys" by the 11th decision, and the view reads "straight up" by the end.
+
+**Lag (user question, 2026-10-08).** Measured over 300 moves: the model takes 2.0 s (2.5 s at the 90th percentile), and a move then runs 1.2-1.8 s. So a move starts from a picture about 2 s old, and the end of it acts on one 3-4 s old: about 8 blocks of walking blind. Moves are also pipelined, so the next one is planned before the last has finished. Columbina sees only the text summary, plus a picture when she calls `look_at_my_game`. Three fixes, **built 2026-10-08**, unit-tested, with the new driver schema accepted by a real OpenAI call. Not yet tried in the guest.
+
+1. **Careful mode** (Mac only).
+   - On when Columbina sets it (`play_carefully`, Redis `desktop:careful:<session>`), or for 30 s after her hands report `danger`.
+   - Enforced by code: a move holding a movement button is cut to `careful.move_ms` (500), and `careful.hold` is added (none for Minecraft; see below). There is no planning ahead: the next decision waits for a picture taken after the last move ended.
+   - Shown in the driver prompt and in her summary.
+2. **Timing line** (Mac only). For example: "your next move starts about 2.0 s after this picture; your last move holds forward for about 0.8 s more after it". It uses the median of the last 5 model latencies.
+3. **Reflexes** (controller **0.8.0**: the VM must be updated).
+   - `reflexes.py`: a sample thread grabs the game window about 15 times a second, small and grey, only while capture is allowed and the game is in front. The picture never leaves the VM.
+   - `RegionMeter` turns each sample into per-region change ratios, which feed (a) the move's own `until` stop rules, now offered in the driver schema, and (b) the always-on reflexes:
+     - `status_changed`: the status bars changed since the move began.
+     - `jolt`: the whole picture jumped while the scheduler wasn't turning, tapping or clicking itself.
+     - `blocked`: a movement key has been held for `blocked_ms` while the centre was seen not to move. Gaps in samples don't count.
+   - Reflexes only let go of keys. In `act` mode a move ends `completed` with `ended_by="reflex:<name>"`. In `watch` mode the hit is only noted.
+   - Either way, hits ride on `DecisionReport.reflexes` and are logged as `reflex` events in `var/desktop_driver.jsonl`.
+   - After a stop, the driver is told "STOPPED by a reflex: …", waits for a picture from after it, and counts the stops in recent play.
+   - Per-game settings are in the profile's `reflexes:` and `careful:` sections. Minecraft is r4, in **`watch`** mode until a real session's log shows the reflexes fire at the right moments.
+   - The relay leaves those sections out for controllers before 0.8.0 (their profile model forbids unknown keys), so an un-updated VM still plays.
+   - Not done: game-specific danger detection (e.g. lava colours), and raising the observation rate above 2 fps.
+
+**Resume bug (first guest run of D3, 2026-10-08).** After the user paused, made a new world and resumed, she sent ~130 moves and none happened, while saying "I'm moving now".
+- **Cause.** A resumed session starts a new driver run, and its move ids restarted at `drv1-<session>`. The VM remembers ids, so it refused each as `action_duplicate_conflict`. That refusal wasn't stored, so it was never reported: the Mac saw only `sent`. Probably present since stage D1.
+- **Fixes.**
+  - Each run's ids carry a random run tag.
+  - The VM (0.8.1) reports a refused duplicate.
+  - Safety net: 6 moves over 15 s with nothing confirmed pauses the session as `controls_silent`, which wakes Columbina to say her controls stopped responding.
+- **Also found.**
+  - Careful mode and three cave tips stayed on for the new goal. A new goal (`set_plan`) now clears them, and careful mode expires after 3 minutes.
+  - Cutting a move to 500 ms made some longer turn or stop-rule moves invalid. Such a move now turns in place instead.
+  - Commentary stayed quiet because nothing happened: it reacts only to events. Periodic remarks need step 3 (check-ins).
+  - "She pressed shift when she said space": not a key bug. Careful mode added sneak to every walking move, jumps included (115 moves of forward+jump+sneak). The user then decided that Minecraft's careful mode doesn't sneak at all: sneaking helps only at cliff edges, and gets in the way near lava, in water or with mobs. `careful.hold`/`not_with` remain for other games.
+
+**Columbina vs. the game: talking about different moments (2026-10-08).**
+- Measured over 10 voice turns: the user stops speaking, and her voice starts 7.9 s later (11.6 s at worst). Of that, speech-to-text takes 0.7-5 s and her first word 3.5 s, which includes a look: a tool call, a vision model, then her reply.
+- Her hands play on meanwhile, so she described a picture a few seconds newer than the one the user meant.
+- **Built (Mac only), not yet tried live:**
+  1. **The moment the user meant.**
+     - `desktop_preview` keeps the last 30 frames per kind (about 15 s, 20 s TTL), and `frame_at(env, at)` returns the frame for a moment.
+     - Each user turn carries `spoke_at`. For voice it is measured on the server as recording end minus recording length; for typed messages it is the receive time.
+     - `look_at_my_game(question, moment="now"|"when_user_spoke")`.
+  2. **No look round trip for the gist.** While a session is live, each user turn's message gets a 512x288 picture from `spoke_at` (`desktop_game.turn_picture`, `detail: low`). It goes on the in-flight message only and is never persisted.
+     - Real Luna check: about 185 extra input tokens and about +0.2 s to her first word. She answered "open sky and daylight ahead" correctly without the tool, where the look used to take about 3 s.
+     - Her prompt says to answer about that moment, and to use `look_at_my_game` for details or for "now".
+
+**Chasing (sheep, 2026-10-08).** In the guest she missed the sheep and lost it.
+- **Findings from the log.**
+  - Each decision takes 1.5-2.5 s, so the sheep moved between her seeing it and her move, and she only ever saw one picture.
+  - The `until: center changed` rule that her hands put on most walks fired from her own walking or turning (`until:0` within about a second), cutting 2.5 s walks to about 1 s.
+  - In watch mode, the `blocked` reflex fires wrongly on open grass, where the centre barely changes while walking. Tune it before `act`.
+- **Built, not yet tried live.**
+  1. **Mac only.**
+     - Code drops `changed` stop rules from moves that walk, turn or pursue (`_sensible_until`), and the instructions say so.
+     - With `observation.frames: 2` (Minecraft r5), the driver gets the frame from about 1 s earlier plus the latest, to see what moves. That adds about 630 input tokens per decision.
+  2. **`pursue`** (controller **0.9.0**, adds numpy).
+     - The driver gives one event (point, size, attack button). The Mac cuts the target's grey template from the frame the model saw.
+     - The VM's `pursuit.Tracker` finds the target in each ~15 Hz sample by FFT normalised cross-correlation (about 4 ms per sample on the Mac). It searches near the last position first, then everywhere at a stricter threshold, and adapts the template when the match is strong.
+     - The scheduler steers 60% of the aiming error every 120 ms and taps attack when the target is within 4°/6°, at most every 450 ms.
+     - The move ends `pursue:lost` after 900 ms unseen, or without samples. It reports `pursuit: {seen, attacks, lost}`.
+     - The Mac waits while a pursue runs (4-6 s), then tells the driver the result. The view angle becomes unknown after it, since the VM turned on its own.
+     - It is offered only when the controller version is at least 0.9.0, and is allowed wherever `look_at` is.
+
 ### E. Concurrent voice and UI polish
 
 Wire session context/commands into existing voice and typed chat. Add commentary scheduling, takeover, route persistence, and reconnection UI.
@@ -954,6 +1046,122 @@ Gate: conversation continues while gameplay runs; speech barge-in does not accid
 ### F. Broader evaluation
 
 Add a second, different-genre profile (e.g. a pointer-driven game) with **no schema or controller-core change**; needing one is a contract bug to fix, not a profile workaround. Check each title's automation rules, guest OS/GPU/VM compatibility, and input behavior first. Gamepad axes need a virtual gamepad driver and are added as a controller input driver, not a schema change. Report pure-model versus hybrid results separately. Do not bypass anti-cheat or imply all games will work.
+
+### G. Game packs: skills with natural movement (agreed 2026-10-08)
+
+**Why the design changes.**
+- Stages D-D3 have the model press keys. Every move waits about 2 s for the next picture and decision.
+- Reflexes, stop rules and `pursue` each patched one case. But anything that needs quick feedback stayed weak: aiming, walking up to something, mining until the block breaks, fighting. Some movement also looked lost: spinning and overshooting.
+- The user wants **natural, smooth movement and competent skills** (fighting mobs, mining, exploring), with **one skill pack per game**.
+
+**New split.**
+
+| Layer | Rate | Does |
+|---|---|---|
+| Columbina (orchestrator) | On events | Goals, talking to the user, plan changes (unchanged) |
+| Her hands (driver model) | Every few seconds | Read the game state as text (plus a picture when useful) and pick **one skill with parameters**. No key presses. |
+| Skill executors (the game pack) | About 20 Hz | Run the skill until it succeeds or fails, through the **motion style layer**, and report a result |
+
+A game without a pack keeps the stage C-D3 path: screen and keys, reflexes, `pursue`. That path becomes the general fallback.
+
+**Game pack = profile + state reader + skills + motion style.**
+- **Profile:** the existing trusted YAML.
+- **State reader:** what she knows each decision: position, health, hunger, inventory, held item, nearby entities with type, distance and direction (including behind her), time of day, and notable blocks nearby.
+- **Skills:** a short manifest (name, parameters, done and fail conditions). The driver's strict schema is generated from it, as buttons are today.
+- **Motion style:** see below.
+
+**Skill contract** (every pack, every skill).
+1. One goal, one fast loop. No model inside, no planning, and no calling other skills: the driver chains skills.
+2. A few parameters the pack can check: a target (a place, an entity, or a block type), counts, and a time limit.
+3. It always ends with an outcome (`done`, `failed:<reason>`, `lost`, `blocked`, `hurt`, `timeout`, `stopped`) plus a few numbers. Outcomes feed the driver's next decision and Columbina's game events.
+4. Shared safety that no skill can switch off:
+   - pause and takeover stop it at once;
+   - LAN or single-player only;
+   - a maximum duration;
+   - low health is handled first.
+
+**Minecraft pack: built on Mineflayer.**
+- A Node.js service on the Mac (`mineflayer` with pathfinder, pvp, collectblock and a viewer). It joins the world as its own player, "Columbina", and talks to the backend over a small authenticated local API.
+- The user can join the same world and play beside her. The VM key-press driver is no longer used for Minecraft.
+
+| Skill | Done when | Fails or stops when |
+|---|---|---|
+| `go_to(place \| entity \| block)` | Arrived | No path, attacked, time limit |
+| `mine(block, count)` | Has `count` (collected) | None found nearby, no suitable tool, time limit |
+| `fight(target \| "nearest_hostile")` | Target dead, or no hostiles left | Health low (retreats, eats), outnumbered (flees to safety) |
+| `explore(goal, radius)` | Goal found (returns where) or area covered | Night, danger, time limit |
+| `eat`, `sleep`, `craft(item, count)`, `follow_player(name)` | Done | Not possible now (says why) |
+
+- **`fight`:**
+  - Targets in priority order: creeper, then skeleton, then zombie, then the rest, nearest first.
+  - Holds the best weapon, and raises the shield if she has one.
+  - Gets within reach by pathfinding, and hits only at full attack charge.
+  - Steps back after a hit, and strafes against skeletons.
+  - Creepers: hit once, then back off; never stays adjacent.
+  - Stops on low health, retreating and eating.
+- **`explore`:**
+  - Keeps a per-world memory of explored chunks and goes to the frontier.
+  - Watches for the goal (a block type, structure, animal or biome) and records points of interest (water, village, cave, home).
+  - Avoids lava and drops through the pathfinder.
+  - At night, goes home or digs in.
+
+**Motion style layer.** Required from the first version; tuned per game.
+- **Smooth looking:** eased rotation every tick with a degrees-per-second limit. It never snaps.
+- **Reaction time:** a 150-300 ms delay before reacting to anything new.
+- **Aim:** a small wobble, with occasional over-turns or misses. Sharper when fighting, never perfect.
+- **Movement:**
+  - Walking and sprinting are mixed.
+  - Paths curve around corners instead of turning sharply.
+  - She jumps only when needed.
+- **Gaze:** looks along the path, glances at nearby mobs or the user, and looks around when idle.
+- **Styles:** `relaxed` (exploring), `focused` (mining), `combat`. A skill picks one; the profile holds the numbers.
+
+**Phases.**
+- **Phase 0. Test the setup** (one session, no real building). The Minecraft pack joins the user's world, reads state, and the user can watch. Open questions to settle:
+  - **How she joins.** "Open to LAN" normally needs a real Minecraft account per player. The alternatives are her own account, or a small local server with authentication off for private play.
+  - **How the user watches.** Join the same world, use the Mineflayer viewer, or have a second client spectate her first-person.
+  - **Phase 0 status (built 2026-10-08):** `game_packs/minecraft/` (Node, Mineflayer 4.39). **Version follows Mineflayer** (user, 2026-10-08): by default the newest release with Mineflayer's latest supported protocol (26.1 → **26.1.2**; latest Minecraft is 26.3, not yet supported); `scripts/server.js start` upgrades the server jar when that moves and refuses to downgrade; 26.x needs Java 25 (Homebrew `openjdk@25`, found automatically). prismarine-viewer only draws up to 1.21.4, so on 26.x the browser viewer is skipped (watch in game or `/spectate`); the flying-squid smoke test stays on 1.21.4. Rehearsed on a copy of the user's 1.21.4 world: it upgraded to 26.1.2 and a pack bot joined and read state. User's first real run (1.21.4, online mode) worked: her second account signed in and joined. Joins as Columbina with reconnect backoff and refuses non-LAN hosts; state reader + text rendering; read-only API on 127.0.0.1 (`/health`, `/state`, bearer token, Host check); a watch-only viewer re-hosted on 127.0.0.1 (prismarine-viewer's own helper listens on every interface); `scripts/server.js` sets up a vanilla server on the Mac with accounts off and a name whitelist (EULA only with `--accept-eula`). Answer to "how she joins" (user, 2026-10-08): the world runs on **a vanilla server on the Mac** with accounts on (`--online`): the user joins from the VM with their account, she signs in with the user's second account (`MC_AUTH=microsoft`, device code once, cached in `var/auth`). Hosting in the VM lagged the game, and VMware NAT stops the Mac reaching a world opened there. `--world` starts from a copy of an existing save; `bun run check` pings the world for reachability and version. Accounts-off mode (name whitelist only) remains for a player with no account. Watching: join from the VM, the browser viewer, or `/spectate` with `--op`. Verified: 7 unit tests and `scripts/smoke.js` (throwaway flying-squid server: she joins, `/state` read, a second player seen with distance and side, viewer serves). flying-squid sends players as entity type 0 (decoded as a boat), so the smoke test matches them by distance. Not verified yet: the user's VM client joining, the viewer rendering in a browser.
+- **Phase 1. The pack, its state reader, and the skills above**, under the skill contract, with tests against a local test server.
+  - **Phase 1 status (built 2026-10-08, not yet tried in the user's world):** `game_packs/minecraft/src/skills/`. Skills `go_to`, `mine`, `fight`, `explore`, `eat`, `sleep`, `craft`, `follow_player` under the contract (`contract.js`: closed outcome list, validated params, every skill has a capped `time_limit`, manifest with done/stop conditions for the phase 3 schema). `runner.js` owns the shared safety: one skill at a time, `stop()` ends it at once (including during low-health recovery), health ≤ 6 ends any skill as `hurt` then she backs off and eats, death/disconnect end it. API on the existing loopback service: `GET /skills`, `POST /skills/run`, `GET /skills/runs/<id>?wait=`, `POST /skills/stop`, `/skills/current`, `/skills/history`; `/state` adds notable blocks and the running skill. Only pathfinder (2.4.5) is used from the add-ons; mining, fighting, exploring are our own loops. Findings while testing on 26.1.2: pathfinder's `goto` resolves without a path and can re-plan partial paths forever (every walk is time-limited and arrival is checked by position); pathfinder spends carried dirt/cobblestone on steps by default (turned off: she was using up what she mined); crafting several items in one call desyncs Mineflayer's inventory from the server's (crafts are one at a time, confirmed); the inventory update arrives after the pickup event (mine waits for it). Verified: 17 unit tests; `bun run itest` = 16 scenarios on a real vanilla 26.1.2 flat world (go_to, refuse bad input, instant stop, timeout, mine logs, mine without a tool, logs→planks→sticks→table→pickaxe→stone, eat, fight a husk, refuse passive mobs, low health → hurt + eat, explore finds a block, explore stops at night, sleep until morning, follow a walking player, the HTTP API), passing 16/16 on the last 4 consecutive runs. Not covered by a test: creeper and skeleton tactics, the shield, `outnumbered`, explore's night/home behaviour beyond stopping.
+- **Phase 2. The motion style layer** for every skill.
+  - **Phase 2 status (built 2026-10-09, not yet judged by the user):** `game_packs/minecraft/src/motion/`. The layer replaces `bot.look`/`bot.setControlState` once she spawns (Mineflayer adds them, and the pathfinder its tick handler, only after login) and runs on `physicsTick` after the pathfinder. Requests with pitch exactly 0 and no force are the pathfinder's walking heading; everything else is a look target. Per tick each axis follows `stepAxis` (acceleration limit, top speed, ease-out gain), plus a reaction delay for big new targets and a two-sine wobble. Walking heading uses a quicker per-style `walkTurn` profile with no mid-path reaction delay: with the slower look profile she overshot the pathfinder's 0.35-block corner tolerance and looped back (go_to took 11 s instead of 4-5 s). Pace: sprint policy per style, sprint off over 30° of turn, forward off over 75°, sprint-jumps stripped outside combat, parkour off. Fight tracks its target and lands a hit only when a ray from her eye hits the mob's box (plus `missChance`). Also: explore counts the 3x3 chunks around her as seen; endermen and (zombified) piglins are neutral, not hostile. Verified: 26 unit tests (eased turns never exceed top speed, ease in, settle, overshoot < 8°, short way across ±180°, ray hits/misses); `bun run itest` 17/17 including a U-turn walk on a real server with 0 snaps (max ≈ 21° per tick); a run of the real service on a copy of the user's world (3 logs from a real tree in 11 s, explore noting lava and water). Explore remains slow to find far goals (nearest-frontier order; 20-90 s for a block 47 blocks away).
+  - **Doors (2026-10-09, from the user's test: she walked around a house instead of following inside, though the door was open):** pathfinder treats every door as a wall (it judges by block type, not the `open` state; its own door opening is disabled upstream), and its path post-processing puts the doorway step on top of the door's thin collision shape. `src/skills/doors.js` plans through wooden doors/gates as passable, rewrites doorway steps on `path_update`, opens closed doors just ahead, and closes doors she opened once she's 2.2 blocks past (not while a player is in the doorway). Walking skills no longer dig (go_to could have broken into houses); only `mine` does. Tests: open door, closed door (opened, closed behind), no door (wall intact), following a player into a hut; `bun run itest` 21/21 twice.
+  - **Noticing layer + more skills (2026-10-09, user's choice: no chat announcements, since Columbina will speak):** `src/noticing.js` runs on `physicsTick` (checks each second, block scans every 3 s), no model. Notices once each, with text, data, urgency and a sequence number: village (bell or villager in sight, ~96 blocks), hostile (within 16, seen; or close; creeper ≤ 10), valuable ore in sight, spawner, lava, sunset/night/morning (once per day), weather, players joining/leaving, hurt (≥ 4 health lost in 3 s or low), hungry, died. Line of sight is required (`canSeeBlock` / a raycast): no x-ray. `GET /notices?since=&wait=` is the phase 3 feed; `/state` shows recent ones. `src/world_memory.js` is the shared per-world memory (explored chunks, places), so explore and noticing no longer overwrite each other; explore reports places noticed during its run. New skills (`hands.js`, `containers.js`): `place`, `collect_items`, `give`, `look_at`, `store`, `take`, `smelt`. Findings: while a container window is open Mineflayer's `bot.inventory` doesn't update until it closes (count from `window.items()`); a tossed item can't be picked up for 2 s; container moves are paced and confirmed like crafting. Verified on a real 26.1.2 server with results checked against the server's own records (`clear <player> <item> 0`, `data get block`): noticing 7/7, skills 26 scenarios.
+- **Phase 3. Her hands pick skills.**
+  - A strict schema generated from the manifest.
+  - State as text in, outcomes in the prompt.
+  - Outcomes become `agent_event_jobs` reasons ("killed 2 zombies", "night is coming", "found a village").
+  - Pause, takeover, end and the session state machine are unchanged.
+  - **Phase 3 status (built 2026-10-09, not yet tried by the user end to end):** the pack is an environment with `hosting_kind="game_pack"` (migration `e2c7a9d4b6f1`), created on first use for `MINECRAFT_PACK_OWNER_EMAIL`, profile stand-in `minecraft_pack` (`services/game_pack.PACK_PROFILES`; `get_profile` returns it). `game_pack.sync` runs in the desktop worker's poll and does what the relay does for a VM: online while she's in the world, `starting` -> `running`, offline -> `disconnected` (`pack_offline`), and stops a driver-started skill whenever no session plays; `_stop_input` stops it immediately on pause/takeover/end. Skill runs carry `source` (`driver`/`user`) so sessions never stop hand-run skills. `app/ai/desktop/skill_driver.py`: strict schema generated from the pack manifest (one variant per skill, optional params nullable, plus a local `wait`), prompt = plan + state text + last 8 outcomes + new notices + hands messages; a decision is dropped if the session/plan changed or a message arrived while thinking; urgent notices stop the running skill (not `fight`/`eat`); notices map to `danger` / `discovery` (new kind: wakes Columbina unless quiet) / `notable`; 3 refused decisions -> stuck; 3 model errors -> pause; pack unreachable 15 s -> pause; `MINECRAFT_PACK_MAX_DECISIONS` budget. Columbina's side (`desktop_game`): environments are chosen by game id, Minecraft defaulting to the pack; her summary shows her live state, current skill, results and hands' note; `look_at_my_game` returns the game's exact state instead of a picture; the card shows a Minecraft row, the hands' skill and results, and no VM preview or test controls for pack sessions. Verified: 16 skill-driver unit tests, 10 Postgres tests for the pack environment and link, 312 desktop tests (no regressions); live runs with the real model (gpt-6-luna) on a real 26.1.2 world: "chop 3 logs, craft a crafting table, place it" 3/3 steps in 8 decisions / 55 s (1.2-2.6 s per decision). With the pack, Minecraft on the VM is retired (user, 2026-10-09): `game_pack.REPLACED_BY` maps `minecraft_java` -> `minecraft_pack`; Columbina's VM game list hides it and `start(game="minecraft_java")` goes to the pack; `start_session` refuses it on a VM (`replaced_by_pack`); the card hides it. Users without the pack keep the VM path; it stays the fallback for every other game. Findings from the live runs, fixed: she got trapped in a treetop after chopping (walking now may break leaves only), `place` refused decimal coordinates, the craft hint named a random wood ("cherry planks"), `give` could re-collect its own toss.
+- **Phase 4. Benchmark.** Fixed tasks: get wool, chop 5 logs, kill 3 zombies, find a village, survive a night. Measure the success rate, the time, and a naturalness rating from the user, after every change. *Skipped by the user's decision (2026-10-09): testing is by playing with her; Voyager mode (stage H) is the next build.*
+
+**Kept from stages C-D3.** The session service, the relay, Columbina's game summary, events, `say`, hands messages, careful mode and the per-game tips plan (step 4, the playbook). Pixel reflexes and `pursue` stay for games without a pack.
+
+### H. Voyager mode: she writes and keeps her own skills (next step, agreed 2026-10-09)
+
+**Why.** Stage G's skills are hand-written; her hands only choose among them, so she can do no more than the list allows and learns nothing from playing. Voyager (Wang et al., 2023: Mineflayer + GPT-4, text-only state) showed an agent that writes code for new tasks, keeps the code that works as a growing skill library, and reuses it: about 3x more unique items, 2x more distance and tech-tree milestones about 15x faster than simpler agents, the only one of them to reach diamond tools, and its library carried over to a new world. We already have most of its base: Mineflayer, the state reader, noticing, safe skills with clear outcomes, the runner, and Columbina choosing goals. This is also the user's "experience -> skill by learning" idea.
+
+**Voyager's three parts, and ours.**
+
+| Voyager | Ours (stage H) |
+|---|---|
+| Automatic curriculum: the model proposes the next task just beyond current ability ("discover as many diverse things as possible") | Columbina's "explore and learn" mode: she proposes her own next challenges from inventory, known skills and past failures, and talks about what she learned |
+| Skill library: working JavaScript functions with descriptions, retrieved by embedding similarity, composable | Her learned skills: functions over our 15 skills, stored per pack with description, embedding, status (`trial` / `approved`) and history; top matches offered for each new task |
+| Iterative prompting: write code, run, feed back game messages + errors + a critic's self-check, up to ~4 rounds | Code-writing hands: write, run in a sandbox, feed back skill outcomes + errors + a critic call checking the real game state, up to ~3 retries |
+
+**Design rules.**
+1. **The model's code only calls our skills** (`await skills.mine({block: "oak_log", count: 3})` returns the outcome) and a read-only state API, never Mineflayer directly: movement keeps the motion style layer, doors and every shared safety rule.
+2. **Sandboxed in the pack:** no file system, network, process or module access; one program at a time; the runner's instant stop, time limit and low-health handling apply to the whole program and to each skill inside it.
+3. **Learned skills are earned:** a new one starts as `trial`, is tested on the test server (`var/testserver`), and is used in the user's world only once approved (a review page lists them: code, description, results; approve / delete). Same outcome contract as hand-written skills.
+4. **Two speeds:** Voyager mode is for *learning* (it is slower: seconds per attempt, several attempts, and the user's server does not pause while she thinks); the stage G hands stay for *using* skills in the moment (fights, nights). Approved learned skills appear in the hands' manifest like the built-in ones.
+5. **Cost and budget:** each task is several larger model calls; a per-session budget like `MINECRAFT_PACK_MAX_DECISIONS`, and a choice of code model (gpt-6-luna first; a stronger one only if it can't write these programs).
+
+**Steps.**
+- **H1. Code-writing hands + sandbox + run/check/fix**, on the test server only: measure how well the model writes these programs and how many retries it needs.
+- **H2. The skill library:** storage, embeddings and retrieval, `trial` -> `approved`, the review page, and approved skills in the hands' manifest.
+- **H3. Curriculum mode for Columbina:** "explore and learn" as a session option; learned-skill moments become her game events ("I figured out how to make a furnace!").
+
+**Not decided yet:** where the library lives (pack folder vs Postgres), whether approval can be automatic after N clean test runs, and whether the library is per world or shared across worlds.
 
 ## 14. Required testing and implementation report
 
@@ -982,7 +1190,7 @@ Verify relevant documentation again at implementation time; this plan does not p
 
 ## 16. Recommended next implementation step
 
-Start with stage A: the decision schema, profile format with the generic and Minecraft profiles, validator, and a fake controller. Cloud hosting choices (provider, region, budget) stay deferred and do not block anything in version 1.
+Stages A-D3 and stage G (Minecraft pack, phases 0-3) are built. Now: the user tests by playing with her. Next build: **stage H, Voyager mode** (H1 first: code-writing hands on the test server). Cloud hosting choices (provider, region, budget) stay deferred and do not block anything in version 1.
 
 Earliest measurements, before large builds:
 

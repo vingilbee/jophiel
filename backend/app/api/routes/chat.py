@@ -1117,6 +1117,9 @@ async def chat_ws(websocket: WebSocket) -> None:
         the whole request: there is nothing to answer, and persisting it
         would make the next turn respond to the word "stop".
         """
+        # When the user started speaking (what they were looking at): the end
+        # of the recording minus its length, measured here, not by the browser.
+        spoke_at = time.time() - len(pcm) / 2 / max(sample_rate, 1)
         if transcript is None:
             try:
                 transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
@@ -1147,7 +1150,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                 db, user_id=user_id, conversation=conversation, turn_id=turn_id,
                 user_message_id=user_message.id,
                 payload={"content": transcript, "image_ids": [], "asset_ids": [],
-                         "voice": True, "awareness": state.describe(),
+                         "voice": True, "spoke_at": spoke_at, "awareness": state.describe(),
                          "vision_enabled": state.senses.vision_enabled,
                          "screen_image_id": state.senses.screen_image_id},
             )
@@ -1634,7 +1637,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         payload={
                             "content": message.content, "image_ids": attached,
                             "asset_ids": attached_assets, "voice": False,
-                            "awareness": state.describe(),
+                            "spoke_at": time.time(), "awareness": state.describe(),
                             "vision_enabled": state.senses.vision_enabled,
                             "screen_image_id": state.senses.screen_image_id,
                         },

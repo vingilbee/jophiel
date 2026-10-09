@@ -7,7 +7,15 @@ clock. It owns the five rules of the action contract:
 2. it expires: at ``valid_for_ms`` everything is released;
 3. a newer decision supersedes by diff (keys held in both stay down);
 4. ``until`` conditions stop it early, checked on every tick;
-5. ``look_at`` and ``turn`` turn the camera by computed mouse counts.
+5. ``look_at`` and ``turn`` turn the camera by computed mouse counts;
+6. ``pursue`` keeps turning toward a target the runtime finds in its screen
+   samples (``steer``), taps attack while it is centred, and ends the move
+   (``ended_by="pursue:lost"``) once it hasn't been seen for ``LOST_MS``.
+
+Ticks that carry screen samples also run the profile's always-on reflexes
+(``reflexes``): in ``act`` mode a reflex ends the move like an ``until``
+condition (``ended_by="reflex:<name>"``); in ``watch`` mode it is only noted
+on the move's record.
 
 It also enforces the lease (no input without a live lease), generation fencing
 (cancel bumps the generation; older work is refused), and decision-id dedupe.
@@ -40,6 +48,7 @@ from .protocol import (
     DragEvent,
     LookAtEvent,
     MoveEvent,
+    PursueEvent,
     TurnEvent,
     Point,
     Rejection,
@@ -47,6 +56,7 @@ from .protocol import (
     ScrollEvent,
     TapEvent,
 )
+from .reflexes import OWN_MOTION_GRACE_MS, ReflexHit, ReflexWatch
 from .until import RegionSample, UntilHit, UntilTracker
 from .validate import ValidatedDecision, parse_decision, validate_decision
 
@@ -54,6 +64,15 @@ from .validate import ValidatedDecision, parse_decision, validate_decision
 POINTER_STEP_MS = 16
 # Decision ids remembered for dedupe (tombstones outlive any retry window).
 MAX_RECORDS = 1024
+# Pursuit: not seen for this long = lost (also with no samples at all).
+LOST_MS = 900
+# Each sighting turns this share of the aiming error, spread over STEER_MS.
+STEER_GAIN = 0.6
+STEER_MS = 120
+# Attack while the target is within these angles of the crosshair, at most this often.
+AIM_YAW_DEG = 4.0
+AIM_PITCH_DEG = 6.0
+ATTACK_EVERY_MS = 450
 
 
 class Clock(Protocol):
@@ -89,6 +108,8 @@ class DecisionRecord:
     ended_by: str | None = None
     rejection: Rejection | None = None
     clamped: tuple[str, ...] = ()
+    reflexes: list[ReflexHit] = field(default_factory=list)
+    pursuit: dict | None = None  # {"seen", "attacks", "lost"} for a pursue move
 
     @property
     def ran_ms(self) -> int | None:
@@ -101,9 +122,12 @@ class SafeInput:
     """Wraps the backend: tracks what is physically down and refuses anything the
     global safety rules forbid, even if a bug upstream asked for it."""
 
-    def __init__(self, backend: InputBackend):
+    def __init__(self, backend: InputBackend, clock: Clock | None = None):
         self._backend = backend
+        self._clock = clock
         self.down: set[str] = set()
+        # When each key went down (for "held forward for 900 ms").
+        self.down_since: dict[str, int] = {}
         self.refused: list[str] = []
 
     def press(self, key: str) -> bool:
@@ -117,17 +141,20 @@ class SafeInput:
             return False
         self._backend.key_down(key)
         self.down.add(key)
+        self.down_since[key] = self._clock.now_ms() if self._clock is not None else 0
         return True
 
     def release(self, key: str) -> None:
         if key in self.down:
             self._backend.key_up(key)
             self.down.discard(key)
+            self.down_since.pop(key, None)
 
     def release_all(self) -> None:
         for key in sorted(self.down):
             self._backend.key_up(key)
         self.down.clear()
+        self.down_since.clear()
 
     def move_relative(self, dx: int, dy: int) -> None:
         if dx or dy:
@@ -171,6 +198,17 @@ class _Active:
     ops: list[_Op]
     rates: list[_Rate]
     until: UntilTracker | None
+    pursuit: "_Pursuit | None" = None
+
+
+@dataclass
+class _Pursuit:
+    event: PursueEvent
+    start_ms: int
+    last_seen_ms: int
+    attack_key: str | None
+    rate: _Rate | None = None
+    last_attack_ms: int = -ATTACK_EVERY_MS
 
 
 def _payload_hash(raw: object) -> str:
@@ -190,8 +228,13 @@ class Scheduler:
     ):
         self.profile = profile
         self.clock = clock
-        self.input = SafeInput(backend)
+        self.input = SafeInput(backend, clock)
         self.viewport_size = viewport_size
+        self.reflexes = ReflexWatch(profile.reflexes)
+        self._move_keys = frozenset(profile.key_for(b) for b in profile.reflexes.move_buttons)
+        # Last time this scheduler moved the camera, pressed or clicked
+        # something: a screen change then is its own doing, not a jolt.
+        self._own_motion_ms = -OWN_MOTION_GRACE_MS
         self.generation = 1
         self.lease_expires_ms: int | None = None
         self.records: dict[str, DecisionRecord] = {}
@@ -321,10 +364,17 @@ class Scheduler:
         ops.sort()
 
         until = UntilTracker(d.until, now) if d.until is not None else None
+        pursue = next((ev for ev in d.events if isinstance(ev, PursueEvent)), None)
+        pursuit = None
+        if pursue is not None:
+            start = now + pursue.at_ms
+            key = self.profile.key_for(pursue.attack) if pursue.attack else None
+            pursuit = _Pursuit(pursue, start, start, key)
+            record.pursuit = {"seen": 0, "attacks": 0, "lost": False}
         self._active = _Active(
             record=record, validated=v, started_ms=now,
             expires_ms=now + v.valid_for_ms, hold_keys=hold_keys,
-            ops=ops, rates=rates, until=until,
+            ops=ops, rates=rates, until=until, pursuit=pursuit,
         )
         self._run_until(now, None)
 
@@ -412,8 +462,72 @@ class Scheduler:
             if hit is not None:
                 self._finish(DecisionState.COMPLETED, f"until:{hit.index}", at=end)
                 return
+        if samples and self._reflex(active, end, samples):
+            return
+        pursuit = active.pursuit
+        if pursuit is not None and end - max(pursuit.last_seen_ms, pursuit.start_ms) >= LOST_MS:
+            active.record.pursuit["lost"] = True
+            self._finish(DecisionState.COMPLETED, "pursue:lost", at=end)
+            return
         if now >= active.expires_ms:
             self._finish(DecisionState.EXPIRED, "valid_for_ms", at=active.expires_ms)
+
+    def pursuing(self) -> tuple[str, PursueEvent] | None:
+        """The running move's pursue event, if it has one."""
+        active = self._active
+        if active is None or active.pursuit is None:
+            return None
+        return active.record.decision_id, active.pursuit.event
+
+    def steer(self, decision_id: str, sighting) -> None:
+        """A sighting of the pursued target (observation-frame pixels, or None):
+        turn toward it, and tap attack while it is centred."""
+        now = self.clock.now_ms()
+        self.tick()
+        active = self._active
+        if active is None or active.pursuit is None or active.record.decision_id != decision_id:
+            return
+        p = active.pursuit
+        if sighting is None or now < p.start_ms:
+            return
+        p.last_seen_ms = now
+        active.record.pursuit["seen"] += 1
+        fov, axes = self.profile.fov_deg(), self.profile.look_axes()
+        assert fov is not None and axes is not None  # validated
+        yaw, pitch = look_at_degrees((sighting.x, sighting.y), self.profile.observation.size, fov)
+        # Never faster than the axes allow.
+        step_yaw = max(-axes[0].max * STEER_MS / 1000, min(axes[0].max * STEER_MS / 1000, yaw * STEER_GAIN))
+        step_pitch = max(-axes[1].max * STEER_MS / 1000, min(axes[1].max * STEER_MS / 1000, pitch * STEER_GAIN))
+        if p.rate is not None and p.rate in active.rates:
+            active.rates.remove(p.rate)  # the newest sighting replaces the last correction
+        p.rate = _Rate(step_yaw * axes[0].counts_per_degree / STEER_MS,  # type: ignore[operator]
+                       step_pitch * axes[1].counts_per_degree / STEER_MS,  # type: ignore[operator]
+                       start_ms=now, end_ms=now + STEER_MS, last_ms=now)
+        active.rates.append(p.rate)
+        if (p.attack_key is not None and abs(yaw) <= AIM_YAW_DEG and abs(pitch) <= AIM_PITCH_DEG
+                and now - p.last_attack_ms >= ATTACK_EVERY_MS):
+            p.last_attack_ms = now
+            active.record.pursuit["attacks"] += 1
+            self._op(active.ops, now, "down", p.attack_key)
+            self._op(active.ops, now + self.profile.limits.default_tap_ms, "up", p.attack_key)
+            active.ops.sort()
+        self._advance(now)
+
+    def _reflex(self, active: _Active, now: int, samples: dict[str, RegionSample]) -> bool:
+        """Run the always-on reflexes. True if one ended the move."""
+        held = [since for key, since in self.input.down_since.items() if key in self._move_keys]
+        name = self.reflexes.check(
+            now, samples, context=active.validated.context,
+            own_motion=now - self._own_motion_ms < OWN_MOTION_GRACE_MS,
+            move_held_since=min(held) if held else None,
+        )
+        if name is None or any(hit.name == name for hit in active.record.reflexes):
+            return False  # each reflex is noted once per move
+        acted = self.reflexes.config.mode == "act"
+        active.record.reflexes.append(ReflexHit(name, now - active.started_ms, acted))
+        if acted:
+            self._finish(DecisionState.COMPLETED, f"reflex:{name}", at=now)
+        return acted
 
     def _advance(self, to_ms: int) -> None:
         active = self._active
@@ -445,9 +559,12 @@ class Scheduler:
             total_dx += step_x
             total_dy += step_y
             rate.last_ms = stop
+            self._own_motion_ms = max(self._own_motion_ms, stop)
         self.input.move_relative(total_dx, total_dy)
 
     def _do(self, op: _Op, active: _Active) -> None:
+        if op.kind in ("down", "move_to", "scroll"):
+            self._own_motion_ms = max(self._own_motion_ms, op.at_ms)
         if op.kind == "down":
             self.input.press(op.arg)  # type: ignore[arg-type]
         elif op.kind == "up":

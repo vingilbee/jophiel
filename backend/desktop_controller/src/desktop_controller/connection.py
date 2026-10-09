@@ -28,7 +28,8 @@ from websockets.asyncio.client import ClientConnection, connect
 from . import __version__
 from .capture import CaptureBackend
 from .profile import Profile, ProfileError, parse_profile
-from .runtime import GuardedBackend, SessionRuntime, TargetLost
+from .reflexes import sample_size
+from .runtime import GuardedBackend, Sampler, SessionRuntime, TargetLost
 from .link import (
     MAX_FRAME_BYTES,
     HEARTBEAT_ACTIVE_SECONDS,
@@ -47,6 +48,7 @@ from .link import (
     Pair,
     Paired,
     PauseRequest,
+    ReflexReport,
     SessionProblem,
     SessionReady,
     SessionStart,
@@ -213,6 +215,7 @@ class _CaptureState:
 
 
 InputFactory = Callable[[Profile], GuardedBackend]
+SamplerFactory = Callable[[Profile], Sampler]
 
 
 class _Play:
@@ -223,8 +226,9 @@ class _Play:
     (no grant, a cancel, a stop, the connection ending) releases everything.
     """
 
-    def __init__(self, input_factory: InputFactory | None):
+    def __init__(self, input_factory: InputFactory | None, sampler_factory: SamplerFactory | None = None):
         self.input_factory = input_factory
+        self.sampler_factory = sampler_factory
         self.session_id: str | None = None
         self.runtime: SessionRuntime | None = None
         self.pending: SessionStart | None = None
@@ -251,7 +255,8 @@ class _Play:
         if self.input_factory is None:
             return [SessionProblem(session_id=message.session_id, reason="no_input")]
         try:
-            self.runtime = SessionRuntime(profile, self.input_factory(profile))
+            sampler = self.sampler_factory(profile) if self.sampler_factory is not None else None
+            self.runtime = SessionRuntime(profile, self.input_factory(profile), sampler=sampler)
         except TargetLost:
             self.pending = message
             if self._told_missing:
@@ -307,6 +312,8 @@ class _Play:
                     session_id=self.session_id, decision_id=report.decision_id or "", state=report.state or "",
                     ended_by=report.ended_by, ran_ms=report.ran_ms, rejection_code=report.rejection_code,
                     rejection_reason=report.rejection_reason,
+                    reflexes=[ReflexReport(name=hit.name, at_ms=hit.at_ms, acted=hit.acted) for hit in report.reflexes],
+                    pursuit=report.pursuit,
                 ))
         return out
 
@@ -345,7 +352,19 @@ async def run_once(
         if on_welcome:
             on_welcome(welcome)
         state = _CaptureState()
-        play = _Play(input_factory)
+
+        def sampler_for(profile: Profile) -> Sampler:
+            """The reflexes' picture, under the same capture switch as everything
+            else: none unless capture is allowed right now."""
+            size = sample_size(profile)
+
+            def take():
+                if capture is None or state.config.gate != "allowed":
+                    return None
+                return capture.sample(profile.target.process, size)
+            return take
+
+        play = _Play(input_factory, sampler_for)
 
         async def send(data) -> None:
             try:

@@ -104,13 +104,33 @@ class TurnEvent(_Strict):
     duration_ms: Ms | None = None
 
 
+class PursueEvent(_Strict):
+    """Chase a moving target (plan D3): the controller finds it in its own fast
+    screen samples ~15 times a second, keeps turning toward it, and taps
+    ``attack`` while it is centred. The move ends when the target is lost.
+
+    ``point`` and ``size`` are in the frame the driver saw. ``template`` is the
+    target's picture cut from that frame (grey, at the sample scale, base64 of
+    raw 8-bit pixels); the backend adds it, the model never writes it.
+    Allowed wherever ``look_at`` is.
+    """
+
+    type: Literal["pursue"]
+    at_ms: Ms = 0
+    point: tuple[int, int]
+    size: tuple[Annotated[int, Field(ge=8, le=200)], Annotated[int, Field(ge=8, le=200)]] = (40, 40)
+    attack: Name | None = None
+    template: Annotated[str, Field(max_length=60_000)] | None = None
+
+
 Event = Annotated[
-    Union[TapEvent, ClickEvent, DragEvent, MoveEvent, ScrollEvent, MacroEvent, LookAtEvent, TurnEvent],
+    Union[TapEvent, ClickEvent, DragEvent, MoveEvent, ScrollEvent, MacroEvent, LookAtEvent, TurnEvent,
+          PursueEvent],
     Field(discriminator="type"),
 ]
 
 EVENT_KINDS: frozenset[str] = frozenset(
-    {"tap", "click", "drag", "move", "scroll", "macro", "look_at", "turn"}
+    {"tap", "click", "drag", "move", "scroll", "macro", "look_at", "turn", "pursue"}
 )
 
 

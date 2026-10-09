@@ -145,8 +145,8 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
     with database() as setup:
         _paired_env(setup, alice)
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
-    assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "pause_game",
-                          "resume_game", "end_game", "keep_playing"}
+    assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "tell_my_hands",
+                          "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))
     assert reply.startswith("Started; you're playing")
@@ -194,3 +194,146 @@ def test_looking_at_her_game_follows_the_preview_rules(db, alice, isolated_redis
     assert frame.jpeg == b"jpeg-bytes"
     link_svc.set_capture_gate(db, alice.id, env.id, "manual_auth")  # signing in: no look at all
     assert "preview is off" in desktop_game.latest_frame(db, alice.id)
+
+
+def test_telling_her_hands_keeps_the_plan_and_shows_in_the_summary(db, alice):
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="get out of the cave")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    revision = session.plan_revision
+
+    reply = desktop_game.tell_hands(db, alice.id, message="look straight, not at the ceiling")
+    assert reply.startswith("Your hands will follow this from the next move")
+    for text in ("walk toward the light", "jump over the gap", "keep left"):
+        desktop_game.tell_hands(db, alice.id, message=text)
+    assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == [
+        "walk toward the light", "jump over the gap", "keep left"]  # the 3 newest
+    db.refresh(session)
+    assert session.plan_revision == revision  # not a plan change: the move in progress stays
+
+    desktop_commands.save_driver_state(session.id, {"play": {
+        "view": "View up/down: straight up.", "recent": "Recent play (last 40 s, 14 decisions): turned 14 times; held no keys.",
+    }})
+    summary = desktop_game.describe(db, alice.id).summary
+    assert 'You told your hands (they follow it every move): "walk toward the light"' in summary
+    counted = next(line for line in summary.splitlines() if line.startswith("Your moves, counted:"))
+    assert "turned 14 times" in counted and "straight up" in counted
+    assert "driver" not in summary.lower()
+
+    assert desktop_game.tell_hands(db, alice.id, message="", replace_previous=True).startswith("Cleared")
+    assert desktop_commands.hands_messages(session.id) == []
+    desktop_game.end(db, alice.id)
+    with pytest.raises(DesktopError):
+        desktop_game.tell_hands(db, alice.id, message="look up")
+
+
+def test_careful_mode_is_her_switch_and_shows_in_the_summary(db, alice):
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="cross the lava field")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    assert "Careful mode" not in desktop_game.describe(db, alice.id).summary
+    assert desktop_game.set_careful(db, alice.id, on=True).startswith("Careful mode on")
+    assert desktop_commands.careful_state(session.id)["on"] is True
+    assert "Careful mode: on (you turned it on)" in desktop_game.describe(db, alice.id).summary
+    desktop_game.set_careful(db, alice.id, on=False)
+    assert desktop_commands.careful_state(session.id) is None
+    desktop_commands.save_driver_state(session.id, {"careful": "you reported danger"})
+    assert "Careful mode: on (your hands reported danger)" in desktop_game.describe(db, alice.id).summary
+
+
+def test_a_new_goal_clears_tips_and_careful_mode_from_the_old_one(db, alice):
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="get out of the cave")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    desktop_game.tell_hands(db, alice.id, message="jump over the cobblestone")
+    desktop_game.set_careful(db, alice.id, on=True)
+    reply = desktop_game.set_plan(db, alice.id, goal="make a bed")
+    assert "Cleared your tips to your hands and careful mode from before." in reply
+    assert desktop_commands.hands_messages(session.id) == [] and desktop_commands.careful_state(session.id) is None
+    desktop_game.tell_hands(db, alice.id, message="look for sheep")
+    desktop_game.add_steps(db, alice.id, steps=[{"do": "craft the bed", "done_when": "a bed in the hotbar"}])
+    assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == ["look for sheep"]  # more steps keep them
+
+
+# --------------------------------------------------------------------------- #
+# The moment the user meant (2026-10-08): frame history and the turn picture
+# --------------------------------------------------------------------------- #
+
+
+def _jpeg(shade: int) -> bytes:
+    import io as _io
+
+    from PIL import Image as _Image
+    out = _io.BytesIO()
+    _Image.new("RGB", (1280, 720), (shade, shade, shade)).save(out, format="JPEG")
+    return out.getvalue()
+
+
+def _store_frames(env, monkeypatch, times_and_shades, kind="preview"):
+    from app.services import desktop_preview
+    from desktop_controller.link import FrameHeader
+
+    clock = {"now": 0.0}
+    monkeypatch.setattr(desktop_preview.time, "time", lambda: clock["now"])
+    for seq, (at, shade) in enumerate(times_and_shades, start=1):
+        clock["now"] = at
+        header = FrameHeader(seq=seq, captured_ms=seq, width=1280, height=720, gate_epoch=env.capture_epoch, kind=kind)
+        desktop_preview.store(env.id, header, _jpeg(shade), generation=env.controller_generation)
+    return clock
+
+
+def test_she_can_look_at_the_moment_the_user_spoke(db, alice, monkeypatch):
+    env = _paired_env(db, alice)
+    clock = _store_frames(env, monkeypatch, [(1000.0, 10), (1000.5, 20), (1001.0, 30), (1001.5, 40)])
+    clock["now"] = 1003.0
+    from PIL import Image as _Image
+    import io as _io
+
+    def shade(frame):
+        return _Image.open(_io.BytesIO(frame.jpeg)).convert("L").getpixel((5, 5))
+    at_speech = desktop_game.latest_frame(db, alice.id, at=1000.7)
+    assert abs(shade(at_speech) - 20) <= 2 and round(at_speech.age_seconds, 1) == 2.5
+    assert abs(shade(desktop_game.latest_frame(db, alice.id, at=999.0)) - 10) <= 2  # older than kept: the oldest
+    from app.services import desktop_preview
+    for i in range(40):
+        _store_frames(env, monkeypatch, [(1010.0 + i, 50)])
+    assert len(isolated_history(desktop_preview, env)) == desktop_preview.HISTORY_KEEP
+
+
+def isolated_history(desktop_preview, env):
+    return desktop_preview.redis_client().lrange(desktop_preview._history_key(env.id, "preview"), 0, -1)
+
+
+def test_her_turn_gets_a_small_picture_from_when_the_user_spoke(db, alice, database, monkeypatch):
+    monkeypatch.setattr("app.db.session.SessionLocal", database)
+    env = _paired_env(db, alice)
+    clock = _store_frames(env, monkeypatch, [(2000.0, 10), (2001.0, 200)])
+    clock["now"] = 2004.0
+    assert desktop_game.turn_picture(alice.id, 2000.2) is None  # no game session: nothing attached
+    desktop_game.start(db, alice.id, goal="find sheep")
+    picture, note = desktop_game.turn_picture(alice.id, 2000.2)
+    from PIL import Image as _Image
+    import io as _io
+    image = _Image.open(_io.BytesIO(picture))
+    assert image.size == (512, 288) and image.convert("L").getpixel((5, 5)) < 40  # the earlier, dark frame
+    assert "when the user started speaking, 4 s ago" in note
+
+
+def test_the_picture_rides_on_the_users_message_only():
+    import uuid as _uuid
+
+    from langchain_core.messages import HumanMessage
+
+    from app.ai.chat import _build_inputs
+    context = AgentRuntimeContext(user_id=_uuid.uuid4(), game="Game: you are playing.", game_picture=b"\xff\xd8jpeg",
+                                  game_picture_note="[Your game when the user started speaking, 3 s ago]")
+    inputs = _build_inputs([{"role": "user", "content": "is that light ahead?"}], context, [])
+    last = inputs["messages"][-1]
+    assert isinstance(last, HumanMessage)
+    assert last.content[0] == {"type": "text", "text": "is that light ahead?"}
+    assert last.content[2]["image_url"]["detail"] == "low"
+    plain = _build_inputs([{"role": "user", "content": "hi"}], AgentRuntimeContext(user_id=_uuid.uuid4()), [])
+    assert plain["messages"][-1].content == "hi"

@@ -96,6 +96,7 @@ class Script:
 
     def step(self, system, text, jpeg, schema):
         self.prompts.append(text)
+        self.pictures = jpeg
         self.clock += 1.0
         if self.on_call:
             self.on_call()
@@ -401,3 +402,401 @@ def test_conversation_models_get_reasoning_switched_off_only_where_supported(mon
         assert agent.get_chat_model("gpt-4.1-mini").reasoning_effort is None
     finally:
         agent.get_chat_model.cache_clear()
+
+
+# --------------------------------------------------------------------------- #
+# View angle, recent play, and Columbina's messages to her hands
+# --------------------------------------------------------------------------- #
+
+
+def _turn(pitch: float, yaw: float = 50.0) -> dict:
+    return {"decision": {"intent": "turn and look", "hold": [], "events": [
+        {"type": "turn", "at_ms": None, "yaw": yaw, "pitch": pitch, "duration_ms": 1000}], "valid_for_ms": 1000},
+        "status": None, "step_id": None, "notes": None, "facts": [], "report": []}
+
+
+def _finished(script: Script, run: DriverRun, state: str = "expired", ran_ms: int | None = 1000) -> None:
+    script.outcome_list.insert(0, {"decision_id": run.last["decision_id"], "state": state, "ran_ms": ran_ms})
+
+
+def test_small_upward_tilts_add_up_and_the_model_is_told():
+    """The cave session: every turn tilted a little up, and the view ended on the ceiling."""
+    from app.ai.desktop.play_log import Move, PlayLog, Turn
+
+    log = PlayLog()
+    log.record(Move("a", 0.0, 1000, (), (), (Turn(0, 1000, 0.0, 90.0), Turn(600, 1000, 0.0, 90.0))))
+    log.settle([{"decision_id": "a", "state": "expired", "ran_ms": 2000}], 1.0)
+    assert log.pitch() == 90.0  # 180 down from anywhere: pinned at straight down
+    for i in range(6):
+        log.record(Move(f"u{i}", 1.0 + i, 1000, (), (), (Turn(0, 1000, 50.0, -15.0),)))
+    assert log.pitch() == 0.0  # still running: counted as if in full
+    log.settle([{"decision_id": f"u{i}", "state": "expired", "ran_ms": 1000} for i in range(6)], 8.0)
+    assert log.pitch() == 0.0
+    for i in range(6):
+        log.record(Move(f"v{i}", 8.0 + i, 1000, (), (), (Turn(0, 1000, 50.0, -15.0),)))
+    log.settle([{"decision_id": f"v{i}", "state": "expired", "ran_ms": 1000} for i in range(6)], 15.0)
+    assert log.pitch() == -90.0 and log.view_text() == "View up/down: straight up."
+
+
+def test_rejected_and_cut_short_turns_count_for_what_ran():
+    from app.ai.desktop.play_log import Move, PlayLog, Turn
+
+    log = PlayLog(low=0.0, high=0.0)
+    log.record(Move("r", 0.0, 1000, (), (), (Turn(0, 1000, 0.0, 30.0),)))
+    log.record(Move("s", 1.0, 1000, (), (), (Turn(0, 1000, 0.0, 30.0),)))
+    log.settle([{"decision_id": "s", "state": "superseded", "ran_ms": 500}], 2.0)
+    assert log.low == 0.0  # "s" waits for "r": order is kept
+    log.settle([{"decision_id": "r", "state": "rejected"}, {"decision_id": "s", "state": "superseded", "ran_ms": 500}], 2.0)
+    assert log.pitch() == 15.0
+    # A move whose outcome never arrives counts in full after a while.
+    log.record(Move("lost", 3.0, 1000, (), (), (Turn(0, 1000, 0.0, 10.0),)))
+    log.settle([], 60.0)
+    assert log.pitch() == 25.0 and log.moves[-1].settled
+
+
+def test_the_angle_starts_unknown_and_level_view_makes_it_level():
+    script = Script([_turn(-8), {**_turn(0), "decision": {**_turn(0)["decision"], "level_view": True}}, WALK])
+    run = _run(script)
+    run.step()
+    assert "View up/down: not known yet." in script.prompts[0]
+    _finished(script, run)
+    script.clock += 1
+    run.step()
+    events = script.published[-1][2]["events"]
+    assert [e.get("pitch") for e in events] == [90.0, 90.0, -90.0]  # 2 x down to the stop, then back up
+    assert events[1]["at_ms"] >= 500 and script.published[-1][2]["valid_for_ms"] >= events[2]["at_ms"] + 500
+    _finished(script, run, ran_ms=script.published[-1][2]["valid_for_ms"])
+    script.clock += 1
+    run.step()
+    assert "View up/down: level (straight ahead)." in script.prompts[2]
+    assert run.play.state(script.clock)["view"].startswith("View up/down: level")
+
+
+def test_turning_on_the_spot_is_counted_as_plain_facts():
+    script = Script([_turn(0) for _ in range(8)])
+    run = _run(script)
+    for _ in range(8):
+        run.step()
+        _finished(script, run)
+        script.clock += 1
+    prompt = script.prompts[-1]
+    assert "Recent play (last" in prompt and "turned 7 times (350° in all, net 350° right); held no keys" in prompt
+    assert "turning on the spot" not in prompt  # facts, not a hand-written warning
+    assert "turned 8 times" in script.states[-1]["play"]["recent"]
+
+
+def test_held_keys_are_counted_by_how_long_they_ran():
+    script = Script([WALK, _turn(0)] * 3)
+    run = _run(script)
+    for _ in range(6):
+        run.step()
+        _finished(script, run, ran_ms=1500)
+        script.clock += 1
+    assert "turned 2 times" in script.prompts[-1] and "held forward 4.5 s" in script.prompts[-1]
+
+
+def test_messages_from_columbina_reach_the_next_step_and_stay():
+    told = [{"id": "m1", "text": "look straight ahead, not at the ceiling", "at": 995.0}]
+    script = Script([WALK, WALK])
+    deps = script.deps()
+    deps.messages = lambda _sid: list(told)
+    run = DriverRun(SESSION, deps)
+    run.step()
+    assert 'Messages from Columbina' in script.prompts[0]
+    assert '"look straight ahead, not at the ceiling"' in script.prompts[0] and "NEW" in script.prompts[0]
+    script.clock += 1
+    run.step()
+    assert '"look straight ahead, not at the ceiling"' in script.prompts[1] and "NEW" not in script.prompts[1]
+
+
+def test_a_message_sent_during_the_model_call_discards_the_answer():
+    told: list[dict] = []
+    script = Script([WALK, WALK])
+    script.on_call = lambda: told.append({"id": "m1", "text": "walk, don't turn", "at": script.clock}) if not told else None
+    deps = script.deps()
+    deps.messages = lambda _sid: list(told)
+    run = DriverRun(SESSION, deps)
+    assert run.step() is True
+    assert script.published == [] and script.metrics[-1] == {"session": str(SESSION), "event": "discarded",
+                                                              "why": "message_arrived"}
+    run.step()
+    assert len(script.published) == 1 and "walk, don't turn" in script.prompts[1]
+
+
+# --------------------------------------------------------------------------- #
+# Lag: stop rules, reflex stops, careful mode, the Timing line
+# --------------------------------------------------------------------------- #
+
+
+def test_the_schema_offers_stop_rules_on_the_profiles_regions():
+    schema = driver_schema(svc.get_profile("minecraft_java"))
+    until = schema["properties"]["decision"]["properties"]["until"]
+    assert until["type"] == ["object", "null"]
+    region = until["properties"]["any"]["items"]["anyOf"][0]["properties"]["region"]["enum"]
+    assert {"center", "full", "status_bars", "crosshair"} <= set(region)
+    out = to_step_output({**WALK, "decision": {**WALK["decision"], "until": {"any": [
+        {"region": "center", "condition": "changed", "threshold": 0.4}]}}})
+    assert out.decision.until.any[0].region == "center"
+
+
+def test_the_timing_line_says_how_far_the_last_move_carries_her():
+    script = Script([WALK, WALK])
+    run = _run(script)
+    run.step()
+    script.clock += 0.3
+    run.step()
+    prompt = script.prompts[1]
+    assert "Timing: your next move starts about 1.0 s after this picture was taken." in prompt
+    assert "Your last move holds forward for about" in prompt
+
+
+def test_a_reflex_stop_is_told_and_waits_for_a_picture_from_after_it():
+    script = Script([WALK, WALK])
+    run = _run(script)
+    run.step()
+    stopped_at = script.clock + 0.5
+    script.outcome_list.insert(0, {"decision_id": run.last["decision_id"], "state": "completed", "ran_ms": 400,
+                                   "ended_by": "reflex:status_changed", "at": stopped_at,
+                                   "reflexes": [{"name": "status_changed", "at_ms": 400, "acted": True}]})
+    script.clock = stopped_at - 0.1  # the newest picture is from before the stop
+    assert run.step() is True and len(script.prompts) == 1  # waited
+    script.clock = stopped_at + 0.5
+    run.step()
+    assert "STOPPED by a reflex after 400 ms: your health/status bar changed (hurt?)" in script.prompts[1]
+    reflex = next(m for m in script.metrics if m.get("event") == "reflex")
+    assert reflex["ended_by"] == "reflex:status_changed" and reflex["hold"] == ["forward"]
+    assert "stopped early by the status changed reflex x1" in script.prompts[1]
+
+
+def test_watch_mode_reflexes_are_logged_but_not_told_to_her_hands():
+    script = Script([WALK, WALK])
+    run = _run(script)
+    run.step()
+    script.outcome_list.insert(0, {"decision_id": run.last["decision_id"], "state": "expired", "ran_ms": 1500,
+                                   "ended_by": "valid_for_ms",
+                                   "reflexes": [{"name": "blocked", "at_ms": 900, "acted": False}]})
+    script.clock += 1
+    run.step()
+    assert "reflex" not in script.prompts[1].lower()
+    reflex = next(m for m in script.metrics if m.get("event") == "reflex")
+    assert reflex["reflexes"] == [{"name": "blocked", "at_ms": 900, "acted": False}]
+
+
+def _careful_holds(deps, hold=("sneak",), not_with=("jump",)):
+    """A profile whose careful mode holds buttons (Minecraft's doesn't any more)."""
+    from desktop_controller.profile import Careful
+
+    profile = svc.get_profile("minecraft_java")
+    deps.profile = lambda _pid: profile.model_copy(update={"careful": Careful(hold=list(hold), not_with=list(not_with))})
+
+
+def test_minecraft_careful_mode_only_shortens_moves():
+    script = Script([WALK])
+    deps = script.deps()
+    deps.careful = lambda _sid: {"on": True}
+    DriverRun(SESSION, deps).step()
+    assert script.published[-1][2]["hold"] == ["forward"] and script.published[-1][2]["valid_for_ms"] == 500
+
+
+def test_careful_mode_cuts_moves_short_adds_sneak_and_looks_between_moves():
+    script = Script([WALK, WALK])
+    deps = script.deps()
+    _careful_holds(deps)
+    deps.careful = lambda _sid: {"on": True, "at": 990.0}
+    run = DriverRun(SESSION, deps)
+    run.step()
+    sent = script.published[-1][2]
+    assert sent["valid_for_ms"] == 500 and sent["hold"] == ["forward", "sneak"]
+    assert "Careful mode is ON (Columbina turned it on)" in script.prompts[0]
+    script.clock += 0.3  # a picture from while the move still runs: not used
+    run.step()
+    assert len(script.prompts) == 1
+    script.clock += 0.8
+    run.step()
+    assert len(script.prompts) == 2 and script.metrics[-1]["careful"] == "Columbina turned it on"
+
+
+def test_careful_mode_leaves_turning_alone():
+    script = Script([_turn(0)])
+    deps = script.deps()
+    deps.careful = lambda _sid: {"on": True}
+    run = DriverRun(SESSION, deps)
+    run.step()
+    assert "sneak" not in script.published[-1][2].get("hold", [])
+
+
+def test_reporting_danger_turns_careful_mode_on_for_a_while():
+    danger = {**WALK, "report": [{"kind": "danger", "text": "lava ahead"}]}
+    script = Script([danger, WALK, WALK])
+    run = _run(script)
+    run.step()
+    script.clock += 3
+    run.step()
+    assert script.published[-1][2]["valid_for_ms"] == 500
+    assert "Careful mode is ON (you reported danger)" in script.prompts[1]
+    script.clock += 40
+    run.step()
+    assert script.published[-1][2]["valid_for_ms"] == 1500
+
+
+def test_the_relay_leaves_new_profile_sections_out_for_older_controllers():
+    from app.ai.desktop.relay import profile_for
+    from desktop_controller.profile import parse_profile
+
+    profile = svc.get_profile("minecraft_java")
+    old = profile_for(profile, "0.7.0")
+    assert "reflexes" not in old and "careful" not in old
+    parse_profile({**old}, "as an old controller would")  # still a valid profile
+    new = profile_for(profile, "0.8.0")
+    assert new["reflexes"]["mode"] == "watch" and "careful" not in new  # Mac-only: never sent
+
+
+# --------------------------------------------------------------------------- #
+# Resume bug (2026-10-08): reused move ids, silent controls, careful leftovers
+# --------------------------------------------------------------------------- #
+
+
+def test_a_resumed_run_never_reuses_move_ids():
+    first, second = Script([WALK]), Script([WALK])
+    _run(first).step()
+    _run(second).step()  # a new run after a resume starts counting from 1 again
+    assert first.published[0][0].startswith("drv1-") and second.published[0][0].startswith("drv1-")
+    assert first.published[0][0] != second.published[0][0]
+
+
+def test_moves_nobody_confirms_pause_the_session_and_say_why():
+    script = Script([WALK] * 12)
+    run = _run(script)
+    for _ in range(12):
+        if not run.step():
+            break
+        script.clock += 2.5
+    assert script.pauses == ["controls_silent"]
+    assert any(m.get("event") == "controls_silent" for m in script.metrics)
+    assert 6 <= len(script.published) <= 8
+
+
+def test_confirmed_moves_keep_the_session_playing():
+    script = Script([WALK] * 12)
+    run = _run(script)
+    for _ in range(12):
+        assert run.step()
+        _finished(script, run)
+        script.clock += 2.5
+    assert script.pauses == []
+
+
+def test_careful_mode_turns_in_place_when_the_turns_dont_fit_a_short_step():
+    long_turns = {**WALK, "decision": {**WALK["decision"], "hold": ["forward", "sprint"], "events": [
+        {"type": "turn", "at_ms": None, "yaw": 0.0, "pitch": 90.0, "duration_ms": None},
+        {"type": "turn", "at_ms": 600, "yaw": 0.0, "pitch": -90.0, "duration_ms": None}], "valid_for_ms": 1500}}
+    script = Script([long_turns])
+    deps = script.deps()
+    deps.careful = lambda _sid: {"on": True}
+    DriverRun(SESSION, deps).step()
+    sent = script.published[-1][2]
+    assert sent.get("hold", []) == [] and len(sent["events"]) == 2  # turns kept, no walking
+    from desktop_controller.validate import validate_decision
+    assert not hasattr(validate_decision(sent, svc.get_profile("minecraft_java"), "playing"), "code")
+
+
+def test_careful_mode_does_not_sneak_while_jumping():
+    jump = {**WALK, "decision": {**WALK["decision"], "hold": ["forward", "jump"]}}
+    script = Script([jump, WALK])
+    deps = script.deps()
+    _careful_holds(deps)
+    deps.careful = lambda _sid: {"on": True}
+    run = DriverRun(SESSION, deps)
+    run.step()
+    assert script.published[-1][2]["hold"] == ["forward", "jump"]
+    script.clock += 2
+    run.step()
+    assert script.published[-1][2]["hold"] == ["forward", "sneak"]
+
+
+
+# --------------------------------------------------------------------------- #
+# Chasing (2026-10-08): sensible stop rules, two pictures
+# --------------------------------------------------------------------------- #
+
+
+def _with_until(hold, events, until):
+    return {**WALK, "decision": {**WALK["decision"], "hold": hold, "events": events, "until": until}}
+
+
+def test_a_changed_stop_rule_is_dropped_from_moves_that_walk_or_turn():
+    changed = {"any": [{"region": "center", "condition": "changed", "threshold": 0.4}]}
+    both = {"any": [{"region": "center", "condition": "changed", "threshold": 0.4},
+                    {"region": "full", "condition": "static", "for_ms": 700}]}
+    turn = [{"type": "turn", "at_ms": None, "yaw": 30.0, "pitch": 0.0, "duration_ms": None}]
+    script = Script([_with_until(["forward"], [], changed), _with_until(["forward"], [], both),
+                     _with_until([], turn, changed), _with_until([], [], changed)])
+    run = _run(script)
+    for _ in range(4):
+        run.step()
+        _finished(script, run)
+        script.clock += 2
+    sent = [p[2] for p in script.published]
+    assert "until" not in sent[0]
+    assert sent[1]["until"] == {"any": [{"region": "full", "condition": "static", "for_ms": 700}]}
+    assert "until" not in sent[2]
+    assert sent[3]["until"]["any"][0]["condition"] == "changed"  # standing still and waiting: kept
+
+
+def test_two_pictures_show_what_moves():
+    script = Script([WALK, WALK])
+    deps = script.deps()
+    earlier = StoredFrame(jpeg=_jpeg(10), seq=0, width=640, height=360, epoch=2, generation=1,
+                          received_at=script.clock - 1.2, context="playing")
+    deps.history = lambda _env, at: earlier
+    run = DriverRun(SESSION, deps)
+    run.step()
+    assert isinstance(script.pictures, list) and script.pictures[0] == earlier.jpeg and len(script.pictures) == 2
+    assert "Pictures: 2, the first from 1.0 s before the second (the latest)." in script.prompts[0]
+
+
+def test_one_picture_without_history():
+    script = Script([WALK])
+    _run(script).step()
+    assert isinstance(script.pictures, bytes) and "Pictures:" not in script.prompts[0]
+
+
+def _pursue_reply(point=(500, 180), size=(48, 36)):
+    return {**WALK, "decision": {**WALK["decision"], "hold": ["forward"], "valid_for_ms": None, "events": [
+        {"type": "pursue", "at_ms": None, "point": list(point), "size": list(size), "attack": "attack"}]}}
+
+
+def test_pursue_is_offered_only_to_a_controller_that_can_chase():
+    from app.ai.desktop.driver import supports_pursue
+    profile = svc.get_profile("minecraft_java")
+
+    def kinds(schema):
+        events = schema["properties"]["decision"]["properties"]["events"]["items"]["anyOf"]
+        return {e["properties"]["type"]["enum"][0] for e in events}
+    assert "pursue" not in kinds(driver_schema(profile))
+    assert "pursue" in kinds(driver_schema(profile, pursue=True))
+    assert supports_pursue("0.9.0") and not supports_pursue("0.8.1") and not supports_pursue(None)
+
+
+def test_a_pursue_carries_the_targets_picture_and_runs_until_it_ends():
+    from desktop_controller.validate import validate_decision
+    script = Script([_pursue_reply(), WALK])
+    script.view_state = replace(script.view_state, controller_version="0.9.0")
+    run = _run(script)
+    run.step()
+    assert "Chasing" in run._system
+    sent = script.published[-1][2]
+    event = sent["events"][0]
+    assert event["template"] and event["size"] == [48, 36] and 4000 <= sent["valid_for_ms"] <= 6000
+    assert not hasattr(validate_decision(sent, svc.get_profile("minecraft_java"), "playing"), "code")
+    script.clock += 2  # still chasing: her hands wait instead of replacing it
+    run.step()
+    assert len(script.prompts) == 1
+    lost_at = script.clock + 0.5
+    script.outcome_list.insert(0, {"decision_id": run.last["decision_id"], "state": "completed", "ran_ms": 2400,
+                                   "ended_by": "pursue:lost", "at": lost_at,
+                                   "pursuit": {"seen": 30, "attacks": 3, "lost": True}})
+    script.clock = lost_at + 1.0
+    run.step()
+    assert "lost sight of the target after 2400 ms (chasing: seen in 30 checks, hit 3 times)" in script.prompts[1]
+    assert "View up/down: not known yet." in script.prompts[1]  # the VM turned by itself

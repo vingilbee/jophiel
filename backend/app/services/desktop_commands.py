@@ -139,3 +139,86 @@ def load_driver_state(session_id: uuid.UUID) -> dict | None:
         return None
     raw = client.get(driver_key(session_id))
     return json.loads(raw) if raw else None
+
+
+# --------------------------------------------------------------------------- #
+# Columbina's messages to her hands: how to play ("look straight ahead"),
+# separate from the plan, so sending one changes neither the goal nor the plan
+# revision and doesn't drop the move in progress. The driver reads them every
+# step. A few per session, kept as long as the driver state.
+# --------------------------------------------------------------------------- #
+
+HANDS_KEEP = 3
+# Careful mode turns itself off after this long unless set again: it is slow,
+# and a forgotten switch once crawled her across an open field.
+CAREFUL_SECONDS = 180
+HANDS_MAX_CHARS = 300
+
+
+def hands_key(session_id: uuid.UUID | str) -> str:
+    return f"desktop:hands:{session_id}"
+
+
+def send_hands_message(session_id: uuid.UUID, text: str, *, replace: bool = False) -> list[dict] | None:
+    """Add a message (``replace`` first drops the earlier ones; an empty text
+    with ``replace`` just clears them). The messages now in force, or None
+    without Redis."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return None
+    key = hands_key(session_id)
+    text = " ".join(text.split())[:HANDS_MAX_CHARS]
+    with client.pipeline() as pipe:
+        if replace:
+            pipe.delete(key)
+        if text:
+            pipe.rpush(key, json.dumps({"id": uuid.uuid4().hex[:8], "text": text, "at": time.time()}))
+            pipe.ltrim(key, -HANDS_KEEP, -1)
+            pipe.expire(key, DRIVER_STATE_TTL_SECONDS)
+        pipe.execute()
+    return hands_messages(session_id)
+
+
+def hands_messages(session_id: uuid.UUID) -> list[dict]:
+    """Oldest first."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return []
+    try:
+        return [json.loads(item) for item in client.lrange(hands_key(session_id), 0, -1)]
+    except redis.RedisError:
+        log.warning("desktop: could not read hands messages for session %s", session_id)
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# Careful mode, as Columbina set it: short moves, a fresh look between them.
+# (The driver also turns it on by itself for a while after reporting danger.)
+# --------------------------------------------------------------------------- #
+
+
+def careful_key(session_id: uuid.UUID | str) -> str:
+    return f"desktop:careful:{session_id}"
+
+
+def set_careful(session_id: uuid.UUID, on: bool) -> bool:
+    """False without Redis."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return False
+    if on:
+        client.set(careful_key(session_id), json.dumps({"on": True, "at": time.time()}), ex=CAREFUL_SECONDS)
+    else:
+        client.delete(careful_key(session_id))
+    return True
+
+
+def careful_state(session_id: uuid.UUID) -> dict | None:
+    client = desktop_preview.redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(careful_key(session_id))
+    except redis.RedisError:
+        return None
+    return json.loads(raw) if raw else None

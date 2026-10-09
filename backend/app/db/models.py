@@ -1279,7 +1279,10 @@ class DesktopEnvironment(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("hosting_kind IN ('local_vm', 'cloud_vm')", name="ck_desktop_environments_hosting_kind"),
+        # game_pack: a game pack service on this machine (stage G), not a VM.
+        CheckConstraint(
+            "hosting_kind IN ('local_vm', 'cloud_vm', 'game_pack')", name="ck_desktop_environments_hosting_kind"
+        ),
         CheckConstraint("status IN ('offline', 'online')", name="ck_desktop_environments_status"),
         CheckConstraint(
             "capture_gate IN ('allowed', 'blocked', 'manual_auth')", name="ck_desktop_environments_capture_gate"

@@ -57,18 +57,27 @@ class FakeRedis:
         with self.lock:
             self.hashes.pop(key, None)
             self.lists.pop(key, None)
+            self.strings.pop(key, None)
 
     def lpush(self, key, value):
         with self.lock:
             self.lists.setdefault(key, []).insert(0, self._b(value))
 
+    def rpush(self, key, value):
+        with self.lock:
+            self.lists.setdefault(key, []).append(self._b(value))
+
+    @staticmethod
+    def _end(stop):
+        return None if stop == -1 else stop + 1  # Redis ranges include stop; -1 is the last
+
     def ltrim(self, key, start, stop):
         with self.lock:
-            self.lists[key] = self.lists.get(key, [])[start:stop + 1]
+            self.lists[key] = self.lists.get(key, [])[start:self._end(stop)]
 
     def lrange(self, key, start, stop):
         with self.lock:
-            return list(self.lists.get(key, [])[start:stop + 1])
+            return list(self.lists.get(key, [])[start:self._end(stop)])
 
     def set(self, key, value, ex=None):
         with self.lock:

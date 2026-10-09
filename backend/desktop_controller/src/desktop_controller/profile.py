@@ -101,6 +101,38 @@ class Limits(_Strict):
     max_hold_buttons: Annotated[int, Field(gt=0)] = 6
 
 
+class Reflexes(_Strict):
+    """Always-on safety reflexes, run in the VM on a fast local screen sample
+    (see ``reflexes``). They can only ever let go of keys. ``watch`` records
+    when one would have fired without stopping anything (for tuning); ``act``
+    stops the move."""
+
+    mode: Literal["off", "watch", "act"] = "watch"
+    # Contexts they run in (None: all). Menus redraw the whole screen.
+    contexts: list[str] | None = None
+    # Status bars (health, hunger): a change since the move began means hurt (or healed).
+    status_region: str | None = None
+    status_change: Annotated[float, Field(gt=0.0, le=1.0)] = 0.12
+    # The whole picture jumping between two samples while not turning: a fall, a hit, a teleport.
+    jolt_change: Annotated[float, Field(gt=0.0, le=1.0)] = 0.5
+    # Holding one of these while the ``ahead_region`` doesn't move: walking into a wall.
+    move_buttons: list[str] = Field(default_factory=list)
+    ahead_region: str = "center"
+    blocked_ms: Annotated[int, Field(ge=200, le=5000)] = 900
+
+
+class Careful(_Strict):
+    """Careful mode (Mac side, plan D3): moves are cut short and taken one at a
+    time with a fresh look in between; ``hold`` is added while moving (e.g.
+    Minecraft's sneak, which stops you walking off edges)."""
+
+    move_ms: Annotated[int, Field(ge=100, le=2000)] = 500
+    hold: list[str] = Field(default_factory=list)
+    # Moves using any of these don't get ``hold`` (e.g. no sneaking while
+    # jumping up a block: it only gets in the way there).
+    not_with: list[str] = Field(default_factory=list)
+
+
 class Profile(_Strict):
     format_version: int
     id: str
@@ -118,6 +150,8 @@ class Profile(_Strict):
     macros: dict[str, list[dict]] = Field(default_factory=dict)
     contexts: Contexts
     limits: Limits = Limits()
+    reflexes: Reflexes = Reflexes()
+    careful: Careful = Careful()
 
     # -- derived helpers ---------------------------------------------------
 
@@ -298,6 +332,21 @@ def profile_issues(p: Profile) -> list[str]:
             target = getattr(detect, field_name)
             if target is None or target not in modes:
                 add(f"contexts.detect.{field_name}: must name one of {sorted(modes)}")
+
+    reflexes = p.reflexes
+    for region in (reflexes.status_region, reflexes.ahead_region):
+        if region is not None and region not in BUILTIN_REGIONS and region not in p.regions:
+            add(f"reflexes: unknown region {region!r}")
+    for button in reflexes.move_buttons:
+        if button not in p.buttons:
+            add(f"reflexes.move_buttons: unknown button {button!r}")
+    for mode_name in reflexes.contexts or []:
+        if mode_name not in modes:
+            add(f"reflexes.contexts: unknown context {mode_name!r}")
+    for field_name in ("hold", "not_with"):
+        for button in getattr(p.careful, field_name):
+            if button not in p.buttons:
+                add(f"careful.{field_name}: unknown button {button!r}")
 
     lim = p.limits
     ceilings = [

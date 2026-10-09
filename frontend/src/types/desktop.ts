@@ -24,7 +24,8 @@ export interface DesktopProfile {
 export interface DesktopEnvironment {
   id: string
   display_name: string
-  hosting_kind: 'local_vm' | 'cloud_vm'
+  /** game_pack: her own player in a game (stage G), not a VM: no preview, no keys. */
+  hosting_kind: 'local_vm' | 'cloud_vm' | 'game_pack'
   guest_os: string | null
   allowed_profile_ids: string[]
   policy_revision: number
@@ -162,4 +163,10 @@ export interface DesktopDriverState {
   frame_age_ms?: number
   waiting?: string
   updated_at?: number
+  /** Game pack sessions (kind "skills"): what her hands are doing, and how it went. */
+  kind?: 'skills'
+  running?: { skill: string; params: Record<string, unknown> } | null
+  outcomes?: { skill: string; params: Record<string, unknown>; status: string; reason: string | null; at: number }[]
+  notices?: { kind: string; urgency: string; text: string }[]
+  decisions?: number
 }

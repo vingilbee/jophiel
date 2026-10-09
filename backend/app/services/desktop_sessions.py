@@ -100,7 +100,12 @@ def _profiles_dir() -> Path:
 
 
 def get_profile(profile_id: str) -> Profile:
-    """Load and fully check one trusted profile. The file name is the id."""
+    """Load and fully check one trusted profile. The file name is the id.
+    A game pack's id gives its stand-in (stage G): the pack holds its own rules."""
+    from app.services.game_pack import PACK_PROFILES
+
+    if profile_id in PACK_PROFILES:
+        return PACK_PROFILES[profile_id]
     path = _profiles_dir() / f"{profile_id}.yaml"
     if not path.is_file():
         raise DesktopError("profile_not_found", 422, f"no profile named {profile_id!r}")
@@ -140,6 +145,9 @@ def list_profiles() -> list[ProfileOut]:
 
 
 def list_environments(db: Session, owner_user_id: uuid.UUID) -> list[DesktopEnvironment]:
+    from app.services import game_pack
+
+    game_pack.ensure_environment(db, owner_user_id)  # her Minecraft player shows up with the rest
     return list(
         db.scalars(
             select(DesktopEnvironment)
@@ -274,6 +282,11 @@ def start_session(
         raise DesktopError("not_authorized", 403, "this environment's access was revoked")
     if data.profile_id not in env.allowed_profile_ids:
         raise DesktopError("not_authorized", 403, f"profile {data.profile_id!r} is not allowed on this environment")
+    from app.services import game_pack
+
+    if env.hosting_kind != "game_pack" and game_pack.replacement(db, owner_user_id, data.profile_id):
+        raise DesktopError("replaced_by_pack", 409, "Minecraft is played as her own player now (the Minecraft "
+                           f"pack): start {game_pack.REPLACED_BY[data.profile_id]!r} instead")
     profile = get_profile(data.profile_id)
     if data.conversation_id is not None:
         owned = db.scalar(
@@ -661,6 +674,7 @@ class DriverView:
     capture_epoch: int
     autonomy: str = "stop"
     commentary_mode: str = "occasional"
+    controller_version: str | None = None
 
     @property
     def playing(self) -> bool:
@@ -705,7 +719,7 @@ def driver_view(db: Session, session_id: uuid.UUID) -> DriverView | None:
     return DriverView(
         session.id, session.environment_id, session.state, session.control_owner, session.execution_generation,
         session.plan, session.plan_revision, session.profile_id, session.current_step_id,
-        env.capture_gate, env.capture_epoch, session.autonomy, session.commentary_mode,
+        env.capture_gate, env.capture_epoch, session.autonomy, session.commentary_mode, env.controller_version,
     )
 
 
@@ -777,11 +791,14 @@ def driver_progress(
 
 def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) -> None:
     """A report from the driver worth Columbina's attention: danger always;
-    notable things only when she's in commentary mode. Untrusted game text."""
+    discoveries unless quiet; other notable things only in commentary mode.
+    Untrusted game text."""
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
         return
-    if kind == "danger" or (kind == "notable" and session.commentary_mode == "commentary"):
+    # discovery (a village, diamonds: stage G notices) unless she's been told to be quiet.
+    if (kind == "danger" or (kind == "discovery" and session.commentary_mode != "quiet")
+            or (kind == "notable" and session.commentary_mode == "commentary")):
         _game_event(db, session, f"{kind}: {text[:120]}")
         db.commit()
         from app.services import agent_events
@@ -881,9 +898,13 @@ def _game_event(db: Session, session: DesktopSession, reason: str) -> None:
 
 def _stop_input(session: DesktopSession, reason: str | None = None) -> None:
     """Tell the controller to let go now, after the stop is committed. Best
-    effort: the next heartbeat reply carries no lease anyway."""
-    from app.services import desktop_commands
+    effort: the next heartbeat reply carries no lease anyway. For a game pack:
+    stop the skill her hands started (the worker's link checks again every second)."""
+    from app.services import desktop_commands, game_pack
 
+    if game_pack.is_pack_profile(session.profile_id):
+        game_pack.stop_driver_skill()
+        return
     desktop_commands.publish_cancel(session.environment_id, session.id, reason or session.reason_code or "cancelled")
 
 

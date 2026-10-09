@@ -393,6 +393,17 @@ class Settings(BaseSettings):
     desktop_planning_wait_seconds: float = Field(default=60.0, ge=5, le=600)
     # Minimum gap between unprompted messages she sends (needs-you ignores it).
     agent_say_min_gap_seconds: float = Field(default=60.0, ge=0, le=3600)
+    # Stage G: game packs. The Minecraft pack (game_packs/minecraft) is her own
+    # player, driven by skills instead of keys. Its API is loopback-only on the
+    # Mac; the token is PACK_API_TOKEN if the pack has one set, else the file the
+    # pack writes at start. Only this user gets the pack (empty = nobody), since
+    # it is one Minecraft account on one machine.
+    minecraft_pack_owner_email: str = ""
+    minecraft_pack_url: str = "http://127.0.0.1:8790"
+    minecraft_pack_token: str = ""
+    minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
+    # Spending bound for skill decisions per session (each is one model call).
+    minecraft_pack_max_decisions: int = Field(default=400, ge=1, le=10_000)
 
 
 @lru_cache

@@ -172,6 +172,9 @@ async def _generate(job: ChatJob) -> None:
 
     long_term_memory, _ = await asyncio.gather(*background)
     game = await asyncio.to_thread(desktop_game.summary_for, job.user_id)
+    spoke_at = payload.get("spoke_at")
+    picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
+               if game is not None and spoke_at else None)
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -191,6 +194,9 @@ async def _generate(job: ChatJob) -> None:
         screen_image_id=payload.get("screen_image_id"),
         game=game.summary if game else None,
         game_activity=game.activity if game else None,
+        spoke_at=spoke_at,
+        game_picture=picture[0] if picture else None,
+        game_picture_note=picture[1] if picture else None,
     )
     mark("context_ready", model=settings.voice_chat_model or settings.chat_model)
     turn_id = job.turn_id

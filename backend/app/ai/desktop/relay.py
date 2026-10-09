@@ -106,7 +106,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             environment_id, generation = await db_call(desktop_link.authenticate, first)
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
             await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
-            link = _SessionLink(ws, environment_id, db_call)
+            link = _SessionLink(ws, environment_id, db_call, controller_version=first.controller_version)
             commands = asyncio.create_task(link.forward_commands())
             last_frame_at: dict[int, float] = {}
             last_heartbeat_at = time.monotonic()
@@ -161,6 +161,28 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
     return app
 
 
+# Profile sections a controller older than the version shown can't parse (its
+# profile model forbids unknown keys, so the whole session would be refused).
+# Left out for older controllers: the game still plays, just without them.
+PROFILE_SECTIONS_SINCE = {"reflexes": (0, 8, 0)}
+# Sections only the Mac uses (careful mode is enforced by the driver loop):
+# never sent, so changing them can't break a VM's profile check.
+MAC_ONLY_SECTIONS = {"careful"}
+
+
+def _version(text: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in text.split(".")[:3])
+    except ValueError:
+        return (0,)
+
+
+def profile_for(profile, controller_version: str) -> dict:
+    version = _version(controller_version)
+    old = {name for name, since in PROFILE_SECTIONS_SINCE.items() if version < since}
+    return profile.model_dump(mode="json", exclude=old | MAC_ONLY_SECTIONS)
+
+
 class _SessionLink:
     """One authenticated connection's session traffic (stage C).
 
@@ -172,8 +194,9 @@ class _SessionLink:
     another environment's session.
     """
 
-    def __init__(self, ws: WebSocket, environment_id: uuid.UUID, db_call):
+    def __init__(self, ws: WebSocket, environment_id: uuid.UUID, db_call, controller_version: str = ""):
         self.ws = ws
+        self.controller_version = controller_version
         self.environment_id = environment_id
         self.db_call = db_call
         self.started: str | None = None
@@ -197,7 +220,7 @@ class _SessionLink:
             # Repeated each beat until the controller reports ready.
             profile = await asyncio.to_thread(desktop_sessions.get_profile, state.profile_id)
             self.started = session_id
-            await self.send(SessionStart(session_id=session_id, profile=profile.model_dump(mode="json")))
+            await self.send(SessionStart(session_id=session_id, profile=profile_for(profile, self.controller_version)))
             return None
         self.started = session_id
         if state.state == "running" and state.control_owner == "gameplay":

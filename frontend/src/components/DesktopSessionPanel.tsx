@@ -2,6 +2,7 @@ import { useRef, useState, type PointerEvent, type WheelEvent } from 'react'
 import { Button } from './Button'
 import { useDesktopSession } from '../hooks/useDesktopSession'
 import type {
+  DesktopEnvironment,
   DesktopDecisionReport,
   DesktopSessionEvent,
   DesktopSessionState,
@@ -118,6 +119,14 @@ function GamePreview() {
   const [shift, setShift] = useState(false)
   const [marker, setMarker] = useState<[number, number] | null>(null)
   if (!env || !env.paired_at) return null
+  if (env.hosting_kind === 'game_pack') {
+    return (
+      <p className="rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3 text-xs text-[#4C5D7D]">
+        Columbina plays as her own player, so there's no picture here: watch from your game, or{' '}
+        <span className="font-mono">/spectate</span> her.
+      </p>
+    )
+  }
   const online = env.status === 'online'
   const gate = env.capture_gate
   const stale = preview !== null && preview.ageMs > 5000
@@ -441,6 +450,7 @@ function describeDecision(d: DesktopDecisionReport): string {
 
 const PAUSE_REASONS: Record<string, string> = {
   plan_complete: 'Columbina finished every step of the goal.',
+  pack_offline: 'Her Minecraft player left the world (the pack stopped, or lost the server).',
   planning_timeout: "She finished her goal but didn't pick a new one in time.",
   driver_stuck: 'Columbina got stuck and stopped. Change the goal or resume to let her try again.',
   needs_human: 'Columbina saw something outside the game (a login, a crash, a dialog) and needs you.',
@@ -498,7 +508,8 @@ function DriverPanel() {
   const { session, environment, driver } = useDesktopSession()
   if (!session?.plan) return null
   const playing = session.state === 'running'
-  const blind = environment?.capture_gate !== 'allowed'
+  const pack = environment?.hosting_kind === 'game_pack'
+  const blind = !pack && environment?.capture_gate !== 'allowed'
   const facts = Object.entries(driver?.facts ?? {})
 
   return (
@@ -527,7 +538,36 @@ function DriverPanel() {
       {!playing && session.reason_code && PAUSE_REASONS[session.reason_code] && (
         <p className="text-[11px] text-[#9A5B36]">{PAUSE_REASONS[session.reason_code]}</p>
       )}
-      {driver && (
+      {driver && pack && (
+        <div className="space-y-1 text-[11px] text-[#4C5D7D]">
+          {playing && driver.running && (
+            <p>
+              Doing: {driver.running.skill}(
+              {Object.entries(driver.running.params)
+                .filter(([k]) => k !== 'time_limit')
+                .map(([k, v]) => `${k}=${String(v)}`)
+                .join(', ')}
+              )
+            </p>
+          )}
+          {driver.notes && <p>Her note: “{driver.notes}”</p>}
+          {(driver.outcomes ?? []).slice(-4).map((o, i) => (
+            <p key={i}>
+              {o.status === 'done' ? '✓' : '•'} {o.skill} → {o.status}
+              {o.reason ? `: ${o.reason}` : ''} <span className="text-[#7183A3]">({ago(o.at)})</span>
+            </p>
+          ))}
+          {(driver.notices ?? []).slice(-3).map((n, i) => (
+            <p key={`n${i}`}>
+              {n.urgency === 'urgent' ? '⚠' : '👁'} {n.text}
+            </p>
+          ))}
+          {driver.decisions !== undefined && (
+            <p className="text-[10px] text-[#7183A3]">{driver.decisions} decisions so far</p>
+          )}
+        </div>
+      )}
+      {driver && !pack && (
         <div className="space-y-1 text-[11px] text-[#4C5D7D]">
           {driver.last && <p>Last move: “{driver.last.intent}” · step {driver.steps}</p>}
           {driver.model_ms !== undefined && (
@@ -660,17 +700,24 @@ function RegisterForm() {
   )
 }
 
+/** VM games that a game pack plays instead (mirrors backend game_pack.REPLACED_BY). */
+const RETIRED_BY_PACK = ['minecraft_java']
+
 function StartForm() {
   const { environments, pairing, busy, start, pair, revokeEnvironment } = useDesktopSession()
   const usable = environments.filter((e) => !e.revoked_at)
-  const env = usable[0]
+  const packs = usable.filter((e) => e.hosting_kind === 'game_pack')
+  const env = usable.find((e) => e.hosting_kind !== 'game_pack')
   const [profileId, setProfileId] = useState('')
-  if (!env) return <RegisterForm />
-  const chosen = profileId || env.allowed_profile_ids[0]
+  if (!env) return packs.length ? <PackRows packs={packs} /> : <RegisterForm />
+  // With her own Minecraft player (the pack), Minecraft isn't played on the VM any more.
+  const vmGames = env.allowed_profile_ids.filter((id) => !(packs.length && RETIRED_BY_PACK.includes(id)))
+  const chosen = profileId || vmGames[0]
   const online = env.status === 'online'
 
   return (
     <div className="mt-3 space-y-2">
+      {packs.length > 0 && <PackRows packs={packs} />}
       <p className="flex items-center gap-2 text-sm" aria-live="polite">
         <span className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
         {env.display_name} ·{' '}
@@ -689,9 +736,12 @@ function StartForm() {
         )
       )}
 
-      {env.paired_at && !pairing && (
+      {env.paired_at && !pairing && vmGames.length === 0 && (
+        <p className="text-xs text-[#7183A3]">Minecraft is played as her own player (above), not on the VM.</p>
+      )}
+      {env.paired_at && !pairing && vmGames.length > 0 && (
         <>
-          <ProfileSelect value={chosen} onChange={setProfileId} ids={env.allowed_profile_ids} />
+          <ProfileSelect value={chosen} onChange={setProfileId} ids={vmGames} />
           <Button disabled={busy || !chosen} onClick={() => void start(env.id, chosen)}>
             Start session
           </Button>
@@ -710,6 +760,33 @@ function StartForm() {
       >
         Remove this game VM
       </button>
+    </div>
+  )
+}
+
+/** Her own player in a game (stage G): no pairing, no preview; start it with a goal from the chat. */
+function PackRows({ packs }: { packs: DesktopEnvironment[] }) {
+  const { busy, start } = useDesktopSession()
+  return (
+    <div className="mt-3 space-y-2">
+      {packs.map((pack) => {
+        const online = pack.status === 'online'
+        return (
+          <div key={pack.id} className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 text-sm" aria-live="polite">
+              <span className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
+              Minecraft (her own player) · {online ? 'in the world' : 'not in the world'}
+            </p>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void start(pack.id, pack.allowed_profile_ids[0])}
+            >
+              Start
+            </Button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -760,8 +837,10 @@ function ProfileSelect({ value, onChange, ids }: { value: string; onChange: (id:
 }
 
 function SessionView() {
-  const { session, events, releasePending, busy, pause, resume, takeover, end, dismiss } = useDesktopSession()
+  const { session, environment, events, releasePending, busy, pause, resume, takeover, end, dismiss } =
+    useDesktopSession()
   if (!session) return null
+  const pack = environment?.hosting_kind === 'game_pack'
   const copy = STATE_COPY[session.state]
   const live = session.state !== 'ended' && session.state !== 'failed'
   const canPause = ['starting', 'running', 'manual', 'disconnected'].includes(session.state)
@@ -785,7 +864,7 @@ function SessionView() {
         {session.reason_code && <p className="mt-1 font-mono text-[10px] text-[#7183A3]">reason: {session.reason_code}</p>}
       </div>
 
-      {live && <TestControls />}
+      {live && !pack && <TestControls />}
 
       {live && <DriverPanel />}
       {live && <PlayOptions />}

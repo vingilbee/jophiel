@@ -98,6 +98,13 @@ class AgentRuntimeContext:
     # A background turn about the game (no user message): her game tools
     # become the background set (with ``say``) and the prompt says why she woke.
     game_event: GameEvent | None = None
+    # When the user started speaking (or sent a typed message), Unix seconds:
+    # the moment they were reacting to. None for turns without a user message.
+    spoke_at: float | None = None
+    # A small picture of her game at ``spoke_at`` (JPEG), attached to the
+    # user's message so she sees what they saw without a tool round trip.
+    game_picture: bytes | None = None
+    game_picture_note: str | None = None
 
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,

@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from . import safety
 from .geometry import turn_duration_ms, crop_size
+from .pursuit import template_pixels
 from .profile import BUILTIN_REGIONS, Profile
 from .protocol import (
     ClickEvent,
@@ -29,6 +30,7 @@ from .protocol import (
     MacroEvent,
     MoveEvent,
     Point,
+    PursueEvent,
     Rejection,
     RejectionCode,
     ScrollEvent,
@@ -98,7 +100,10 @@ def _validate(d: Decision, profile: Profile, context: str) -> ValidatedDecision:
     lim = profile.limits
     clamped: list[str] = []
 
-    cap = lim.max_until_ms if d.until is not None else lim.max_valid_for_ms
+    # A move that stops itself (until, or a pursue that ends when the target is
+    # lost) may run up to the until limit.
+    stops_itself = d.until is not None or any(isinstance(ev, PursueEvent) for ev in d.events)
+    cap = lim.max_until_ms if stops_itself else lim.max_valid_for_ms
     valid_for = d.valid_for_ms if d.valid_for_ms is not None else lim.default_valid_for_ms
     if valid_for > cap:
         valid_for = cap
@@ -176,9 +181,10 @@ def _validate(d: Decision, profile: Profile, context: str) -> ValidatedDecision:
         _fail(C.LIMIT_EXCEEDED, "events", f"at most {lim.max_events} events")
     held = set(d.hold)
     press_times: list[int] = []
+    pursuits = 0
     for i, ev in enumerate(d.events):
         path = f"events[{i}]"
-        need_kind(ev.type, path)
+        need_kind("look_at" if ev.type == "pursue" else ev.type, path)
         if ev.at_ms >= valid_for:
             _fail(C.LIMIT_EXCEEDED, f"{path}.at_ms", f"{ev.at_ms} is not before valid_for_ms {valid_for}")
         if isinstance(ev, TapEvent):
@@ -229,6 +235,19 @@ def _validate(d: Decision, profile: Profile, context: str) -> ValidatedDecision:
             if axes is None:
                 _fail(C.LOOK_AT_UNCALIBRATED, path, "this profile has no calibrated look axes")
             need_within(ev.at_ms, turn_duration_ms(ev.yaw, ev.pitch, axes, ev.duration_ms), path)
+        elif isinstance(ev, PursueEvent):
+            if profile.fov_deg() is None or profile.look_axes() is None:
+                _fail(C.LOOK_AT_UNCALIBRATED, path, "this profile has no calibrated camera")
+            pursuits += 1
+            if pursuits > 1:
+                _fail(C.LIMIT_EXCEEDED, path, "at most one pursue per decision")
+            need_point(ev.point, f"{path}.point", moves_pointer=False)
+            if ev.attack is not None:
+                need_button(ev.attack, f"{path}.attack")
+                if ev.attack in held:
+                    _fail(C.CONFLICTING_INPUT, f"{path}.attack", f'"{ev.attack}" is already held')
+            if template_pixels(ev, profile) is None:
+                _fail(C.INVALID_SCHEMA, f"{path}.template", "missing or not the target's picture at the sample scale")
 
     press_times.sort()
     for i, start in enumerate(press_times):
