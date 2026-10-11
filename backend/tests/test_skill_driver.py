@@ -47,6 +47,8 @@ class FakePack:
         self.pending_notices: list[dict] = []
         self.seq = 5
         self.refuse: str | None = None
+        self.finish_seconds = 4.2
+        self.fail_reasons: list[str] = []  # each run that finishes takes the next one and fails
 
     def manifest(self):
         return MANIFEST
@@ -77,8 +79,10 @@ class FakePack:
         record = self.records[run_id]
         if record["status"] == "running":
             self.finish_after[run_id] -= 1
-            if self.finish_after[run_id] <= 0:
-                record.update(status="done", data={"collected": 3}, seconds=4.2)
+            if self.finish_after[run_id] <= 0 and self.fail_reasons:
+                record.update(status="failed", reason=self.fail_reasons.pop(0), data={}, seconds=0.1)
+            elif self.finish_after[run_id] <= 0:
+                record.update(status="done", data={"collected": 3}, seconds=self.finish_seconds)
         return record
 
     def current(self):
@@ -123,11 +127,13 @@ class Harness:
         self.messages: list[dict] = []
         self.clock = 1000.0
         self.model = model
+        self.saved: dict = {}
         deps = SkillDriverDeps(
             view=lambda sid: self.view,
             progress=lambda sid, **kw: self.progress_calls.append(kw) or True,
             pause=lambda sid, reason: self.pauses.append(reason),
-            pack=self.pack, model=model, metric=lambda record: None, save_state=lambda sid, state: None,
+            pack=self.pack, model=model, metric=lambda record: None,
+            save_state=lambda sid, state: setattr(self, "saved", state),
             notice=lambda sid, kind, text: self.noticed.append((kind, text)),
             auto_goals=lambda sid: 0, messages=lambda sid: list(self.messages),
             now=lambda: self.clock, sleep=lambda s: None,
@@ -164,6 +170,20 @@ def test_prompt_lists_every_skill_with_its_conditions():
     assert "wait(seconds)" in prompt and "Never attack players" in prompt
 
 
+def test_limits_are_shown_and_near_misses_clamped():
+    """Seen live: "seconds must be at most 600" and "radius must be at least 16"
+    refusals, because the bounds never reached the hands."""
+    manifest = [{"name": "follow_player", "description": "Follow.", "done_when": "time up", "stops_when": "lost",
+                 "params": {"seconds": {"type": "number", "required": False, "min": 1, "max": 600,
+                                        "description": "how long"},
+                            "player": {"type": "string", "required": True, "description": "name"}}}]
+    assert "seconds?: how long (1 to 600)" in system_prompt(manifest)
+    variant = skill_schema(manifest)["properties"]["action"]["anyOf"][0]
+    assert variant["properties"]["params"]["properties"]["seconds"]["description"] == "how long (1 to 600)"
+    assert to_action({"action": {"skill": "follow_player", "params": {"seconds": 900, "player": "Vince"}}},
+                     manifest) == ("follow_player", {"seconds": 600, "player": "Vince"})
+
+
 def test_actions_drop_nulls_and_reject_unknown_skills():
     assert to_action({"action": {"skill": "mine", "params": {"block": "oak_log", "count": None}}}, MANIFEST) == (
         "mine", {"block": "oak_log"})
@@ -187,6 +207,37 @@ def test_picks_a_skill_waits_for_it_then_reports_the_step_done():
     assert "mine(block=oak_log, count=3) -> done" in model.prompts[1]
     assert '"collected":3' in model.prompts[1]
     assert {"status": "step_done", "step_id": "s1"}.items() <= h.progress_calls[-1].items()
+
+
+def test_amounts_count_from_the_steps_start_not_the_total_held():
+    """Seen live: "chop oak, done when 10 oak logs are collected" was marked done
+    at once with 60 already held, and she stood still."""
+    model = ScriptedModel(_decide("mine", {"block": "oak_log", "count": 3, "time_limit": None}),
+                          _decide("mine", {"block": "oak_log", "count": 3, "time_limit": None}))
+    h = Harness(model)
+    held = {"oak_log": 60, "apple": 1}
+    h.pack.state = lambda: {"text": "Columbina at (0, 64, 0).",
+                            "inventory": [{"name": k, "count": v} for k, v in held.items()]}
+    h.steps(1)
+    assert "Inventory change since this step began (counted): none yet." in model.prompts[0]
+    held.update(oak_log=63, apple=0)
+    h.steps(3)
+    assert "apple 1 -> 0 (-1); oak_log 60 -> 63 (+3)" in model.prompts[1]
+    assert 'counts only what you gained' in system_prompt(MANIFEST)
+
+
+def test_the_inventory_snapshot_restarts_with_each_step():
+    model = ScriptedModel(_decide(status="step_done"), _decide())
+    h = Harness(model)
+    held = {"oak_log": 5}
+    h.pack.state = lambda: {"text": "", "inventory": [{"name": "oak_log", "count": held["oak_log"]}]}
+    h.steps(1)
+    held["oak_log"] = 9
+    steps = h.view.plan["steps"]
+    h.view = _view(plan={**h.view.plan, "steps": [{**steps[0], "state": "done"}, {**steps[1], "state": "active"}]},
+                   current_step_id="s2")
+    h.steps(1)
+    assert "Inventory change since this step began (counted): none yet." in model.prompts[1]
 
 
 def test_urgent_notice_cuts_a_skill_short_and_wakes_columbina():
@@ -236,6 +287,30 @@ def test_plan_change_stops_the_running_skill():
     assert h.pack.stops == 1
 
 
+def test_plan_change_keeps_a_skill_that_still_fits():
+    # Seen live: every new plan ("follow them to the cave", "...without sleeping") cut her follow off.
+    h = Harness(ScriptedModel(_decide("mine", {"block": "stone", "time_limit": 60}),
+                              _decide("mine", {"block": "stone", "time_limit": 120})))
+    h.steps(1)
+    h.view = _view(plan_revision=2, execution_generation=2)
+    h.steps(1)
+    assert h.pack.stops == 0
+    assert len(h.pack.runs) == 1
+    assert "Still running from before the plan changed: mine(block=stone)" in h.model.prompts[-1]
+    assert h.run.running["plan_revision"] == 2 and "carried" not in h.run.running
+    h.steps(2)  # it finishes as usual under the new plan
+    assert h.run.running is None and h.run.outcomes[-1]["status"] == "done"
+
+
+def test_plan_change_to_another_target_stops_the_skill():
+    h = Harness(ScriptedModel(_decide("mine", {"block": "stone"}), _decide("mine", {"block": "coal_ore"})))
+    h.steps(1)
+    h.view = _view(plan_revision=2)
+    h.steps(1)
+    assert h.pack.stops == 1
+    assert [run[1]["block"] for run in h.pack.runs] == ["stone", "coal_ore"]
+
+
 def test_answer_dropped_when_the_plan_changes_while_thinking():
     model = ScriptedModel(_decide("mine", {"block": "stone"}))
     h = Harness(model)
@@ -283,6 +358,49 @@ def test_wait_is_local_and_ends_early_on_danger():
     assert h.pack.runs[-1][0] == "fight"
 
 
+def test_needs_human_right_after_dying_is_overruled():
+    model = ScriptedModel(_decide("mine", {"block": "stone"}),
+                          _decide(status="needs_human", note="I died; need to respawn"),
+                          _decide("mine", {"block": "stone"}))
+    h = Harness(model)
+    h.steps(1)
+    h.pack.notice("died", "urgent", "died")
+    assert h.steps(2) == [True, True]  # cut short by the death, then asked again
+    assert h.pauses == [] and all(c["status"] != "needs_human" for c in h.progress_calls)
+    assert "You died" in model.prompts[1]
+    h.steps(1)
+    assert h.pack.runs[-1][0] == "mine"
+
+
+def test_needs_human_long_after_a_death_is_respected():
+    model = ScriptedModel(_decide(status="needs_human", note="give me a pickaxe"))
+    h = Harness(model)
+    h.run.died_at = h.clock - 300
+    assert h.steps(1) == [False]
+    assert h.progress_calls[-1]["status"] == "needs_human"
+
+
+def test_an_action_that_changes_nothing_is_flagged_then_stuck():
+    go = _decide("craft", {"item": "planks"})
+    model = ScriptedModel(*[go] * 7)
+    h = Harness(model)
+    h.pack.finish_seconds = 0  # "done" instantly: she was already there
+    h.steps(3 * 3 + 1)  # each run: decide, poll, finish; then the 4th decision
+    assert "the same way 3 times in a row" not in model.prompts[2]
+    assert "the same way 3 times in a row" in model.prompts[3]
+    h.steps(3 * 3)  # three more runs, then the 7th decision is overruled to stuck
+    assert h.progress_calls[-1]["status"] == "stuck"
+    assert "same result" in h.progress_calls[-1]["note"]
+
+
+def test_a_skill_that_ran_its_course_is_not_a_repeat():
+    model = ScriptedModel(*[_decide("craft", {"item": "planks"})] * 8)
+    h = Harness(model)  # each run lasts 4.2 s, like a follow that finished
+    h.steps(3 * 7)
+    assert all(c["status"] != "stuck" for c in h.progress_calls)
+    assert not any("times in a row" in p for p in model.prompts)
+
+
 def test_pack_down_pauses_after_a_while():
     h = Harness(ScriptedModel())
     h.pack.manifest = lambda: (_ for _ in ()).throw(PackError("pack unreachable"))
@@ -291,3 +409,42 @@ def test_pack_down_pauses_after_a_while():
     h.clock += 20
     assert h.run.step() is False
     assert h.pauses == ["pack_offline"]
+
+
+def test_failing_in_different_ways_tells_columbina_with_the_counted_tries():
+    """Seen live: a bed craft failed 4 times and explore 3 times, each a little
+    differently, so nothing ever reached "stuck" and Columbina never knew."""
+    model = ScriptedModel(_decide("craft", {"item": "white_bed"}), _decide("craft", {"item": "bed"}),
+                          _decide("craft", {"item": "white_bed"}), _decide("mine", {"block": "oak_log"}),
+                          _decide("craft", {"item": "white_bed"}))
+    h = Harness(model)
+    h.pack.fail_reasons = ["missing ingredients", "no recipe", "missing ingredients", "no tree nearby"]
+    h.steps(3 * 3)
+    assert not [n for n in h.noticed if n[0] == "struggling"]  # 3 failed tries: not yet
+    assert h.saved["step"]["tries"] == 3 and h.saved["step"]["failed"] == 3
+    h.steps(3)
+    struggling = [text for kind, text in h.noticed if kind == "struggling"]
+    assert len(struggling) == 1
+    assert struggling[0].startswith('4 failed tries at "chop 3 oak logs"')
+    assert "craft(item=white_bed) -> missing ingredients x2" in struggling[0]
+    assert "mine(block=oak_log) -> no tree nearby" in struggling[0]
+    assert all(c["status"] != "stuck" for c in h.progress_calls)  # she keeps playing
+
+
+def test_a_new_step_starts_a_fresh_count():
+    model = ScriptedModel(_decide("craft", {"item": "white_bed"}), _decide(status="step_done"),
+                          _decide("mine", {"block": "stone"}))
+    h = Harness(model)
+    h.pack.fail_reasons = ["missing ingredients"]
+    h.steps(3)
+    assert h.saved["step"]["failed"] == 1
+    h.steps(1)
+    h.view = _view(current_step_id="s2", plan={"goal": "g", "steps": [
+        {"id": "s1", "do": "chop", "done_when": "x", "state": "done"},
+        {"id": "s2", "do": "craft planks", "done_when": "y", "state": "active"}]})
+    h.steps(1)
+    assert h.saved["step"]["id"] == "s2" and h.saved["step"]["failed"] == 0
+
+
+def test_hands_are_told_to_say_no_skill_at_once():
+    assert '"no skill for:"' in system_prompt(MANIFEST)

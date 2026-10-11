@@ -87,6 +87,10 @@ class FakeRedis:
         with self.lock:
             return self.strings.get(key)
 
+    def exists(self, key):
+        with self.lock:
+            return int(key in self.strings or key in self.hashes or key in self.lists)
+
     def publish(self, channel, message):
         with self.lock:
             self.published.append((channel, message))

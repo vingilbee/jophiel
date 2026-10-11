@@ -421,6 +421,10 @@ def resume_session(
         return CommandResult(session)
     if session.state not in _RESUMABLE:
         raise _conflict(session, "resume")
+    if session.plan and not any(st["state"] in ("pending", "active") for st in session.plan.get("steps", [])):
+        # Resuming a finished plan used to pause again within a second (7 times
+        # in a row), while she said she was moving.
+        raise DesktopError("nothing_to_do", 409, "every step of the plan is done; set a new goal to keep playing")
     # Not locked: lock order is always environment -> session (revoke, offline),
     # and either of those committing after this read still waits on the
     # session row and then ends/disconnects it.
@@ -467,7 +471,13 @@ def replace_plan(
     _check_plan_revision(session, data.expected_plan_revision)
     _set_plan(db, session, data, source=data.source)
     db.commit()
-    _stop_input(session, "plan_replaced")
+    # A game pack's hands see the new plan within half a second and stop the running skill
+    # unless it still fits (a follow under "follow them to the cave"), so it isn't cut off here:
+    # stopping it on every new plan broke one follow 15 times in 25 minutes.
+    from app.services import game_pack
+
+    if not game_pack.is_pack_profile(session.profile_id):
+        _stop_input(session, "plan_replaced")
     return session
 
 
@@ -512,6 +522,7 @@ def _set_plan(db: Session, session: DesktopSession, data: PlanIn, *, source: str
         session.execution_generation += 1
     _record(db, session, "desktop.plan_set", {
         "plan_revision": session.plan_revision, "abandoned_steps": abandoned, "source": source,
+        "goal": data.goal[:200],  # for game reflection's timeline
     })
 
 
@@ -775,7 +786,8 @@ def driver_progress(
             })
             _transition(session, "paused", reason="driver_stuck" if status == "stuck" else "needs_human", db=db)
             stopping = True
-            event = status
+            # Why travels with the event, so she can work out what's missing and ask.
+            event = f"{status}: {' '.join((note or '').split())[:200]}" if note else status
     session.plan = plan
     if event is not None:
         _game_event(db, session, event)
@@ -796,10 +808,11 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
         return
-    # discovery (a village, diamonds: stage G notices) unless she's been told to be quiet.
-    if (kind == "danger" or (kind == "discovery" and session.commentary_mode != "quiet")
+    # discovery (a village, diamonds: stage G notices) unless she's been told to be quiet;
+    # struggling (failing at a step again and again) always: she may need to ask the user.
+    if (kind in ("danger", "struggling") or (kind == "discovery" and session.commentary_mode != "quiet")
             or (kind == "notable" and session.commentary_mode == "commentary")):
-        _game_event(db, session, f"{kind}: {text[:120]}")
+        _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")
         db.commit()
         from app.services import agent_events
 
@@ -807,12 +820,24 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
 
 
 def auto_goals_set(db: Session, session_id: uuid.UUID) -> int:
-    """How many goals Columbina picked herself (background turns) this session."""
+    """How many goals Columbina picked herself (background turns) since the user
+    last took part: a goal set on their turn, or their resume. The cap stops her
+    playing unattended forever; counted over the whole session, it ran out at 21:03
+    in a session that lasted until 01:33, and every finished goal after it paused."""
+    events = DesktopSessionEvent
+    took_part = db.scalar(
+        select(func.max(events.id)).where(
+            events.session_id == session_id,
+            ((events.type == "desktop.plan_set") & (events.payload["source"].astext == "columbina_user_turn"))
+            | ((events.type == "desktop.session_state") & (events.payload["reason"].astext == "user_resume")),
+        )
+    ) or 0
     return db.scalar(
-        select(func.count()).select_from(DesktopSessionEvent).where(
-            DesktopSessionEvent.session_id == session_id,
-            DesktopSessionEvent.type == "desktop.plan_set",
-            DesktopSessionEvent.payload["source"].astext == "columbina_planning_turn",
+        select(func.count()).select_from(events).where(
+            events.session_id == session_id,
+            events.id > took_part,
+            events.type == "desktop.plan_set",
+            events.payload["source"].astext == "columbina_planning_turn",
         )
     ) or 0
 
@@ -892,7 +917,8 @@ def _game_event(db: Session, session: DesktopSession, reason: str) -> None:
 
     agent_events.enqueue(
         db, user_id=session.owner_user_id, source="desktop", dedupe_key=str(session.id), reason=reason,
-        payload={"session_id": str(session.id)},
+        # The newest event's plan: "on the last step" about an older plan is no news (game_events).
+        payload={"session_id": str(session.id), "plan_revision": session.plan_revision},
     )
 
 
@@ -959,6 +985,11 @@ def _transition(session: DesktopSession, to_state: str, *, reason: str, db: Sess
         session.execution_generation += 1
     if to_state in DESKTOP_TERMINAL_STATES:
         session.ended_at = _now()
+    if previous == "running" or to_state in DESKTOP_TERMINAL_STATES:
+        # Out of play (paused, offline, ended): reflect on the stretch just played.
+        from app.services import game_learning
+
+        game_learning.schedule_reflection(db, session, to_state)
     _record(db, session, "desktop.session_state", {"state": to_state, "previous_state": previous, "reason": reason})
 
 

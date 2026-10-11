@@ -25,7 +25,8 @@ def run_once() -> bool:
         reasons, payload = agent_events.reasons_of(job), dict(job.payload)
     try:
         if source == "desktop":
-            asyncio.run(game_events.run(user_id, uuid.UUID(payload["session_id"]), reasons))
+            asyncio.run(game_events.run(user_id, uuid.UUID(payload["session_id"]), reasons,
+                                        plan_revision=payload.get("plan_revision")))
         else:
             log.warning("agent event job %s has unknown source %r; dropping it", job_id, source)
     except Exception as exc:

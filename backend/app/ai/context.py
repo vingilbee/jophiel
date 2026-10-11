@@ -23,6 +23,8 @@ class GameEvent:
     commentary_mode: str = "occasional"
     keep_playing: bool = True
     described: tuple[str, ...] = field(default=())
+    # The plan she woke up to: if the user changes it while she thinks, her plan changes are refused.
+    plan_revision: int | None = None
 
 
 @dataclass

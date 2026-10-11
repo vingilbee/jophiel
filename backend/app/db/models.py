@@ -1449,3 +1449,144 @@ class DesktopSessionEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_desktop_session_events_session_id", "session_id", "id"),)
+
+
+# --------------------------------------------------------------------------- #
+# Game learning: experience -> reflection -> lessons / proposals
+# --------------------------------------------------------------------------- #
+
+
+class GameExperience(Base):
+    """One thing that happened in a game session, recorded by code, never by a
+    model: a skill's outcome, something the pack noticed, the lessons in her
+    hands' prompt when a run started. Append-only; the raw material reflection
+    learns from, and what measuring learning counts."""
+
+    __tablename__ = "game_experiences"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('skill_outcome', 'notice', 'lessons_applied')", name="ck_game_experiences_kind"
+        ),
+        Index("ix_game_experiences_session", "session_id", "id"),
+        Index("ix_game_experiences_user_game", "user_id", "game", "id"),
+    )
+
+
+class GameLesson(Base):
+    """Something she learned about playing a game: when <situation>, <advice>.
+
+    Level 1 learning, applied automatically: a ``skill`` lesson (how an action
+    behaves) goes to her hands' prompt; a ``plan`` lesson (what to do, in what
+    order, when) goes to Columbina's game summary, where she sets goals. A lesson
+    starts as ``trial`` and earns trust from evidence: each reflection that
+    finds a later session supporting it adds support, contradicting it adds
+    contradiction. Every count is backed by experience ids, so a model's guess
+    never becomes a lesson on its own."""
+
+    __tablename__ = "game_lessons"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    situation: Mapped[str] = mapped_column(Text, nullable=False)
+    advice: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[str] = mapped_column(String(8), nullable=False, default="skill", server_default="skill")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="trial", server_default="trial")
+    support_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    contradict_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # [{"session_id", "verdict": "new"|"supports"|"contradicts", "experience_ids": [...], "at"}]
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('trial', 'confirmed', 'retired')", name="ck_game_lessons_status"),
+        CheckConstraint("level IN ('skill', 'plan')", name="ck_game_lessons_level"),
+        UniqueConstraint("user_id", "game", "normalized_key", name="uq_game_lessons_key"),
+    )
+
+
+class GameProposal(Base):
+    """Level 3 learning: a change to the game code she suggests (a skill that
+    fails for reasons she can't fix by choosing differently, a missing skill).
+    Never applied by the app: the user reviews it and hands it to a coding
+    agent. Repeats add evidence to the same proposal instead of a new one."""
+
+    __tablename__ = "game_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    area: Mapped[str] = mapped_column(String(64), nullable=False)
+    problem: Mapped[str] = mapped_column(Text, nullable=False)
+    suggestion: Mapped[str] = mapped_column(Text, nullable=False)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # [{"session_id", "experience_ids": [...], "examples": [outcome lines], "at"}]
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    user_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'accepted', 'implemented', 'rejected')", name="ck_game_proposals_status"
+        ),
+        UniqueConstraint("user_id", "game", "normalized_key", name="uq_game_proposals_key"),
+    )
+
+
+class GameReflectionJob(Base):
+    """One reflection per stretch of play: the experiences after
+    ``from_experience_id`` up to ``up_to_experience_id``. Queued in the
+    transaction that takes the session out of play (paused, offline, ended),
+    since a session is rarely ended outright. Leased like the other job
+    tables; Postgres is authoritative."""
+
+    __tablename__ = "game_reflection_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The stretch reflected on: experiences with from < id <= up_to (from 0 = the session's start).
+    from_experience_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    up_to_experience_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the reflection did: counts and ids, for the learning page and reports.
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'done', 'skipped', 'failed')", name="ck_game_reflection_jobs_status"
+        ),
+        Index("ix_game_reflection_jobs_claim", "status", "created_at"),
+        UniqueConstraint("session_id", "up_to_experience_id", name="uq_game_reflection_jobs_segment"),
+    )

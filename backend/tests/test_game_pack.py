@@ -4,6 +4,8 @@ skill), and Columbina's summary and start. Real PostgreSQL
 (``TEST_DATABASE_URL``); the pack is a fake; Redis is the in-memory stand-in."""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from app.ai.desktop import pack_client
@@ -48,6 +50,35 @@ class FakePack:
         return {"text": "Piqeeee at (10, 64, -3) in the overworld.\nHealth 20/20, food 18/20.", "noticed": [],
                 "username": "Piqeeee", "players_online": ["tearDrop12"]}
 
+    def manifest(self):
+        self._check()
+        return [{"name": "craft", "description": "Craft an item.", "done_when": "crafted",
+                 "stops_when": "missing ingredients", "params": {"item": {}, "count": {}, "time_limit": {}}},
+                {"name": "place", "description": "Place a block.", "done_when": "placed",
+                 "stops_when": "nowhere to put it", "params": {"block": {}}}]
+
+    modes_now = {"guard": False, "gather": [], "pickup": False}
+
+    def modes(self):
+        self._check()
+        return dict(self.modes_now)
+
+    def set_modes(self, change):
+        self._check()
+        if any(name == "iron" for name in change.get("gather", [])):
+            raise PackError("no block is called iron (did you mean iron_ore?)", 400)
+        self.modes_now = {**self.modes_now, **change}
+        return dict(self.modes_now)
+
+    def recipe(self, item):
+        self._check()
+        if item == "bed":
+            return {"item": "bed", "known": False, "did_you_mean": ["white_bed", "red_bed"]}
+        return {"item": item, "known": True, "craftable": True, "have": 0, "crafting_table_nearby": False,
+                "crafting_table_carried": True, "variants": 16,
+                "recipes": [{"needs": {"white_wool": 3, "oak_planks": 3}, "makes": 1, "needs_crafting_table": True,
+                             "missing": {"white_wool": 1}}]}
+
 
 @pytest.fixture
 def pack(monkeypatch, alice):
@@ -57,6 +88,7 @@ def pack(monkeypatch, alice):
                                                  "minecraft_pack_owner_email": alice.email.upper()})
     monkeypatch.setattr(game_pack, "get_settings", lambda: settings)
     monkeypatch.setattr(desktop_game, "get_settings", lambda: settings)
+    monkeypatch.setattr(desktop_game, "_manual_cache", {"at": 0.0, "lines": []})
     return fake
 
 
@@ -109,6 +141,15 @@ def test_pausing_stops_the_skill_her_hands_started_but_not_one_run_by_hand(db, a
     pack.running = {"id": "r2", "skill": "follow_player", "source": "user"}
     game_pack.sync(db, pack)
     assert pack.stops == 1 and pack.running is not None
+
+
+def test_a_new_plan_leaves_her_skill_to_her_hands(db, alice, pack):
+    """Her hands stop it unless it still fits; stopping it here cut one follow off 15 times."""
+    desktop_game.start(db, alice.id, goal="Follow tearDrop12")
+    game_pack.sync(db, pack)
+    pack.running = {"id": "r1", "skill": "follow_player", "source": "driver"}
+    desktop_game.set_plan(db, alice.id, goal="Follow tearDrop12 to the cave")
+    assert pack.stops == 0 and pack.running is not None
 
 
 def test_link_stops_a_driver_skill_left_running_without_a_playing_session(db, alice, pack):
@@ -192,3 +233,93 @@ def test_discoveries_wake_her_unless_quiet(db, alice, pack):
     db.commit()
     svc.driver_noticed(db, session.id, kind="discovery", text="diamond ore, 6 m")
     assert db.query(AgentEventJob).filter_by(user_id=alice.id).count() == 0
+
+
+def _playing(db, alice, pack, goal="Make a bed"):
+    desktop_game.start(db, alice.id, goal=goal, steps=[{"do": "craft a white bed", "done_when": "a white_bed"}])
+    game_pack.sync(db, pack)
+    env = game_pack.ensure_environment(db, alice.id)
+    return _session(db, alice.id, env.id)
+
+
+def test_she_sees_her_skills_her_failed_tries_and_her_promises(db, alice, pack):
+    session = _playing(db, alice, pack)
+    desktop_commands.save_driver_state(session.id, {"kind": "skills", "step": {
+        "id": session.plan["steps"][0]["id"], "do": "craft a white bed",
+        "since": time.time() - 130, "tries": 5, "failed": 4, "failures": [
+            {"skill": "craft", "params": {"item": "white_bed"}, "status": "failed", "reason": "missing ingredients",
+             "data": {}}] * 3 + [
+            {"skill": "craft", "params": {"item": "bed"}, "status": "refused", "reason": "no item is called bed",
+             "data": {}}]}})
+    desktop_game.note_promise(db, alice.id, promise="tell them when the bed is ready")
+    summary = desktop_game.describe(db, alice.id).summary
+    assert "Your hands' skills (all they can do, one at a time):" in summary
+    assert "- craft(item, count): Craft an item. Stops when: missing ingredients." in summary
+    assert ("This step so far (counted): 2 min, 5 tries, 4 failed: craft(item=white_bed) -> missing ingredients x3; "
+            "craft(item=bed) -> no item is called bed.") in summary
+    assert 'What you promised the user' in summary and '1. "tell them when the bed is ready"' in summary
+    assert desktop_game.drop_promise(db, alice.id, number=1) == "Dropped; nothing promised now."
+    assert "What you promised" not in desktop_game.describe(db, alice.id).summary
+
+
+def test_setting_the_same_goal_again_and_again_shows_as_a_loop(db, alice, pack):
+    _playing(db, alice, pack, goal="Gather wood")
+    for tree in ("oak", "birch"):  # word for word the same would change nothing at all
+        desktop_game.set_plan(db, alice.id, goal="Gather wood!", steps=[
+            {"do": f"chop {tree} logs", "done_when": f"gained 5 {tree}_log"}])
+    assert "You've set this same goal 3 times in the last 5 minutes" in desktop_game.describe(db, alice.id).summary
+
+
+def test_how_to_make_says_what_is_missing_and_close_names(db, alice, pack):
+    _playing(db, alice, pack)
+    text = desktop_game.how_to_make(db, alice.id, item="White Bed")
+    assert text.startswith("white_bed: you have 0.")
+    assert "Recipe 1: 3 white_wool, 3 oak_planks -> 1 (needs a crafting table); you're missing 1 white_wool." in text
+    assert "16 variants" in text and "you carry one but must place it first" in text
+    assert desktop_game.how_to_make(db, alice.id, item="bed") == (
+        "There's no item called bed. Close names: white_bed, red_bed.")
+
+
+def test_she_knows_what_she_cant_do_yet_and_how_her_moves_behave(db, alice, pack):
+    from app.db.models import GameLesson, GameProposal
+
+    db.add(GameProposal(user_id=alice.id, game="minecraft", normalized_key="new_skill:pillar_upward",
+                        title="Add a safe upward-pillar action", area="new_skill", problem="p", suggestion="s",
+                        evidence=[], status="open"))
+    db.add(GameProposal(user_id=alice.id, game="minecraft", normalized_key="x:done", title="Already built",
+                        area="other", problem="p", suggestion="s", evidence=[], status="implemented"))
+    db.add(GameLesson(user_id=alice.id, game="minecraft", normalized_key="crafting:table", level="skill",
+                      situation="crafting a bed", advice="place a crafting table first", status="trial",
+                      evidence=[]))
+    db.commit()
+    summary = desktop_game.describe(db, alice.id).summary
+    assert "What you know you can't do yet (you asked for it to be built; not done): Add a safe upward-pillar action." in summary
+    assert "Already built" not in summary
+    assert "- When crafting a bed: place a crafting table first (tentative: seen once)" in summary
+
+
+def test_struggling_wakes_her_even_when_quiet_and_stuck_says_why(db, alice, pack):
+    session = _playing(db, alice, pack)
+    session.commentary_mode = "quiet"
+    db.commit()
+    svc.driver_noticed(db, session.id, kind="struggling", text='4 failed tries at "craft a white bed": ...')
+    jobs = db.query(AgentEventJob).filter_by(user_id=alice.id).all()
+    assert any(r.startswith("struggling: 4 failed tries") for job in jobs for r in job.reasons)
+
+
+def test_background_modes_change_without_touching_the_plan(db, alice, pack):
+    """Seen live: she said she'd watch for mobs and grab iron while following, and could do neither."""
+    desktop_game.start(db, alice.id, goal="Follow tearDrop12")
+    game_pack.sync(db, pack)
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    revision = session.plan_revision
+    reply = desktop_game.set_modes(db, alice.id, guard=True, gather=["Iron Ore", "coal_ore"])
+    assert reply == "Background modes now: guard on; gathering iron_ore, coal_ore on the way."
+    assert pack.modes_now == {"guard": True, "gather": ["iron_ore", "coal_ore"], "pickup": False}
+    db.refresh(session)
+    assert session.plan_revision == revision and pack.stops == 0
+    with pytest.raises(desktop_game.DesktopError) as bad:
+        desktop_game.set_modes(db, alice.id, gather=["iron"])
+    assert bad.value.code == "bad_modes" and "iron_ore" in bad.value.message
+    assert desktop_game.set_modes(db, alice.id, guard=False, gather=[]) == "Background modes now: all off."
+    assert "Background modes (set_my_modes)" in desktop_game.describe(db, alice.id).summary

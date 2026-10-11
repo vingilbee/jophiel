@@ -91,7 +91,7 @@ def test_last_step_and_goal_done_wake_her(db, alice):
 def test_stuck_needs_human_and_self_pauses_wake_her(db, alice):
     session = _playing(db, alice)
     svc.driver_progress(db, session.id, plan_revision=1, step_id="s1", status="stuck", note="wall")
-    assert "stuck" in agent_events.reasons_of(_jobs(db)[-1])
+    assert "stuck: wall" in agent_events.reasons_of(_jobs(db)[-1])
     svc.resume_session(db, alice.id, session.id, expected_state_revision=db.get(DesktopSession, session.id).state_revision)
     svc.controller_pause(db, session.id, reason="not_foreground")
     assert "paused:not_foreground" in agent_events.reasons_of(_jobs(db)[-1])
@@ -122,9 +122,60 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     (["goal_done"], "occasional", 10, False),      # too soon after the last one
     (["plan_low"], "occasional", None, False),     # not worth interrupting for
     (["notable: iron"], "commentary", 30, True),
+    (["stuck: no skill for: pillar up"], "occasional", 8, True),  # blocked: never held back by the gap
+    (["struggling: 4 failed tries"], "quiet", 2, True),          # nor by quiet: she may need to ask
 ])
 def test_occasional_means_occasional(reasons, mode, since, ok):
     assert agent_say.allowed(reasons, mode, since)[0] is ok
+
+
+@pytest.mark.parametrize(("reasons", "which"), [
+    (["danger: died"], "died"),
+    (["danger: took damage: 2.5 of 10 hearts left"], "low_health"),
+    (["danger: took damage: health 5/20"], "low_health"),  # the older wording
+    (["danger: took damage: 4 of 10 hearts left"], None),
+    (["danger: spider 6 m south (ahead-right)"], None),
+    (["goal_done"], None),
+])
+def test_what_counts_as_serious(reasons, which):
+    assert agent_say.serious(reasons) == which
+
+
+def test_a_fresh_serious_moment_skips_the_gap_but_not_quiet():
+    assert agent_say.allowed(["danger: died"], "occasional", 5)[0] is False
+    assert agent_say.allowed(["danger: died"], "occasional", 5, serious_fresh=True)[0] is True
+    assert agent_say.allowed(["danger: died"], "quiet", 5, serious_fresh=True)[0] is False
+
+
+def test_death_is_said_right_after_another_message_but_only_once(db, alice, isolated_redis):
+    db.add(Conversation(user_id=alice.id, title="chat"))
+    db.commit()
+    say = lambda text, reasons: agent_say.deliver(db, user_id=alice.id, text=text, reasons=reasons,  # noqa: E731
+                                                  commentary_mode="occasional")
+    assert say("A spider!", ["danger: spider 6 m south"]).startswith("Said")
+    assert say("Ouch.", ["danger: took damage: 4 of 10 hearts left"]).startswith("Not said")
+    assert say("I died!", ["danger: died"]).startswith("Said")  # within the minute, still said
+    assert say("Died again?", ["danger: died"]).startswith("Not said")  # the same moment twice
+
+
+@pytest.mark.parametrize(("reasons", "cut"), [
+    (["danger: zombie 2 m ahead"], True),
+    (["danger: died"], True),
+    (["needs_human"], True),
+    (["goal_done"], False),
+    (["discovery: a village 70 m north"], False),
+    (["paused:plan_complete"], False),
+])
+def test_urgent_messages_cut_her_off(reasons, cut):
+    assert agent_say.interrupts(reasons) is cut
+
+
+def test_published_message_says_whether_to_interrupt(db, alice, isolated_redis):
+    db.add(Conversation(user_id=alice.id, title="chat"))
+    db.commit()
+    agent_say.deliver(db, user_id=alice.id, text="Ow, zombie!", reasons=["danger: took damage: 2 of 10 hearts left"],
+                      commentary_mode="occasional")
+    assert json.loads(isolated_redis.published[-1][1])["interrupt"] is True
 
 
 def test_saying_saves_the_message_and_publishes_it(db, alice, isolated_redis):
@@ -164,6 +215,53 @@ def test_background_tools_plan_as_her_and_only_undo_her_own_pauses(database, ali
     assert refused.startswith("Not done: this pause wasn't yours")
 
 
+def test_news_about_a_plan_that_is_gone_is_dropped(db, alice):
+    """Seen live: "on the last step" turns about her bed plan ran after the user said
+    "go to the cave", and set the bed plan back."""
+    from app.services import game_events
+
+    session = _playing(db, alice, steps=2)
+    svc.driver_progress(db, session.id, plan_revision=1, step_id="s1", status="step_done")
+    assert _jobs(db)[-1].payload["plan_revision"] == 1
+    reasons = ["plan_low", "danger: creeper 8 m north"]
+    assert game_events.current_reasons(reasons, 1, 1) == reasons
+    assert game_events.current_reasons(reasons, 1, 2) == ["danger: creeper 8 m north"]
+    assert game_events.current_reasons(["plan_low", "goal_done"], 1, 2) == []
+
+
+def test_her_background_plan_never_overrides_the_users_newer_one(database, alice, monkeypatch):
+    from app.ai.tools.desktop import tools as tool_module
+
+    monkeypatch.setattr(tool_module, "SessionLocal", database)
+    with database() as db:
+        session = _playing(db, alice)
+    tools = {t.name: t for t in build_desktop_tools(alice.id, GameEvent(("stuck",), plan_revision=1))}
+    # Her own changes during the turn don't block her next ones.
+    assert asyncio.run(tools["set_game_plan"].ainvoke({"goal": "Place my bed"})).startswith("Done")
+    assert asyncio.run(tools["add_game_steps"].ainvoke({"steps": [
+        {"do": "sleep", "done_when": "it's morning"}]})).startswith("Added")
+    with database() as db:
+        desktop_game.set_plan(db, alice.id, goal="Go to the cave")  # the user, meanwhile
+    refused = asyncio.run(tools["set_game_plan"].ainvoke({"goal": "Sleep in my bed"}))
+    assert refused.startswith("Not done: while you were thinking, the user changed your plan to \"Go to the cave\"")
+    assert asyncio.run(tools["add_game_steps"].ainvoke({"steps": [
+        {"do": "sleep", "done_when": "it's morning"}]})).startswith("Not done: while you were thinking")
+    with database() as db:
+        assert db.get(DesktopSession, session.id).plan["goal"] == "Go to the cave"
+
+
+def test_on_the_last_step_she_adds_steps_but_never_replaces_the_plan(database, alice, monkeypatch):
+    from app.ai.tools.desktop import tools as tool_module
+
+    monkeypatch.setattr(tool_module, "SessionLocal", database)
+    with database() as db:
+        _playing(db, alice)
+    tools = {t.name: t for t in build_desktop_tools(alice.id, GameEvent(("plan_low",), plan_revision=1))}
+    assert "add_game_steps" in asyncio.run(tools["set_game_plan"].ainvoke({"goal": "Something else"}))
+    assert asyncio.run(tools["add_game_steps"].ainvoke({"steps": [
+        {"do": "craft planks", "done_when": "planks in inventory"}]})).startswith("Added")
+
+
 def test_she_cannot_pick_goals_forever(database, alice, monkeypatch):
     from app.ai.tools.desktop import tools as tool_module
     from app.core.config import get_settings
@@ -177,6 +275,46 @@ def test_she_cannot_pick_goals_forever(database, alice, monkeypatch):
     asyncio.run(tools["set_game_plan"].ainvoke({"goal": "one"}))
     second = asyncio.run(tools["set_game_plan"].ainvoke({"goal": "two"}))
     assert second.startswith("Not done: you've picked 1 goals yourself")
+
+
+def test_the_goal_cap_restarts_when_the_user_joins_in(database, alice, monkeypatch):
+    """Seen live: counted over a whole evening, the cap ran out and every finished
+    goal after it paused, while the user was right there playing."""
+    from app.ai.tools.desktop import tools as tool_module
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(tool_module, "SessionLocal", database)
+    capped = get_settings().model_copy(update={"desktop_max_auto_goals": 1, "desktop_agent_enabled": True})
+    monkeypatch.setattr(desktop_game, "get_settings", lambda: capped)
+    with database() as db:
+        session = _playing(db, alice)
+    tools = {t.name: t for t in build_desktop_tools(alice.id, GameEvent(("goal_done",)))}
+    asyncio.run(tools["set_game_plan"].ainvoke({"goal": "one"}))
+    with database() as db:
+        assert svc.auto_goals_set(db, session.id) == 1
+        desktop_game.set_plan(db, alice.id, goal="what the user asked for")  # their turn
+        assert svc.auto_goals_set(db, session.id) == 0
+    assert asyncio.run(tools["set_game_plan"].ainvoke({"goal": "two"})).startswith("Done")
+    with database() as db:
+        s = svc.pause_session(db, alice.id, session.id).session
+        assert svc.auto_goals_set(db, s.id) == 1
+        svc.resume_session(db, alice.id, s.id, expected_state_revision=s.state_revision)  # their resume
+        assert svc.auto_goals_set(db, s.id) == 0
+
+
+def test_a_finished_plan_cannot_be_resumed(db, alice):
+    """Seen live: Resume on a finished plan paused again within a second, 7 times."""
+    session = _playing(db, alice, steps=1)
+    step = session.plan["steps"][0]["id"]
+    svc.driver_progress(db, session.id, plan_revision=session.plan_revision, step_id=step, status="step_done")
+    paused = svc.pause_session(db, alice.id, session.id, reason="plan_complete").session
+    with pytest.raises(svc.DesktopError) as excinfo:
+        svc.resume_session(db, alice.id, session.id, expected_state_revision=paused.state_revision)
+    assert excinfo.value.code == "nothing_to_do"
+    desktop_game.set_plan(db, alice.id, goal="chop more oak", steps=[
+        {"do": "chop oak", "done_when": "gained 10 oak_log"}])  # a new goal resumes her own pause
+    db.refresh(paused)
+    assert paused.state == "running"
 
 
 # --- the driver between goals ------------------------------------------------------

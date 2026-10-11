@@ -104,5 +104,17 @@ class PackClient:
     def stop(self) -> dict | None:
         return self._call("POST", "/skills/stop", timeout=2.0)
 
+    def recipe(self, item: str) -> dict:
+        """What it takes to make ``item`` (lowercase Minecraft id), against what she carries."""
+        return self._call("GET", f"/recipes/{item}")
+
+    def modes(self) -> dict:
+        """Background modes: ``{"guard": bool, "gather": [block names], "pickup": bool}``."""
+        return self._call("GET", "/modes")
+
+    def set_modes(self, modes: dict) -> dict:
+        """Set the modes given (the rest stay); 400 for an unknown block name."""
+        return self._call("POST", "/modes", json=modes)
+
     def notices(self, since: int = 0, *, wait: float = 0) -> dict:
         return self._call("GET", "/notices", params={"since": since, "wait": wait}, timeout=wait + 3.0)

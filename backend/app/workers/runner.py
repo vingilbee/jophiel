@@ -7,7 +7,9 @@ import threading
 import redis
 
 from app.core.config import get_settings
-from app.workers import agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, memory, whatsapp
+from app.workers import (
+    agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, memory, whatsapp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +109,9 @@ def run(stop: threading.Event | None = None) -> None:
             # Columbina waking on game events: its own thread, so a background
             # turn never sits in front of a reply (and vice versa).
             worker_specs.append(("agent-events", agent_events.run_once, "macrovision:agent-events:wakeups", 1.0))
+            if getattr(settings, "game_learning_enabled", False):
+                # Reflection on ended game sessions: rare, slow model calls on their own thread.
+                worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

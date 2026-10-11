@@ -25,6 +25,10 @@ from app.services import desktop_game
 log = logging.getLogger(__name__)
 
 HISTORY_MESSAGES = 10
+# News about her plan's progress. Once the plan has changed since (the user gave a new goal),
+# it's about a plan that's gone: seen live, three "on the last step" turns queued for her bed
+# plan finished after the user said "go to the cave" and set the bed plan back, twice.
+PLAN_NEWS = ("plan_low", "goal_done", "paused:plan_complete", "paused:planning_timeout")
 # How long to wait for a user turn already in flight before going ahead.
 USER_TURN_WAIT_SECONDS = 30
 
@@ -35,10 +39,14 @@ def describe_reason(reason: str) -> str:
         return "You finished every step of your goal."
     if kind == "plan_low":
         return "You're on the last step of your plan."
+    said = f' Your hands said (their words): "{detail.strip()}"' if detail.strip() else ""
     if kind == "stuck":
-        return "You got stuck and paused yourself."
+        return "You got stuck and paused yourself." + said
     if kind == "needs_human":
-        return "You hit something outside the game and paused: you need the user."
+        return "You paused because you need the user." + said
+    if kind == "struggling":
+        return ("You keep failing at your current step (you're still playing). Failed tries, counted: "
+                f"{detail.strip()}")
     if kind == "paused":
         return f"Your game paused: {desktop_game.REASONS.get(detail, detail)}."
     if kind in ("danger", "notable"):
@@ -53,10 +61,21 @@ def _user_turn_in_flight(user_id: uuid.UUID) -> bool:
         ) is not None
 
 
-def _prepare(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str]):
+def current_reasons(reasons: list[str], news_revision: int | None, plan_revision: int) -> list[str]:
+    """The reasons still worth a turn: plan news only if it's about the plan she's on now."""
+    if news_revision is None or news_revision == plan_revision:
+        return reasons
+    return [reason for reason in reasons if reason not in PLAN_NEWS]
+
+
+def _prepare(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], news_revision: int | None):
     with SessionLocal() as db:
         session = db.get(DesktopSession, session_id)
         if session is None or session.owner_user_id != user_id:
+            return None
+        reasons = current_reasons(reasons, news_revision, session.plan_revision)
+        if not reasons:
+            log.info("game event turn for session %s skipped: the plan changed since", session_id)
             return None
         # A session the user ended is over: nothing to act on or announce.
         if session.state == "ended" and session.reason_code == "user_end":
@@ -71,13 +90,15 @@ def _prepare(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str]):
         event = GameEvent(
             reasons=tuple(reasons), commentary_mode=session.commentary_mode,
             keep_playing=session.autonomy == "continue",
-            described=tuple(describe_reason(r) for r in reasons),
+            described=tuple(describe_reason(r) for r in reasons), plan_revision=session.plan_revision,
         )
         return user.name if user else None, history, game, event
 
 
-async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str]) -> str | None:
-    """Run one background turn. Returns her (unshown) reply, for logs and tests."""
+async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
+              plan_revision: int | None = None) -> str | None:
+    """Run one background turn. Returns her (unshown) reply, for logs and tests.
+    ``plan_revision``: the plan when the newest of these events happened."""
     from app.ai import prompts
     from app.ai.chat import complete_chat
 
@@ -86,7 +107,7 @@ async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str]) -> 
         if time.monotonic() - started > USER_TURN_WAIT_SECONDS:
             break
         await asyncio.sleep(1)
-    prepared = await asyncio.to_thread(_prepare, user_id, session_id, reasons)
+    prepared = await asyncio.to_thread(_prepare, user_id, session_id, reasons, plan_revision)
     if prepared is None:
         return None
     user_name, history, game, event = prepared

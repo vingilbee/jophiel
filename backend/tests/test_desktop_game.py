@@ -63,7 +63,7 @@ def test_start_writes_the_goal_and_reports_what_blocks_it(db, alice):
     assert [s["do"] for s in session.plan["steps"]] == ["Collect 5 oak logs"]  # one-step goal
     assert session.plan["source"] == "columbina_user_turn"
     # Asked to play again while set up: the goal changes, no second session, no refusal.
-    assert desktop_game.start(db, alice.id, goal="Find sheep").startswith("Goal set")
+    assert desktop_game.start(db, alice.id, goal="Find sheep").startswith("Done; you're now on: Find sheep")
     sessions_now = svc.list_sessions(db, alice.id, live_only=True)
     assert len(sessions_now) == 1 and sessions_now[0].plan["goal"] == "Find sheep"
 
@@ -146,12 +146,13 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
         _paired_env(setup, alice)
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
     assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "tell_my_hands",
-                          "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing"}
+                          "set_my_modes", "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing",
+                          "how_to_make", "note_promise", "drop_promise"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))
     assert reply.startswith("Started; you're playing")
     again = asyncio.run(tools["start_game"].ainvoke({"goal": "again"}))
-    assert again.startswith("Goal set")
+    assert again.startswith("Done; you're now on: again")
     stranger = {t.name: t for t in build_desktop_tools(uuid.uuid4())}
     assert asyncio.run(stranger["pause_game"].ainvoke({})).startswith("Not done:")
 
@@ -256,6 +257,76 @@ def test_a_new_goal_clears_tips_and_careful_mode_from_the_old_one(db, alice):
     desktop_game.tell_hands(db, alice.id, message="look for sheep")
     desktop_game.add_steps(db, alice.id, steps=[{"do": "craft the bed", "done_when": "a bed in the hotbar"}])
     assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == ["look for sheep"]  # more steps keep them
+
+
+def test_the_same_plan_again_changes_nothing(db, alice):
+    """Seen live: "OK.", "Now?" and "Hello?" each set the same goal again, cutting off her move."""
+    _paired_env(db, alice)
+    steps = [{"do": "follow tearDrop12 (follow_player)", "done_when": "the user says to stop"}]
+    desktop_game.start(db, alice.id, goal="Follow tearDrop12 to the cave", steps=steps, constraints=["don't sleep"])
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    desktop_game.tell_hands(db, alice.id, message="stay close")
+    db.refresh(session)
+    revision = session.plan_revision
+
+    reply = desktop_game.set_plan(db, alice.id, goal="Follow tearDrop12 to the cave.", steps=steps,
+                                  constraints=["Don't sleep"])
+    db.refresh(session)
+    assert reply.startswith("You're already on exactly that") and session.plan_revision == revision
+    assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == ["stay close"]
+
+    desktop_game.set_plan(db, alice.id, goal="Follow tearDrop12 to the cave", steps=steps)  # rule dropped: a change
+    db.refresh(session)
+    assert session.plan_revision == revision + 1
+
+
+def test_her_own_turn_cant_reset_a_goal_she_just_finished(db, alice):
+    """Seen live: "reach the user and stay nearby" with done_when "within 2 blocks"
+    finished on arrival, woke her, and she set it again, five times in 35 s."""
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="Reach the user and stay nearby")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    db.refresh(session)
+    svc.driver_progress(db, session.id, plan_revision=session.plan_revision, step_id=session.plan["steps"][0]["id"],
+                        status="step_done")
+    with pytest.raises(DesktopError) as refused:
+        desktop_game.set_plan(db, alice.id, goal="reach the user, and stay nearby!", source="columbina_planning_turn")
+    assert refused.value.code == "goal_just_done" and "ongoing last step" in refused.value.message
+    # A different goal is fine, and so is the user asking for the same one again.
+    desktop_game.set_plan(db, alice.id, goal="Reach the user and stay nearby", source="columbina_user_turn")
+    db.refresh(session)
+    svc.driver_progress(db, session.id, plan_revision=session.plan_revision, step_id=session.plan["steps"][0]["id"],
+                        status="step_done")
+    assert desktop_game.set_plan(db, alice.id, goal="find a sheep", source="columbina_planning_turn")
+
+
+def test_a_new_goal_resumes_her_own_pause_and_never_hides_the_users(db, alice):
+    """Seen live: sleeping finished her plan (paused), she set "gather logs" on the
+    user's turn, was told "Done", and said she'd started while standing still."""
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="Sleep in the bed")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    svc.controller_pause(db, session.id, reason="plan_complete")
+
+    reply = desktop_game.set_plan(db, alice.id, goal="Gather oak logs")
+    db.refresh(session)
+    assert session.state == "running" and "playing again" in reply
+
+    desktop_game.pause(db, alice.id)
+    reply = desktop_game.set_plan(db, alice.id, goal="Gather more logs")
+    db.refresh(session)
+    assert session.state == "paused"  # the user's pause is theirs to lift
+    assert "still paused (the user paused it)" in reply and "resume_game" in reply
+
+    svc.controller_pause(db, session.id, reason="plan_complete")  # no-op: not running
+    desktop_game.resume(db, alice.id)
+    svc.controller_pause(db, session.id, reason="plan_complete")
+    reply = desktop_game.set_plan(db, alice.id, goal="Pick a goal", source="columbina_planning_turn")
+    db.refresh(session)
+    assert session.state == "paused" and "still paused" in reply  # only the user's turn resumes
 
 
 # --------------------------------------------------------------------------- #

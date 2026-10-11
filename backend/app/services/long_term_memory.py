@@ -33,7 +33,11 @@ episodes, relationships, ongoing projects, routines, and interaction preferences
 one-off questions, assistant suggestions, guesses, transient moods, and facts already represented by
 an authoritative application record. Requests for the assistant to do things in a game it is playing
 ("collect five oak logs", "build a house", "stop playing") are game tasks, not the user's goals:
-never store them; preferences about how the assistant talks or behaves still count. Never infer diagnoses, sensitive traits, relationships, or
+never store them. How the assistant should play ("you can break blocks", "stay close") is learned by the
+game itself, so skip that too; preferences about how the assistant talks or behaves still count. The USER
+text is often a speech transcript and can be misheard: never store a fact from a phrase that doesn't make
+sense in context (an odd brand or name in the middle of a game, a fragment), and when unsure store nothing.
+Never infer diagnoses, sensitive traits, relationships, or
 emotional conditions. A model interpretation is not a user fact. Use `forget` only when the user
 explicitly retracts something or asks for it to be forgotten. Give related facts a stable lowercase
 namespaced normalized_key such as `preference:communication_style`, `relationship:sister_name`,
@@ -252,6 +256,17 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float:
     return dot / norm if norm else 0.0
 
 
+EPISODE_CANDIDATES = 200
+
+
+def _memory_line(memory: SemanticMemory | EpisodicMemory) -> str:
+    if isinstance(memory, EpisodicMemory):
+        source = (memory.context or {}).get("source")
+        label = f"episode, {memory.event_at:%Y-%m-%d}" + (f", {source}" if source else "")
+        return f"- [{label}] {memory.summary}"
+    return f"- [{memory.kind}] {memory.content}"
+
+
 def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
     """Return a compact ranked memory block; failures never break chat."""
     settings = get_settings()
@@ -269,13 +284,24 @@ def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
                     )
                 )
             )
-            if not memories:
+            # Episodes (e.g. a game session she reflected on) compete with facts
+            # on the same score; only the most recent ones are considered.
+            episodes = list(
+                db.scalars(
+                    select(EpisodicMemory)
+                    .where(EpisodicMemory.user_id == user_id, EpisodicMemory.status == "active")
+                    .order_by(EpisodicMemory.event_at.desc())
+                    .limit(EPISODE_CANDIDATES)
+                )
+            )
+            if not memories and not episodes:
                 return None
             query_vector = _embedding(query)
             query_words = set(_WORD_RE.findall(query.lower()))
-            ranked: list[tuple[float, SemanticMemory]] = []
-            for memory in memories:
-                memory_words = set(_WORD_RE.findall(memory.content.lower()))
+            ranked: list[tuple[float, SemanticMemory | EpisodicMemory]] = []
+            for memory in [*memories, *episodes]:
+                content = memory.summary if isinstance(memory, EpisodicMemory) else memory.content
+                memory_words = set(_WORD_RE.findall(content.lower()))
                 lexical = len(query_words & memory_words) / max(1, len(query_words))
                 semantic = max(0.0, _cosine(query_vector, memory.embedding))
                 # Important constraints remain recallable even without a close
@@ -290,7 +316,7 @@ def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
                 memory.last_accessed_at = now
                 memory.access_count += 1
             db.commit()
-            return "\n".join(f"- [{memory.kind}] {memory.content}" for memory in selected)
+            return "\n".join(_memory_line(memory) for memory in selected)
     except Exception:
         logger.exception("Long-term memory retrieval failed; continuing without it")
         return None
