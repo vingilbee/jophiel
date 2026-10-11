@@ -449,7 +449,7 @@ function describeDecision(d: DesktopDecisionReport): string {
 }
 
 const PAUSE_REASONS: Record<string, string> = {
-  plan_complete: 'Columbina finished every step of the goal.',
+  plan_complete: 'Columbina finished every step of the goal. Give her a new one to keep playing.',
   pack_offline: 'Her Minecraft player left the world (the pack stopped, or lost the server).',
   planning_timeout: "She finished her goal but didn't pick a new one in time.",
   driver_stuck: 'Columbina got stuck and stopped. Change the goal or resume to let her try again.',

@@ -8,7 +8,7 @@ const TABS = [
   { to: '/dashboard', label: 'Home' },
   { to: '/chat', label: 'Chat' },
   { to: '/predict', label: 'Scan Meal' },
-  { to: '/chat', label: 'History' },
+  { to: '/learning', label: 'Learning' },
   { to: '/integrations', label: 'Integrations' },
 ]
 
