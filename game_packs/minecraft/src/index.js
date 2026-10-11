@@ -6,9 +6,11 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import mineflayer from 'mineflayer'
 
 import { startApi } from './api.js'
+import { recipeFor } from './recipes.js'
 import { assertPrivateHost, loadConfig } from './config.js'
 import { describeState } from './describe.js'
 import { attachSkills } from './pack.js'
+import { ModeSettings } from './modes/modes.js'
 import { readState } from './state.js'
 import { startViewer, viewerSupports } from './viewer.js'
 
@@ -29,11 +31,13 @@ let bot = null
 let runner = null
 let motion = null
 let noticing = null
+let sightings = null
 let manifest = []
 let spawned = false
 let viewer = null
 let retryMs = 2000
 let quitting = false
+const modes = new ModeSettings() // background modes, kept across reconnects
 
 // Kick reasons arrive as chat components, sometimes wrapped in NBT.
 function reasonText (reason) {
@@ -46,11 +50,13 @@ function getState () {
   const recent = Date.now() - 120000
   state.noticed = (noticing?.since(0) ?? []).filter((n) => Date.parse(n.at) >= recent).slice(-5)
   const skill = runner?.current
+  const on = modes.describe()
   return {
     ...state,
     skill: skill ? { id: skill.id, name: skill.skill, params: skill.params } : null,
+    modes: modes.toJSON(),
     motion: motion ? { style: motion.style, max_turn_per_tick_deg: Math.round(motion.stats.maxStepDeg * 10) / 10, snaps: motion.stats.snaps, missed_swings: motion.stats.misses } : null,
-    text: describeState(state)
+    text: describeState(state) + `\nBackground modes: ${on ?? 'none on'}.`
   }
 }
 
@@ -71,7 +77,7 @@ async function join () {
     // Microsoft sign-in prints a device code once; the token is cached in authCacheDir.
     onMsaCode: (data) => log(`sign in for her account: open ${data.verification_uri} and enter ${data.user_code}`)
   })
-  ;({ runner, motion, noticing, manifest } = attachSkills(bot, { memoryPath }))
+  ;({ runner, motion, noticing, sightings, manifest } = attachSkills(bot, { memoryPath, modes }))
   runner.on('start', (r) => log(`skill ${r.skill} ${JSON.stringify(r.params)}`))
   noticing.onNotice?.((n) => log(`noticed [${n.urgency}] ${n.kind}: ${n.text}`))
   runner.on('finish', (r) => log(`skill ${r.skill} -> ${r.status}${r.reason ? ` (${r.reason})` : ''} ${JSON.stringify(r.data)}`))
@@ -101,6 +107,7 @@ async function join () {
     spawned = false
     runner?.detach()
     noticing?.detach()
+    sightings?.detach()
     viewer?.close()
     viewer = null
     if (quitting) return
@@ -124,7 +131,9 @@ await startApi({
     state: getState,
     runner: () => (spawned ? runner : null),
     manifest: () => manifest,
-    noticing: () => (spawned ? noticing : null)
+    noticing: () => (spawned ? noticing : null),
+    modes: () => modes,
+    recipe: (item) => recipeFor(bot, item)
   }
 })
 log(`api on http://${config.apiHost}:${config.apiPort}`)

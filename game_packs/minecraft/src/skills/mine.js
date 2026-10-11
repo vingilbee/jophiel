@@ -31,15 +31,21 @@ export const mine = {
   validate (bot, params) {
     requireBlock(bot, params.block)
   },
+  // After a background mode put her on hold: only what's still missing, not count all over again.
+  resume (params, data) {
+    return { ...params, _before: { mined: data.mined ?? 0, collected: data.collected ?? 0 } }
+  },
   async run (ctx, params) {
     const { bot } = ctx
     const ids = blockIds(bot, params.block)
     const drops = dropNames(bot.registry, ids)
     const start = count(bot, drops)
     const unreachable = new Set()
-    let mined = 0
+    // Picked back up after a background mode (see resume): counts carry on from there.
+    const before = params._before ?? { mined: 0, collected: 0 }
+    let mined = before.mined
 
-    const collected = () => (drops.length ? count(bot, drops) - start : mined)
+    const collected = () => before.collected + (drops.length ? count(bot, drops) - start : mined - before.mined)
     // The server says "picked up" before it sends the inventory update; give it a moment.
     const settle = async () => {
       const until = Date.now() + 1500

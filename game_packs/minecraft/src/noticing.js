@@ -159,7 +159,7 @@ export function attachNoticing (bot, { memory }) {
     const dropped = windowHealth - bot.health
     if (dropped >= 4 || (dropped > 0 && bot.health <= 8)) {
       const urgent = bot.health <= 8
-      add('hurt', urgent ? 'urgent' : 'heads_up', `took damage: health ${Math.round(bot.health)}/20`,
+      add('hurt', urgent ? 'urgent' : 'heads_up', `took damage: ${Math.round(bot.health) / 2} of 10 hearts left`,
         { health: Math.round(bot.health), lost: Math.round(dropped) }, 'hurt', 15000)
       windowHealth = bot.health
       windowAt = now
@@ -207,6 +207,10 @@ export function attachNoticing (bot, { memory }) {
         const timer = setTimeout(done, ms)
         events.on('notice', done)
       })
+    },
+    // Something reported from outside the checks here (what a background mode did).
+    report (kind, urgency, text, data = {}) {
+      return add(kind, urgency, text, data)
     },
     get seq () { return seq },
     onNotice (listener) {

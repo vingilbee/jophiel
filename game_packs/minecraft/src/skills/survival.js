@@ -57,7 +57,7 @@ export const craft = {
   name: 'craft',
   description: 'Craft an item from what she carries, using a crafting table nearby if the recipe needs one.',
   doneWhen: 'she has crafted count',
-  stopsWhen: 'no recipe, missing ingredients (says which), needs a crafting table and none is nearby',
+  stopsWhen: 'no recipe, missing ingredients (says which), needs a crafting table and none is placed nearby',
   params: {
     item: { type: 'string', required: true, description: 'item name, e.g. oak_planks, stick, wooden_pickaxe' },
     count: { type: 'integer', min: 1, max: 64, default: 1, description: 'how many to end up with' },
@@ -82,7 +82,11 @@ export const craft = {
     if (!recipe) {
       const any = bot.recipesAll(item.id, null, table ?? true)
       if (!any.length) return failed(`no recipe for ${params.item}`)
-      if (any.every((r) => r.requiresTable) && !table) return failed('needs a crafting table nearby')
+      // A bed also has a no-table recipe (dye a bed), so "every recipe needs a table" misses it:
+      // she had the wool and planks, was told "missing ingredients", and crafted planks four times.
+      if (!table && (any.every((r) => r.requiresTable) || any.some((r) => r.requiresTable && affordable(bot, r)))) {
+        return failed(tableMissing(bot))
+      }
       // Of the recipe variants (oak, birch, cherry planks...), describe the one closest to what she has.
       const have = new Set(bot.inventory.items().map((i) => i.type))
       const closest = [...any].sort((a, b) => overlap(b, have) - overlap(a, have))[0]
@@ -111,6 +115,17 @@ export const craft = {
     }
     return done({ crafted })
   }
+}
+
+function tableMissing (bot) {
+  return count(bot, ['crafting_table']) > 0
+    ? 'needs a crafting table nearby: place the one she carries first (place block=crafting_table)'
+    : 'needs a crafting table nearby'
+}
+
+// Whether she carries everything a recipe consumes.
+function affordable (bot, recipe) {
+  return (recipe.delta ?? []).every(({ id, count: n }) => n >= 0 || count(bot, [bot.registry.items[id]?.name]) >= -n)
 }
 
 // How many of a recipe's ingredient kinds she carries.

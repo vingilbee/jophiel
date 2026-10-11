@@ -9,6 +9,9 @@
 //   GET  /skills/history              -> recent finished runs
 //   GET  /notices?since=<seq>&wait=<s> -> { next, notices }: what she noticed after <seq>, waiting
 //                                        up to <s> (max 60) for something new
+//   GET  /recipes/<item>              -> what it takes to make <item>, against what she carries
+//   GET  /modes                       -> background modes { guard, gather: [blocks], pickup }
+//   POST /modes {guard?, gather?, pickup?} -> sets the ones given; 400 for an unknown block name
 import { createServer } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 
@@ -55,7 +58,8 @@ function readJson (req) {
   })
 }
 
-// pack: { status(), state(), runner() -> SkillRunner|null, manifest(), noticing() -> noticing|null }
+// pack: { status(), state(), runner() -> SkillRunner|null, manifest(), noticing() -> noticing|null, modes() -> ModeSettings,
+//         recipe(item) }
 export function startApi ({ host, port, token, pack }) {
   const allowedHosts = new Set([`${host}:${port}`, `localhost:${port}`])
 
@@ -85,6 +89,11 @@ export function startApi ({ host, port, token, pack }) {
       const source = body.source === 'driver' ? 'driver' : 'user'
       return send(res, 202, runner.start(body.skill, body.params ?? {}, { source }))
     }
+    if (key === 'GET /modes') return send(res, 200, pack.modes().toJSON())
+    if (key === 'POST /modes') {
+      if (needsWorld()) return // block names are checked against the world's version
+      return send(res, 200, pack.modes().set(await readJson(req), runner.bot))
+    }
     if (key === 'GET /notices') {
       const noticing = pack.noticing?.()
       if (!noticing) return send(res, 503, { error: 'not in the world' })
@@ -93,6 +102,8 @@ export function startApi ({ host, port, token, pack }) {
       const notices = await noticing.wait(since, wait * 1000)
       return send(res, 200, { next: notices.at(-1)?.seq ?? Math.max(since, 0), notices })
     }
+    const recipe = /^\/recipes\/([a-z0-9_]{1,64})$/.exec(path)
+    if (recipe && req.method === 'GET') return needsWorld() || send(res, 200, pack.recipe(recipe[1]))
     const run = /^\/skills\/runs\/([0-9a-f-]{36})$/.exec(path)
     if (run && req.method === 'GET') {
       const wait = Math.min(Math.max(Number(url.searchParams.get('wait') ?? 0) || 0, 0), 60)

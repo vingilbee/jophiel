@@ -6,6 +6,7 @@ import { after, before, describe, test } from 'node:test'
 import { startApi } from '../../src/api.js'
 import { attachSkills } from '../../src/pack.js'
 import { notableBlocks } from '../../src/state.js'
+import { recipeFor } from '../../src/recipes.js'
 import { eulaAccepted, joinBot, sleep, startServer, until } from './harness.js'
 
 const NAME = 'Columbina'
@@ -227,6 +228,34 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
     assert.ok(bot.inventory.items().some((i) => i.name === 'cobblestone' && i.count >= 2))
   })
 
+  test('craft a bed with the table still in her pocket: says to place it, not "missing ingredients"', async () => {
+    await reset()
+    await mc(`give ${NAME} minecraft:white_wool 3`)
+    await mc(`give ${NAME} minecraft:oak_planks 3`)
+    await mc(`give ${NAME} minecraft:crafting_table 1`)
+    await until(() => ['white_wool', 'oak_planks', 'crafting_table'].every((n) => bot.inventory.items().some((i) => i.name === n)))
+
+    // Asked first, the recipe says she has everything but needs the table placed.
+    const bed = recipeFor(bot, 'white_bed')
+    assert.equal(bed.known, true)
+    assert.equal(bed.crafting_table_nearby, false)
+    assert.equal(bed.crafting_table_carried, true)
+    assert.deepEqual(bed.recipes[0].missing, {}, JSON.stringify(bed))
+    assert.equal(bed.recipes[0].needs_crafting_table, true)
+    assert.deepEqual(recipeFor(bot, 'bed').known, false)
+    assert.ok(recipeFor(bot, 'bed').did_you_mean.includes('white_bed'))
+
+    let r = await run('craft', { item: 'white_bed' })
+    assert.equal(r.status, 'failed')
+    assert.match(r.reason, /place the one she carries/, JSON.stringify(r))
+    assert.throws(() => runner.start('craft', { item: 'bed' }), /no item is called bed \(did you mean: .*white_bed/)
+
+    r = await run('place', { block: 'crafting_table' })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    r = await run('craft', { item: 'white_bed' })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+  })
+
   test('eat: refuses when full, eats when hungry', async () => {
     await reset()
     await mc(`give ${NAME} minecraft:bread 3`)
@@ -403,6 +432,48 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
     assert.equal(await serverCount(NAME, 'apple'), 3)
     assert.equal(await serverCount(NAME, 'bread'), 2)
     assert.equal((await run('collect_items', {})).status, 'failed', 'nothing left to pick up')
+  })
+
+  test('go_to a player below: into their hole, not the rim; dig=yes digs to a closed pocket', async () => {
+    await reset()
+    // Flat ground first: earlier tests dig around here, and the test world is kept between runs.
+    const flatten = async () => {
+      await mc(`fill ${at(-6, -3, -6)} ${at(6, -2, 6)} minecraft:dirt`)
+      await mc(`fill ${at(-6, -1, -6)} ${at(6, -1, 6)} minecraft:grass_block`)
+    }
+    await flatten()
+    const friend = await import('./harness.js').then((h) => h.joinBot(server.port, 'Friend'))
+    const level = () => Math.abs(bot.entity.position.y - friend.entity.position.y) <= 1.1
+    try {
+      // Seen live: Friend in a 1-wide hole two deep, and she stopped on the rim (2.5 blocks
+      // away in a straight line, inside range 2 + 0.5).
+      await mc(`fill ${at(5, -2, 0)} ${at(5, -1, 0)} minecraft:air`)
+      await mc(`tp Friend ${at(5, -2, 0)}`)
+      await until(() => bot.players.Friend?.entity, 5000)
+      await sleep(500)
+      let r = await run('go_to', { target: 'player:Friend', range: 2, time_limit: 20 }, 40000)
+      assert.equal(r.status, 'done', JSON.stringify(r))
+      await sleep(800) // done can land mid-drop
+      assert.ok(level(), `she stayed on the rim: ${bot.entity.position.y} vs ${friend.entity.position.y}`)
+
+      // A closed pocket under the grass: no way down without digging.
+      await reset({ clearItems: false })
+      await flatten()
+      await mc(`fill ${at(5, -3, 0)} ${at(5, -2, 0)} minecraft:air`)
+      await mc(`tp Friend ${at(5, -3, 0)}`)
+      await sleep(800)
+      r = await run('go_to', { target: 'player:Friend', range: 2, time_limit: 20 }, 40000)
+      assert.equal(r.status, 'failed', JSON.stringify(r))
+      assert.match(r.reason, /dig=yes/)
+
+      r = await run('go_to', { target: 'player:Friend', range: 2, dig: 'yes', time_limit: 60 }, 80000)
+      assert.equal(r.status, 'done', JSON.stringify(r))
+      await sleep(800)
+      assert.ok(level(), `not down at their level: ${bot.entity.position.y} vs ${friend.entity.position.y}`)
+    } finally {
+      friend.quit()
+      await flatten()
+    }
   })
 
   test('give and look_at with another player', async () => {

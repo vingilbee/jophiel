@@ -6,6 +6,7 @@ import {
   blockIds, distanceTo, findEntity, findPlayer, goals, hostilesAround, movements,
   requireBlock, requireEntityType, requireOtherPlayer, walkTo
 } from './common.js'
+import { lastSeen } from '../sightings.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
@@ -35,7 +36,9 @@ function watchForAttack (ctx) {
   bot.on('entityHurt', onHurt)
   return {
     check () {
-      if (attacker) throw new SkillEnd('hurt', `attacked by ${attacker}`)
+      // With guard on, the guard fights it and this skill carries on afterwards (src/modes).
+      if (attacker && !ctx.guarded?.()) throw new SkillEnd('hurt', `attacked by ${attacker}`)
+      attacker = null
     },
     off () { bot.off('entityHurt', onHurt) }
   }
@@ -43,12 +46,18 @@ function watchForAttack (ctx) {
 
 export const goTo = {
   name: 'go_to',
-  description: 'Walk to a place, a player, a mob, or the nearest block of a type.',
-  doneWhen: 'she is within range of the target',
+  description: 'Walk to a place, a player, a mob, or the nearest block of a type. A player out of sight: first to where she last saw them.',
+  doneWhen: 'she is within range of the target (for a player: also at their level, within 1 block up or down)',
   stopsWhen: 'no path, target not found or gone, attacked, time limit',
   params: {
     target: { type: 'string', required: true, description: '"x y z", "x z", "player:<name>", "mob:<type>" or "block:<type>"' },
     range: { type: 'number', min: 1, max: 32, default: 2, description: 'how close counts as arrived, in blocks' },
+    dig: {
+      type: 'enum',
+      values: ['yes', 'no'],
+      default: 'no',
+      description: 'yes: she may break blocks to get there, e.g. dig down into a hole or a tunnel to a player'
+    },
     time_limit: timeLimitParam(60, 300)
   },
   validate (bot, params) {
@@ -60,6 +69,7 @@ export const goTo = {
   async run (ctx, params) {
     const { bot } = ctx
     const target = parseTarget(params.target)
+    const dig = params.dig === 'yes'
     const attack = watchForAttack(ctx)
     try {
       if (target.kind === 'place') return await goToPlace(ctx, target, params.range, attack)
@@ -68,9 +78,13 @@ export const goTo = {
         if (!blockPos) return failed(`no ${target.name} within 64 blocks`)
         return await goToPlace(ctx, blockPos, params.range, attack)
       }
-      const entity = target.kind === 'player' ? findPlayer(bot, target.name) : findEntity(bot, target.name)
-      if (!entity) return failed(`can't see ${target.kind === 'player' ? target.name : `a ${target.name}`} nearby`)
-      return await goToEntity(ctx, entity, params.range, attack)
+      if (target.kind === 'player') {
+        const entity = findPlayer(bot, target.name) ?? await toLastSeen(ctx, target.name, attack)
+        return await goToEntity(ctx, entity, params.range, attack, { level: true, dig })
+      }
+      const entity = findEntity(bot, target.name)
+      if (!entity) return failed(`can't see a ${target.name} nearby`)
+      return await goToEntity(ctx, entity, params.range, attack, { dig })
     } finally {
       attack.off()
     }
@@ -95,15 +109,78 @@ async function goToPlace (ctx, place, range, attack) {
   return failed('no path', { remaining: Math.round(distanceToPlace(bot, place)) })
 }
 
+// A player out of sight (online, beyond entity range): walk to where she last saw them and
+// return their entity once they're in sight again. Throws an outcome when that doesn't work.
+async function toLastSeen (ctx, name, attack) {
+  const { bot } = ctx
+  if (!bot.players[name]) throw failed(`${name} isn't in the game`)
+  const seen = lastSeen(bot, name)
+  if (!seen) throw failed(`can't see ${name} and haven't seen them since joining; ask where they are`)
+  const goal = new goals.GoalNearXZ(seen.x, seen.z, 8)
+  bot.pathfinder.setMovements(movements(bot))
+  bot.pathfinder.setGoal(goal)
+  let restarts = 0
+  let stillSince = null
+  try {
+    while (!goal.isEnd(bot.entity.position.floored())) {
+      await ctx.sleep(250)
+      attack.check()
+      const found = findPlayer(bot, name)
+      if (found) return found
+      ctx.progress({ heading_to: 'last_seen', remaining: Math.round(distanceToPlace(bot, seen)) })
+      if (bot.pathfinder.isMoving()) {
+        stillSince = null
+        continue
+      }
+      // Long walks leave loaded terrain and the path ends early: re-aim a few times.
+      stillSince ??= Date.now()
+      if (Date.now() - stillSince < 2000) continue
+      if (++restarts > 4) throw failed(`no path to where ${name} was last seen`, position(bot))
+      stillSince = null
+      bot.pathfinder.setGoal(goal)
+    }
+  } finally {
+    bot.pathfinder.setGoal(null)
+  }
+  const found = findPlayer(bot, name)
+  if (found) return found
+  throw new SkillEnd('lost', `went to where ${name} was last seen; they've moved on and are still out of sight`,
+    position(bot))
+}
+
 function distanceToPlace (bot, place) {
   const p = bot.entity.position
   return place.y === undefined ? Math.hypot(p.x - place.x, p.z - place.z) : p.distanceTo(new Vec3(place.x, place.y, place.z))
 }
 
-async function goToEntity (ctx, entity, range, attack) {
+// Within this many blocks up or down counts as "at their level" (a step or a slab).
+const LEVEL_DY = 1.1
+
+// Next to a spot and at its level (one block up or down allowed): the rim of a hole two
+// blocks above a player is not "with them", which a plain distance goal accepted.
+function levelGoal (p, range) {
+  return new goals.GoalCompositeAll([
+    new goals.GoalNearXZ(p.x, p.z, Math.max(1, range)),
+    new goals.GoalCompositeAny([new goals.GoalY(p.y - 1), new goals.GoalY(p.y), new goals.GoalY(p.y + 1)])
+  ])
+}
+
+// `level`: arriving also needs her at the target's level (players: "come to me" means
+// down in the hole with them). `dig`: she may break blocks on the way.
+async function goToEntity (ctx, entity, range, attack, { level = false, dig = false } = {}) {
   const { bot } = ctx
-  bot.pathfinder.setMovements(movements(bot))
-  bot.pathfinder.setGoal(new goals.GoalFollow(entity, range), true)
+  bot.pathfinder.setMovements(movements(bot, { canDig: dig }))
+  let aimedAt = null
+  const aim = () => {
+    if (!level) return bot.pathfinder.setGoal(new goals.GoalFollow(entity, range), true)
+    const p = entity.position.floored()
+    if (aimedAt && aimedAt.distanceTo(p) < 1) return
+    aimedAt = p
+    bot.pathfinder.setGoal(levelGoal(p, range))
+  }
+  aim()
+  // Digging is slow (a dirt block takes most of a second by hand): give it longer to show progress.
+  const patienceMs = dig ? 15000 : 8000
   let noProgressSince = Date.now()
   let best = distanceTo(bot, entity.position)
   while (true) {
@@ -111,11 +188,20 @@ async function goToEntity (ctx, entity, range, attack) {
     attack.check()
     if (!entity.isValid) return new SkillEnd('lost', 'the target is gone')
     const d = distanceTo(bot, entity.position)
-    if (d <= range + 0.5) return done({ ...position(bot), distance: round1(d) })
+    const dy = entity.position.y - bot.entity.position.y
+    if (d <= range + 0.5 && (!level || Math.abs(dy) <= LEVEL_DY)) {
+      return done({ ...position(bot), distance: round1(d) })
+    }
+    if (level) aim() // they moved: follow
     if (d < best - 0.5) {
       best = d
       noProgressSince = Date.now()
-    } else if (Date.now() - noProgressSince > 8000) {
+    } else if (Date.now() - noProgressSince > patienceMs) {
+      if (level && Math.abs(dy) > LEVEL_DY && !dig) {
+        const where = dy < 0 ? 'below' : 'above'
+        return failed(`can't get down to their level: they're ${Math.round(Math.abs(dy))} blocks ${where} her ` +
+          '(in a hole or on a ledge); go_to with dig=yes digs to them', { distance: round1(d), dy: round1(dy) })
+      }
       return failed('no path', { distance: round1(d) })
     }
     ctx.progress({ distance: round1(d) })
@@ -124,7 +210,7 @@ async function goToEntity (ctx, entity, range, attack) {
 
 export const followPlayer = {
   name: 'follow_player',
-  description: 'Stay close to a player for a while.',
+  description: 'Stay close to a player for a while. Out of sight: first walks to where she last saw them.',
   doneWhen: 'the time asked for is up',
   stopsWhen: 'the player leaves or gets out of sight, attacked, stopped',
   params: {
@@ -138,9 +224,9 @@ export const followPlayer = {
   },
   async run (ctx, params) {
     const { bot } = ctx
-    if (!findPlayer(bot, params.player)) return failed(`can't see ${params.player}`)
     const attack = watchForAttack(ctx)
     try {
+      if (!findPlayer(bot, params.player)) await toLastSeen(ctx, params.player, attack)
       bot.pathfinder.setMovements(movements(bot, { canDig: false }))
       // Re-aim from this loop whenever they've moved on from where she's heading, rather than
       // relying only on pathfinder noticing (it sometimes stops where they used to be).

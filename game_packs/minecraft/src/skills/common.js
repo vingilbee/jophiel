@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { ParamError, failed } from './contract.js'
 
 import { doorAware } from './doors.js'
+import { didYouMean } from '../recipes.js'
 
 const require = createRequire(import.meta.url)
 const { Movements: BaseMovements, goals } = require('mineflayer-pathfinder')
@@ -76,11 +77,15 @@ export function blockIds (bot, name) {
 }
 
 export function requireBlock (bot, name) {
-  if (!blockIds(bot, name).length) throw new ParamError(`no block is called ${name}`)
+  if (!blockIds(bot, name).length) {
+    throw new ParamError(`no block is called ${name}${didYouMean(Object.keys(bot.registry.blocksByName), name)}`)
+  }
 }
 
 export function requireItem (bot, name) {
-  if (!bot.registry.itemsByName[name]) throw new ParamError(`no item is called ${name}`)
+  if (!bot.registry.itemsByName[name]) {
+    throw new ParamError(`no item is called ${name}${didYouMean(Object.keys(bot.registry.itemsByName), name)}`)
+  }
 }
 
 // A player target that's her own name: refuse, and say who she is.

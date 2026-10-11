@@ -4,6 +4,9 @@
 //   - low health is handled first: the skill ends as `hurt`, she backs away from the nearest
 //     hostile and eats if she can, then reports;
 //   - death and disconnects end it.
+// Background modes (src/modes) may put a skill on hold: the runner runs the mode's action (itself a
+// skill, with its own short time limit), then picks the skill back up under the same run, so
+// whoever started it sees one run with `data.interruptions`. Stop, low health and death end both.
 // LAN-only joining is enforced before she is ever in a world (config.assertPrivateHost).
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
@@ -11,17 +14,30 @@ import { randomUUID } from 'node:crypto'
 import { ParamError, SkillEnd, validateParams } from './contract.js'
 import { eatBest, nearestHostile, retreatFrom, stopEverything } from './common.js'
 import { SKILL_STYLE } from '../motion/styles.js'
+import { ModeMemory, ModeSettings, describeAction, pickMode } from '../modes/modes.js'
 
 export class BusyError extends Error {}
 export class UnknownSkillError extends Error {}
 
 const SAFETY_SECONDS = 6
+const MODE_CHECK_MS = 250
+const INTERRUPTIONS_KEPT = 10
+
+// A segment of a skill put on hold for a mode (never an outcome anyone sees).
+class OnHold extends SkillEnd {
+  constructor () {
+    super('stopped', 'on hold for a background mode')
+  }
+}
 
 export class SkillRunner extends EventEmitter {
-  constructor (bot, skills, { maxSeconds = 300, lowHealth = 6, keep = 20, motion = null } = {}) {
+  // modes: the pack's ModeSettings (kept across reconnects); a fresh, all-off one by default.
+  constructor (bot, skills, { maxSeconds = 300, lowHealth = 6, keep = 20, motion = null, modes = null, now = Date.now } = {}) {
     super()
     this.bot = bot
     this.motion = motion
+    this.modes = modes ?? new ModeSettings()
+    this.modeMemory = new ModeMemory(now)
     this.skills = new Map(skills.map((s) => [s.name, s]))
     this.maxSeconds = maxSeconds
     this.lowHealth = lowHealth
@@ -129,18 +145,26 @@ export class SkillRunner extends EventEmitter {
 
   async _execute (run, timer) {
     const { record, controller, skill } = run
-    const ctx = makeContext(this.bot, record, controller.signal, this.motion)
-    const aborted = new Promise((resolve) => {
-      controller.signal.addEventListener('abort', () => resolve(controller.signal.reason), { once: true })
-    })
+    const checker = setInterval(() => this._checkModes(run), MODE_CHECK_MS)
+    let params = record.params
     let end
-    try {
-      // The abort wins even if a skill is slow to notice it.
-      end = await Promise.race([skill.run(ctx, record.params).then((result) => result ?? new SkillEnd('done')), aborted])
-    } catch (err) {
-      end = err instanceof SkillEnd ? err : new SkillEnd('failed', `error: ${err.message}`)
+    while (true) {
+      run.segment = new AbortController()
+      end = await runSkill(skill, this.bot, params, record.data, AbortSignal.any([controller.signal, run.segment.signal]),
+        this.motion, { guarded: () => this.modes.guard })
+      const onHold = run.segment.signal.aborted && !controller.signal.aborted && end.status !== 'done'
+      if (!onHold) break
+      stopEverything(this.bot)
+      await this._runMode(run, run.pick)
+      run.pick = null
+      if (controller.signal.aborted) {
+        end = controller.signal.reason // stopped, timed out, hurt or died during the mode
+        break
+      }
+      this.motion?.setStyle(SKILL_STYLE[skill.name] ?? 'relaxed')
+      params = skill.resume ? skill.resume(record.params, record.data) : record.params
     }
-    if (!(end instanceof SkillEnd)) end = new SkillEnd('failed', 'skill returned no outcome')
+    clearInterval(checker)
     clearTimeout(timer)
     if (!controller.signal.aborted) controller.abort(end) // anything still running in the skill stops acting
     stopEverything(this.bot)
@@ -159,6 +183,49 @@ export class SkillRunner extends EventEmitter {
     record.seconds = Math.round((Date.parse(record.ended_at) - Date.parse(record.started_at)) / 100) / 10
     this.active = null
     this.emit('finish', record)
+  }
+
+  // A background mode needed now? Then put the skill on hold (the loop in _execute runs it).
+  _checkModes (run) {
+    if (run !== this.active || run.pick || run.controller.signal.aborted || run.segment?.signal.aborted) return
+    let pick
+    try {
+      pick = pickMode(this.bot, this.modes, this.modeMemory, run.record)
+    } catch {
+      return // a half-loaded world (no entity yet): try again next check
+    }
+    if (!pick) return
+    run.pick = pick
+    run.segment.abort(new OnHold())
+  }
+
+  async _runMode (run, pick) {
+    const skill = this.skills.get(pick.skill)
+    const result = { mode: pick.mode, why: pick.why, skill: pick.skill, params: pick.params, status: 'failed', reason: null, data: {} }
+    if (skill) {
+      const data = {}
+      const own = new AbortController()
+      const timer = setTimeout(() => own.abort(new SkillEnd('timeout', `no result after ${pick.seconds} s`)), pick.seconds * 1000)
+      this.motion?.setStyle(SKILL_STYLE[pick.skill] ?? 'relaxed')
+      let end
+      try {
+        end = await runSkill(skill, this.bot, validateParams(skill.params, pick.params), data,
+          AbortSignal.any([run.controller.signal, own.signal]), this.motion)
+      } catch (err) {
+        end = new SkillEnd('failed', err.message) // params the mode got wrong
+      }
+      clearTimeout(timer)
+      if (!own.signal.aborted) own.abort(end)
+      stopEverything(this.bot)
+      this.motion?.track(null)
+      Object.assign(result, { status: end.status, reason: end.reason, data: { ...data, ...end.data } })
+    }
+    const worked = result.status === 'done'
+    this.modeMemory.acted(pick, worked)
+    const entry = { mode: pick.mode, why: pick.why, status: result.status, text: describeAction(result) }
+    run.record.data.interruptions = [...(run.record.data.interruptions ?? []), entry].slice(-INTERRUPTIONS_KEPT)
+    this.emit('mode', { ...result, text: entry.text, run_id: run.record.id })
+    return result
   }
 
   // Low health: back away from the nearest hostile, then eat. Bounded, and stop() still works:
@@ -187,7 +254,25 @@ export class SkillRunner extends EventEmitter {
   }
 }
 
-function makeContext (bot, record, signal, motion) {
+// Runs a skill until its outcome or until the signal aborts (the abort wins even if a skill is slow
+// to notice it). Always resolves with a SkillEnd.
+async function runSkill (skill, bot, params, data, signal, motion, extra = {}) {
+  const ctx = { ...makeContext(bot, data, signal, motion), ...extra }
+  const aborted = new Promise((resolve) => {
+    if (signal.aborted) resolve(signal.reason)
+    signal.addEventListener('abort', () => resolve(signal.reason), { once: true })
+  })
+  let end
+  try {
+    end = await Promise.race([skill.run(ctx, params).then((result) => result ?? new SkillEnd('done')), aborted])
+  } catch (err) {
+    end = err instanceof SkillEnd ? err : new SkillEnd('failed', `error: ${err.message}`)
+  }
+  return end instanceof SkillEnd ? end : new SkillEnd('failed', 'skill returned no outcome')
+}
+
+// data: where ctx.progress() writes (the run's record.data, or a mode action's own).
+function makeContext (bot, data, signal, motion) {
   const check = () => {
     if (signal.aborted) throw signal.reason
   }
@@ -227,8 +312,8 @@ function makeContext (bot, record, signal, motion) {
       }
     },
     // Numbers that survive into the outcome even on timeout or stop.
-    progress (data) {
-      Object.assign(record.data, data)
+    progress (numbers) {
+      Object.assign(data, numbers)
     }
   }
 }

@@ -25,6 +25,7 @@ export const fight = {
   stopsWhen: 'health low (retreats, then eats), outnumbered (flees), none found, time limit',
   params: {
     target: { type: 'string', default: 'nearest_hostile', description: '"nearest_hostile" or a hostile mob type, e.g. zombie' },
+    radius: { type: 'integer', min: 4, max: SEARCH_RADIUS, default: SEARCH_RADIUS, description: 'how far from her to look for them, in blocks' },
     time_limit: timeLimitParam(90, 300)
   },
   validate (bot, params) {
@@ -37,9 +38,9 @@ export const fight = {
     const { bot } = ctx
     const stopped = () => ctx.signal.aborted
     const only = params.target === 'nearest_hostile' ? null : params.target
-    const candidates = () => hostilesAround(bot, SEARCH_RADIUS).filter((e) => !only || e.name === only)
+    const candidates = () => hostilesAround(bot, params.radius).filter((e) => !only || e.name === only)
 
-    if (!candidates().length) return failed(`no ${only ?? 'hostile mob'} within ${SEARCH_RADIUS} blocks`)
+    if (!candidates().length) return failed(`no ${only ?? 'hostile mob'} within ${params.radius} blocks`)
     const weapon = await ctx.race(equipBestWeapon(bot))
     const hasShield = await ctx.race(equipShield(bot))
     const cooldown = attackCooldownMs(weapon)

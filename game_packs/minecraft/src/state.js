@@ -5,6 +5,8 @@
 // she faces, positive to her right, and pitch positive looking down to match the desktop
 // driver's convention.
 
+import { outOfSight } from './sightings.js'
+
 const DEG = 180 / Math.PI
 
 export function normalizeDegrees (deg) {
@@ -131,6 +133,8 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     username: bot.username,
     // Everyone else in the world right now (the user is one of them).
     players_online: Object.keys(bot.players).filter((name) => name !== bot.username),
+    // Online but beyond entity range, with where she last saw them (null: not since she joined).
+    players_out_of_sight: outOfSight(bot, now.getTime()),
     version: bot.version,
     dimension: bot.game.dimension,
     game_mode: bot.game.gameMode,
