@@ -271,6 +271,22 @@ def test_discoveries_reach_columbina_and_quiet_notices_do_not():
     assert h.noticed == [("discovery", "a village (saw a bell), 70 m north")]
 
 
+def test_hurt_sunset_and_a_mob_near_the_user_are_warnings():
+    h = Harness(ScriptedModel(_decide("mine", {"block": "stone"})))
+    h.steps(1)
+    h.pack.notice("hurt", "heads_up", "took damage: 6 of 10 hearts left")
+    h.pack.notice("night_coming", "heads_up", "the sun is setting")
+    h.pack.notice("hostile_near_player", "heads_up", "zombie 4 m from tearDrop12 (12 m east from you)")
+    h.pack.notice("night", "heads_up", "it's night: monsters spawn in the dark")
+    h.steps(1)
+    assert h.noticed == [
+        ("warning", "took damage: 6 of 10 hearts left"),
+        ("warning", "the sun is setting"),
+        ("warning", "zombie 4 m from tearDrop12 (12 m east from you)"),
+        ("notable", "it's night: monsters spawn in the dark"),
+    ]
+
+
 def test_session_pause_stops_her_skill_and_ends_the_run():
     h = Harness(ScriptedModel(_decide("mine", {"block": "stone"})))
     h.steps(1)

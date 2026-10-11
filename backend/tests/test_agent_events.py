@@ -124,6 +124,9 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     (["notable: iron"], "commentary", 30, True),
     (["stuck: no skill for: pillar up"], "occasional", 8, True),  # blocked: never held back by the gap
     (["struggling: 4 failed tries"], "quiet", 2, True),          # nor by quiet: she may need to ask
+    (["warning: the sun is setting"], "occasional", None, True),  # a heads-up: worth a line
+    (["warning: zombie 4 m from alice"], "occasional", 10, False),  # but not right after the last one
+    (["warning: the sun is setting"], "quiet", None, False),
 ])
 def test_occasional_means_occasional(reasons, mode, since, ok):
     assert agent_say.allowed(reasons, mode, since)[0] is ok

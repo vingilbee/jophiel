@@ -49,6 +49,8 @@ def describe_reason(reason: str) -> str:
                 f"{detail.strip()}")
     if kind == "paused":
         return f"Your game paused: {desktop_game.REASONS.get(detail, detail)}."
+    if kind == "warning":
+        return f"A heads-up (read off the screen): {detail.strip()}"
     if kind in ("danger", "notable"):
         return f"{'Danger' if kind == 'danger' else 'Something notable'} (read off the screen): {detail.strip()}"
     return reason

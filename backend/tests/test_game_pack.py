@@ -235,6 +235,22 @@ def test_discoveries_wake_her_unless_quiet(db, alice, pack):
     assert db.query(AgentEventJob).filter_by(user_id=alice.id).count() == 0
 
 
+def test_warnings_wake_her_in_occasional_mode_but_not_quiet(db, alice, pack):
+    desktop_game.start(db, alice.id, goal="Explore")
+    game_pack.sync(db, pack)
+    env = game_pack.ensure_environment(db, alice.id)
+    session = _session(db, alice.id, env.id)
+    assert session.commentary_mode == "occasional"
+    svc.driver_noticed(db, session.id, kind="warning", text="the sun is setting")
+    jobs = db.query(AgentEventJob).filter_by(user_id=alice.id).all()
+    assert any("warning: the sun is setting" in r for job in jobs for r in job.reasons)
+    db.query(AgentEventJob).delete()
+    session.commentary_mode = "quiet"
+    db.commit()
+    svc.driver_noticed(db, session.id, kind="warning", text="zombie 4 m from alice")
+    assert db.query(AgentEventJob).filter_by(user_id=alice.id).count() == 0
+
+
 def _playing(db, alice, pack, goal="Make a bed"):
     desktop_game.start(db, alice.id, goal=goal, steps=[{"do": "craft a white bed", "done_when": "a white_bed"}])
     game_pack.sync(db, pack)

@@ -105,6 +105,26 @@ describe('noticing on a real server', { skip: !eulaAccepted() && 'accept the Min
     await waitFor(seq, 'player_left', 5000)
   })
 
+  test('a hostile next to another player is a heads-up naming them', async () => {
+    await reset()
+    await mc('difficulty easy')
+    const friend = await joinBot(server.port, 'Friend')
+    try {
+      await mc(`tp Friend ${at(12, 0, 0)}`)
+      await until(() => bot.players.Friend?.entity?.position.distanceTo(origin) > 11, 5000)
+      const seq = latest()
+      await mc(`summon minecraft:husk ${at(15, 0, 0)} {NoAI:1b}`)
+      const notice = await waitFor(seq, 'hostile_near_player', 5000)
+      assert.equal(notice.urgency, 'heads_up')
+      assert.equal(notice.data.player, 'Friend')
+      assert.match(notice.text, /^husk 3 m from Friend \(15 m east/)
+      await sleep(2500)
+      assert.equal(newSince(seq, 'hostile_near_player').length, 1, 'the same husk was announced again')
+    } finally {
+      friend.quit()
+    }
+  })
+
   test('taking damage', async () => {
     await reset()
     const seq = latest()

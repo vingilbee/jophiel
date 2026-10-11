@@ -25,7 +25,8 @@ Every outcome and notice is also recorded as an experience (game learning),
 and the lessons she learned in earlier sessions are part of the system prompt.
 
 Notices from the pack become Columbina's game events (urgent ones as danger,
-discoveries like a village always, the rest only in commentary mode). Like the
+discoveries like a village and warnings like the sun setting unless she's been
+told to be quiet, the rest only in commentary mode). Like the
 key driver's notes, everything the model writes besides the decision, status
 and step id is untrusted text for display.
 """
@@ -54,6 +55,10 @@ PACK_DOWN_SECONDS = 15.0  # the pack unreachable this long while playing: pause
 DANGER_SKILLS = frozenset({"fight", "eat"})
 # Notice kinds worth telling Columbina about even outside commentary mode.
 DISCOVERIES = frozenset({"village", "spawner", "ore"})
+# Heads-ups worth waking her for, so she can warn the user or get ready: in the 2026-10-11
+# cave session she lost 9 hearts and night fell without a word, because these were
+# "notable" and the session was in occasional mode. Urgent ones are danger anyway.
+WARNINGS = frozenset({"hurt", "night_coming", "hostile_near_player"})
 # She respawns by herself, so a death isn't a reason to stop for the user: "needs_human" this
 # soon after one is overruled and she decides again.
 DEATH_GRACE_SECONDS = 60.0
@@ -583,6 +588,8 @@ class SkillDriverRun:
                 deps.notice(self.session_id, "danger", n["text"])
             elif n.get("kind") in DISCOVERIES:
                 deps.notice(self.session_id, "discovery", n["text"])
+            elif n.get("kind") in WARNINGS:
+                deps.notice(self.session_id, "warning", n["text"])
             elif n.get("urgency") == "heads_up":
                 deps.notice(self.session_id, "notable", n["text"])
 

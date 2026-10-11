@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 URGENT = ("needs_human",)
 # Worth saying in "occasional" mode (subject to the gap); "quiet" says only urgent ones
 # and the session stopping on its own.
-OCCASIONAL = ("goal_done", "stuck", "danger", "paused", "struggling")
+OCCASIONAL = ("goal_done", "stuck", "danger", "paused", "struggling", "warning")
 # She's blocked and may need to ask the user (what's missing: an item, a move, a place): the
 # gap never holds these back, in any mode. Seen live: "stuck" said 8 s after a reply was dropped.
 BLOCKED = ("stuck", "struggling")

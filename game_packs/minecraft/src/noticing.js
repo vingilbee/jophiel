@@ -18,6 +18,8 @@ const HOSTILE_RADIUS = 16
 const HOSTILE_AGAIN_MS = 60000 // the same mob is news again after this long
 const URGENT_CLOSE = 6
 const CREEPER_URGENT = 10
+// A hostile this close to another player is worth warning them about (they may not have seen it).
+const NEAR_PLAYER = 8
 
 // Places worth knowing. announce: false = remember quietly (water is everywhere).
 const PLACES = [
@@ -123,6 +125,25 @@ export function attachNoticing (bot, { memory }) {
     }
   }
 
+  // Hostiles close to the other players she can see: "zombie 5 m from tearDrop12". She can't
+  // see the user's screen, so a mob creeping up behind them is news even when she's safe.
+  function checkPlayers () {
+    for (const player of Object.values(bot.players)) {
+      const them = player.entity
+      if (!them || player.username === bot.username) continue
+      for (const e of Object.values(bot.entities)) {
+        if (e === bot.entity || !isHostile(e)) continue
+        const distance = e.position.distanceTo(them.position)
+        if (distance > NEAR_PLAYER || !canSee(e.position.offset(0, (e.height ?? 1.8) * 0.8, 0))) continue
+        const at = where(e.position)
+        add('hostile_near_player', 'heads_up',
+          `${e.name.replace(/_/g, ' ')} ${Math.round(distance)} m from ${player.username} (${at.text} from you)`,
+          { ...at.data, mob: e.name, entity_id: e.id, player: player.username, from_player: Math.round(distance) },
+          `near_player:${e.id}`, HOSTILE_AGAIN_MS)
+      }
+    }
+  }
+
   function checkWorld () {
     const phase = dayPhase(bot.time.timeOfDay)
     if (lastPhase && phase !== lastPhase) {
@@ -145,6 +166,7 @@ export function attachNoticing (bot, { memory }) {
     if (++ticks % TICKS_PER_CHECK !== 0) return
     checks++
     checkMobs()
+    checkPlayers()
     checkWorld()
     if (checks % CHECKS_PER_SCAN === 0) scanPlaces()
   }

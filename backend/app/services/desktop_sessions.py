@@ -803,14 +803,16 @@ def driver_progress(
 
 def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) -> None:
     """A report from the driver worth Columbina's attention: danger always;
-    discoveries unless quiet; other notable things only in commentary mode.
+    discoveries and warnings unless quiet; other notable things only in commentary mode.
     Untrusted game text."""
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
         return
-    # discovery (a village, diamonds: stage G notices) unless she's been told to be quiet;
-    # struggling (failing at a step again and again) always: she may need to ask the user.
-    if (kind in ("danger", "struggling") or (kind == "discovery" and session.commentary_mode != "quiet")
+    # discovery (a village, diamonds: stage G notices) and warning (hurt, the sun setting, a mob
+    # near the user) unless she's been told to be quiet; struggling (failing at a step again
+    # and again) always: she may need to ask the user.
+    if (kind in ("danger", "struggling")
+            or (kind in ("discovery", "warning") and session.commentary_mode != "quiet")
             or (kind == "notable" and session.commentary_mode == "commentary")):
         _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")
         db.commit()
