@@ -174,7 +174,7 @@ def test_what_she_is_doing_is_part_of_her_sense_of_the_moment(db, alice):
     assert lines[0].startswith("- Right now you are playing")              # answers "what's up?"
     eyes = next(i for i, line in enumerate(lines) if "Eyes: open" in line)
     assert "the player is you" in lines[eyes + 1]                          # answers "what do you see?"
-    assert "You are the one who plays on it; the user does not." in prompt
+    assert "You are the one playing; the user is not." in prompt
 
 
 def test_no_activity_line_without_a_session(db, alice):
@@ -408,3 +408,14 @@ def test_the_picture_rides_on_the_users_message_only():
     assert last.content[2]["image_url"]["detail"] == "low"
     plain = _build_inputs([{"role": "user", "content": "hi"}], AgentRuntimeContext(user_id=_uuid.uuid4()), [])
     assert plain["messages"][-1].content == "hi"
+
+
+def test_vm_rules_only_when_a_game_vm_is_paired():
+    from app.ai.context import AgentRuntimeContext
+    from app.ai.prompts import build_system_prompt
+
+    pack_only = build_system_prompt(AgentRuntimeContext(user_id=uuid.uuid4(), game="Minecraft as your own player"))
+    with_vm = build_system_prompt(AgentRuntimeContext(user_id=uuid.uuid4(), game="a game VM", game_vm=True))
+    assert "### What you can do" in pack_only and "### What you can do" in with_vm
+    assert "Playing on your game VM" not in pack_only
+    assert "Playing on your game VM" in with_vm

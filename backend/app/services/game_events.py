@@ -114,7 +114,7 @@ async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
         return None
     user_name, history, game, event = prepared
     context = AgentRuntimeContext(
-        user_id=user_id, user_name=user_name, game=game.summary, game_activity=game.activity,
+        user_id=user_id, user_name=user_name, game=game.summary, game_activity=game.activity, game_vm=game.vm,
         game_event=event, model_override=get_settings().chat_model,
     )
     messages = [*history, {"role": "user", "content": prompts.GAME_EVENT_TRIGGER}]

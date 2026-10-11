@@ -194,6 +194,7 @@ async def _generate(job: ChatJob) -> None:
         screen_image_id=payload.get("screen_image_id"),
         game=game.summary if game else None,
         game_activity=game.activity if game else None,
+        game_vm=game.vm if game else False,
         spoke_at=spoke_at,
         game_picture=picture[0] if picture else None,
         game_picture_note=picture[1] if picture else None,

@@ -97,6 +97,8 @@ class AgentRuntimeContext:
     # One line for her sense of the moment while a game is on ("Right now you
     # are playing Minecraft..."), added to the awareness facts.
     game_activity: str | None = None
+    # A key-pressing game VM is paired: its rules (preview, lag, counted moves) apply.
+    game_vm: bool = False
     # A background turn about the game (no user message): her game tools
     # become the background set (with ``say``) and the prompt says why she woke.
     game_event: GameEvent | None = None

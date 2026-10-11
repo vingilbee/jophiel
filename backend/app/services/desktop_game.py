@@ -75,12 +75,14 @@ REASONS = {
 
 @dataclass(frozen=True)
 class GameContext:
-    """What a turn needs: the summary text, whether the game tools apply, and
-    a one-line "what you're doing right now" for her sense of the moment."""
+    """What a turn needs: the summary text, whether the game tools apply, a
+    one-line "what you're doing right now" for her sense of the moment, and
+    whether a key-pressing game VM is involved (its own prompt rules)."""
 
     summary: str
     tools: bool
     activity: str | None = None
+    vm: bool = False
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
@@ -228,13 +230,14 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
         return None
     env = _usable_environment(db, user_id)
     pack = game_pack.is_pack(env)
+    vm = any(not game_pack.is_pack(e) for e in envs)
     now = time.time()
     lines, games = _environment_lines(db, user_id, envs)
     session = _recent_session(db, user_id, env, now)
     if session is None:
         lines.append("You are not playing right now.")
         db.commit()
-        return GameContext("\n".join(lines), tools=True)
+        return GameContext("\n".join(lines), tools=True, vm=vm)
     lines += _session_lines(session, pack, now)
     lines += _plan_lines(db, session)
     driver = desktop_commands.load_driver_state(session.id) or {}
@@ -242,11 +245,11 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
     if pack:
         lines += _pack_details(env, session, driver, now)
         db.commit()
-        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True))
+        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm)
     vm_lines, facts = _vm_details(session, driver, now)
     lines += vm_lines
     db.commit()
-    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts))
+    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts), vm=vm)
 
 
 def _environment_lines(db: Session, user_id: uuid.UUID,
