@@ -149,7 +149,8 @@ function guardPick (bot, memory, friend) {
     seconds: ACTION_SECONDS.guard,
     why: `${target.name} ${Math.round(target.position.distanceTo(here))} m away` +
       (nearFriend ? `, close to ${friend.username}` : ''),
-    keys: [`mob:${target.id}`]
+    keys: [`mob:${target.id}`],
+    near: nearFriend ? friend.username : null
   }
 }
 
@@ -201,12 +202,22 @@ function pickupPick (bot, memory, run) {
   }
 }
 
-// One line for a mode's action, for her notices: "guard: killed 1 zombie (zombie 5 m away)".
+// Whether a mode's action is worth a line to the user (Columbina is woken for it): ore
+// gathered, a mob killed near the player she's with, or a mode that didn't work. Pickups, and
+// fights only she was in, are just recorded.
+export function worthSaying (result) {
+  if (result.mode === 'pickup') return false
+  if (result.status !== 'done') return true
+  return result.mode === 'gather' || Boolean(result.near)
+}
+
+// One line for a mode's action, for her notices: "guard: killed 1 zombie near tearDrop12".
 export function describeAction (result) {
   const data = result.data ?? {}
   let what
   if (result.mode === 'guard') {
     what = data.killed ? `killed ${data.killed} ${result.params.target}` : `fought a ${result.params.target} (${result.reason ?? result.status})`
+    if (result.near) what += ` near ${result.near}`
   } else if (result.mode === 'gather') {
     what = data.collected ? `mined ${data.collected} ${result.params.block} on the way` : `couldn't mine the ${result.params.block} (${result.reason ?? result.status})`
   } else {

@@ -179,11 +179,13 @@ def test_summary_describes_her_own_player_and_what_her_hands_do(db, alice, pack)
         "kind": "skills", "notes": "chopping the oak to my left",
         "running": {"skill": "mine", "params": {"block": "oak_log", "count": 3}},
         "outcomes": [{"skill": "go_to", "status": "done", "reason": None, "at": 0}],
+        "modes_did": [{"text": "gather: mined 2 iron_ore on the way", "at": time.time() - 600}],
     })
     context = desktop_game.describe(db, alice.id)
     assert "Game: Minecraft (your own player), you are playing" in context.summary
     assert "Your hands are doing: mine(block=oak_log, count=3)." in context.summary
     assert "Recent results: go_to -> done" in context.summary
+    assert "What your background modes did lately: gather: mined 2 iron_ore on the way (10 min ago)." in context.summary
     assert "Your player right now (from the game): Piqeeee at (10, 64, -3)" in context.summary
     assert 'In Minecraft you are "Piqeeee" (never target yourself). Other players: "tearDrop12". The user is "tearDrop12"' in context.summary
     assert "Show preview" not in context.summary

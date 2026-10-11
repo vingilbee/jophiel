@@ -287,6 +287,17 @@ def test_hurt_sunset_and_a_mob_near_the_user_are_warnings():
     ]
 
 
+def test_what_modes_did_reaches_her_summary_and_only_heads_ups_wake_her():
+    h = Harness(ScriptedModel(_decide("mine", {"block": "stone"})))
+    h.steps(1)
+    h.pack.notice("mode", "heads_up", "gather: mined 2 iron_ore on the way")
+    h.pack.notice("mode", "info", "pickup: picked up coal x1")
+    h.steps(1)
+    assert h.noticed == [("warning", "gather: mined 2 iron_ore on the way")]
+    assert [d["text"] for d in h.saved["modes_did"]] == [
+        "gather: mined 2 iron_ore on the way", "pickup: picked up coal x1"]
+
+
 def test_session_pause_stops_her_skill_and_ends_the_run():
     h = Harness(ScriptedModel(_decide("mine", {"block": "stone"})))
     h.steps(1)

@@ -72,7 +72,8 @@ describe('background modes on a real server', { skip: !eulaAccepted() && 'accept
     assert.equal(guarded.status, 'done', JSON.stringify(guarded))
     assert.match(guarded.text, /killed 1 husk/)
     await until(() => bot.entity.position.distanceTo(friend.entity.position) < 5, 10000)
-    assert.ok(noticing.since(0).some((n) => n.kind === 'mode' && /killed 1 husk/.test(n.text)))
+    const notice = noticing.since(0).find((n) => n.kind === 'mode' && /killed 1 husk near Friend/.test(n.text))
+    assert.equal(notice?.urgency, 'heads_up', JSON.stringify(noticing.since(0).filter((n) => n.kind === 'mode')))
     runner.stop()
   })
 

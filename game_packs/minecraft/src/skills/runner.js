@@ -201,7 +201,7 @@ export class SkillRunner extends EventEmitter {
 
   async _runMode (run, pick) {
     const skill = this.skills.get(pick.skill)
-    const result = { mode: pick.mode, why: pick.why, skill: pick.skill, params: pick.params, status: 'failed', reason: null, data: {} }
+    const result = { mode: pick.mode, why: pick.why, near: pick.near, skill: pick.skill, params: pick.params, status: 'failed', reason: null, data: {} }
     if (skill) {
       const data = {}
       const own = new AbortController()

@@ -7,7 +7,7 @@ import { createRequire } from 'node:module'
 
 import { done, timeLimitParam } from '../src/skills/contract.js'
 import { mine } from '../src/skills/mine.js'
-import { ModeMemory, ModeSettings, describeAction, gatherIds, pickMode } from '../src/modes/modes.js'
+import { ModeMemory, ModeSettings, describeAction, gatherIds, pickMode, worthSaying } from '../src/modes/modes.js'
 import { SkillRunner } from '../src/skills/runner.js'
 
 const require = createRequire(import.meta.url)
@@ -125,6 +125,17 @@ test('what a mode did, in a line', () => {
     'gather: mined 3 iron_ore on the way')
   assert.equal(describeAction({ mode: 'pickup', params: {}, status: 'done', data: { collected: { coal: 1 } } }),
     'pickup: picked up coal x1')
+  assert.equal(describeAction({ mode: 'guard', near: 'Friend', params: { target: 'zombie' }, status: 'done', data: { killed: 1 } }),
+    'guard: killed 1 zombie near Friend')
+})
+
+test('only some of what modes do is worth a line to the user', () => {
+  assert.equal(worthSaying({ mode: 'gather', status: 'done' }), true)
+  assert.equal(worthSaying({ mode: 'guard', status: 'done', near: 'Friend' }), true)
+  assert.equal(worthSaying({ mode: 'guard', status: 'done', near: null }), false) // only she was in it
+  assert.equal(worthSaying({ mode: 'guard', status: 'timeout' }), true) // didn't work
+  assert.equal(worthSaying({ mode: 'pickup', status: 'done' }), false)
+  assert.equal(worthSaying({ mode: 'pickup', status: 'failed' }), false)
 })
 
 // A follow that counts its segments, and a fight that kills whatever it's sent after.

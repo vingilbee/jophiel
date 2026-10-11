@@ -390,6 +390,10 @@ def _pack_details(env: DesktopEnvironment, session: DesktopSession, driver: dict
         lines.append("Recent results: " + "; ".join(
             f"{o['skill']} -> {o['status']}{': ' + o['reason'] if o.get('reason') else ''}"
             f" ({_ago(now - o.get('at', now))})" for o in outcomes) + ".")
+    did = driver.get("modes_did") or []
+    if did:
+        lines.append("What your background modes did lately: "
+                     + "; ".join(f"{d['text']} ({_ago(now - d.get('at', now))})" for d in did) + ".")
     if driver.get("notes"):
         lines.append(f'Your hands\' note: "{driver["notes"]}".')
     if env.status == "online":

@@ -9,6 +9,7 @@ import { attachDoors } from './skills/doors.js'
 import { WorldMemory } from './world_memory.js'
 import { createSkills, manifest } from './skills/index.js'
 import { SkillRunner } from './skills/runner.js'
+import { worthSaying } from './modes/modes.js'
 
 const require = createRequire(import.meta.url)
 const { pathfinder } = require('mineflayer-pathfinder')
@@ -27,7 +28,8 @@ export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true
   const skills = createSkills({ memory })
   const runner = new SkillRunner(bot, skills, { maxSeconds, motion: motionLayer, modes })
   // What a mode did is something she noticed: her hands see it, and it's in her play log.
-  runner.on('mode', (result) => noticing.report('mode', 'info', result.text, {
+  // The ones worth a line are heads-ups, so Columbina hears about them too.
+  runner.on('mode', (result) => noticing.report('mode', worthSaying(result) ? 'heads_up' : 'info', result.text, {
     mode: result.mode, why: result.why, status: result.status, data: result.data
   }))
   return { runner, motion: motionLayer, noticing, sightings, memory, manifest: manifest(skills) }

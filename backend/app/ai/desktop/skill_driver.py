@@ -57,8 +57,10 @@ DANGER_SKILLS = frozenset({"fight", "eat"})
 DISCOVERIES = frozenset({"village", "spawner", "ore"})
 # Heads-ups worth waking her for, so she can warn the user or get ready: in the 2026-10-11
 # cave session she lost 9 hearts and night fell without a word, because these were
-# "notable" and the session was in occasional mode. Urgent ones are danger anyway.
-WARNINGS = frozenset({"hurt", "night_coming", "hostile_near_player"})
+# "notable" and the session was in occasional mode. Urgent ones are danger anyway. A "mode"
+# heads-up is something a background mode did that the user may like to hear (the pack decides).
+WARNINGS = frozenset({"hurt", "night_coming", "hostile_near_player", "mode"})
+MODES_KEPT = 5  # what background modes did lately, for her summary
 # She respawns by herself, so a death isn't a reason to stop for the user: "needs_human" this
 # soon after one is overruled and she decides again.
 DEATH_GRACE_SECONDS = 60.0
@@ -346,6 +348,8 @@ class SkillDriverRun:
     # Inventory counts at the current step's first look, so "gained 10 oak_log"
     # counts from then: with 60 logs already held, "10 oak_log" was true at once.
     step_inventory: dict[str, int] | None = None
+    # What her background modes did lately: [{"text", "at"}], newest last.
+    modes_did: list[dict] = field(default_factory=list)
     manifest: list[dict] | None = None
     _schema: dict | None = None
     _system: str | None = None
@@ -578,6 +582,10 @@ class SkillDriverRun:
         self.notices = (self.notices + fresh)[-12:]
         if any(n.get("kind") == "died" for n in fresh):
             self.died_at = deps.now()
+        did = [{"text": n.get("text", ""), "at": deps.now()} for n in fresh if n.get("kind") == "mode"]
+        if did:
+            self.modes_did = (self.modes_did + did)[-MODES_KEPT:]
+            self._save()  # a follow runs for minutes between decisions: her summary shouldn't wait
         for n in fresh:
             self._experience("notice", {"kind": n.get("kind"), "urgency": n.get("urgency"),
                                         "text": n.get("text", ""), "data": n.get("data") or {}})
@@ -588,7 +596,7 @@ class SkillDriverRun:
                 deps.notice(self.session_id, "danger", n["text"])
             elif n.get("kind") in DISCOVERIES:
                 deps.notice(self.session_id, "discovery", n["text"])
-            elif n.get("kind") in WARNINGS:
+            elif n.get("kind") in WARNINGS and n.get("urgency") == "heads_up":
                 deps.notice(self.session_id, "warning", n["text"])
             elif n.get("urgency") == "heads_up":
                 deps.notice(self.session_id, "notable", n["text"])
@@ -734,5 +742,6 @@ class SkillDriverRun:
             "notices": self.notices[-5:],
             "decisions": self.decisions,
             "step": self.step_log,
+            "modes_did": self.modes_did,
             **extra,
         })
