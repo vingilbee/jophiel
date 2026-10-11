@@ -20,24 +20,17 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.services import chat as chat_service
 from app.services import desktop_preview, dialogue_memory
+from app.services.game_event_kinds import QUIET, kind_of, rules
 
 log = logging.getLogger(__name__)
 
-# Always worth saying, whatever the mode or the gap.
-URGENT = ("needs_human",)
-# Worth saying in "occasional" mode (subject to the gap); "quiet" says only urgent ones
-# and the session stopping on its own.
-OCCASIONAL = ("goal_done", "stuck", "danger", "paused", "struggling", "warning")
-# She's blocked and may need to ask the user (what's missing: an item, a move, a place): the
-# gap never holds these back, in any mode. Seen live: "stuck" said 8 s after a reply was dropped.
-BLOCKED = ("stuck", "struggling")
+# Which events she may speak about, in which mode, is in game_event_kinds. Stuck and
+# struggling are said in any mode with no gap: she may need to ask the user for what's
+# missing (seen live: "stuck" said 8 s after a reply was dropped).
 # Too serious to wait out the gap: she died, or is down to this many hearts (of 10).
 # Each is said once per moment (the TTL), so a long fight at low health is one warning.
 LOW_HEARTS = 3.0
 SERIOUS_TTL = {"died": 30, "low_health": 90}
-# Urgent enough to cut off what she's saying (it's out of date now): danger in the
-# game (a mob on her, a hit, low health, a death) and needing the user.
-INTERRUPTS = ("danger", "needs_human")
 _HEARTS = re.compile(r"(\d+(?:\.\d+)?) of 10 hearts")
 _POINTS = re.compile(r"health (\d+(?:\.\d+)?)/20")
 
@@ -54,14 +47,10 @@ def _serious_key(user_id: uuid.UUID, which: str) -> str:
     return f"agent:serious:{user_id}:{which}"
 
 
-def _kind(reason: str) -> str:
-    return reason.split(":", 1)[0]
-
-
 def serious(reasons: list[str]) -> str | None:
     """"died" or "low_health" when a danger reason is that serious, else None."""
     for reason in reasons:
-        if _kind(reason) != "danger":
+        if kind_of(reason) != "danger":
             continue
         text = reason.split(":", 1)[1].strip()
         if text == "died":
@@ -77,19 +66,18 @@ def serious(reasons: list[str]) -> str | None:
 def allowed(reasons: list[str], commentary_mode: str, seconds_since_last: float | None,
             *, serious_fresh: bool = False) -> tuple[bool, str]:
     """``serious_fresh``: a serious moment (see ``serious``) not yet said: it skips the gap."""
-    kinds = {_kind(r) for r in reasons}
-    if kinds & set(URGENT):
+    kinds = [rules(r) for r in reasons]
+    if any(kind.always for kind in kinds):
         return True, ""
-    if serious_fresh and commentary_mode != "quiet":
+    if serious_fresh and commentary_mode != QUIET:
         return True, ""
-    if kinds & set(BLOCKED):
-        return True, ""
+    # She paused on her own: the user should know, whatever the mode or the gap.
     stopped = any(r.startswith("paused:") and r != "paused:user_pause" for r in reasons)
-    if commentary_mode == "quiet":
+    if commentary_mode == QUIET:
         if stopped:
             return True, ""
         return False, "the user asked for quiet; only say something when you need them"
-    if commentary_mode == "occasional" and not (kinds & set(OCCASIONAL)):
+    if not any(commentary_mode in kind.said for kind in kinds):
         return False, "this isn't worth interrupting the user for; keep it to yourself"
     gap = get_settings().agent_say_min_gap_seconds * (1 if commentary_mode == "occasional" else 0.33)
     if seconds_since_last is not None and seconds_since_last < gap and not stopped:
@@ -153,4 +141,4 @@ def deliver(db: Session, *, user_id: uuid.UUID, text: str, reasons: list[str], c
 
 def interrupts(reasons: list[str]) -> bool:
     """Whether this message should cut off a reply she's in the middle of."""
-    return any(_kind(r) in INTERRUPTS for r in reasons)
+    return any(rules(r).interrupts for r in reasons)

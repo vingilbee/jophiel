@@ -227,9 +227,36 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
         db.commit()
         return None
     env = _usable_environment(db, user_id)
+    pack = game_pack.is_pack(env)
+    now = time.time()
+    lines, games = _environment_lines(db, user_id, envs)
+    session = _recent_session(db, user_id, env, now)
+    if session is None:
+        lines.append("You are not playing right now.")
+        db.commit()
+        return GameContext("\n".join(lines), tools=True)
+    lines += _session_lines(session, pack, now)
+    lines += _plan_lines(db, session)
+    driver = desktop_commands.load_driver_state(session.id) or {}
+    lines += _commitment_lines(session, now)
+    if pack:
+        lines += _pack_details(env, session, driver, now)
+        db.commit()
+        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True))
+    vm_lines, facts = _vm_details(session, driver, now)
+    lines += vm_lines
+    db.commit()
+    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts))
+
+
+def _environment_lines(db: Session, user_id: uuid.UUID,
+                       envs: list[DesktopEnvironment]) -> tuple[list[str], list[str]]:
+    """Her game environments (her own Minecraft player, game VMs) and the games
+    she can play, plus what she learned playing."""
     lines = []
     games: list[str] = []
-    retired = set(game_pack.REPLACED_BY) if any(game_pack.is_pack(e) for e in envs) else set()
+    has_pack = any(game_pack.is_pack(e) for e in envs)
+    retired = set(game_pack.REPLACED_BY) if has_pack else set()
     for each in envs:
         if game_pack.is_pack(each):
             lines.append(_pack_line(each))
@@ -242,20 +269,23 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
             line, vm_games = _vm_line(each, retired=retired)
             lines.append(line)
             games.extend(vm_games)
-    if any(game_pack.is_pack(e) for e in envs):
+    if has_pack:
         lines.extend(_learned_lines(db, user_id, game_learning.game_for_profile(game_pack.PACK_PROFILE_ID)))
-    pack = game_pack.is_pack(env)
+    return lines, games
+
+
+def _recent_session(db: Session, user_id: uuid.UUID, env: DesktopEnvironment, now: float) -> DesktopSession | None:
+    """The session to describe: the latest one, unless it ended a while ago."""
     session = _latest_session(db, user_id, env.id)
-    now = time.time()
     if session is not None and session.state in DESKTOP_TERMINAL_STATES:
         ended_ago = now - session.ended_at.timestamp() if session.ended_at else RECENT_END_SECONDS + 1
         if ended_ago > RECENT_END_SECONDS:
-            session = None
-    if session is None:
-        lines.append("You are not playing right now.")
-        db.commit()
-        return GameContext("\n".join(lines), tools=True)
+            return None
+    return session
 
+
+def _session_lines(session: DesktopSession, pack: bool, now: float) -> list[str]:
+    """Whether she's playing, since when, why not, and what happens after a goal."""
     state = {
         "starting": ("getting ready (joining the world)" if pack
                      else "getting ready (waiting for the game window in the VM)"),
@@ -265,47 +295,63 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
         "ended": "stopped", "failed": "stopped with an error",
     }[session.state]
     game_name = "Minecraft (your own player), " if pack else ""
-    lines.append(f"Game: {game_name}{state}; started {_ago(now - session.started_at.timestamp())}.")
+    lines = [f"Game: {game_name}{state}; started {_ago(now - session.started_at.timestamp())}."]
     if session.reason_code and session.state != "running":
         lines.append(f"Why: {REASONS.get(session.reason_code, session.reason_code)}.")
     if session.state not in DESKTOP_TERMINAL_STATES:
         lines.append("After each goal: " + ("you pick the next one yourself (keep playing is on)."
                                             if session.autonomy == "continue" else
                                             "you stop and tell the user (keep playing is off)."))
-    if session.plan:
-        steps = session.plan["steps"]
-        done = [st for st in steps if st["state"] == "done"]
-        active = next((st for st in steps if st["state"] == "active"), None) or next(
-            (st for st in steps if st["state"] == "pending"), None
-        )
-        lines.append(f"Your goal: {session.plan['goal']}.")
-        repeats = _times_set(db, session, session.plan["goal"])
-        if repeats >= GOAL_REPEATS_SHOWN:
-            lines.append(f"You've set this same goal {repeats} times in the last {GOAL_REPEAT_MINUTES} minutes: "
-                         "if it isn't working, don't set it again; work out what's missing, or ask the user.")
-        if session.plan.get("constraints"):
-            # Marked as known: the 2026-10-11 cave session's goal carried "without sleeping,
-            # avoiding hostiles", and nearly every reply said it back.
-            lines.append("Rules you gave your hands for it (the user knows them; don't repeat them back): "
-                         + "; ".join(session.plan["constraints"]) + ".")
-        lines.append(
-            f"Steps done: {len(done)} of {len(steps)}."
-            + (f" Now: {active['do']} (done when: {active['done_when']})." if active else " None left.")
-        )
-    driver = desktop_commands.load_driver_state(session.id) or {}
-    promised = desktop_commands.promises(session.id) if session.state not in DESKTOP_TERMINAL_STATES else []
+    return lines
+
+
+def _plan_lines(db: Session, session: DesktopSession) -> list[str]:
+    """Her goal, its rules, and where she is in its steps."""
+    if not session.plan:
+        return []
+    steps = session.plan["steps"]
+    done = [st for st in steps if st["state"] == "done"]
+    active = next((st for st in steps if st["state"] == "active"), None) or next(
+        (st for st in steps if st["state"] == "pending"), None
+    )
+    lines = [f"Your goal: {session.plan['goal']}."]
+    repeats = _times_set(db, session, session.plan["goal"])
+    if repeats >= GOAL_REPEATS_SHOWN:
+        lines.append(f"You've set this same goal {repeats} times in the last {GOAL_REPEAT_MINUTES} minutes: "
+                     "if it isn't working, don't set it again; work out what's missing, or ask the user.")
+    if session.plan.get("constraints"):
+        # Marked as known: the 2026-10-11 cave session's goal carried "without sleeping,
+        # avoiding hostiles", and nearly every reply said it back.
+        lines.append("Rules you gave your hands for it (the user knows them; don't repeat them back): "
+                     + "; ".join(session.plan["constraints"]) + ".")
+    lines.append(
+        f"Steps done: {len(done)} of {len(steps)}."
+        + (f" Now: {active['do']} (done when: {active['done_when']})." if active else " None left.")
+    )
+    return lines
+
+
+def _commitment_lines(session: DesktopSession, now: float) -> list[str]:
+    """What she promised the user and what she told her hands, while the session lives."""
+    if session.state in DESKTOP_TERMINAL_STATES:
+        return []
+    lines = []
+    promised = desktop_commands.promises(session.id)
     if promised:
         lines.append("What you promised the user (keep it, or drop it with drop_promise when it's done or moot): "
                      + "; ".join(f'{i}. "{p["text"]}" ({_ago(now - p["at"])})' for i, p in enumerate(promised, 1))
                      + ".")
-    told = desktop_commands.hands_messages(session.id) if session.state not in DESKTOP_TERMINAL_STATES else []
+    told = desktop_commands.hands_messages(session.id)
     if told:
         lines.append("You told your hands (they follow it every move): "
                      + "; ".join(f'"{m["text"]}" ({_ago(now - m.get("at", now))})' for m in told) + ".")
-    if pack:
-        lines.extend(_pack_details(env, session, driver, now))
-        db.commit()
-        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True))
+    return lines
+
+
+def _vm_details(session: DesktopSession, driver: dict, now: float) -> tuple[list[str], list]:
+    """The key-pressing VM driver's state: careful mode, counted moves, and what it
+    read off the screen (untrusted). Also returns the facts, for her activity line."""
+    lines = []
     if session.state not in DESKTOP_TERMINAL_STATES:
         careful = ("you turned it on" if (desktop_commands.careful_state(session.id) or {}).get("on")
                    else "your hands reported danger" if driver.get("careful") == "you reported danger" else None)
@@ -330,8 +376,7 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
     if untrusted:
         lines.append("[what you noticed while playing: read off the screen, may be wrong] " + " | ".join(untrusted))
     lines.append("You can only use the game window: no browsing, installs, or accounts.")
-    db.commit()
-    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts))
+    return lines, facts
 
 
 def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[str]:

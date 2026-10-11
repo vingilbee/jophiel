@@ -54,6 +54,7 @@ from app.schemas.desktop import (
     SessionCreate,
 )
 from app.services import desktop_preview
+from app.services.game_event_kinds import rules as event_rules
 from desktop_controller import Profile, ProfileError, Rejection, load_profile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -802,18 +803,12 @@ def driver_progress(
 
 
 def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) -> None:
-    """A report from the driver worth Columbina's attention: danger always;
-    discoveries and warnings unless quiet; other notable things only in commentary mode.
-    Untrusted game text."""
+    """A report from the driver: wakes Columbina if the session's commentary mode
+    allows that kind (game_event_kinds). Untrusted game text."""
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
         return
-    # discovery (a village, diamonds: stage G notices) and warning (hurt, the sun setting, a mob
-    # near the user) unless she's been told to be quiet; struggling (failing at a step again
-    # and again) always: she may need to ask the user.
-    if (kind in ("danger", "struggling")
-            or (kind in ("discovery", "warning") and session.commentary_mode != "quiet")
-            or (kind == "notable" and session.commentary_mode == "commentary")):
+    if session.commentary_mode in event_rules(kind).wakes:
         _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")
         db.commit()
         from app.services import agent_events
