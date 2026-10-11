@@ -134,7 +134,8 @@ def build_desktop_tools(
         """Start playing a game with a goal (or set the goal if already set up).
 
         Use it as soon as the user wants you to play something; don't ask to confirm a clear request.
-        goal: what to achieve, in a short sentence.
+        goal: what to achieve, in a short sentence. Only the what: conditions on how ("without
+        sleeping", "avoid hostiles", "stay close to me") go in rules, not the goal.
         steps: 2-5 concrete steps in order, each with a done_when you could check. Omit for a one-step goal.
         game: a game id from your game summary (e.g. "minecraft_pack" = Minecraft as your own player,
         "minecraft_java" = the game VM); omit for the default (your own Minecraft player, if you have one).
@@ -149,6 +150,7 @@ def build_desktop_tools(
         carries on only if it still fits. Only when the user wants something different from
         what you're doing: an "ok", a question or a chat about something else needs no new plan.
 
+        goal: only what to achieve; conditions on how ("without sleeping") go in rules.
         rules: up to 5 short rules your hands keep for this whole goal (as in start_game).
         To keep going after the current steps without stopping, use add_game_steps.
         """

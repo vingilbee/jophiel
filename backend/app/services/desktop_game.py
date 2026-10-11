@@ -284,7 +284,10 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
             lines.append(f"You've set this same goal {repeats} times in the last {GOAL_REPEAT_MINUTES} minutes: "
                          "if it isn't working, don't set it again; work out what's missing, or ask the user.")
         if session.plan.get("constraints"):
-            lines.append("Rules you gave your hands for it: " + "; ".join(session.plan["constraints"]) + ".")
+            # Marked as known: the 2026-10-11 cave session's goal carried "without sleeping,
+            # avoiding hostiles", and nearly every reply said it back.
+            lines.append("Rules you gave your hands for it (the user knows them; don't repeat them back): "
+                         + "; ".join(session.plan["constraints"]) + ".")
         lines.append(
             f"Steps done: {len(done)} of {len(steps)}."
             + (f" Now: {active['do']} (done when: {active['done_when']})." if active else " None left.")
