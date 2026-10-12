@@ -6,6 +6,7 @@ import {
   blockIds, distanceTo, findEntity, findPlayer, goals, hostilesAround, movements,
   requireBlock, requireEntityType, requireOtherPlayer, walkTo
 } from './common.js'
+import { seenBlock } from '../sight.js'
 import { lastSeen } from '../sightings.js'
 
 const require = createRequire(import.meta.url)
@@ -74,8 +75,8 @@ export const goTo = {
     try {
       if (target.kind === 'place') return await goToPlace(ctx, target, params.range, attack)
       if (target.kind === 'block') {
-        const blockPos = bot.findBlock({ matching: blockIds(bot, target.name), maxDistance: 64 })?.position
-        if (!blockPos) return failed(`no ${target.name} within 64 blocks`)
+        const blockPos = seenBlock(bot, { matching: blockIds(bot, target.name), maxDistance: 64 })?.position
+        if (!blockPos) return failed(`no ${target.name} in sight within 64 blocks`)
         return await goToPlace(ctx, blockPos, params.range, attack)
       }
       if (target.kind === 'player') {

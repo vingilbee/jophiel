@@ -114,4 +114,18 @@ describe('background modes on a real server', { skip: !eulaAccepted() && 'accept
     assert.equal(r.data.interruptions, undefined)
     assert.equal(bot.blockAt(origin.offset(3, 0, 3)).name, 'iron_ore')
   })
+
+  test('gather: no x-ray, iron inside the ground is left alone', async () => {
+    await reset()
+    await mc(`give ${NAME} minecraft:stone_pickaxe`)
+    await until(() => bot.inventory.items().some((i) => i.name === 'stone_pickaxe'))
+    await mc(`fill ${at(1, -4, 1)} ${at(5, -1, 5)} minecraft:stone`)
+    await mc(`setblock ${at(3, -3, 3)} minecraft:iron_ore`)
+    modes.set({ gather: ['iron_ore'] }, bot)
+    const record = runner.start('follow_player', { player: 'Friend', distance: 3, seconds: 5 })
+    const r = await runner.wait(record.id, 10000)
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    assert.equal(r.data.interruptions, undefined)
+    assert.equal(bot.blockAt(origin.offset(3, -3, 3)).name, 'iron_ore')
+  })
 })

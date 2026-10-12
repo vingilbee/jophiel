@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { ParamError, SkillEnd, done, failed, timeLimitParam } from './contract.js'
 import { count, findEntity, findPlayer, goals, requireItem, requireOtherPlayer, walkTo } from './common.js'
 import { parseTarget } from './movement.js'
+import { seenBlock } from '../sight.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
@@ -222,7 +223,7 @@ export const lookAt = {
     else if (target.kind === 'mob') entity = findEntity(bot, target.name, 32)
     else if (target.kind === 'block') {
       const ids = bot.registry.blocksByName[target.name] ? [bot.registry.blocksByName[target.name].id] : []
-      point = bot.findBlock({ matching: ids, maxDistance: 32 })?.position.offset(0.5, 0.5, 0.5)
+      point = seenBlock(bot, { matching: ids, maxDistance: 32 })?.position.offset(0.5, 0.5, 0.5)
     } else point = new Vec3(target.x, target.y ?? bot.entity.position.y + 1.6, target.z)
     if (!entity && !point) return failed(`can't see ${target.name ?? 'that'}`)
 

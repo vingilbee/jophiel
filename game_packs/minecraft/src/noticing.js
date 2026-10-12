@@ -44,6 +44,7 @@ export function attachNoticing (bot, { memory }) {
   let lastHealth = Number.isFinite(bot.health) ? bot.health : null // from the previous health update
   let windowHealth = null // health at the start of the current 3 s window
   let windowAt = 0
+  let carried = [] // what she had at the last check: on death the inventory is already gone
 
   const eye = () => bot.entity.position.offset(0, bot.entity.eyeHeight ?? 1.62, 0)
 
@@ -165,6 +166,7 @@ export function attachNoticing (bot, { memory }) {
     if (!bot.entity) return
     if (++ticks % TICKS_PER_CHECK !== 0) return
     checks++
+    carried = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }))
     checkMobs()
     checkPlayers()
     checkWorld()
@@ -189,7 +191,24 @@ export function attachNoticing (bot, { memory }) {
     if (bot.food <= 6) add('hungry', 'heads_up', `hungry: food ${bot.food}/20`, { food: bot.food }, 'hungry', 300000)
   }
 
-  const onDeath = () => add('died', 'urgent', 'died', {}, 'died', 5000)
+  // Dying drops everything she carried where she fell, gone after 5 minutes: say what and where,
+  // and what was close (likely what killed her).
+  function onDeath () {
+    const dropped = new Map()
+    for (const i of carried) dropped.set(i.name, (dropped.get(i.name) ?? 0) + i.count)
+    const items = [...dropped].map(([name, count]) => `${name} x${count}`)
+    const here = bot.entity?.position
+    const near = here
+      ? Object.values(bot.entities).filter((e) => e !== bot.entity && isHostile(e) && e.position.distanceTo(here) <= 8)
+        .map((e) => e.name.replace(/_/g, ' '))
+      : []
+    const text = 'died' +
+      (near.length ? ` with ${[...new Set(near)].join(', ')} close by` : '') +
+      (items.length ? `; dropped where you fell (gone in 5 min): ${items.join(', ')}` : '; carried nothing')
+    const at = here ? { x: Math.round(here.x), y: Math.round(here.y), z: Math.round(here.z) } : {}
+    add('died', 'urgent', text, { ...at, dropped: Object.fromEntries(dropped), near: [...new Set(near)] }, 'died', 5000)
+    carried = []
+  }
   const onSpawn = () => {
     spawnedAt = Date.now()
     lastPhase = null

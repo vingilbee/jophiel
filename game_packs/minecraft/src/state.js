@@ -5,6 +5,7 @@
 // she faces, positive to her right, and pitch positive looking down to match the desktop
 // driver's convention.
 
+import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
 
 const DEG = 180 / Math.PI
@@ -98,7 +99,7 @@ export function notableBlocks (bot, radius = 24) {
   const out = []
   for (const [kind, test] of NOTABLE) {
     const ids = bot.registry.blocksArray.filter((b) => test(b.name)).map((b) => b.id)
-    const position = bot.findBlock({ matching: ids, maxDistance: radius })?.position
+    const position = seenBlock(bot, { matching: ids, maxDistance: radius })?.position
     if (!position) continue
     const block = bot.blockAt(position)
     const dx = position.x + 0.5 - self.position.x

@@ -27,8 +27,18 @@ function fakeBot ({ mobs = [], friendAt = null, blocks = [] } = {}) {
     .filter((b) => matching.includes(registry.blocksByName[b.name].id) && b.position.distanceTo(bot.entity.position) <= maxDistance)
     .map((b) => b.position)
   bot.blockAt = (p) => {
-    const b = blocks.find((x) => x.position.equals(p))
-    return b ? { name: b.name, type: registry.blocksByName[b.name].id, harvestTools: b.harvestTools, digTime: () => 1000 } : null
+    const b = blocks.find((x) => x.position.equals(p.floored()))
+    return b ? { name: b.name, type: registry.blocksByName[b.name].id, position: b.position, boundingBox: 'block', harvestTools: b.harvestTools, digTime: () => 1000 } : null
+  }
+  // Everything not listed is air: walk the ray in small steps to the first listed block.
+  bot.world = {
+    raycast (from, dir, range, match) {
+      for (let t = 0; t <= range; t += 0.05) {
+        const b = bot.blockAt(from.plus(dir.scaled(t)))
+        if (b && match(b)) return b
+      }
+      return null
+    }
   }
   bot.inventory = { items: () => [] }
   bot.clearControlStates = () => {}
@@ -96,6 +106,25 @@ test('gather: listed blocks close by, only while the player is close, never with
   const memory = new ModeMemory()
   assert.equal(pickMode(noTool, settings, memory, following), null)
   assert.ok(memory.skipping('block:(3, 64, 0)'))
+})
+
+test('gather: no x-ray, only ore she can see or has seen', () => {
+  const settings = new ModeSettings()
+  settings.gather = ['iron_ore']
+  // Iron inside a stone wall: every face has stone on it.
+  const wall = []
+  for (let x = 2; x <= 4; x++) for (let y = 63; y <= 65; y++) for (let z = -1; z <= 1; z++) wall.push({ name: x === 3 && y === 64 && z === 0 ? 'iron_ore' : 'stone', position: new Vec3(x, y, z) })
+  const buried = fakeBot({ blocks: wall })
+  assert.equal(pickMode(buried, settings, new ModeMemory(), following), null)
+
+  // The same iron with the stone in front of it gone: she sees it...
+  const open = wall.filter((b) => !(b.position.x === 2 && b.position.y === 64 && b.position.z === 0))
+  const bot = fakeBot({ blocks: open })
+  assert.equal(pickMode(bot, settings, new ModeMemory(), following).params.block, 'iron_ore')
+  // ...and still knows it's there after turning the corner (now behind a wall).
+  open.push({ name: 'stone', position: new Vec3(1, 64, 0) }, { name: 'stone', position: new Vec3(1, 65, 0) })
+  assert.equal(pickMode(bot, settings, new ModeMemory(), following).params.block, 'iron_ore')
+  assert.equal(pickMode(fakeBot({ blocks: open }), settings, new ModeMemory(), following), null) // someone who never saw it
 })
 
 test('a target that didn\'t work out is left alone, and each mode cools down', () => {

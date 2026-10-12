@@ -6,6 +6,7 @@ import { ParamError, SkillEnd, done, failed, timeLimitParam } from './contract.j
 import {
   blockIds, findEntity, goals, hostilesAround, isNight, movements, requireBlock, requireEntityType
 } from './common.js'
+import { seenBlock } from '../sight.js'
 
 const LEG_SECONDS = 25
 const STUCK_SECONDS = 5
@@ -81,7 +82,7 @@ export function createExplore (memory) {
         }
         if (goal) {
           const found = goal.kind === 'block'
-            ? bot.findBlock({ matching: blockIds(bot, goal.name), maxDistance: 32 })?.position
+            ? seenBlock(bot, { matching: blockIds(bot, goal.name), maxDistance: 32 })?.position
             : findEntity(bot, goal.name, 32)?.position
           if (found) {
             const where = { x: Math.round(found.x), y: Math.round(found.y), z: Math.round(found.z) }

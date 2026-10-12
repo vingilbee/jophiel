@@ -133,6 +133,21 @@ describe('noticing on a real server', { skip: !eulaAccepted() && 'accept the Min
     assert.ok(notice.data.health <= 14)
   })
 
+  test('dying says what she dropped and what was close', async () => {
+    await reset()
+    await mc('difficulty easy')
+    await mc(`give ${NAME} minecraft:bread 4`)
+    await mc(`summon minecraft:husk ${at(3, 0, 0)} {NoAI:1b}`)
+    await sleep(1500) // the inventory is read once a second
+    const seq = latest()
+    await mc(`kill ${NAME}`)
+    const notice = await waitFor(seq, 'died', 5000)
+    assert.match(notice.text, /^died with husk close by; dropped where you fell \(gone in 5 min\): .*bread x4/)
+    assert.equal(notice.data.dropped.bread, 4)
+    await until(() => bot.health > 0 && bot.entity, 10000) // respawned
+    await sleep(1000)
+  })
+
   test('GET /notices waits for something new', async () => {
     await reset()
     const port = 18798

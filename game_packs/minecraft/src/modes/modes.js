@@ -10,6 +10,7 @@
 import { ParamError } from '../skills/contract.js'
 import { bestToolFor, blockIds, findPlayer, hostilesAround, requireBlock } from '../skills/common.js'
 import { pickTarget } from '../skills/fight.js'
+import { seenBlocks } from '../sight.js'
 
 export const MODE_NAMES = ['guard', 'gather', 'pickup']
 // Skills a mode may put on hold and pick back up. The quick ones (craft, place, eat, sleep, give)
@@ -23,7 +24,9 @@ const GATHER_LEASH = 16 // the player she's with must be this close, or she'd fa
 const GATHER_MAX = 8 // blocks per stop
 const PICKUP_RADIUS = 4
 const MAX_GATHER = 8 // names on the list
-const ACTION_SECONDS = { guard: 30, gather: 30, pickup: 10 }
+// Gather in short stops: the leash is checked before each, and a 30 s stop on ore she
+// couldn't reach left her standing while the user walked off (seen live).
+const ACTION_SECONDS = { guard: 30, gather: 15, pickup: 10 }
 const COOLDOWN_MS = { guard: 2000, gather: 2000, pickup: 4000 }
 const SKIP_MS = 60000 // a target that didn't work out is left alone this long
 
@@ -163,7 +166,8 @@ function gatherPick (bot, settings, memory, run, friend) {
     ids = ids.filter((id) => !own.has(id)) // she's mining those anyway
   }
   if (!ids.length) return null
-  const positions = bot.findBlocks({ matching: ids, maxDistance: GATHER_RADIUS, count: 32 })
+  // Only ore she can see (or saw): not ore inside the wall that only the game's data knows about.
+  const positions = seenBlocks(bot, { matching: ids, maxDistance: GATHER_RADIUS, count: 32 })
     .filter((p) => !memory.skipping(`block:${p}`))
     .sort((a, b) => a.distanceTo(here) - b.distanceTo(here))
   for (const position of positions) {

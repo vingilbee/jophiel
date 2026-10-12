@@ -105,10 +105,13 @@ Every skill follows the same contract: one goal, one fast loop, no AI inside, ne
 skill (her hands chain them). It always ends with exactly one outcome: `done`, `failed` (with why),
 `lost`, `blocked`, `hurt`, `timeout` or `stopped`, plus a few numbers.
 
+No skill sees through walls: `mine`, gather, `go_to block:`, `explore`'s goal and her surroundings
+count only blocks with a face in her line of sight, or that she has seen before (`src/sight.js`).
+
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|
 | `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`; `range` | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
-| `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None nearby, no tool that can harvest it (says which), unreachable |
+| `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
 | `fight` | `target`: `nearest_hostile` or a hostile type | Target type dead / no hostiles left | Outnumbered (flees), none found. Hostile mobs only |
 | `explore` | `goal`: `block:<type>` / `mob:<type>` (optional), `radius` | Goal found (says where), or area covered | Night, danger within 8 blocks |
 | `eat` | `food` (optional) | Ate | Not hungry, nothing to eat |

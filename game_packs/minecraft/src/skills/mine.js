@@ -1,6 +1,7 @@
 // mine(block, count): break blocks of a type and pick up what drops, until she has `count`.
 import { done, failed, timeLimitParam } from './contract.js'
 import { bestToolFor, blockIds, count, goals, requireBlock, walkTo } from './common.js'
+import { seenBlocks } from '../sight.js'
 
 const MAX_UNREACHABLE = 6
 
@@ -57,13 +58,13 @@ export const mine = {
       if (collected() >= params.count) return done({ mined, collected: collected() })
 
       const here = bot.entity.position
-      const position = bot.findBlocks({ matching: ids, maxDistance: params.radius, count: 64 })
+      const position = seenBlocks(bot, { matching: ids, maxDistance: params.radius, count: 64 })
         .filter((p) => !unreachable.has(p.toString()))
         .sort((a, b) => a.distanceTo(here) - b.distanceTo(here))[0]
       if (!position) {
         await settle()
         if (collected() >= params.count) return done({ mined, collected: collected() })
-        return failed(`no ${params.block} within ${params.radius} blocks`, { mined, collected: collected() })
+        return failed(`no ${params.block} in sight within ${params.radius} blocks`, { mined, collected: collected() })
       }
 
       const block = bot.blockAt(position)
