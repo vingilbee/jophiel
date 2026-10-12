@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 
+from ..contracts.character import Character
 from ..appraisal.models import (
     CapabilitySnapshot,
     MemoryRecord,
@@ -486,12 +487,15 @@ class CognitivePipelineRequest(FrozenModel):
     # workspace, what the prior turn proposed, and validated deliveries since.
     # Omitted when absent (an empty observational workspace is then used).
     workspace_inputs: WorkspaceTurnInputs | None = None
+    # Her values, principles and beliefs (core memory v2+). Omitted when absent.
+    character: Character | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_dialogue(self, handler: SerializerFunctionWrapHandler):
         data = handler(self)
         if isinstance(data, dict):
-            for optional in ("dialogue_context", "goal_turn_rollover", "requirement_inputs", "workspace_inputs"):
+            for optional in ("dialogue_context", "goal_turn_rollover", "requirement_inputs", "workspace_inputs",
+                             "character"):
                 if data.get(optional) is None:
                     data.pop(optional, None)
         return data
@@ -529,6 +533,8 @@ class CognitivePipelineRequest(FrozenModel):
             raise ValueError("interpretation bias profile belongs to a different core memory")
         if self.action_personality.source_core_memory_ref != self.core_memory_ref:
             raise ValueError("action personality profile belongs to a different core memory")
+        if self.character is not None and self.character.core_memory_ref != self.core_memory_ref:
+            raise ValueError("character belongs to a different core memory")
         _require_non_blank(
             "action personality identifiers",
             (self.action_personality.profile_id, self.action_personality.mapper_version),

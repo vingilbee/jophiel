@@ -436,7 +436,8 @@ class TwoCallOrchestrator:
                     context_version=(contribution_input_version(self) if stage=='contribution'
                                      else UNDERSTANDING_INPUT_VERSION if stage=='call_one' else POLICY_INPUT_VERSION),
                     schema_version=f'{stage}-v1',
-                    prompt_version=(('contribution-v1.8' if contribution_input_version(self).endswith('v1.1') else 'contribution-v1.6')
+                    prompt_version=({'contribution-input-v1.1': 'contribution-v1.8', 'contribution-input-v1.2': 'contribution-v1.9'}
+                                    .get(contribution_input_version(self), 'contribution-v1.6')
                         if stage == 'contribution'
                         else 'call_one-v1.8' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.8'
                         else 'call_one-v1.7' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.7'

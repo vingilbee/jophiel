@@ -74,6 +74,7 @@ from app.ai.Cognitive.system.v0.live_shadow.models import (
     capture_id_for,
     core_memory_ref_for,
 )
+from app.ai.Cognitive.system.v0.contracts.character import Character, character_from_identity
 from app.ai.Cognitive.system.v0.personality_runtime_v0 import (
     PersonalityMappingError,
     PersonalityMappingErrorCode,
@@ -467,8 +468,9 @@ _mapper = PersonalityRuntimeMapperV0()
 
 def _core_personality(
     db: Session, *, turn_id: uuid.UUID,
-) -> tuple[CoreMemoryLineage | None, ShadowPersonalityProjection | None, PersonalityMissingReason | None]:
-    """One turn-time CoreMemory read producing both lineage and personality.
+) -> tuple[CoreMemoryLineage | None, ShadowPersonalityProjection | None, PersonalityMissingReason | None,
+           Character | None]:
+    """One turn-time CoreMemory read producing lineage, personality and (core v2+) character.
 
     The configured source is used exclusively; there is no fallback between
     the runtime mapper and the reviewed baseline. Any failure yields no
@@ -480,9 +482,9 @@ def _core_personality(
     settings = get_settings()
     row = db.scalar(select(CoreMemory).where(CoreMemory.name == settings.cognitive_live_shadow_core_memory_name))
     if row is None:
-        return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE
+        return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE, None
     if not row.is_active:
-        return None, None, PersonalityMissingReason.CORE_MEMORY_INACTIVE
+        return None, None, PersonalityMissingReason.CORE_MEMORY_INACTIVE, None
 
     if settings.cognitive_live_shadow_personality_source == "reviewed_baseline":
         try:
@@ -491,9 +493,9 @@ def _core_personality(
                 name=row.name, version=row.version, schema_version=row.schema_version,
             )
         except ValueError:
-            return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE
+            return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE, None
         projection, reason = _reviewed_baseline(core)
-        return core, projection, reason
+        return core, projection, reason, _character_of(row, core, turn_id=turn_id) if projection else None
 
     # Runtime mapper: supported schema and positive version before lineage.
     try:
@@ -501,7 +503,7 @@ def _core_personality(
     except PersonalityMappingError as exc:
         metrics.increment("personality_mapping_failures", code=exc.code.value)
         logger.warning("Cognitive shadow personality mapping failed for turn %s: %s", turn_id, exc.code.value)
-        return None, None, _MAPPER_FAILURE_REASONS[exc.code]
+        return None, None, _MAPPER_FAILURE_REASONS[exc.code], None
     core = CoreMemoryLineage(
         core_memory_ref=core_ref, name=row.name, version=row.version, schema_version=row.schema_version,
     )
@@ -521,8 +523,22 @@ def _core_personality(
             "Cognitive shadow personality mapping failed for turn %s (%s): %s",
             turn_id, core.core_memory_ref, exc.code.value,
         )
-        return core, None, _MAPPER_FAILURE_REASONS[exc.code]
-    return core, projection, None
+        return core, None, _MAPPER_FAILURE_REASONS[exc.code], None
+    return core, projection, None, _character_of(row, core, turn_id=turn_id)
+
+
+def _character_of(row: CoreMemory, core: CoreMemoryLineage, *, turn_id: uuid.UUID) -> Character | None:
+    """Her values, principles and beliefs from the same core-memory row, or ``None``.
+
+    A core without a character (version 1) or with an invalid one captures
+    none; the turn still runs, with opinions reasoned without it.
+    """
+    try:
+        return character_from_identity(copy.deepcopy(row.identity), core_memory_ref=core.core_memory_ref)
+    except ValueError:
+        metrics.increment("personality_mapping_failures", code="character_invalid")
+        logger.warning("Cognitive shadow character invalid for turn %s (%s)", turn_id, core.core_memory_ref)
+        return None
 
 
 def _reviewed_baseline(
@@ -601,7 +617,7 @@ def build_capture(
             db, conversation_id=conversation_id, focus=focus, focus_at=focus_at,
         )
     attachments_available, attachments = _verified_attachments(user_id, focus)
-    core, personality, missing_reason = _core_personality(db, turn_id=turn_id)
+    core, personality, missing_reason, character = _core_personality(db, turn_id=turn_id)
     omitted = set(ALWAYS_OMITTED if dialogue is None else ALWAYS_OMITTED_V03) | {
         OmittedInput.MEMORY_PROJECTION,
         OmittedInput.RELATIONSHIP_PROJECTION,
@@ -618,6 +634,7 @@ def build_capture(
                         else CAPTURE_SCHEMA_VERSION_V04 if interpreted is not None else CAPTURE_SCHEMA_VERSION_V03),
         dialogue=dialogue,
         interpreted_dialogue=interpreted,
+        character=character,
         producer_version=CAPTURE_PRODUCER_VERSION,
         user_ref=str(user_id),
         conversation_ref=str(conversation_id),

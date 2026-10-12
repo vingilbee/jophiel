@@ -29,8 +29,10 @@ def prompt(stage, payload=None):
     if payload and payload.get('protocol')==V1_PROTOCOL:
         if stage=='contribution':
             text = Path(__file__).with_name('contribution_v1_6.txt').read_text()
-            if payload.get('schema_version') == 'contribution-input-v1.1':
+            if payload.get('schema_version') in ('contribution-input-v1.1', 'contribution-input-v1.2'):
                 text += Path(__file__).with_name('contribution_v1_8.txt').read_text()
+            if payload.get('schema_version') == 'contribution-input-v1.2':
+                text += Path(__file__).with_name('contribution_v1_9.txt').read_text()
             return text
         # The capture's registry version selects its prompt; v1.0/v1.1 replay unchanged.
         if stage=='call_one':
@@ -95,7 +97,7 @@ def call_one_evidence_refs(payload):
 def response_schema(stage, payload):
     if payload.get('protocol')==V1_PROTOCOL and stage=='contribution':
         from .contribution import contribution_schema
-        return contribution_schema()
+        return contribution_schema(payload)
     if payload.get('protocol')==V1_PROTOCOL:
         from .v1_provider import v1_schema
         return v1_schema(stage,payload)
@@ -194,8 +196,8 @@ def response_schema(stage, payload):
 
 def output_type(stage,payload):
     if payload.get('protocol')==V1_PROTOCOL and stage=='contribution':
-        from .contribution import ContributionProposalV1
-        return ContributionProposalV1
+        from .contribution import CONTRIBUTION_INPUT_VERSION_V1_2, ContributionProposalV1, ContributionProposalV2
+        return ContributionProposalV2 if payload.get('schema_version') == CONTRIBUTION_INPUT_VERSION_V1_2 else ContributionProposalV1
     if payload.get('protocol')==V1_PROTOCOL:
         from .v1_contracts import UnderstandingProposalV1,ActionPolicyProposalV1
         return UnderstandingProposalV1 if stage=='call_one' else ActionPolicyProposalV1

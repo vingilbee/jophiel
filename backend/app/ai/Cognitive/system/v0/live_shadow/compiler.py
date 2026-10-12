@@ -363,6 +363,7 @@ def compile_request(
             action_personality=personality.action_personality,
             requirement_inputs=requirement_inputs_for(capture),
             workspace_inputs=workspace_inputs_for(lineage),
+            character=capture.character,
             **dialogue,
         )
     except ValueError as exc:

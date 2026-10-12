@@ -220,10 +220,12 @@ def test_the_migration_seed_maps_to_the_golden_vector() -> None:
             row = connection.execute(text("SELECT * FROM core_memory WHERE name = 'columbina'")).mappings().one()
         engine.dispose()
         groups = {key: row[key] for key in COLUMBINA_CORE_GROUPS}
-        assert groups == COLUMBINA_CORE_GROUPS
-        assert (row["is_active"], row["version"], row["schema_version"]) == (True, 1, 1)
+        # Core v2 adds her character in words; every numeric group is unchanged.
+        character = groups["identity"].pop("character")
+        assert groups == COLUMBINA_CORE_GROUPS and character["version"] == "character-v1"
+        assert (row["is_active"], row["version"], row["schema_version"]) == (True, 2, 1)
         projection = MAPPER.compile(build_source(
-            name=row["name"], version=row["version"], schema_version=row["schema_version"], groups=groups,
+            name=row["name"], version=1, schema_version=row["schema_version"], groups=groups,
         ))
         assert projection == _compile()
     finally:

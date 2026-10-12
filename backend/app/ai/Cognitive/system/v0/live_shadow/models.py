@@ -19,6 +19,7 @@ from typing import Literal
 
 from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
+from ..contracts.character import Character
 from ..cognitive_pipeline_v0.models import (
     CognitivePipelineRelationshipContext,
     CognitivePipelineRequest,
@@ -536,18 +537,24 @@ class CognitiveShadowCapture(FrozenModel):
     dialogue: CapturedDialogueMemory | None = None
     # Capture v0.4 only; omitted otherwise.
     interpreted_dialogue: CapturedInterpretedDialogue | None = None
+    # Her values, principles and beliefs (core memory v2+), frozen at capture
+    # time. Omitted when the core has none, so earlier digests never change.
+    character: Character | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_dialogue(self, handler: SerializerFunctionWrapHandler):
         data = handler(self)
         if isinstance(data, dict):
-            for key in ("dialogue", "interpreted_dialogue"):
+            for key in ("dialogue", "interpreted_dialogue", "character"):
                 if data.get(key) is None:
                     data.pop(key, None)
         return data
 
     @model_validator(mode="after")
     def valid(self) -> CognitiveShadowCapture:
+        if self.character is not None and (
+                self.core_memory is None or self.character.core_memory_ref != self.core_memory.core_memory_ref):
+            raise ValueError("the character must belong to the captured core-memory lineage")
         for label, value in (
             ("user_ref", self.user_ref), ("conversation_ref", self.conversation_ref),
             ("turn_id", self.turn_id), ("focus_message_id", self.focus_message_id),

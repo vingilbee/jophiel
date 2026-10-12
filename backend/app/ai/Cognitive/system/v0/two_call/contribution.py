@@ -39,6 +39,12 @@ CONTRIBUTION_STAGE = 'contribution'
 CONTRIBUTION_INPUT_VERSION = 'contribution-input-v1'
 # Registry v1.8: follow-ups are answered in context (``contribution_v1_8.txt``).
 CONTRIBUTION_INPUT_VERSION_V1_1 = 'contribution-input-v1.1'
+# With her character (core memory v2): one opinion reasoned from her values,
+# principles and beliefs replaces the take-scoring formula (``contribution_v1_9.txt``).
+CONTRIBUTION_INPUT_VERSION_V1_2 = 'contribution-input-v1.2'
+CONTRIBUTION_SCHEMA_VERSION_V2 = 'contribution-proposal-v2'
+CHARACTER_REASONING_VERSION = 'character-reasoning-v1'
+MAX_RESOLUTION_CHARACTERS = 300
 CONTRIBUTION_SCHEMA_VERSION = 'contribution-proposal-v1'
 CONTRIBUTION_PRODUCER_VERSION = 'model-contribution-v1'
 OPINION_SELECTION_VERSION = 'opinion-selection-v1'
@@ -86,13 +92,85 @@ class ContributionProposalV1(FrozenModel):
         return self
 
 
+BasisKind = Literal['value', 'principle', 'belief', 'experience', 'reasoning']
+
+
+class Basis(FrozenModel):
+    """What a view rests on. ``ref`` names a character item for value/principle/belief."""
+    kind: BasisKind
+    ref: str | None = None
+
+
+class Tension(FrozenModel):
+    """Two considerations that pulled apart, and how she weighed them."""
+    between: tuple[str, str]
+    resolution: str = Field(min_length=1, max_length=MAX_RESOLUTION_CHARACTERS)
+
+
+class View(FrozenModel):
+    text: str = Field(min_length=1, max_length=MAX_CLAIM_CHARACTERS)
+    confidence: Confidence
+    basis: tuple[Basis, ...] = Field(min_length=1, max_length=4)
+    tensions: tuple[Tension, ...] = Field(max_length=2)
+
+
+class ContributionProposalV2(FrozenModel):
+    """Input v1.2: knowledge as claims, an opinion as one reasoned view (no takes, no formula)."""
+    schema_version: Literal['contribution-proposal-v2']
+    question_kind: QuestionKind
+    claims: tuple[Claim, ...] = Field(max_length=3)
+    view: View | None
+
+    @model_validator(mode='after')
+    def consistent(self) -> ContributionProposalV2:
+        if self.question_kind == 'general_knowledge' and (not self.claims or self.view is not None):
+            raise ValueError('general knowledge carries claims and no view')
+        if self.question_kind == 'opinion' and (self.claims or self.view is None):
+            raise ValueError('an opinion carries one view and no claims')
+        if self.question_kind not in ('general_knowledge', 'opinion') and (self.claims or self.view is not None):
+            raise ValueError('a question Columbina cannot answer carries no content')
+        return self
+
+
+_SECTION = {'value': 'values', 'principle': 'principles', 'belief': 'beliefs'}
+
+
+def basis_check(view: View, character) -> dict:
+    """Which cited character ids exist in the cited section. An unknown id is plain reasoning; it never fails the turn."""
+    known, unknown = [], []
+    for item in view.basis:
+        if item.kind not in _SECTION:
+            continue
+        found = item.ref is not None and character is not None and character.section_of(item.ref) == _SECTION[item.kind]
+        (known if found else unknown).append(item.ref)
+    return dict(known=known, unknown=unknown)
+
+
 def _obj(properties: dict) -> dict:
     return {'type': 'object', 'additionalProperties': False, 'properties': properties, 'required': list(properties)}
 
 
-def contribution_schema() -> dict:
+def contribution_schema(payload: dict | None = None) -> dict:
     text = {'type': 'string', 'minLength': 1, 'maxLength': MAX_CLAIM_CHARACTERS}
     enum = lambda values: {'type': 'string', 'enum': list(values)}
+    if (payload or {}).get('schema_version') == CONTRIBUTION_INPUT_VERSION_V1_2:
+        refs = [item['id'] for section in ('values', 'principles', 'beliefs')
+                for item in payload['character'][section]]
+        ref = {'anyOf': [enum(refs), {'type': 'null'}]} if refs else {'type': 'null'}
+        view = _obj({
+            'text': text, 'confidence': enum(Confidence.__args__),
+            'basis': {'type': 'array', 'minItems': 1, 'maxItems': 4,
+                      'items': _obj({'kind': enum(BasisKind.__args__), 'ref': ref})},
+            'tensions': {'type': 'array', 'maxItems': 2, 'items': _obj({
+                'between': {'type': 'array', 'minItems': 2, 'maxItems': 2, 'items': {'type': 'string'}},
+                'resolution': {'type': 'string', 'minLength': 1, 'maxLength': MAX_RESOLUTION_CHARACTERS}})},
+        })
+        return _obj({
+            'schema_version': enum([CONTRIBUTION_SCHEMA_VERSION_V2]),
+            'question_kind': enum(QuestionKind.__args__),
+            'claims': {'type': 'array', 'maxItems': 3, 'items': _obj({'text': text, 'confidence': enum(Confidence.__args__)})},
+            'view': {'anyOf': [view, {'type': 'null'}]},
+        })
     return _obj({
         'schema_version': enum(['contribution-proposal-v1']),
         'question_kind': enum(QuestionKind.__args__),
@@ -131,8 +209,16 @@ def personality_view(request) -> dict:
 
 def contribution_input_version(owner) -> str:
     from .v1_contracts import WRITTEN_RECALL_REGISTRIES
-    return (CONTRIBUTION_INPUT_VERSION_V1_1 if owner.understanding_registry in WRITTEN_RECALL_REGISTRIES
-            else CONTRIBUTION_INPUT_VERSION)
+    if owner.understanding_registry not in WRITTEN_RECALL_REGISTRIES:
+        return CONTRIBUTION_INPUT_VERSION
+    return (CONTRIBUTION_INPUT_VERSION_V1_2 if getattr(owner.request, 'character', None) is not None
+            else CONTRIBUTION_INPUT_VERSION_V1_1)
+
+
+def mood_view(request) -> list[dict]:
+    """Her current state in this conversation, as bands (how engaged, how positive, how strained)."""
+    return [dict(state=item.state_key.removeprefix('state.'), band=item.band.value if hasattr(item.band, 'value') else item.band)
+            for item in request.previous_state.values if item.active]
 
 
 def build_payload(owner, *, kind: str, frame, query) -> dict:
@@ -147,8 +233,21 @@ def build_payload(owner, *, kind: str, frame, query) -> dict:
         window.append(dict(speaker=message.role.value, text=message.content, current_turn=current))
     topic = next((value for name, value in sorted(frame.arguments.items())
                   if name in ('topic', 'topic_ref', 'referent_phrase') and isinstance(value, str)), None)
+    version = contribution_input_version(owner)
+    if version == CONTRIBUTION_INPUT_VERSION_V1_2:
+        # Her character, her tendencies and her mood inform every answer; the
+        # model reasons over them (no formula picks for her).
+        character = request.character
+        return plain_json(dict(
+            protocol='cognitive-two-call-v1', schema_version=version,
+            requested=kind, question_topic=topic, conversation_window=window,
+            personality=personality_view(request),
+            character={section: [dict(id=item.id, text=item.text) for item in getattr(character, section)]
+                       for section in ('values', 'principles', 'beliefs')},
+            mood=mood_view(request),
+        ))
     return plain_json(dict(
-        protocol='cognitive-two-call-v1', schema_version=contribution_input_version(owner),
+        protocol='cognitive-two-call-v1', schema_version=version,
         requested=kind, question_topic=topic, conversation_window=window,
         personality=personality_view(request) if kind == 'opinion' else None,
     ))
@@ -200,11 +299,33 @@ def _key(*parts: str) -> str:
     return hashlib.sha256('|'.join(parts).encode()).hexdigest()[:24]
 
 
-def compile_result(proposal: ContributionProposalV1, *, kind: str, query, request, capture_digest: str) -> ProducerResult:
+def compile_result(proposal: ContributionProposalV1 | ContributionProposalV2, *, kind: str, query, request,
+                   capture_digest: str) -> ProducerResult:
     common = dict(result_id=f'contribution-result:{_key(query.query_id)}', query_ref=query.query_id,
                   producer_id=CONTRIBUTION_PRODUCER_VERSION, producer_version=CONTRIBUTION_PRODUCER_VERSION,
                   manifest_version=QUERY_MANIFEST_VERSION)
     source = f'contribution:{capture_digest}'
+
+    def view_fact(text: str, producer_version: str, predicate: str) -> ProducerResult:
+        authority = AuthorityClass.COLUMBINA_VIEW
+        fact = ProducedFact(
+            fact_id=f'contribution-fact:{_key(query.query_id, text)}', query_ref=query.query_id,
+            authority_class=authority, producer_id=CONTRIBUTION_PRODUCER_VERSION, producer_version=producer_version,
+            predicate=predicate, subject_anchor=query.subject_anchor,
+            value=text, value_type=ArgumentValueType.STRING, value_anchor=text, owner='application',
+            source_kind=ContentSourceKind.COLUMBINA_OWN_VIEW, source_ref=source,
+            revision=CONTRIBUTION_PRODUCER_VERSION, attribution=ContentAttribution.COLUMBINA,
+        )
+        return ProducerResult(**common, authority_class=authority, status=ProducerStatus.KNOWN, facts=(fact,))
+
+    if isinstance(proposal, ContributionProposalV2):
+        # Input v1.2: the content she produced decides, not how Call 1 routed the
+        # question ("should I tell them?" routed as factual still gets her view).
+        if proposal.question_kind == 'opinion':
+            return view_fact(proposal.view.text, f'{CONTRIBUTION_PRODUCER_VERSION}+{CHARACTER_REASONING_VERSION}',
+                             'columbina.view.reasoned')
+        if proposal.question_kind == 'general_knowledge':
+            kind = 'knowledge'
     if kind == 'knowledge' and proposal.question_kind == 'general_knowledge':
         authority = AuthorityClass.MODEL_KNOWLEDGE
         facts = tuple(ProducedFact(
@@ -217,26 +338,16 @@ def compile_result(proposal: ContributionProposalV1, *, kind: str, query, reques
             revision=CONTRIBUTION_PRODUCER_VERSION, attribution=ContentAttribution.COLUMBINA,
         ) for i, claim in enumerate(proposal.claims))
         return ProducerResult(**common, authority_class=authority, status=ProducerStatus.KNOWN, facts=facts)
-    if kind == 'opinion' and proposal.question_kind == 'opinion':
-        authority = AuthorityClass.COLUMBINA_VIEW
+    if kind == 'opinion' and proposal.question_kind == 'opinion' and isinstance(proposal, ContributionProposalV1):
         take = proposal.takes[choose_take(proposal.takes, request)]
-        fact = ProducedFact(
-            fact_id=f'contribution-fact:{_key(query.query_id, take.text)}', query_ref=query.query_id,
-            authority_class=authority, producer_id=CONTRIBUTION_PRODUCER_VERSION,
-            producer_version=f'{CONTRIBUTION_PRODUCER_VERSION}+{OPINION_SELECTION_VERSION}',
-            predicate=f'columbina.view.{take.stance}', subject_anchor=query.subject_anchor,
-            value=take.text, value_type=ArgumentValueType.STRING, value_anchor=take.text, owner='application',
-            source_kind=ContentSourceKind.COLUMBINA_OWN_VIEW, source_ref=source,
-            revision=CONTRIBUTION_PRODUCER_VERSION, attribution=ContentAttribution.COLUMBINA,
-        )
-        return ProducerResult(**common, authority_class=authority, status=ProducerStatus.KNOWN, facts=(fact,))
+        return view_fact(take.text, f'{CONTRIBUTION_PRODUCER_VERSION}+{OPINION_SELECTION_VERSION}',
+                         f'columbina.view.{take.stance}')
     # About the user, current events, unanswerable, or a kind mismatch: keep the explicit gap.
     return ProducerResult(**common, authority_class=AuthorityClass.MODEL_KNOWLEDGE, status=ProducerStatus.UNAVAILABLE,
                           reason=ProducerReason.NO_MATCHING_RECORD)
 
-
 __all__ = [
-    'CONTRIBUTION_STAGE', 'ContributionProposalV1', 'KNOWLEDGE_QUERY_KINDS', 'OPINION_QUERY_KIND',
+    'CONTRIBUTION_STAGE', 'ContributionProposalV1', 'ContributionProposalV2', 'basis_check', 'KNOWLEDGE_QUERY_KINDS', 'OPINION_QUERY_KIND',
     'OPINION_SELECTION_VERSION', 'build_payload', 'choose_take', 'compile_result', 'contribution_schema',
     'take_scores',
 ]
