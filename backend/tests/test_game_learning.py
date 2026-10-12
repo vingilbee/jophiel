@@ -270,7 +270,7 @@ def test_what_the_user_said_is_in_the_timeline_and_can_back_a_lesson(db, user):
         _lesson(key="movement:may_break_blocks", evidence=["u1"]).model_copy(
             update={"situation": "something is in the way", "advice": "break it: the user allows it"})]))
     game_learning.process_job(db, job.id, reflect)
-    assert 'u1 the user said: "You can break blocks."' in reflect.calls[0][1]
+    assert 'u1 vincent said: "You can break blocks."' in reflect.calls[0][1]
     lesson = db.scalar(select(GameLesson))
     assert lesson.normalized_key == "movement:may_break_blocks" and len(lesson.evidence[0]["message_ids"]) == 1
 
@@ -301,6 +301,70 @@ def test_reflection_writes_lessons_proposals_and_an_episode_only_with_evidence(d
     db.refresh(job)
     assert job.status == "done" and job.result["lessons"]["new"] == ["crafting:place_table_first"]
     assert job.result["dropped"] == [{"lesson": "vague:be_careful", "why": "no key, advice or valid evidence"}]
+
+
+def test_one_evening_is_one_memory_named_for_the_user_and_dated_when_it_happened(db, user):
+    """Seen live: three recaps for one evening (one per pause), dated when written, about "tearDrop12"."""
+    from datetime import timedelta
+
+    from app.db.models import GamePlayerLink
+
+    db.add(GamePlayerLink(user_id=user.id, game="minecraft", player_name="tearDrop12"))
+    session = _pack_session(db, user)
+    _play(db, session, CRAFT_FAILS)
+    env = db.get(DesktopEnvironment, session.environment_id)
+    desktop_sessions.disconnect_sessions_locked(db, env.id, reason="pack_offline")
+    db.commit()
+    [first] = _jobs(db, session)
+    reflect = _reflector(
+        Reflection(episode="Vincent and I made a pickaxe.", episode_importance=0.4, lessons=[], proposals=[]),
+        Reflection(episode="Vincent and I made a pickaxe, then he gave me bread.", episode_importance=0.6,
+                   lessons=[], proposals=[]))
+    game_learning.process_job(db, first.id, reflect)
+    system = reflect.calls[0][0]
+    assert "together with vincent (tearDrop12 in the game)" in system and '"we"' in system
+    earlier = db.scalar(select(EpisodicMemory))
+    last = db.scalar(select(GameExperience).order_by(GameExperience.id.desc()).limit(1))
+    assert earlier.event_at == last.occurred_at  # when it was played, not when it was written
+
+    db.refresh(session)
+    desktop_sessions.resume_session(db, user.id, session.id, expected_state_revision=session.state_revision)
+    _play(db, session, CRAFT_FAILS)
+    desktop_sessions.disconnect_sessions_locked(db, env.id, reason="pack_offline")
+    db.commit()
+    second = _jobs(db, session)[1]
+    game_learning.process_job(db, second.id, reflect)
+    assert "Your recap of earlier this evening: Vincent and I made a pickaxe.\nYour episode replaces it" \
+        in reflect.calls[1][1]
+    episodes = list(db.scalars(select(EpisodicMemory).order_by(EpisodicMemory.created_at)))
+    assert [e.status for e in episodes] == ["superseded", "active"]
+    assert episodes[1].summary.endswith("he gave me bread.") and episodes[1].importance == 0.6
+
+    # A stretch the next day is its own memory.
+    for episode in episodes:
+        episode.event_at -= timedelta(days=1)
+    db.commit()
+    db.refresh(session)
+    desktop_sessions.resume_session(db, user.id, session.id, expected_state_revision=session.state_revision)
+    _play(db, session, CRAFT_FAILS)
+    desktop_sessions.disconnect_sessions_locked(db, env.id, reason="pack_offline")
+    db.commit()
+    third = _jobs(db, session)[2]
+    game_learning.process_job(db, third.id, _reflector(
+        Reflection(episode="We played again.", episode_importance=0.3, lessons=[], proposals=[])))
+    assert db.scalar(select(func.count()).select_from(EpisodicMemory).where(EpisodicMemory.status == "active")) == 2
+
+
+def test_a_long_break_is_marked_in_the_timeline():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    start = datetime(2026, 10, 11, 19, 0, tzinfo=timezone.utc)
+    rows = [SimpleNamespace(id=i, kind="skill_outcome", occurred_at=at,
+                            payload={"skill": "mine", "params": {}, "status": "done"})
+            for i, at in enumerate([start, start + timedelta(minutes=1), start + timedelta(hours=5, minutes=40)], 1)]
+    timeline = game_learning.build_timeline(SimpleNamespace(started_at=start), rows, [], speaker="Vincent")
+    assert "--- 6 h later ---" in timeline.text.splitlines()[1]
 
 
 def test_lessons_are_confirmed_by_later_sessions_and_retired_by_contradiction(db, user):
@@ -393,6 +457,60 @@ def test_game_episodes_are_recalled_in_conversation(db, user):
     db.commit()
     block = long_term_memory.retrieve_for_prompt(user.id, "remember the ravine in minecraft?")
     assert "- [episode, 2026-10-10, game] I fell into a ravine while mining iron in Minecraft." in block
+
+
+def test_recall_skips_small_talk_prefers_recent_recaps_and_leaves_room_for_facts(db, user):
+    """Seen live: every message pulled in 6 game recaps (any shared "you" matched), the oldest often
+    first, plus a stale "the bed is in your inventory" fact on importance alone."""
+    now = datetime.now(timezone.utc)
+    for days in range(5):
+        db.add(EpisodicMemory(user_id=user.id, summary=f"Trip {days}: we explored a cave in Minecraft together.",
+                              importance=0.7, context={"source": "game"}, event_at=now - timedelta(days=days)))
+    db.add(SemanticMemory(user_id=user.id, normalized_key="item:bed", kind="fact", importance=1.0, confidence=0.9,
+                          content="The bed is in the assistant's inventory."))
+    db.add(SemanticMemory(user_id=user.id, normalized_key="preference:game_discoveries", kind="preference",
+                          importance=0.9, confidence=1.0,
+                          content="While playing together, tell the user when you find something."))
+    db.commit()
+    assert long_term_memory.retrieve_for_prompt(user.id, "how was your day?").splitlines() == [
+        "- [preference] While playing together, tell the user when you find something."]
+    lines = long_term_memory.retrieve_for_prompt(user.id, "remember that cave we explored?").splitlines()
+    episodes = [line for line in lines if "episode" in line]
+    assert [line.split("] ")[1][:6] for line in episodes] == ["Trip 0", "Trip 1", "Trip 2"]  # 3 at most, newest first
+    assert not any("bed" in line for line in lines)
+
+
+def test_the_fact_saver_sees_earlier_messages_and_reuses_known_keys(db, user, monkeypatch):
+    from app.db.models import MemoryJob
+    from app.schemas.long_term_memory import MemoryCandidate
+
+    conversation = Conversation(user_id=user.id, title="game")
+    db.add(conversation)
+    db.commit()
+    for role, text in [("user", "if you find anything, just tell me"), ("assistant", "will do!"),
+                       ("user", "there was iron and you didn't say anything"), ("assistant", "sorry, I missed it")]:
+        db.add(ChatMessage(conversation_id=conversation.id, role=role, content=text))
+        db.commit()
+    reply = db.scalar(select(ChatMessage).where(ChatMessage.role == "assistant").order_by(ChatMessage.created_at.desc()))
+    db.add(SemanticMemory(user_id=user.id, normalized_key="preference:game_discoveries", kind="preference",
+                          importance=0.7, confidence=1.0, content="Tell the user when you find something."))
+    job = MemoryJob(user_id=user.id, conversation_id=conversation.id, assistant_message_id=reply.id, status="pending",
+                    attempts=0)
+    db.add(job)
+    db.commit()
+    seen = {}
+
+    def extract(user_text, assistant_text, earlier=(), known=()):
+        seen.update(user=user_text, earlier=list(earlier), known=list(known))
+        return [MemoryCandidate(kind="preference", normalized_key="preference:game_discoveries", importance=0.7,
+                                confidence=1.0, content="Tell the user when you find something, like iron.")]
+    monkeypatch.setattr(long_term_memory, "_extract", extract)
+    assert long_term_memory.process_job(db, job.id)
+    assert seen["user"] == "there was iron and you didn't say anything"
+    assert seen["earlier"] == ["USER: if you find anything, just tell me", "ASSISTANT: will do!"]
+    assert seen["known"] == ["preference:game_discoveries: Tell the user when you find something."]
+    [memory] = db.scalars(select(SemanticMemory)).all()
+    assert memory.evidence_count == 2 and memory.content.endswith("like iron.")
 
 
 def test_reset_game_scope_removes_all_game_learning(db, user):

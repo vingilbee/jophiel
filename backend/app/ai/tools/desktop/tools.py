@@ -1,5 +1,5 @@
 """The game tools: start, re-plan, extend, tell her hands, careful mode, pause, resume, end,
-look up a recipe, and keep track of her promises.
+look up a recipe, keep track of her promises, and save which player is the user.
 
 Each one calls ``app.services.desktop_game`` for this user only; the model
 never names a machine or a session. Refusals come back as plain text the
@@ -236,6 +236,12 @@ def build_desktop_tools(
         return await _run(desktop_game.how_to_make, user_id, item=item)
 
     @tool
+    async def this_is_me(player: str) -> str:
+        """Save which Minecraft player is the user, when they tell you ("I'm tearDrop12") or confirm
+        your guess. Kept for good, so you always know who "me" is. player: their exact in-game name."""
+        return await _run(desktop_game.this_is_me, user_id, player=player)
+
+    @tool
     async def note_promise(promise: str) -> str:
         """Remember something you just told the user you'd do or tell them later, while playing
         (e.g. "tell them when the entrance is sealed"). You'll see it every turn until you drop it."""
@@ -269,4 +275,4 @@ def build_desktop_tools(
         return [look_at_my_game, how_to_make, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
                 play_carefully, pause_game, resume_game, end_game, drop_promise, say]
     return [look_at_my_game, how_to_make, start_game, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
-            play_carefully, pause_game, resume_game, end_game, keep_playing, note_promise, drop_promise]
+            play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me, note_promise, drop_promise]

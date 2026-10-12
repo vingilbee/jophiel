@@ -187,9 +187,64 @@ def test_summary_describes_her_own_player_and_what_her_hands_do(db, alice, pack)
     assert "Recent results: go_to -> done" in context.summary
     assert "What your background modes did lately: gather: mined 2 iron_ore on the way (10 min ago)." in context.summary
     assert "Your player right now (from the game): Piqeeee at (10, 64, -3)" in context.summary
-    assert 'In Minecraft you are "Piqeeee" (never target yourself). Other players: "tearDrop12". The user is "tearDrop12"' in context.summary
+    assert ('In Minecraft you are "Piqeeee" (never target yourself). Other players: "tearDrop12". '
+            'alice is probably "tearDrop12" (the only other player; not confirmed') in context.summary
     assert "Show preview" not in context.summary
     assert context.activity.startswith("Right now you are playing Minecraft as your own player (goal: Collect 3 oak logs)")
+
+
+def test_the_user_tells_her_which_player_they_are_and_it_sticks(db, alice, bob, pack):
+    from app.services import game_players
+
+    game_pack.ensure_environment(db, alice.id)
+    game_pack.sync(db, pack)
+    assert "is you, not the user" in desktop_game.this_is_me(db, alice.id, player="Piqeeee")
+    assert "isn't a minecraft player name" in desktop_game.this_is_me(db, alice.id, player="tear drop")
+    assert desktop_game.this_is_me(db, alice.id, player="tearDrop12").startswith('Saved: the user is "tearDrop12"')
+    summary = desktop_game.describe(db, alice.id).summary
+    assert 'alice plays as "tearDrop12" (online): when they say "me", that\'s them.' in summary
+    assert "probably" not in summary
+    assert game_players.who(db, alice.id, "minecraft") == "alice (tearDrop12 in the game)"
+    desktop_game.this_is_me(db, alice.id, player="Steve_2")  # changed
+    assert game_players.user_player(db, alice.id, "minecraft") == "Steve_2"
+    assert 'alice plays as "Steve_2" (not online right now)' in desktop_game.describe(db, alice.id).summary
+    assert game_players.user_player(db, bob.id, "minecraft") is None
+    assert desktop_game.this_is_me(db, bob.id, player="bob_1").startswith("Not saved: you don't have")
+
+
+def test_summary_shows_what_happened_lately_and_where_she_last_spoke(db, alice, pack):
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import GameExperience
+    from app.services import chat as chat_service
+
+    desktop_game.start(db, alice.id, goal="Follow tearDrop12")
+    game_pack.sync(db, pack)
+    session = _session(db, alice.id, game_pack.ensure_environment(db, alice.id).id)
+    now = datetime.now(timezone.utc)
+
+    def happened(seconds_ago, kind, payload):
+        db.add(GameExperience(user_id=alice.id, session_id=session.id, game="minecraft", kind=kind,
+                              payload=payload, occurred_at=now - timedelta(seconds=seconds_ago)))
+
+    happened(400, "notice", {"kind": "morning", "urgency": "info", "text": "morning"})  # too long ago
+    happened(120, "notice", {"kind": "mode", "urgency": "info", "text": "pickup: picked up bread x4"})
+    happened(100, "skill_outcome", {"skill": "follow_player", "status": "done"})  # routine: not news
+    happened(50, "notice", {"kind": "hostile", "urgency": "urgent", "text": "skeleton 5 m west"})
+    happened(45, "notice", {"kind": "hostile", "urgency": "urgent", "text": "skeleton 5 m west"})
+    happened(30, "notice", {"kind": "died", "urgency": "urgent",
+                            "text": "died with skeleton close by; dropped where you fell (gone in 5 min): bread x4"})
+    conversation = chat_service.get_or_create_conversation(db, user_id=alice.id, conversation_id=None)
+    message = chat_service.add_message(db, conversation=conversation, role="assistant", content="following you!")
+    message.created_at = (now - timedelta(seconds=60)).replace(tzinfo=None)
+    db.commit()
+
+    summary = desktop_game.describe(db, alice.id).summary
+    lately = summary[summary.index("What happened in your game lately"):]
+    assert "morning" not in lately and "follow player" not in lately
+    assert lately.index("picked up bread x4") < lately.index("you last spoke to the user here") \
+        < lately.index("skeleton 5 m west (x2)") < lately.index("died with skeleton close by")
+    assert "bread x4 (30 s ago)" in lately
 
 
 def test_look_reads_the_game_instead_of_a_picture(db, alice, pack):

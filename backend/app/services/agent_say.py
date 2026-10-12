@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.services import chat as chat_service
 from app.services import desktop_preview, dialogue_memory
-from app.services.game_event_kinds import QUIET, kind_of, rules
+from app.services.game_event_kinds import QUIET, URGENT_GAP_SECONDS, kind_of, rules
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def serious(reasons: list[str]) -> str | None:
         if kind_of(reason) != "danger":
             continue
         text = reason.split(":", 1)[1].strip()
-        if text == "died":
+        if text == "died" or text.startswith("died "):
             return "died"
         hearts = _HEARTS.search(text)
         points = _POINTS.search(text)
@@ -80,6 +80,8 @@ def allowed(reasons: list[str], commentary_mode: str, seconds_since_last: float 
     if not any(commentary_mode in kind.said for kind in kinds):
         return False, "this isn't worth interrupting the user for; keep it to yourself"
     gap = get_settings().agent_say_min_gap_seconds * (1 if commentary_mode == "occasional" else 0.33)
+    if any(kind.urgent and commentary_mode in kind.said for kind in kinds):
+        gap = min(gap, URGENT_GAP_SECONDS)
     if seconds_since_last is not None and seconds_since_last < gap and not stopped:
         return False, f"you spoke {int(seconds_since_last)} s ago; don't chatter"
     return True, ""

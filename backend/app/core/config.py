@@ -107,7 +107,9 @@ class Settings(BaseSettings):
     # --- Long-term memory ---
     long_term_memory_enabled: bool = True
     # A small model extracts durable, explicitly stated facts after a turn.
-    memory_model: str = "gpt-4o-mini"
+    # gpt-4o-mini ignored the rules on real game turns (it saved "the assistant doesn't have the
+    # bread"); gpt-6-luna got 10/10 (2026-10-12). One call per reply, in the memory worker.
+    memory_model: str = "gpt-6-luna"
     memory_embedding_model: str = "text-embedding-3-small"
     memory_retrieval_limit: int = 6
     # Redis is only a wake-up channel. Pending jobs also live in Postgres and
@@ -391,8 +393,9 @@ class Settings(BaseSettings):
     desktop_max_auto_goals: int = Field(default=10, ge=0, le=100)
     # After a goal is done, how long the driver waits for her next one.
     desktop_planning_wait_seconds: float = Field(default=60.0, ge=5, le=600)
-    # Minimum gap between unprompted messages she sends (needs-you ignores it).
-    agent_say_min_gap_seconds: float = Field(default=60.0, ge=0, le=3600)
+    # Minimum gap between unprompted messages she sends in occasional mode (a third
+    # of it in commentary mode; needs-you ignores it, danger waits only 8 s).
+    agent_say_min_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
     # Stage G: game packs. The Minecraft pack (game_packs/minecraft) is her own
     # player, driven by skills instead of keys. Its API is loopback-only on the
     # Mac; the token is PACK_API_TOKEN if the pack has one set, else the file the

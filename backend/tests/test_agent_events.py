@@ -127,6 +127,10 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     (["warning: the sun is setting"], "occasional", None, True),  # a heads-up: worth a line
     (["warning: zombie 4 m from alice"], "occasional", 10, False),  # but not right after the last one
     (["warning: the sun is setting"], "quiet", None, False),
+    (["warning: the sun is setting"], "occasional", 25, True),      # the gap is 20 s
+    (["danger: skeleton 5 m west (behind-right)"], "occasional", 10, True),  # danger: she reacts
+    (["danger: skeleton 5 m west (behind-right)"], "occasional", 5, False),  # but one line per 8 s
+    (["danger: skeleton 5 m west (behind-right)"], "quiet", None, False),
 ])
 def test_occasional_means_occasional(reasons, mode, since, ok):
     assert agent_say.allowed(reasons, mode, since)[0] is ok
@@ -134,6 +138,7 @@ def test_occasional_means_occasional(reasons, mode, since, ok):
 
 @pytest.mark.parametrize(("reasons", "which"), [
     (["danger: died"], "died"),
+    (["danger: died with skeleton close by; dropped where you fell (gone in 5 min): bread x4"], "died"),
     (["danger: took damage: 2.5 of 10 hearts left"], "low_health"),
     (["danger: took damage: health 5/20"], "low_health"),  # the older wording
     (["danger: took damage: 4 of 10 hearts left"], None),

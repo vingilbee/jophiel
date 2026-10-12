@@ -50,6 +50,7 @@ from app.db.models import (
     GameProposal, GameReflectionJob,
 )
 from app.schemas.game_learning import Reflection
+from app.services import game_players
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,11 @@ _REF_RE = re.compile(r"^e(\d+)(?:-e?(\d+))?$")
 _SAID_RE = re.compile(r"^u(\d+)$")
 MAX_SAID = 60  # user lines shown per stretch
 SAID_CHARS = 160
+# A pause this long in the timeline is marked: a stretch can span an evening offline.
+GAP_MARK = timedelta(minutes=30)
+# A stretch starting this soon after her last recap of the same session is the same evening:
+# she rewrites that recap to cover both, so one evening is one memory, not one per pause.
+SAME_EVENING = timedelta(hours=2)
 # Session states that start a reflection on the stretch just played, and the
 # outcomes needed for one: offline or over takes the minimum; a pause (often
 # brief) waits for a longer stretch, so a quick pause doesn't split it up.
@@ -281,10 +287,12 @@ def _event_line(event: DesktopSessionEvent) -> str | None:
 
 
 def build_timeline(session: DesktopSession, experiences: list[GameExperience],
-                   events: list[DesktopSessionEvent], said: list[tuple[datetime, str, str]] = ()) -> Timeline:
+                   events: list[DesktopSessionEvent], said: list[tuple[datetime, str, str]] = (),
+                   *, speaker: str = "the user") -> Timeline:
     """Merge experiences, session events and what the user said (``said``:
-    time, message id, text) into numbered lines, oldest first. The same outcome
-    repeated back to back is one line with a ref range."""
+    time, message id, text; ``speaker``: what to call them) into numbered lines,
+    oldest first. The same outcome repeated back to back is one line with a ref
+    range; a long break is marked."""
     start = session.started_at
     items: list[tuple[datetime, int, object]] = [(e.occurred_at, 0, e) for e in experiences]
     items += [(e.occurred_at, 1, e) for e in events]
@@ -295,12 +303,18 @@ def build_timeline(session: DesktopSession, experiences: list[GameExperience],
     ref_lines: dict[int, str] = {}
     rows: list[list] = []  # [clock, first_ref, last_ref, text, repeat]
     outcomes = 0
+    previous: datetime | None = None
     for at, _, item in items:
+        if previous is not None and at - previous >= GAP_MARK:
+            hours = (at - previous).total_seconds() / 3600
+            rows.append([None, None, None, f"--- {hours:.0f} h later ---" if hours >= 1
+                         else f"--- {hours * 60:.0f} min later ---", 1])
+        previous = at
         if isinstance(item, tuple):
             ref = len(said_refs) + 1
             said_refs[ref] = item[0]
             words = " ".join(item[1].split())[:SAID_CHARS]
-            rows.append([_clock(at, start), None, None, f'u{ref} the user said: "{words}"', 1])
+            rows.append([_clock(at, start), None, None, f'u{ref} {speaker} said: "{words}"', 1])
             continue
         if isinstance(item, DesktopSessionEvent):
             line = _event_line(item)
@@ -325,6 +339,8 @@ def build_timeline(session: DesktopSession, experiences: list[GameExperience],
 
     def render(row: list) -> str:
         clock, first, last, text, repeat = row
+        if clock is None:
+            return text
         if first is None:
             return f"[{clock}] {text}"
         label = f"e{first}" if first == last else f"e{first}-e{last}"
@@ -384,19 +400,28 @@ def normalize_key(raw: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def reflection_system_prompt(game: str, skills: list[str]) -> str:
+def reflection_system_prompt(game: str, skills: list[str], who: str | None = None) -> str:
     name = GAME_NAMES.get(game, game)
     skill_list = ", ".join(skills) if skills else "(see the timeline)"
-    return f"""You are Columbina, looking back on a stretch of {name} you just played with your own player. \
+    who = who or "the user"
+    return f"""You are Columbina, looking back on a stretch of {name} you just played with your own player, \
+together with {who}. \
 Your hands choose one skill at a time ({skill_list}); each ends with an outcome (done, failed and why, lost, \
 blocked, hurt, timeout, stopped, refused). The timeline is recorded by code and is accurate. Entries with an \
 id (e4, or e7-e9 for the same thing repeated) are your outcomes and what you noticed; u1, u2, ... are what the \
-user said to you (spoken words are transcribed and can be misheard).
+user said to you (spoken words are transcribed and can be misheard). "--- 5 h later ---" marks a long break.
 
 Write three things.
 
-1. episode: 1-3 sentences, first person, past tense: what you did and what happened that's worth remembering \
-in a later conversation (the goals, discoveries, deaths, what you made, who you played with). No coordinates. \
+1. episode: your memory of this time with {who}, the way you'd bring it up with them later: 2-4 short sentences (under 90 words), \
+first person, past tense, "we" for what you did together, and their name (never just their player name). \
+What you two set out to do and how it went; what you found, made, lost; what each of you did for the other \
+(a gift, help, a rescue); what they asked of you or cared about; anything left unfinished (things dropped \
+when you died, a promise, a place to go back to). Only what the timeline shows: no feelings they didn't \
+show, nothing that didn't happen. A memory, not a log: no skill names, retries, coordinates or session \
+states. Refer to them by name, not "he" or "she" (you can't know which they'd want). Don't open with a \
+break; across one only say when it was ("the next evening"). If an earlier recap of the same evening is \
+given, write one memory covering all of it (it replaces the earlier one). \
 episode_importance: 0 for an uneventful few minutes, up to 1 for something you'd bring up again. Empty \
 episode with importance 0 if nothing really happened.
 
@@ -431,11 +456,15 @@ Most sessions teach little. Don't invent lessons or proposals to fill the lists.
 
 
 def reflection_input(game: str, session: DesktopSession, timeline: Timeline, lessons: list[GameLesson],
-                     proposals: list[GameProposal], *, window: tuple[datetime, datetime] | None = None) -> str:
+                     proposals: list[GameProposal], *, window: tuple[datetime, datetime] | None = None,
+                     earlier: EpisodicMemory | None = None) -> str:
     start, end = window or (session.started_at, session.ended_at or _now())
     minutes = max(1, int((end - start).total_seconds() // 60))
-    lines = [f"A stretch of {GAME_NAMES.get(game, game)} you played: {minutes} min.",
-             "", "Timeline (oldest first):", timeline.text or "(nothing recorded)", ""]
+    lines = [f"A stretch of {GAME_NAMES.get(game, game)} you played: {minutes} min, ending {end:%A %H:%M} UTC.", ""]
+    if earlier is not None:
+        lines += [f"Your recap of earlier this evening: {earlier.summary}",
+                  "Your episode replaces it: keep what matters from it, then add this stretch.", ""]
+    lines += ["Timeline (oldest first):", timeline.text or "(nothing recorded)", ""]
     current = [lesson for lesson in lessons if lesson.status != "retired"]
     retired = [lesson for lesson in lessons if lesson.status == "retired"]
     lines.append("Lessons you already have:")
@@ -499,7 +528,8 @@ def _seen_in(evidence: list, session_id: uuid.UUID) -> bool:
 
 
 def apply_reflection(db: Session, *, user_id: uuid.UUID, game: str, session: DesktopSession,
-                     reflection: Reflection, timeline: Timeline) -> dict:
+                     reflection: Reflection, timeline: Timeline, ended_at: datetime | None = None,
+                     earlier: EpisodicMemory | None = None) -> dict:
     """Write the reflection's lessons, proposals and episode (no commit).
     Returns what changed, for the job's ``result``."""
     settings = get_settings()
@@ -584,15 +614,22 @@ def apply_reflection(db: Session, *, user_id: uuid.UUID, game: str, session: Des
     if episode:
         from app.services.long_term_memory import _embedding
 
+        importance = min(1.0, max(0.0, reflection.episode_importance))
+        # Dated when the play happened (the stretch's end), not when it was written up.
         memory = EpisodicMemory(
-            user_id=user_id, conversation_id=session.conversation_id, event_at=session.ended_at or _now(),
+            user_id=user_id, conversation_id=session.conversation_id,
+            event_at=ended_at or session.ended_at or _now(),
             summary=episode, embedding=_embedding(episode),
-            importance=min(1.0, max(0.0, reflection.episode_importance)), confidence=1.0,
+            importance=max(importance, earlier.importance) if earlier is not None else importance, confidence=1.0,
             context={"source": "game", "game": game, "session_id": sid},
         )
         db.add(memory)
         db.flush()
         result["episode_id"] = str(memory.id)
+        if earlier is not None:  # the evening's recap now covers it
+            earlier.status = "superseded"
+            earlier.context = {**(earlier.context or {}), "superseded_by": str(memory.id)}
+            result["superseded_episode_id"] = str(earlier.id)
     return result
 
 
@@ -622,7 +659,9 @@ def process_job(db: Session, job_id: uuid.UUID, reflector: Reflector | None = No
         experiences = list(db.scalars(query.order_by(GameExperience.id)))
         window = _window(db, session, job, experiences)
         events = _stretch_events(db, session.id, window)
-        timeline = build_timeline(session, experiences, events, _user_lines(db, job.user_id, window))
+        who = game_players.who(db, job.user_id, job.game)
+        speaker = game_players.user_name(db, job.user_id) or "the user"
+        timeline = build_timeline(session, experiences, events, _user_lines(db, job.user_id, window), speaker=speaker)
         if timeline.outcomes < get_settings().game_learning_min_outcomes:
             return _finish(db, job_id, claim, "skipped", {"outcomes": timeline.outcomes, "why": "too short"})
         lessons = list(db.scalars(select(GameLesson).where(
@@ -634,10 +673,13 @@ def process_job(db: Session, job_id: uuid.UUID, reflector: Reflector | None = No
         skills = sorted({e.payload.get("skill") for e in experiences
                          if e.kind == "skill_outcome" and e.payload.get("skill")})
         reflect = reflector or OpenAIReflector()
-        reflection = reflect(reflection_system_prompt(job.game, skills),
-                             reflection_input(job.game, session, timeline, lessons, proposals, window=window))
+        earlier = _same_evening_episode(db, job.user_id, session.id, experiences[0].occurred_at)
+        reflection = reflect(reflection_system_prompt(job.game, skills, who),
+                             reflection_input(job.game, session, timeline, lessons, proposals, window=window,
+                                              earlier=earlier))
         result = apply_reflection(db, user_id=job.user_id, game=job.game, session=session,
-                                  reflection=reflection, timeline=timeline)
+                                  reflection=reflection, timeline=timeline,
+                                  ended_at=experiences[-1].occurred_at if experiences else None, earlier=earlier)
         return _finish(db, job_id, claim, "done", result)
     except Exception as exc:
         db.rollback()
@@ -650,6 +692,18 @@ def process_job(db: Session, job_id: uuid.UUID, reflector: Reflector | None = No
             failed.last_error = f"{type(exc).__name__}: {exc}"[:2000]
             db.commit()
         return False
+
+
+def _same_evening_episode(db: Session, user_id: uuid.UUID, session_id: uuid.UUID,
+                          stretch_start: datetime) -> EpisodicMemory | None:
+    """Her recap of this session's previous stretch, if this one picks up soon after it."""
+    return db.scalar(
+        select(EpisodicMemory)
+        .where(EpisodicMemory.user_id == user_id, EpisodicMemory.status == "active",
+               EpisodicMemory.context["source"].astext == "game",
+               EpisodicMemory.context["session_id"].astext == str(session_id),
+               EpisodicMemory.event_at >= stretch_start - SAME_EVENING)
+        .order_by(EpisodicMemory.event_at.desc()).limit(1))
 
 
 def _window(db: Session, session: DesktopSession, job: GameReflectionJob,

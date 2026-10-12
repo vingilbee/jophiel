@@ -1483,6 +1483,24 @@ class GameExperience(Base):
     )
 
 
+class GamePlayerLink(Base):
+    """Which player in a game is the user ("tearDrop12" in Minecraft), so she knows who "me" is
+    whoever else is online, and remembers play with the user by name. Set when the user says so."""
+
+    __tablename__ = "game_player_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    player_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("user_id", "game", name="uq_game_player_links_user_game"),)
+
+
 class GameLesson(Base):
     """Something she learned about playing a game: when <situation>, <advice>.
 

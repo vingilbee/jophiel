@@ -28,9 +28,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.models import DESKTOP_TERMINAL_STATES, DesktopEnvironment, DesktopSession, DesktopSessionEvent
+from app.db.models import (DESKTOP_TERMINAL_STATES, ChatMessage, Conversation, DesktopEnvironment, DesktopSession,
+                           DesktopSessionEvent, GameExperience)
 from app.schemas.desktop import PlanAppend, PlanIn, PlanReplace, PlanStepIn, SessionCreate
-from app.services import desktop_commands, desktop_preview, game_learning, game_pack
+from app.services import desktop_commands, desktop_preview, game_learning, game_pack, game_players
 from app.services import desktop_sessions as sessions
 from app.services.desktop_sessions import DesktopError
 
@@ -45,6 +46,11 @@ REPEAT_GOAL_SECONDS = 60
 # (last session: "gather wood" five times in four minutes).
 GOAL_REPEATS_SHOWN = 3
 GOAL_REPEAT_MINUTES = 5
+# "What happened lately" in her summary: this far back, at most this many lines.
+LATELY_SECONDS = 5 * 60
+LATELY_LINES = 14
+# Her hands' moves that finished as asked aren't news (the timeline would be all go_to).
+QUIET_SKILLS = {"go_to", "follow_player", "explore", "look_at"}
 # Her skill manual comes from the pack; it only changes when the pack restarts.
 MANUAL_TTL_SECONDS = 300
 _manual_cache: dict = {"at": 0.0, "lines": []}
@@ -164,8 +170,12 @@ def _pack_line(env: DesktopEnvironment) -> str:
             "\"follow me\": one step such as \"follow <the user's in-game name>\", done when \"the user says to stop\".")
 
 
-def _who_is_who(env: DesktopEnvironment) -> str | None:
-    """Her in-game name and the other players', so "follow me" never means herself."""
+PACK_GAME = "minecraft"  # game_learning.GAME_BY_PROFILE[game_pack.PACK_PROFILE_ID]
+
+
+def _who_is_who(db: Session, user_id: uuid.UUID, env: DesktopEnvironment) -> str | None:
+    """Her in-game name and the other players', so "follow me" never means herself, and which
+    one is the user: linked in the database when they've said so, else a guess."""
     if env.status != "online":
         return None
     from app.ai.desktop.pack_client import PackClient, PackError
@@ -176,12 +186,22 @@ def _who_is_who(env: DesktopEnvironment) -> str | None:
         return None
     others = state.get("players_online") or []
     you = state.get("username", "?")
+    name = game_players.user_name(db, user_id) or "the user"
+    player = game_players.user_player(db, user_id, PACK_GAME)
+    if player:
+        where = "online" if player in others else "not online right now"
+        user_hint = f' {name} plays as "{player}" ({where}): when they say "me", that\'s them.'
+    elif len(others) == 1:
+        user_hint = (f' {name} is probably "{others[0]}" (the only other player; not confirmed: when they say '
+                     f'which player is them, save it with this_is_me).')
+    elif others:
+        user_hint = f" {name} is one of them (ask which, then save it with this_is_me)."
+    else:
+        user_hint = ""
     if not others:
-        return f'In Minecraft you are "{you}". No one else is in the world right now.'
-    user_hint = (f' The user is "{others[0]}"' if len(others) == 1
-                 else " The user is one of them (ask which if it matters)")
+        return f'In Minecraft you are "{you}". No one else is in the world right now.{user_hint}'
     return (f'In Minecraft you are "{you}" (never target yourself). Other players: '
-            + ", ".join(f'"{name}"' for name in others) + f".{user_hint}: when they say \"me\", that's them.")
+            + ", ".join(f'"{n}"' for n in others) + f".{user_hint}")
 
 
 def _skill_manual(env: DesktopEnvironment) -> list[str]:
@@ -243,7 +263,7 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
     driver = desktop_commands.load_driver_state(session.id) or {}
     lines += _commitment_lines(session, now)
     if pack:
-        lines += _pack_details(env, session, driver, now)
+        lines += _pack_details(db, env, session, driver, now)
         db.commit()
         return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm)
     vm_lines, facts = _vm_details(session, driver, now)
@@ -263,7 +283,7 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
     for each in envs:
         if game_pack.is_pack(each):
             lines.append(_pack_line(each))
-            who = _who_is_who(each)
+            who = _who_is_who(db, user_id, each)
             if who:
                 lines.append(who)
             lines.extend(_skill_manual(each))
@@ -412,7 +432,8 @@ def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[st
     return lines
 
 
-def _pack_details(env: DesktopEnvironment, session: DesktopSession, driver: dict, now: float) -> list[str]:
+def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession, driver: dict,
+                  now: float) -> list[str]:
     """What her hands are doing and what the game says, for a pack session.
     The game state comes from the game itself (counted by code); notes are her
     hands' own words."""
@@ -433,15 +454,19 @@ def _pack_details(env: DesktopEnvironment, session: DesktopSession, driver: dict
 
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
-    outcomes = (driver.get("outcomes") or [])[-4:]
-    if outcomes:
-        lines.append("Recent results: " + "; ".join(
-            f"{o['skill']} -> {o['status']}{': ' + o['reason'] if o.get('reason') else ''}"
-            f" ({_ago(now - o.get('at', now))})" for o in outcomes) + ".")
-    did = driver.get("modes_did") or []
-    if did:
-        lines.append("What your background modes did lately: "
-                     + "; ".join(f"{d['text']} ({_ago(now - d.get('at', now))})" for d in did) + ".")
+    lately = _lately_lines(db, session, now)
+    if lately:
+        lines += lately
+    else:  # nothing recorded (game learning off): her hands' own short lists
+        outcomes = (driver.get("outcomes") or [])[-4:]
+        if outcomes:
+            lines.append("Recent results: " + "; ".join(
+                f"{o['skill']} -> {o['status']}{': ' + o['reason'] if o.get('reason') else ''}"
+                f" ({_ago(now - o.get('at', now))})" for o in outcomes) + ".")
+        did = driver.get("modes_did") or []
+        if did:
+            lines.append("What your background modes did lately: "
+                         + "; ".join(f"{d['text']} ({_ago(now - d.get('at', now))})" for d in did) + ".")
     if driver.get("notes"):
         lines.append(f'Your hands\' note: "{driver["notes"]}".')
     if env.status == "online":
@@ -454,6 +479,76 @@ def _pack_details(env: DesktopEnvironment, session: DesktopSession, driver: dict
         except PackError:
             pass
     return lines
+
+
+def _lately_text(experience: GameExperience) -> str | None:
+    """One thing that happened, in plain words, or None when it isn't news."""
+    p = experience.payload or {}
+    if experience.kind == "notice":
+        text = p.get("text") or ""
+        if p.get("kind") == "mode":  # "gather: mined 2 iron_ore on the way" -> what she did
+            text = text.split(": ", 1)[-1]
+    elif experience.kind == "skill_outcome":
+        skill, status = p.get("skill", "?"), p.get("status", "?")
+        if skill in QUIET_SKILLS and status in ("done", "stopped"):
+            return None
+        if status == "stopped" and p.get("reason") == "the plan changed":
+            return None
+        collected = (p.get("data") or {}).get("collected")
+        got = f" (got {', '.join(f'{k} x{v}' for k, v in collected.items())})" if isinstance(collected, dict) and collected else ""
+        text = f"{skill} {status}{': ' + p['reason'] if p.get('reason') else ''}{got}"
+    else:
+        return None
+    return text.replace("_", " ") if text else None
+
+
+def _last_said_at(db: Session, user_id: uuid.UUID) -> datetime | None:
+    """When she last said anything to the user (a reply or something she said on her own)."""
+    at = db.scalar(
+        select(ChatMessage.created_at).join(Conversation, Conversation.id == ChatMessage.conversation_id)
+        .where(Conversation.user_id == user_id, ChatMessage.role == "assistant", ChatMessage.content != "")
+        .order_by(ChatMessage.created_at.desc()).limit(1))
+    if at is not None and at.tzinfo is None:  # TimestampMixin columns are naive UTC
+        at = at.replace(tzinfo=timezone.utc)
+    return at
+
+
+def _lately_lines(db: Session, session: DesktopSession, now: float) -> list[str]:
+    """The last few minutes of her game, oldest first, from what code recorded
+    (deaths and what she dropped, damage, mobs, what her modes did, failures),
+    with a mark where she last spoke: what she can react to and talk about."""
+    since = datetime.fromtimestamp(now - LATELY_SECONDS, timezone.utc)
+    rows = db.scalars(
+        select(GameExperience)
+        .where(GameExperience.session_id == session.id, GameExperience.occurred_at >= since,
+               GameExperience.occurred_at <= datetime.fromtimestamp(now, timezone.utc),
+               GameExperience.kind != "lessons_applied")
+        .order_by(GameExperience.id.desc()).limit(LATELY_LINES * 3)).all()[::-1]
+    entries: list[list] = []  # [text, at, times]
+    for row in rows:
+        text = _lately_text(row)
+        if not text:
+            continue
+        at = row.occurred_at.timestamp()
+        if entries and entries[-1][0] == text:
+            entries[-1][1], entries[-1][2] = at, entries[-1][2] + 1
+        else:
+            entries.append([text, at, 1])
+    entries = entries[-LATELY_LINES:]
+    if not entries:
+        return []
+    said = _last_said_at(db, session.owner_user_id)
+    said_at = said.timestamp() if said is not None else None
+    out = ["What happened in your game lately (from the game itself, oldest first):"]
+    marked = False
+    for text, at, times in entries:
+        if not marked and said_at is not None and at > said_at:
+            out.append(f"  -- you last spoke to the user here ({_ago(now - said_at)}); below is new to them --")
+            marked = True
+        out.append(f"  - {text}{f' (x{times})' if times > 1 else ''} ({_ago(now - at)})")
+    if not marked:
+        out.append("  -- you've spoken since all of this --")
+    return out
 
 
 def _activity(session: DesktopSession, games: list[str], facts: list, *, pack: bool = False) -> str | None:
@@ -680,6 +775,12 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
         # Set again word for word (seen live: "OK.", "Now?" and "Hello?" each re-set the same
         # goal): replacing it would cancel her move and drop her tips for nothing.
         return "You're already on exactly that; nothing changed." + _unpause(db, user_id, source)
+    if source == "columbina_planning_turn" and _same_goal_still_open(session, plan):
+        # Her own turn re-setting the goal she's on, steps reworded (seen live: "stay close to
+        # tearDrop12" re-set after every bit of news, 80 plans in 25 min, each one clearing the
+        # user's "careful" and tips to her hands). The user's own turns may still reshape it.
+        return ("That's already your goal and it isn't finished; nothing changed. To line up more, "
+                "add_game_steps; to change how you play it, tell_my_hands.")
     sessions.replace_plan(db, user_id, session.id, PlanReplace(
         expected_plan_revision=session.plan_revision, source=source, **plan.model_dump(),
     ))
@@ -754,6 +855,12 @@ def _unchanged(session: DesktopSession, plan: PlanIn) -> bool:
                for old, new in zip(open_steps, plan.steps)):
         return False
     return [_words(rule) for rule in current.get("constraints") or []] == [_words(rule) for rule in plan.constraints]
+
+
+def _same_goal_still_open(session: DesktopSession, plan: PlanIn) -> bool:
+    current = session.plan or {}
+    return bool(current) and _same_goal(current.get("goal", ""), plan.goal) and any(
+        st["state"] in ("pending", "active") for st in current.get("steps", []))
 
 
 def _words(text: str) -> list[str]:
@@ -885,6 +992,26 @@ def recipe_text(found: dict) -> str:
                                            "you carry one but must place it first." if found.get(
                                                "crafting_table_carried") else "none nearby or carried."))
     return " ".join(parts)
+
+
+def this_is_me(db: Session, user_id: uuid.UUID, *, player: str) -> str:
+    """The user said which Minecraft player is them: save it for good."""
+    env = next((e for e in _environments(db, user_id) if game_pack.is_pack(e)), None)
+    if env is None:
+        return "Not saved: you don't have your own Minecraft player."
+    from app.ai.desktop.pack_client import PackClient, PackError
+
+    try:
+        if PackClient.from_settings().state().get("username", "").lower() == player.strip().lower():
+            return f'Not saved: "{player}" is you, not the user.'
+    except PackError:
+        pass  # offline: she can't check her own name
+    try:
+        saved = game_players.link(db, user_id, PACK_GAME, player)
+    except ValueError as exc:
+        return f"Not saved: {exc}."
+    db.commit()
+    return f'Saved: the user is "{saved}" in Minecraft, from now on.'
 
 
 def note_promise(db: Session, user_id: uuid.UUID, *, promise: str) -> str:

@@ -1163,6 +1163,8 @@ A game without a pack keeps the stage C-D3 path: screen and keys, reflexes, `pur
 
 **Not decided yet:** where the library lives (pack folder vs Postgres), whether approval can be automatic after N clean test runs, and whether the library is per world or shared across worlds.
 
+**Groundwork built (2026-10-10, game learning):** skill outcomes and notices are now recorded per session (`game_experiences`), and each ended session is reflected on into lessons (level 1, applied to the hands automatically), code proposals (level 3, Learning page, never applied by the app) and an episode. H's curriculum can read past failures from that log, and H2's `trial` -> `approved` lifecycle should follow the lessons' evidence rules. See CLAUDE.md "Game learning".
+
 ## 14. Required testing and implementation report
 
 Use focused tests appropriate to these consequential control boundaries:

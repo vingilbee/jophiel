@@ -147,7 +147,7 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
     assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "tell_my_hands",
                           "set_my_modes", "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing",
-                          "how_to_make", "note_promise", "drop_promise"}
+                          "how_to_make", "this_is_me", "note_promise", "drop_promise"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))
     assert reply.startswith("Started; you're playing")
@@ -277,6 +277,30 @@ def test_the_same_plan_again_changes_nothing(db, alice):
     assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == ["stay close"]
 
     desktop_game.set_plan(db, alice.id, goal="Follow tearDrop12 to the cave", steps=steps)  # rule dropped: a change
+    db.refresh(session)
+    assert session.plan_revision == revision + 1
+
+
+def test_her_own_turn_cant_reword_the_goal_shes_on(db, alice):
+    """Seen live: after every bit of news her background turn re-set "stay close to tearDrop12"
+    with reworded steps, 80 plans in 25 minutes, each clearing the user's "careful"."""
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="Stay close to tearDrop12",
+                       steps=[{"do": "stay with the user (follow_player)", "done_when": "the user says to stop"}])
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    desktop_game.tell_hands(db, alice.id, message="careful, careful")
+    db.refresh(session)
+    revision = session.plan_revision
+
+    reply = desktop_game.set_plan(db, alice.id, goal="stay close to tearDrop12", source="columbina_planning_turn",
+                                  steps=[{"do": "follow tearDrop12 nearby", "done_when": "the user says to stop"}])
+    db.refresh(session)
+    assert reply.startswith("That's already your goal") and session.plan_revision == revision
+    assert [m["text"] for m in desktop_commands.hands_messages(session.id)] == ["careful, careful"]
+    # A different goal of her own is fine, and the user may reshape the same one.
+    desktop_game.set_plan(db, alice.id, goal="Stay close to tearDrop12", source="columbina_user_turn",
+                          steps=[{"do": "follow tearDrop12 nearby", "done_when": "the user says to stop"}])
     db.refresh(session)
     assert session.plan_revision == revision + 1
 

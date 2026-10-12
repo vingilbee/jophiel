@@ -26,6 +26,9 @@ class Kind:
     # unprompted messages, unless `always` (then also in quiet, with no gap).
     said: frozenset[str] = frozenset({COMMENTARY})
     always: bool = False
+    # Too pressing to wait out the gap (only the short URGENT_GAP_SECONDS): a mob
+    # on her, a death. She's reacting, like anyone would.
+    urgent: bool = False
     # Cuts off a reply she's speaking (what she was saying is out of date).
     interrupts: bool = False
 
@@ -40,11 +43,13 @@ KINDS: dict[str, Kind] = {
     "struggling": Kind(always=True),
     "needs_human": Kind(always=True, interrupts=True),
     # From the pack's notices.
-    "danger": Kind(said=NOT_QUIET, interrupts=True),  # urgent: a mob on her, low health, a death
+    "danger": Kind(said=NOT_QUIET, urgent=True, interrupts=True),  # urgent: a mob on her, low health, a death
     "warning": Kind(wakes=NOT_QUIET, said=NOT_QUIET),  # hurt, sunset, a mob near the user, a mode result
     "discovery": Kind(wakes=NOT_QUIET),  # a village, a spawner, ore
     "notable": Kind(wakes=frozenset({COMMENTARY})),
 }
+# Between two urgent lines (a fight is many danger notices).
+URGENT_GAP_SECONDS = 8.0
 UNKNOWN = Kind(wakes=frozenset())  # never wakes her by itself
 
 
