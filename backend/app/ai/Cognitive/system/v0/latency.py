@@ -13,9 +13,9 @@ class LatencySpan(FrozenModel):
     # v0.3 (protocol cognitive-two-call-v1) adds the content subsystem run
     # before Call 2 and the gated plan compilation after it.
     schema_version: Literal['cognitive-latency-span-v0.1', 'cognitive-latency-span-v0.2', 'cognitive-latency-span-v0.3'] = 'cognitive-latency-span-v0.1'
-    span_id: str = Field(pattern=r"^(appraisal|call_one|call_two)\.(payload_compile|provider_attempt|response_compile|content_preparation|plan_compilation)\.[0-9]+$")
+    span_id: str = Field(pattern=r"^(appraisal|call_one|call_two|contribution)\.(payload_compile|provider_attempt|response_compile|content_preparation|plan_compilation)\.[0-9]+$")
     parent_span_id: None = None
-    stage: Literal['appraisal', 'call_one', 'call_two'] = 'appraisal'
+    stage: Literal['appraisal', 'call_one', 'call_two', 'contribution'] = 'appraisal'
     component: Literal['payload_compile', 'provider_attempt', 'response_compile', 'content_preparation', 'plan_compilation']
     implementation: Literal['model'] = 'model'
     status: Literal['completed', 'failed', 'timed_out', 'cancelled', 'skipped']

@@ -32,7 +32,10 @@ def test_every_shadow_definition_has_a_recipe_bound_to_accepted_types() -> None:
         assert set(recipe.target_types) <= set(definition.target_schema.accepted_types), key
         assert recipe.rule_id.startswith("action-propose.") and recipe.rule_id.endswith(".v1")
     assert all(recipe_for(key) is None for key in UNCOVERED_KEYS)
-    assert len({item.action_key for item in BINDING_MANIFEST}) == len(BINDING_MANIFEST) == 53
+    assert len({item.action_key for item in BINDING_MANIFEST}) == 53
+    assert len(BINDING_MANIFEST) == 55  # two additional, version-gated optional-exploration recipes (v1.3, v1.5)
+    for recipe in BINDING_MANIFEST:
+        assert set(recipe.target_types) <= set(DEFAULT_REGISTRY.by_key(recipe.action_key).target_schema.accepted_types)
 
 
 def test_construction_is_deterministic_and_canonically_ordered() -> None:

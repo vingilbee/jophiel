@@ -26,6 +26,7 @@ from ..contracts.interpretation import (
     InterpretationEnvelope,
     InterpretationVersions,
 )
+from ..contracts.dialogue_interpretation import InterpretedDialogueState
 from ..contracts.goals import GoalEvidence, GoalSnapshot, GoalTurnRollover, GoalVersions
 from ..contracts.collaboration import (
     CollaborationActionHandoff, CollaborationGoalOutcome, CollaborationTurnRecord, CollaborationVersions,
@@ -375,6 +376,16 @@ class PipelineDialogueContext(FrozenModel):
     action_object_refs: tuple[str, ...] = ()
     action_descriptor_refs: tuple[str, ...] = ()
     outside_window_refs: tuple[str, ...] = ()
+    # Capture v0.4 only: relationships interpreted from earlier user messages.
+    # Omitted when absent, so earlier requests keep their digests.
+    interpreted: InterpretedDialogueState | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_interpreted(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("interpreted") is None:
+            data.pop("interpreted", None)
+        return data
 
     @model_validator(mode="after")
     def validate_dialogue_context(self) -> PipelineDialogueContext:
@@ -824,16 +835,21 @@ class CognitivePipelineTrace(FrozenModel):
         model_choices = tuple(step.model_choice for step in self.action_selection.steps)
         model_selected = any(choice is not None for choice in model_choices)
         if model_selected and (self.orchestration is None or self.orchestration.behavior_policy not in {
-                'model_grounded_selection-v0.1', 'model_policy_selection-v1'}):
+                'model_grounded_selection-v0.1', 'model_policy_selection-v1', 'model_policy_selection-v1.1'}):
             raise ValueError('model action selection requires captured two-call provenance')
-        if self.orchestration is not None and self.orchestration.behavior_policy == 'model_policy_selection-v1':
+        if self.orchestration is not None and self.orchestration.behavior_policy in {'model_policy_selection-v1', 'model_policy_selection-v1.1'}:
             from ..two_call.provider import digest
             from ..two_call.v1 import move_identity
             from ..two_call.v1_contracts import CompiledPolicy
-            from ..contracts.actions import MODEL_POLICY_PLANNER_VERSION
+            from ..contracts.actions import MODEL_POLICY_PLANNER_VERSION, MODEL_PRIMARY_RULE_ID, MODEL_PRIMARY_CHOICE_RULE_ID
             source = self.orchestration.calls[1]
             compiled = CompiledPolicy.model_validate(source.compiled_proposal)
             moves = self.action_selection.plan.moves
+            expected_primary_rule = (MODEL_PRIMARY_CHOICE_RULE_ID if self.orchestration.behavior_policy == 'model_policy_selection-v1.1'
+                                     else MODEL_PRIMARY_RULE_ID)
+            if self.action_selection.plan.primary_designation is not None and (
+                    self.action_selection.plan.primary_designation.rule_id != expected_primary_rule):
+                raise ValueError('primary rule differs from the captured behavior policy')
             if (self.action_selection.versions.planner != MODEL_POLICY_PLANNER_VERSION or not model_selected
                     or any(choice is None or choice.source_call_digest != digest(source.proposal) for choice in model_choices)
                     or tuple(move_identity(move) for move in moves) != tuple(compiled.selected_identities)):

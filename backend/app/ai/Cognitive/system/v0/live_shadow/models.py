@@ -26,6 +26,7 @@ from ..cognitive_pipeline_v0.models import (
     CognitivePipelineVersions,
 )
 from ..contracts.actions import ActionPersonalityProfile
+from ..contracts.dialogue_interpretation import MAX_FOLDED_RECORDS, DialogueInterpretationRecord
 from ..contracts.dialogue_memory import (
     DialogueMemoryFailure,
     DialogueMemoryVersions,
@@ -58,7 +59,12 @@ CAPTURE_SCHEMA_VERSION = "cognitive-shadow-capture-v0.2"
 # window by conversation position.  It is produced only while dialogue memory
 # is enabled; v0.2 captures are produced, stored, and replayed unchanged.
 CAPTURE_SCHEMA_VERSION_V03 = "cognitive-shadow-capture-v0.3"
-SUPPORTED_CAPTURE_SCHEMAS = frozenset({CAPTURE_SCHEMA_VERSION, CAPTURE_SCHEMA_VERSION_V03})
+# v0.4 is v0.3 plus the interpreted dialogue relationships recorded for earlier
+# user messages (``contracts/dialogue_interpretation.py``). Produced only while
+# dialogue interpretation is enabled.
+CAPTURE_SCHEMA_VERSION_V04 = "cognitive-shadow-capture-v0.4"
+DIALOGUE_CAPTURE_SCHEMAS = frozenset({CAPTURE_SCHEMA_VERSION_V03, CAPTURE_SCHEMA_VERSION_V04})
+SUPPORTED_CAPTURE_SCHEMAS = frozenset({CAPTURE_SCHEMA_VERSION, *DIALOGUE_CAPTURE_SCHEMAS})
 TERMINAL_SCHEMA_VERSION = "cognitive-shadow-terminal-v0.1"
 COMPILER_VERSION = "cognitive-shadow-compiler-v0.1"
 SEMANTIC_DIGEST_VERSION = "cognitive-shadow-semantic-digest-v0.1"
@@ -465,9 +471,33 @@ class CapturedDialogueMemory(FrozenModel):
         return self
 
 
+class CapturedInterpretedDialogue(FrozenModel):
+    """Capture v0.4: interpretation records for earlier user messages, exactly as stored.
+
+    The compiler folds them (``dialogue_memory_v0/interpreted.py``); replay
+    never re-reads the table. ``pending_message_refs`` are earlier user
+    messages whose reading had not finished when this turn was captured.
+    """
+
+    records: tuple[DialogueInterpretationRecord, ...] = Field(max_length=MAX_FOLDED_RECORDS)
+    pending_message_refs: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def valid(self) -> CapturedInterpretedDialogue:
+        sequences = [record.source_conversation_sequence for record in self.records]
+        if sequences != sorted(set(sequences)):
+            raise ValueError("interpretation records are in strictly increasing conversation position")
+        if len(set(self.pending_message_refs)) != len(self.pending_message_refs):
+            raise ValueError("pending interpretation refs are unique")
+        if set(self.pending_message_refs) & {record.source_message_ref for record in self.records}:
+            raise ValueError("a message is either interpreted or pending, not both")
+        return self
+
+
 class CognitiveShadowCapture(FrozenModel):
     capture_id: str = Field(min_length=1)
-    schema_version: Literal["cognitive-shadow-capture-v0.2", "cognitive-shadow-capture-v0.3"] = CAPTURE_SCHEMA_VERSION
+    schema_version: Literal["cognitive-shadow-capture-v0.2", "cognitive-shadow-capture-v0.3",
+                            "cognitive-shadow-capture-v0.4"] = CAPTURE_SCHEMA_VERSION
     producer_version: str = Field(min_length=1)
     user_ref: str = Field(min_length=1)
     conversation_ref: str = Field(min_length=1)
@@ -504,12 +534,16 @@ class CognitiveShadowCapture(FrozenModel):
     captured_at: str = Field(min_length=1)
     # Capture v0.3 only; omitted from a v0.2 payload so its digest never changes.
     dialogue: CapturedDialogueMemory | None = None
+    # Capture v0.4 only; omitted otherwise.
+    interpreted_dialogue: CapturedInterpretedDialogue | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_dialogue(self, handler: SerializerFunctionWrapHandler):
         data = handler(self)
-        if isinstance(data, dict) and data.get("dialogue") is None:
-            data.pop("dialogue", None)
+        if isinstance(data, dict):
+            for key in ("dialogue", "interpreted_dialogue"):
+                if data.get(key) is None:
+                    data.pop(key, None)
         return data
 
     @model_validator(mode="after")
@@ -561,7 +595,7 @@ class CognitiveShadowCapture(FrozenModel):
             raise ValueError("omitted inputs must be unique")
         if tuple(sorted(self.omitted_inputs)) != self.omitted_inputs:
             raise ValueError("omitted inputs must be sorted")
-        v03 = self.schema_version == CAPTURE_SCHEMA_VERSION_V03
+        v03 = self.schema_version in DIALOGUE_CAPTURE_SCHEMAS
         if not (ALWAYS_OMITTED_V03 if v03 else ALWAYS_OMITTED) <= omitted:
             raise ValueError("inputs without a V0 producer must be recorded as omitted")
         self._validate_dialogue(omitted)
@@ -579,9 +613,22 @@ class CognitiveShadowCapture(FrozenModel):
                 raise ValueError(f"omission of {item.value} must match the captured input")
         return self
 
+    def _validate_interpreted(self, positions: tuple[int | None, ...]) -> None:
+        focus = positions[-1] if positions else None
+        interpreted = self.interpreted_dialogue
+        if focus is None or any(record.source_conversation_sequence >= focus for record in interpreted.records):
+            raise ValueError("interpreted dialogue precedes the focus message")
+        earlier_users = {message.message_id for message in self.messages[:-1] if message.role == "user"}
+        if not set(interpreted.pending_message_refs) <= earlier_users:
+            raise ValueError("pending interpretations name earlier user messages in the window")
+
     def _validate_dialogue(self, omitted: set[OmittedInput]) -> None:
         positions = tuple(message.conversation_sequence for message in self.messages)
-        if self.schema_version != CAPTURE_SCHEMA_VERSION_V03:
+        if (self.interpreted_dialogue is not None) != (self.schema_version == CAPTURE_SCHEMA_VERSION_V04):
+            raise ValueError("a v0.4 capture, and only it, carries interpreted dialogue")
+        if self.interpreted_dialogue is not None:
+            self._validate_interpreted(positions)
+        if self.schema_version not in DIALOGUE_CAPTURE_SCHEMAS:
             if self.dialogue is not None or any(item is not None for item in positions):
                 raise ValueError("only a v0.3 capture carries dialogue memory and message positions")
             if OmittedInput.DIALOGUE_WORKING_MEMORY in omitted:
@@ -887,7 +934,8 @@ class CognitiveShadowTerminalRecord(FrozenModel):
 
 __all__ = [
     "ALWAYS_OMITTED", "ALWAYS_OMITTED_V03", "CAPABILITY_MAP_VERSION", "CAPTURE_MESSAGE_LIMIT",
-    "CAPTURE_PRODUCER_VERSION", "CAPTURE_SCHEMA_VERSION", "CAPTURE_SCHEMA_VERSION_V03", "CapturedDialogueMemory",
+    "CAPTURE_PRODUCER_VERSION", "CAPTURE_SCHEMA_VERSION", "CAPTURE_SCHEMA_VERSION_V03", "CAPTURE_SCHEMA_VERSION_V04",
+    "CapturedInterpretedDialogue", "DIALOGUE_CAPTURE_SCHEMAS", "CapturedDialogueMemory",
     "DIALOGUE_SUPPLIED_INPUTS", "SUPPORTED_CAPTURE_SCHEMAS", "COMPILER_VERSION", "MEMORY_RETRIEVAL_POLICY_VERSION",
     "REGISTERED_CAPABILITY_KEYS", "RESETS_CITING_PREDECESSORS", "SEMANTIC_DIGEST_VERSION", "SHADOW_NAMESPACE", "TERMINAL_SCHEMA_VERSION",
     "TRACED_REALIZATION_STATUSES", "ShadowRealizationStatus", "realization_trace_digest",

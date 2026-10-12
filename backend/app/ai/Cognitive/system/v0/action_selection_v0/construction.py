@@ -243,6 +243,8 @@ PREDICATES: Mapping[str, Predicate] = {
     "conventional_reciprocal_act": _equals("act_key", "interpretation.act.greet", "interpretation.act.close"),
     "columbina_interpretation_contradicted": lambda ctx, e: e.attr("asserted_by") == "columbina" and e.attr("epistemic_status") == "contradicted",
     "explicit_expression": _equals("expression", "explicit"),
+    "inferred_expression": _equals("expression", "inferred"),
+    "optional_exploration": _equals("optional_exploration", True),
     "known_valence": _equals("valence", "positive", "negative", "mixed"),
     "negative_valence": _equals("valence", "negative"),
     "has_basis": _has("basis_refs"), "positive_outcome": _positive_outcome,
@@ -289,6 +291,11 @@ def _r(key: str, types: tuple[T, ...], **values: Any) -> Recipe:
     return Recipe(action_key=key, rule_id=f"action-propose.{function}.v1", target_types=types, **values)
 
 
+OPTIONAL_EXPERIENCE_RULE_ID = "action-propose.optional-experience.v1.3"
+OPTIONAL_STATEMENT_RULE_ID = "action-propose.optional-statement.v1.5"
+# Proposal rules whose candidates are optional conversational opportunities.
+OPTIONAL_EXPLORATION_RULE_IDS = (OPTIONAL_EXPERIENCE_RULE_ID, OPTIONAL_STATEMENT_RULE_ID)
+
 # v0.2: recipes for ``collaborate.deliver_artifact`` and ``seek_information.inquire``.
 BINDING_MANIFEST_VERSION = "action-binding-manifest-v0.2"
 BINDING_MANIFEST: tuple[Recipe, ...] = (
@@ -306,6 +313,17 @@ BINDING_MANIFEST: tuple[Recipe, ...] = (
     _r("seek_information.request_evidence", (T.EVIDENCE_RECORD,), requirements=("missing_evidence",), forms="open"),
     _r("seek_information.explore_reason", (T.PRIOR_ACTION,), filters=("negative_feedback_subject",), requirements=("unattributed_failure",), forms="reflection", superclass_when=("negative_feedback_subject",)),
     _r("seek_information.explore_experience", (T.SEMANTIC_ARGUMENT,), filters=("unrepresented", "unresolved", "kind_experience"), requirements=("user_owned",), forms="reflection"),
+    # An already understood experience can invite curiosity. Availability is
+    # versioned upstream; no invented unknown or compulsory clarification.
+    Recipe("seek_information.explore_experience", OPTIONAL_EXPERIENCE_RULE_ID,
+           (T.EXPERIENCE,), filters=("focus_contribution", "optional_exploration"),
+           requirements=("user_owned", "explicit_expression"), forms="reflection"),
+    # Registry v1.5: something the user shared about their own life, without a
+    # reported feeling, invites the same optional follow-up. Only the v1.5
+    # projector creates these inferred objects, so earlier inventories are unchanged.
+    Recipe("seek_information.explore_experience", OPTIONAL_STATEMENT_RULE_ID,
+           (T.EXPERIENCE,), filters=("focus_contribution", "optional_exploration", "inferred_expression"),
+           requirements=("user_owned",), forms="reflection"),
     _r("seek_information.check_understanding", (T.PROPOSITION,), filters=("asserted_by_system",), requirements=("externalized_in_plan",), forms="check", evidence=("grounding", "externalization")),
     _r("seek_information.request_feedback", (T.PRIOR_ACTION, T.PRIOR_REALIZATION), filters=("negative_feedback_subject",), requirements=("unattributed_failure",), forms="feedback", evidence=("grounding", "candidates")),
     _r("give_feedback.acknowledge", (T.USER_ACT, T.MESSAGE), filters=("focus_contribution",), superclass_when=("conventional_reciprocal_act",)),

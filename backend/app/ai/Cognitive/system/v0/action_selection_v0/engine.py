@@ -16,7 +16,7 @@ from ..contracts.actions import (
     ActionFailurePhase as P, ActionPlan, ActionPlanningStep, ActionSelectionRequest, ActionSelectionResult,
     ActionVersions, GroundedActionMove, PRIMARY_RULE_ID, PlanTerminationKind, PrimaryDesignation,
     designate_primary, primary_comparison, ModelActionChoice, MODEL_ACTION_PLANNER_VERSION,
-    MODEL_POLICY_PLANNER_VERSION, MODEL_PRIMARY_RULE_ID, ActionFamily, PlanningConditionKind,
+    MODEL_POLICY_PLANNER_VERSION, MODEL_PRIMARY_RULE_ID, MODEL_PRIMARY_CHOICE_RULE_ID, ActionFamily, PlanningConditionKind,
 )
 from .construction import CandidateConstructor, PlanView, recipe_for
 from .errors import ActionSelectionError, CycleGuardError, NoViablePlanError
@@ -74,7 +74,7 @@ class ActionSelectionEngine:
         self.feature_factory = feature_factory
 
     def select(self, request: ActionSelectionRequest, *, proposal_selector=None, source_call_digest=None,
-               primary_selector=None, planner_version=None) -> ActionSelectionResult:
+               primary_selector=None, planner_version=None, primary_rule_id=MODEL_PRIMARY_RULE_ID) -> ActionSelectionResult:
         """``planner_version`` model-policy-v1 also takes the model's primary move
         (``primary_selector``) and records scores without using them as a gate."""
         turn = getattr(request, "cognitive_turn_id", "unknown-turn")
@@ -86,6 +86,9 @@ class ActionSelectionEngine:
                 raise ValueError('model policy planning requires its primary selector, and only it')
             if model_policy and proposal_selector is None:
                 raise ValueError('model policy planning requires a proposal selector')
+            if primary_rule_id not in {MODEL_PRIMARY_RULE_ID, MODEL_PRIMARY_CHOICE_RULE_ID} or (
+                    primary_rule_id != MODEL_PRIMARY_RULE_ID and not model_policy):
+                raise ValueError('model primary choice rule requires model policy planning')
             versions = ActionVersions(planner=planner_version or MODEL_ACTION_PLANNER_VERSION) if proposal_selector else ActionVersions()
             if proposal_selector and not source_call_digest:
                 raise ValueError('model selection requires captured proposal provenance')
@@ -211,7 +214,7 @@ class ActionSelectionEngine:
             if not moves and request.runtime.response_obligation == "required":
                 code = "no_viable_plan"
                 raise NoViablePlanError("a required response has no positively valued eligible move")
-            designation = self._primary(request, steps, moves, primary_selector) if moves else None
+            designation = self._primary(request, steps, moves, primary_selector, primary_rule_id) if moves else None
             primary = designation.primary_move_ref if designation else None
             plan = ActionPlan(
                 plan_id=plan_id, cognitive_turn_id=request.cognitive_turn_id, moves=tuple(moves),
@@ -239,14 +242,14 @@ class ActionSelectionEngine:
             raise ActionSelectionError(cognitive_turn_id=turn, failed_phase=phase, code=code) from exc
 
     def _primary(self, request: ActionSelectionRequest, steps: list[ActionPlanningStep], moves: list[GroundedActionMove],
-                 primary_selector=None) -> PrimaryDesignation:
+                 primary_selector=None, primary_rule_id=MODEL_PRIMARY_RULE_ID) -> PrimaryDesignation:
         focal_primary = request.goal_snapshot.focus_decision.primary_goal_ref
         compared = [primary_comparison(step, move.move_id, focal_primary) for step, move in zip(steps, moves)]
         if primary_selector is None:
             return PrimaryDesignation(rule_id=PRIMARY_RULE_ID, focal_primary_goal_ref=focal_primary,
                                       primary_move_ref=designate_primary(compared), compared_moves=tuple(compared))
         # The selector validates the model's choice against the coverage rule.
-        return PrimaryDesignation(rule_id=MODEL_PRIMARY_RULE_ID, focal_primary_goal_ref=focal_primary,
+        return PrimaryDesignation(rule_id=primary_rule_id, focal_primary_goal_ref=focal_primary,
                                   primary_move_ref=primary_selector(tuple(moves), tuple(compared)),
                                   compared_moves=tuple(compared))
 

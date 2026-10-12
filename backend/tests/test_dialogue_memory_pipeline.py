@@ -426,14 +426,16 @@ def test_only_selected_refs_enter_the_inventory_and_legacy_speech_is_never_a_fac
     snapshot = context.prior_context_projection
     plan_less = DialogueRealizationContentProjectorV0().project(_fake_action(context.cognitive_turn_id), context)
     assert plan_less.items == ()  # nothing referenced, nothing exported
-    with pytest.raises(ValueError):
-        GroundedProposition(
-            content_id="x", cognitive_turn_id=context.cognitive_turn_id,
-            source_kind=ContentSourceKind.DELIVERED_ASSISTANT_UTTERANCE, source_refs=("chat-message:x",),
-            authorized_for_realization=True, epistemic_status=ContentEpistemicStatus.ATTRIBUTED,
-            attribution=ContentAttribution.COLUMBINA, subject={"ref": "s", "surface_anchor": "Paris"},
-            predicate="dialogue.user_statement",
-        )
+    said = dict(
+        content_id="x", cognitive_turn_id=context.cognitive_turn_id,
+        source_kind=ContentSourceKind.DELIVERED_ASSISTANT_UTTERANCE, source_refs=("chat-message:x",),
+        authorized_for_realization=True, attribution=ContentAttribution.COLUMBINA,
+        subject={"ref": "s", "surface_anchor": "Paris"}, predicate="dialogue.recall_answer",
+    )
+    with pytest.raises(ValueError):  # her earlier speech is never a fact
+        GroundedProposition(**said, epistemic_status=ContentEpistemicStatus.GROUNDED)
+    # Registry v1.8: it may be recalled as what she said ("I said autumn").
+    GroundedProposition(**said, epistemic_status=ContentEpistemicStatus.ATTRIBUTED)
     partial_script = Script("partial-realization")
     partial_script.exchange(1, "Tell me a story.", "Once upon a", status="partial")
     partial_context, _ = partial_script.context("Go on.")

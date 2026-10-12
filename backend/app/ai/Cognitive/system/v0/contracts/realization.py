@@ -156,7 +156,10 @@ def valid_text(value: str) -> bool:
 class ContentSourceKind(StrEnum):
     """The only sources a realizable meaning may come from.
 
-    There is no model-knowledge source: pretrained knowledge is never content.
+    Before registry v1.6 there was no model-knowledge source. The two v1.6
+    open-world sources are labelled as such and are never worded as verified:
+    ``model_general_knowledge`` (hedged unless high confidence) and
+    ``columbina_own_view`` (always tentative, attributed to Columbina).
     """
 
     CURRENT_USER_STATEMENT = "current_user_statement"
@@ -181,6 +184,9 @@ class ContentSourceKind(StrEnum):
     # a delivered workspace revision.
     COLLABORATIVE_PROPOSAL = "collaborative_proposal"
     WORKSPACE_ARTIFACT = "workspace_artifact"
+    # registry v1.6 open-world contribution (two_call/contribution.py).
+    MODEL_GENERAL_KNOWLEDGE = "model_general_knowledge"
+    COLUMBINA_OWN_VIEW = "columbina_own_view"
 
 
 DIALOGUE_SOURCE_KINDS = frozenset({
@@ -274,11 +280,14 @@ class GapKind(StrEnum):
     """What an actual failed retrieval or observation supports.
 
     ``no_record`` supports "I do not have a memory of X", never "X never happened".
+    ``not_mentioned_in_conversation`` (registry v1.5 dialogue recall) supports
+    "you haven't mentioned X", never "X isn't so" or "you never said it".
     """
 
     NO_GROUNDED_ANSWER = "no_grounded_answer"
     NO_RECORD = "no_record"
     NOT_OBSERVED = "not_observed"
+    NOT_MENTIONED = "not_mentioned_in_conversation"
 
 
 class DialogueReferenceKind(StrEnum):
@@ -384,8 +393,13 @@ class _ContentBase(FrozenModel):
             # never a grounded proposition or trusted knowledge.
             if self.attribution != ContentAttribution.COLUMBINA:
                 raise ValueError("delivered assistant utterances keep Columbina attribution")
-            if self.kind not in {ContentKind.AUTHORIZED_QUOTE, ContentKind.DIALOGUE_REFERENCE}:
-                raise ValueError("delivered assistant speech is only quoted or referenced")
+            # A recalled answer from her own earlier reply ("I said autumn") may be
+            # a proposition, but only an attributed one: what she said, not a fact.
+            if self.kind not in {ContentKind.AUTHORIZED_QUOTE, ContentKind.DIALOGUE_REFERENCE} and not (
+                self.kind == ContentKind.GROUNDED_PROPOSITION
+                and self.epistemic_status == ContentEpistemicStatus.ATTRIBUTED
+            ):
+                raise ValueError("delivered assistant speech is only quoted, referenced, or recalled as said")
             if self.epistemic_status in {ContentEpistemicStatus.GROUNDED, ContentEpistemicStatus.OBSERVED}:
                 raise ValueError("delivered assistant speech is attributed, never grounded")
 
@@ -471,7 +485,11 @@ class GroundedProposition(_ContentBase):
             raise ValueError("unsupported proposition epistemic status")
         if self.attribution in ATTRIBUTED_SPEAKERS and self.epistemic_status == ContentEpistemicStatus.GROUNDED:
             raise ValueError("attributed propositions keep attributed or tentative status")
-        if self.epistemic_status == ContentEpistemicStatus.ATTRIBUTED and self.attribution not in ATTRIBUTED_SPEAKERS:
+        if self.epistemic_status == ContentEpistemicStatus.ATTRIBUTED and self.attribution not in ATTRIBUTED_SPEAKERS and not (
+            # Her own earlier reply, recalled as what she said.
+            self.attribution == ContentAttribution.COLUMBINA
+            and self.source_kind == ContentSourceKind.DELIVERED_ASSISTANT_UTTERANCE
+        ):
             raise ValueError("attributed status requires a user or third-party attribution")
         if self.epistemic_status == ContentEpistemicStatus.TENTATIVE and self.certainty == Certainty.EXACT:
             raise ValueError("tentative propositions cannot carry exact certainty")
@@ -973,6 +991,34 @@ class RealizationLinguisticContext(FrozenModel):
     safety_authority: Literal[False] = False
 
 
+MAX_CONVERSATION_CONTEXT_MESSAGES = 8
+MAX_CONVERSATION_CONTEXT_CHARACTERS = 2000
+
+
+class RealizationConversationTurn(FrozenModel):
+    speaker: Literal["user", "columbina"]
+    text: str = Field(min_length=1, max_length=MAX_CONVERSATION_CONTEXT_CHARACTERS)
+
+
+class RealizationConversationContext(FrozenModel):
+    """Realization policy v1.4+: the messages before the current one, for comprehension only.
+
+    The wording model reads them to understand what is being asked and what
+    earlier words refer to. Like the current utterance, they carry no fact,
+    action, authorization or safety authority: only ``content_items`` may be
+    asserted, and the validator still checks every assertion.
+    """
+
+    source: Literal["recent_conversation"] = "recent_conversation"
+    messages: tuple[RealizationConversationTurn, ...] = Field(min_length=1, max_length=MAX_CONVERSATION_CONTEXT_MESSAGES)
+    authority: Literal["linguistic_context_only"] = "linguistic_context_only"
+    permitted_use: Literal["comprehension_and_reference_resolution_only"] = "comprehension_and_reference_resolution_only"
+    fact_authority: Literal[False] = False
+    action_authority: Literal[False] = False
+    authorization_authority: Literal[False] = False
+    safety_authority: Literal[False] = False
+
+
 class RealizationRequestV0(FrozenModel):
     schema_version: Literal["realization-contract-v0.3"] = REALIZATION_CONTRACT_VERSION
     request_id: str = Field(min_length=1)
@@ -989,6 +1035,15 @@ class RealizationRequestV0(FrozenModel):
     constraints: tuple[RealizationConstraintItem, ...] = Field(min_length=1)
     provenance: RealizationProvenance
     request_digest: str
+    # Realization policy v1.4+ only; omitted otherwise, so earlier requests keep their digests.
+    conversation_context: RealizationConversationContext | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_conversation(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("conversation_context") is None:
+            data.pop("conversation_context", None)
+        return data
 
     @model_validator(mode="after")
     def valid(self) -> RealizationRequestV0:
@@ -1121,7 +1176,8 @@ class RealizationModelProvenance(FrozenModel):
     reasoning_effort: Literal["none"] | None = None
     # ``conversational-v1``: the natural-voice instruction set paired with the
     # conversational validation policy.  Omitted for the strict instructions.
-    instruction_variant: Literal["conversational-v1"] | None = None
+    # ``conversational-v2`` (realization policy v1.4) also reads recent conversation.
+    instruction_variant: Literal["conversational-v1", "conversational-v2"] | None = None
     candidate_count: Literal[1] | None = None
     sdk_retries: Literal[0] | None = None
 
@@ -1230,6 +1286,8 @@ class ViolationCode(StrEnum):
     REQUIRED_UNCERTAINTY_DROPPED = "required_uncertainty_dropped"
     CONDITIONALITY_DROPPED = "conditionality_dropped"
     KNOWLEDGE_GAP_ANSWERED = "knowledge_gap_answered"
+    ANSWER_CONTRADICTED = "answer_contradicted"
+    ANSWER_DROPPED = "answer_dropped"
     UNRECORDED_MEMORY_CLAIMED = "unrecorded_memory_claimed"
     FACTUAL_ENDORSEMENT_DETECTED = "factual_endorsement_detected"
     FALSE_TOOL_COMPLETION_CLAIM = "false_tool_completion_claim"
@@ -1268,6 +1326,8 @@ VIOLATION_PHASES: Mapping[ViolationCode, ValidationPhase] = {
     ViolationCode.REQUIRED_UNCERTAINTY_DROPPED: ValidationPhase.EPISTEMIC_FIDELITY,
     ViolationCode.CONDITIONALITY_DROPPED: ValidationPhase.EPISTEMIC_FIDELITY,
     ViolationCode.KNOWLEDGE_GAP_ANSWERED: ValidationPhase.EPISTEMIC_FIDELITY,
+    ViolationCode.ANSWER_CONTRADICTED: ValidationPhase.EPISTEMIC_FIDELITY,
+    ViolationCode.ANSWER_DROPPED: ValidationPhase.EPISTEMIC_FIDELITY,
     ViolationCode.UNRECORDED_MEMORY_CLAIMED: ValidationPhase.EPISTEMIC_FIDELITY,
     ViolationCode.FACTUAL_ENDORSEMENT_DETECTED: ValidationPhase.EPISTEMIC_FIDELITY,
     ViolationCode.FALSE_TOOL_COMPLETION_CLAIM: ValidationPhase.CONSTRAINT_ENFORCEMENT,
@@ -1313,7 +1373,8 @@ def violation(code: ViolationCode, subject_ref: str) -> RealizationViolation:
 
 
 RealizationValidationPolicy = Literal["strict-v0.1", "style_advisory-v0.1", "segmented_response-v0.1", "segmented_response-v0.2",
-                                      "conversational-v1", "conversational-v2"]
+                                      "conversational-v1", "conversational-v2", "conversational-v3"]
+CONVERSATIONAL_POLICIES = frozenset({"conversational-v1", "conversational-v2", "conversational-v3"})
 STYLE_ADVISORY_CODES = frozenset({
     ViolationCode.STYLE_MARKER_BUDGET_EXCEEDED,
     ViolationCode.ENDEARMENT_USED,
@@ -1353,6 +1414,13 @@ CONVERSATIONAL_V2_BLOCKING_CODES = frozenset({
     ViolationCode.REQUIRED_MOVE_MISSING, ViolationCode.CONTROL_CHARACTER_DETECTED,
     ViolationCode.FALSE_TOOL_COMPLETION_CLAIM, ViolationCode.UNRECORDED_MEMORY_CLAIMED,
 })
+# ``conversational-v3`` (realization policy ``separate_realization-v1.3``):
+# conversational-v2 plus answer fidelity.  Wording stays free, but an answer
+# move must not deny or reverse a known answer, and must not drop an answer
+# taken from the conversation.  Both codes are only emitted under v3.
+CONVERSATIONAL_V3_BLOCKING_CODES = CONVERSATIONAL_V2_BLOCKING_CODES | frozenset({
+    ViolationCode.ANSWER_CONTRADICTED, ViolationCode.ANSWER_DROPPED,
+})
 
 
 def advisory_finding_allowed(
@@ -1367,10 +1435,11 @@ def advisory_finding_allowed(
     questions, and advice remain hard failures.
     """
 
-    if policy == "conversational-v2":
+    if policy in {"conversational-v2", "conversational-v3"}:
         if item.code == ViolationCode.OUTPUT_TOO_LONG:
             return item.subject_ref == "text:discourse_length"
-        return item.code not in CONVERSATIONAL_V2_BLOCKING_CODES
+        blocking = CONVERSATIONAL_V3_BLOCKING_CODES if policy == "conversational-v3" else CONVERSATIONAL_V2_BLOCKING_CODES
+        return item.code not in blocking
     if policy == "conversational-v1":
         return (item.code in CONVERSATIONAL_ADVISORY_CODES
                 or (item.code == ViolationCode.UNPLANNED_MOVE_DETECTED and item.subject_ref in CONVERSATIONAL_ADVISORY_SUBJECTS)

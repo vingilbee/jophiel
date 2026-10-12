@@ -47,7 +47,11 @@ V1_FAILURE_CODES = frozenset(message.replace(' ', '_') for message in (
     'unauthorized memory', 'duplicate reference handle', 'duplicate eligible candidate identity', 'foreign candidate',
     'plan exceeds maximum moves', 'iterative planning is not offered', 'empty plan for a required response',
     'foreign selection factor', 'foreign selection factor source', 'personality factor without available personality',
-    'relationship factor without available relationship'))
+    'relationship factor without available relationship',
+    'dialogue citation differs from supplied source', 'dialogue citation must name a supplied user message',
+    'dialogue citation exceeds excerpt bound', 'duplicate dialogue candidates',
+    'recall answer and knowledge status disagree', 'perspective needs distinct supporting passages',
+    'unambiguous recall must not carry competing candidates'))
 
 
 class TwoCallError(AppraisalModelError):
@@ -370,6 +374,7 @@ class TwoCallOrchestrator:
         self.one = None
         self.two = None
         self.captures = []
+        self.contribution_captures = []
         self.dialogue_context = None
         self.context_projection = 'two-call-stage-context-v0.3'
         self.behavior_policy = 'model_grounded_selection-v0.1'
@@ -426,19 +431,33 @@ class TwoCallOrchestrator:
             table=self.policy_references if self.protocol==V1 and stage=='call_two' else self.references
             if self.protocol==V1:
                 from .v1_contracts import UNDERSTANDING_INPUT_VERSION,POLICY_INPUT_VERSION
+                from .contribution import contribution_input_version
                 provenance.update(protocol_version=self.protocol,
-                    context_version=UNDERSTANDING_INPUT_VERSION if stage=='call_one' else POLICY_INPUT_VERSION,
+                    context_version=(contribution_input_version(self) if stage=='contribution'
+                                     else UNDERSTANDING_INPUT_VERSION if stage=='call_one' else POLICY_INPUT_VERSION),
                     schema_version=f'{stage}-v1',
-                    prompt_version=f'{stage}-v1.2' if self.understanding_registry=='argument-kind-registry-v1.2' else f'{stage}-v1')
+                    prompt_version=(('contribution-v1.8' if contribution_input_version(self).endswith('v1.1') else 'contribution-v1.6')
+                        if stage == 'contribution'
+                        else 'call_one-v1.8' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.8'
+                        else 'call_one-v1.7' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.7'
+                        else 'call_one-v1.6' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.6'
+                        else 'call_two-v1.5' if stage == 'call_two' and self.understanding_registry in (
+                            'argument-kind-registry-v1.6', 'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8')
+                        else f'{stage}-v1.5' if self.understanding_registry == 'argument-kind-registry-v1.5'
+                        else f'{stage}-v1.4' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.4'
+                        else f'{stage}-v1.3' if stage == 'call_two' and self.understanding_registry in ('argument-kind-registry-v1.3', 'argument-kind-registry-v1.4')
+                        else f'{stage}-v1.2' if self.understanding_registry in ('argument-kind-registry-v1.2', 'argument-kind-registry-v1.3')
+                        else f'{stage}-v1'))
             elif self.protocol!='legacy-v0.1':
                 from .provider import compact_prompt_version
                 version=compact_prompt_version(stage,payload).replace('_','.')
                 provenance.update(protocol_version=self.protocol,
                     context_version='turn-context-v0.1' if stage=='call_one' else payload['decision_context']['version'],
                     schema_version=stage+'-compact-v0.1',prompt_version=f'{stage}-compact-{version}')
-            self.captures.append(CallCapture(stage=stage,prompt_hash=hashlib.sha256(prompt(stage, payload).encode()).hexdigest(),
+            contribution = stage == 'contribution'
+            (self.contribution_captures if contribution else self.captures).append(CallCapture(stage=stage,prompt_hash=hashlib.sha256(prompt(stage, payload).encode()).hexdigest(),
                 payload_digest=digest(payload),payload=payload,proposal=output.model_dump(mode='json'),provenance=provenance,
-                protocol=self.protocol,reference_table=table.entries if self.protocol!='legacy-v0.1' else None,
+                protocol=self.protocol,reference_table=table.entries if self.protocol!='legacy-v0.1' and not contribution else None,
                 dialogue_context=self.dialogue_context.model_dump(mode='json') if self.protocol!='legacy-v0.1' and self.dialogue_context is not None else None,
                 attribution=self.attribution(stage,payload,output) if self.protocol!='legacy-v0.1' else None))
             return output
@@ -446,6 +465,18 @@ class TwoCallOrchestrator:
             exc.orchestration_stage = stage
             exc.spans = tuple(self.recorder.spans)
             raise
+
+    def contribute(self, *, kind, frame, query):
+        """Registry v1.6: one recorded contribution call compiled to a producer result."""
+        from .contribution import build_payload, compile_result
+        stage = self.recorder.stage
+        try:
+            payload = build_payload(self, kind=kind, frame=frame, query=query)
+            output = self.call('contribution', payload)
+            return compile_result(output, kind=kind, query=query, request=self.request,
+                                  capture_digest=self.contribution_captures[-1].payload_digest)
+        finally:
+            self.recorder.stage = stage
 
     def record_compilation(self,output):
         capture=self.captures[-1]
@@ -561,7 +592,8 @@ class TwoCallOrchestrator:
         if index is None or index >= len(moves):
             raise ValueError('model primary outside the plan')
         best = max(decimal_from(item['direct_focal_coverage']) for item in compared)
-        if decimal_from(compared[index]['direct_focal_coverage']) != best:
+        if (self.behavior_policy == 'model_policy_selection-v1'
+                and decimal_from(compared[index]['direct_focal_coverage']) != best):
             raise ValueError('model primary lacks the greatest direct focal coverage')
         return moves[index].move_id
 
@@ -823,6 +855,7 @@ class TwoCallOrchestrator:
 
     def trace(self):
         return TwoCallTrace(protocol=self.protocol,calls=tuple(self.captures),spans=tuple(self.recorder.spans),
+            contributions=tuple(self.contribution_captures),
             behavior_policy=self.behavior_policy, realization_policy=self.realization_policy,
             alignment_policy=self.alignment_policy,
             goal_binding_version=self.goal_engine.binding_version,
@@ -868,11 +901,13 @@ class ProposedActionEngine:
         if self.owner.two is None or self.owner.behavior_policy == 'strict_plan_agreement-v0.1':
             return self.engine.select(request)
         if self.owner.protocol == V1:
-            from ..contracts.actions import MODEL_POLICY_PLANNER_VERSION
+            from ..contracts.actions import MODEL_POLICY_PLANNER_VERSION, MODEL_PRIMARY_RULE_ID, MODEL_PRIMARY_CHOICE_RULE_ID
             try:
                 with self.owner.recorder.measure('plan_compilation'):
                     return self.engine.select(request, proposal_selector=self.owner.select_policy_choice,
                         primary_selector=self.owner.select_policy_primary, planner_version=MODEL_POLICY_PLANNER_VERSION,
+                        primary_rule_id=(MODEL_PRIMARY_CHOICE_RULE_ID if self.owner.behavior_policy == 'model_policy_selection-v1.1'
+                                         else MODEL_PRIMARY_RULE_ID),
                         source_call_digest=digest(self.owner.captures[1].proposal))
             except ActionSelectionError as exc:
                 cause = exc.__cause__
@@ -902,6 +937,10 @@ def install(pipeline, model, *, protocol="legacy-v0.1"):
     pipeline.interpretation_engine = InterpretationEngine(grounder=ModelSemanticGrounder(SemanticAdapter(owner)))
     pipeline.cognitive_turn_runner.appraisal_engine = AppraisalAdapter(owner)
     if owner.protocol==V1:
+        if owner.understanding_registry in ('argument-kind-registry-v1.4', 'argument-kind-registry-v1.5', 'argument-kind-registry-v1.6',
+                                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8'):
+            from .continuity import ContinuityRequirementEngine
+            pipeline.requirement_engine = ContinuityRequirementEngine(owner, pipeline.requirement_engine)
         from .compact_runtime import ContextInterpretationEngine,ModelBiasOwner,UnderstandingGrounder,UnderstandingReadingRules
         pipeline.interpretation_engine=ContextInterpretationEngine(owner,
             grounder=UnderstandingGrounder(owner,SemanticAdapter(owner)),

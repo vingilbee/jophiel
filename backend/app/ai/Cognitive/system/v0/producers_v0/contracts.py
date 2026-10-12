@@ -46,6 +46,11 @@ class AuthorityClass(StrEnum):
     DELIVERED_DIALOGUE_CLAIM = "delivered_dialogue_claim"  # what was actually delivered, with attribution
     AUTHORIZED_TOOL_RESULT = "authorized_tool_result"      # finalized results of authorized tools
     KNOWLEDGE_GAP = "knowledge_gap"                        # explicit "no grounded answer" records
+    # Registry v1.6 open-world contribution (``two_call/contribution.py``): model
+    # general knowledge, and Columbina's own personality-selected view. Labelled,
+    # never presented as verified; personal facts never come from these.
+    MODEL_KNOWLEDGE = "model_general_knowledge"
+    COLUMBINA_VIEW = "columbina_view"
 
 
 class ProducerStatus(StrEnum):

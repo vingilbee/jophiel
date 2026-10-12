@@ -24,11 +24,14 @@ and generated text are never logged.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 from app.ai.Cognitive.system.v0.contracts.realization import ProviderErrorCode, RealizationModelProvenance
 from app.ai.Cognitive.system.v0.realization_v0.errors import (
@@ -256,8 +259,17 @@ class OpenAIRealizationModel:
             raise RealizationProviderError(ProviderErrorCode.OUTPUT_INVALID)
         try:
             return output_from_excerpts(json.loads(message.content), payload,
-                                        tolerant=self._provenance.instruction_variant == "conversational-v1")
+                                        tolerant=self._provenance.instruction_variant in ("conversational-v1", "conversational-v2"))
         except (ValueError, ValidationError, TypeError) as exc:
+            # The trace keeps only ``output_schema_invalid``. Log why, without the
+            # candidate text: fixed parser messages, or validation locations/types.
+            if isinstance(exc, ValidationError):
+                reason = '; '.join(f"{'.'.join(map(str, e['loc']))}: {e['type']}" for e in exc.errors(include_input=False))
+            elif isinstance(exc, json.JSONDecodeError):
+                reason = f'invalid JSON at position {exc.pos}'
+            else:
+                reason = type(exc).__name__ if isinstance(exc, TypeError) else str(exc)
+            logger.warning('realization output rejected as schema-invalid: %s', reason[:300])
             raise RealizationProviderError(None, schema_invalid=True) from exc
 
 

@@ -6,8 +6,10 @@ property accepts an unrestricted string.
 """
 from __future__ import annotations
 
+from ..contracts.dialogue_interpretation import DIALOGUE_UPDATE_KINDS, MAX_DIALOGUE_UPDATES
 from .v1_contracts import (
-    APPRAISAL_FIELDS, POLICY_PROPOSAL_VERSION, SELECTION_FACTOR_KEYS, SPAN_REF_PATTERN, UNDERSTANDING_PROPOSAL_VERSION,
+    APPRAISAL_FIELDS, INTERPRETED_DIALOGUE_REGISTRIES, WRITTEN_RECALL_REGISTRIES, POLICY_PROPOSAL_VERSION, SELECTION_FACTOR_KEYS, SPAN_REF_PATTERN,
+    UNDERSTANDING_PROPOSAL_VERSION,
 )
 
 
@@ -50,6 +52,14 @@ def _value_schema(argument: dict, refs: dict) -> dict:
             branches.append({'$ref': '#/$defs/SpanValue'})
         elif kind == 'span_set':
             branches.append({'$ref': '#/$defs/SpanSetValue'})
+        elif kind == 'dialogue_span':
+            branches.append(_obj({'kind': _enum(['dialogue_span']),
+                                  'message_ref': _enum(refs['citable_messages']), 'span_ref': _SPAN}))
+        elif kind == 'dialogue_span_set':
+            branches.append(_obj({'kind': _enum(['dialogue_span_set']), 'spans': {
+                'type': 'array', 'minItems': 2, 'maxItems': 4,
+                'items': _obj({'kind': _enum(['dialogue_span']),
+                               'message_ref': _enum(refs['citable_messages']), 'span_ref': _SPAN})}}))
         elif kind in {'entity_ref', 'object_ref'}:
             if refs['entity' if kind == 'entity_ref' else 'object']:
                 branches.append({'$ref': '#/$defs/EntityValue' if kind == 'entity_ref' else '#/$defs/ObjectValue'})
@@ -68,6 +78,10 @@ def understanding_schema(payload: dict) -> dict:
     refs = {
         'entity': [e['ref'] for e in dialogue['entity_refs']],
         'object': [o['ref'] for o in dialogue['open_question_refs']],
+        'user_messages': [m['ref'] for m in dialogue['messages'] if m['speaker'] == 'user'],
+        # v1.8: her own replies carry indexed tokens and may be cited as well.
+        'citable_messages': [m['ref'] for m in dialogue['messages']
+                             if m['speaker'] == 'user' or 'indexed_tokens' in m],
     }
     context_refs = ([t['ref'] for t in context['persona_traits'] if t['availability'] == 'available']
                     + [b['ref'] for b in context['interpretation_biases']]
@@ -133,6 +147,16 @@ def understanding_schema(payload: dict) -> dict:
         'unknowns': {'type': 'array', 'items': unknown},
         'conflicts': {'type': 'array', 'items': conflict},
     })
+    if ontology['predicate_registry_version'] in INTERPRETED_DIALOGUE_REGISTRIES:
+        dialogue_span = _obj({'kind': _enum(['dialogue_span']), 'message_ref': _enum(refs['user_messages']),
+                              'span_ref': _SPAN})
+        schema['properties']['dialogue_updates'] = {'type': 'array', 'maxItems': MAX_DIALOGUE_UPDATES, 'items': _obj({
+            'kind': _enum(list(DIALOGUE_UPDATE_KINDS)),
+            'spans': {'type': 'array', 'minItems': 2, 'maxItems': 4, 'items': dialogue_span}})}
+        schema['required'] = [*schema['required'], 'dialogue_updates']
+        if ontology['predicate_registry_version'] in WRITTEN_RECALL_REGISTRIES:
+            schema['properties']['recall_answer'] = {'type': ['string', 'null']}
+            schema['required'] = [*schema['required'], 'recall_answer']
     definitions.update({'SpanRef': {'type': 'string', 'pattern': SPAN_REF_PATTERN}, 'Reading': reading, 'Appraisal': appraisal,
                    'Polarity': _enum(['positive', 'negative', 'unknown']),
                    'EvidenceSpans': {'type': 'array', 'minItems': 1, 'items': _SPAN},

@@ -80,6 +80,7 @@ backend/app/ai/Cognitive/system/v0/data/*
 !backend/app/ai/Cognitive/system/v0/data/conversational_action_design_cases.json
 !backend/app/ai/Cognitive/system/v0/data/conversational_action_design_cases_v2.json
 !backend/app/ai/Cognitive/system/v0/data/conversational_action_design_results_v0.json
+!backend/app/ai/Cognitive/system/v0/data/answer_fidelity_regression_v0.json
 !backend/app/ai/Cognitive/system/v0/data/semantic_parser_regression_corpus_v0.json
 !backend/app/ai/Cognitive/system/v0/data/semantic_parser_regression_results_v0.jsonl
 !backend/app/ai/Cognitive/system/v0/data/CONVERSATIONAL_ACTION_REGISTRY_V0.md

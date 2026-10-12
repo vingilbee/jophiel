@@ -1218,6 +1218,62 @@ event.listen(
 )
 
 
+class CognitiveDialogueInterpretation(Base):
+    """Relationships one turn's understanding call read from its own user message.
+
+    ``payload`` is a ``DialogueInterpretationRecord`` (option sets, same-referent
+    links, corrections, as exact user spans). It is a model's validated reading,
+    kept separate from the message-derived dialogue memory and labelled
+    ``interpreted`` wherever it is shown. One row per user message, written by
+    the shadow worker with the turn's terminal trace; an empty ``updates`` list
+    means the message was read and established nothing. Rows are never updated
+    (a trigger rejects it) and are deleted with their message or conversation.
+    """
+
+    __tablename__ = "cognitive_dialogue_interpretations"
+    __table_args__ = (
+        UniqueConstraint("source_message_id", name="uq_dialogue_interpretations_source_message"),
+        CheckConstraint("source_conversation_sequence >= 1", name="ck_dialogue_interpretations_sequence"),
+        CheckConstraint(f"record_digest {_DIALOGUE_DIGEST_CHECK}", name="ck_dialogue_interpretations_digest"),
+        Index("ix_dialogue_interpretations_conversation_sequence", "conversation_id", "source_conversation_sequence"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    source_conversation_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # The shadow trace that produced it; a plain id, since traces expire sooner.
+    shadow_trace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    record_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+DIALOGUE_INTERPRETATION_GUARD_DDL = """
+CREATE OR REPLACE FUNCTION cognitive_dialogue_interpretations_guard() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'cognitive_dialogue_interpretations rows are immutable';
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER cognitive_dialogue_interpretations_immutable
+    BEFORE UPDATE ON cognitive_dialogue_interpretations
+    FOR EACH ROW EXECUTE FUNCTION cognitive_dialogue_interpretations_guard();
+"""
+
+event.listen(
+    CognitiveDialogueInterpretation.__table__, "after_create",
+    DDL(DIALOGUE_INTERPRETATION_GUARD_DDL).execute_if(dialect="postgresql"),
+)
+
+
 # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §6, §17) -------
 
 DESKTOP_SESSION_STATES = ("starting", "running", "paused", "manual", "disconnected", "ended", "failed")

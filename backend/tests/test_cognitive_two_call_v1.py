@@ -15,7 +15,7 @@ from app.ai.Cognitive.system.v0.two_call.contracts import CallCapture
 from app.ai.Cognitive.system.v0.two_call.orchestrator import install
 from app.ai.Cognitive.system.v0.two_call.provider import output_type, prompt, response_schema
 from app.ai.Cognitive.system.v0.two_call.v1_contracts import (
-    PROTOCOL_V1, ActionPolicyProposalV1, CompiledPolicy, UnderstandingProposalV1, parse_span_ref,
+    INTERPRETED_DIALOGUE_REGISTRIES, PROTOCOL_V1, WRITTEN_RECALL_REGISTRIES, ActionPolicyProposalV1, CompiledPolicy, UnderstandingProposalV1, parse_span_ref,
 )
 from app.ai.Cognitive.system.v0.two_call.v1_training import project_training_example
 from app.ai.Cognitive.system.v0.live_shadow.service import ObservationContext, build_pipeline, observe, replay
@@ -81,15 +81,22 @@ class V1Double:
     usage = {}
     provenance = Double.provenance
 
-    def __init__(self, one=social, two=select('manage_dialogue.greet'), mutate=None):
+    def __init__(self, one=social, two=select('manage_dialogue.greet'), mutate=None, contribution=None):
         self.calls, self.one, self.two, self.mutate = [], one, two, mutate
+        # Registry v1.6 open-world stage; by default it declines, keeping the explicit gap.
+        self.contribution = contribution or (lambda payload: dict(
+            schema_version='contribution-proposal-v1', question_kind='unanswerable', claims=[], takes=[]))
 
     def generate(self, stage, payload, schema=None):
         assert payload['protocol'] == PROTOCOL_V1
         self.calls.append((stage, payload))
         json.dumps(response_schema(stage, payload))
         assert prompt(stage, payload)
-        raw = (self.one if stage == 'call_one' else self.two)(payload)
+        raw = {'call_one': self.one, 'call_two': self.two, 'contribution': self.contribution}[stage](payload)
+        if stage == 'call_one' and payload['ontology']['predicate_registry_version'] in INTERPRETED_DIALOGUE_REGISTRIES:
+            raw.setdefault('dialogue_updates', [])  # registry v1.7: required, usually empty
+            if payload['ontology']['predicate_registry_version'] in WRITTEN_RECALL_REGISTRIES:
+                raw.setdefault('recall_answer', None)  # registry v1.8: required, null without a known recall
         if self.mutate:
             self.mutate(stage, raw, payload)
         return output_type(stage, payload).model_validate(raw)
@@ -131,15 +138,15 @@ def test_social_turn_completes_with_model_policy_planner_and_replays():
     trace = record.pipeline_trace
     assert trace.orchestration.protocol == PROTOCOL_V1
     assert (trace.orchestration.behavior_policy, trace.orchestration.realization_policy) == (
-        'model_policy_selection-v1', 'separate_realization-v1.2')
+        'model_policy_selection-v1.1', 'separate_realization-v1.4')
     assert trace.action_selection.versions.planner == 'action-planner-model-policy-v1'
     assert [m.definition_ref.action_key for m in trace.action_selection.plan.moves] == ['manage_dialogue.greet']
-    assert trace.action_selection.plan.primary_designation.rule_id == 'action-primary.model-selected-focal-coverage.v1'
+    assert trace.action_selection.plan.primary_designation.rule_id == 'action-primary.model-selected.v1.1'
     assert trace.interpretation.versions.hypothesis_rules == 'interpretation-context-conditioned-readings-v1'
     assert trace.interpretation.versions.semantic_parser.protocol_version == PROTOCOL_V1
     assert_replay(record)
     provenance = trace.orchestration.calls[0].provenance
-    assert (provenance['context_version'], provenance['prompt_version']) == ('understanding-input-v1', 'call_one-v1.2')
+    assert (provenance['context_version'], provenance['prompt_version']) == ('understanding-input-v1', 'call_one-v1.8')
 
 
 def test_v1_capture_recompiles_and_rejects_a_tampered_compiled_handoff():
@@ -178,10 +185,16 @@ def _value_for(kind, argument, payload):
         return {'kind': 'span', 'ref': span_of(payload, 'the sky')}
     if kind == 'span_set':
         return {'kind': 'span_set', 'refs': [span_of(payload, 'the sky'), span_of(payload, 'today')]}
+    if kind == 'dialogue_span':
+        return {'kind': 'dialogue_span', 'message_ref': payload['focus']['message_ref'],
+                'span_ref': span_of(payload, 'the sky')}
     return NULL
 
 
-@pytest.mark.parametrize('predicate', sorted(set(V1.ARGUMENT_KINDS) - {'inquiry_answer'}))
+# The three dependent-argument predicates have dedicated valid/invalid tests;
+# blindly varying one field at a time does not produce a coherent event.
+@pytest.mark.parametrize('predicate', sorted(set(V1.ARGUMENT_KINDS) - {
+    'inquiry_answer', 'dialogue_recall_request', 'contextual_perspective_request'}))
 def test_every_exposed_predicate_and_argument_value_kind_compiles(predicate):
     payload, entries = payload_and_entries(FOCUS)
     spec = next(p for p in payload['ontology']['predicates'] if p['predicate_key'] == predicate)
@@ -199,7 +212,7 @@ def test_every_exposed_predicate_and_argument_value_kind_compiles(predicate):
                 assert name not in compiled  # an unstated optional detail is omitted, not unresolved
                 continue
             expected = {'enum': argument['enum_values'][0] if argument['enum_values'] else None, 'span': 'the sky',
-                        'span_set': ('the sky', 'today'), 'null': None}[kind]
+                        'span_set': ('the sky', 'today'), 'dialogue_span': 'the sky', 'null': None}[kind]
             assert compiled[name] == expected
 
 
@@ -581,7 +594,9 @@ def test_selection_shape_uniqueness_and_primary_bounds():
         ActionPolicyProposalV1.model_validate(dict(base, selected_candidate_refs=[], primary_index=0))
 
 
-def test_primary_must_carry_the_greatest_focal_coverage():
+def test_legacy_primary_must_carry_the_greatest_focal_coverage(monkeypatch):
+    from app.ai.Cognitive.system.v0.two_call import v1_contracts
+    monkeypatch.setattr(v1_contracts, 'BEHAVIOR_POLICY_V1', 'model_policy_selection-v1')
     record, _, _ = run(V1Double(two=select('give_feedback.acknowledge', 'manage_dialogue.greet', primary=0)))
     assert record.status.value == 'failed'
     assert 'behavior_proposal_ineligible.primary_not_focal' in record.failure.code
@@ -590,7 +605,32 @@ def test_primary_must_carry_the_greatest_focal_coverage():
     moves = record.pipeline_trace.action_selection.plan.moves
     assert [m.definition_ref.action_key for m in moves] == ['give_feedback.acknowledge', 'manage_dialogue.greet']
     assert record.pipeline_trace.action_selection.plan.primary_move_ref == moves[1].move_id
+    monkeypatch.undo()
     assert_replay(record)
+
+
+def test_model_primary_with_lower_coverage_does_not_reject_an_eligible_plan():
+    record, _, _ = run(V1Double(two=select('give_feedback.acknowledge', 'manage_dialogue.greet', primary=0)))
+    assert record.status.value == 'completed', record.failure
+    plan = record.pipeline_trace.action_selection.plan
+    assert [m.definition_ref.action_key for m in plan.moves] == ['give_feedback.acknowledge', 'manage_dialogue.greet']
+    assert plan.primary_move_ref == plan.moves[0].move_id
+    compared = plan.primary_designation.compared_moves
+    assert float(compared[0]['direct_focal_coverage']) < float(compared[1]['direct_focal_coverage'])
+    assert_replay(record)
+    realized = _realized(record, ('I hear you. Hi!', {1: 'I hear you.', 2: 'Hi!'}))
+    assert realized.realization_status.value == 'accepted_shadow', _final(realized)
+
+
+def test_primary_rule_cannot_be_tampered_independently_of_behavior_policy():
+    from app.ai.Cognitive.system.v0.cognitive_pipeline_v0.models import CognitivePipelineTrace
+    record, _, _ = run()
+    payload = record.pipeline_trace.model_dump(mode='json')
+    # Both duplicated action views must stay equal so this tests policy lineage.
+    for selection in (payload['action_selection'], payload['cognitive_turn']['action_selection']):
+        selection['plan']['primary_designation']['rule_id'] = 'action-primary.model-selected-focal-coverage.v1'
+    with pytest.raises(ValidationError):
+        CognitivePipelineTrace.model_validate(payload)
 
 
 def _blocked(payload):
@@ -867,6 +907,100 @@ def test_validated_experience_wording_is_accepted_and_still_bounded():
 # v1.2: conversation, not a produced artifact
 # ---------------------------------------------------------------------------
 
+def test_optional_experience_exploration_completes_through_realization_and_replay():
+    record, _, model = run(V1Double(one=lambda p: understanding(experience(p)),
+                                    two=select('seek_information.explore_experience')), SCATTERED)
+    assert record.status.value == 'completed', record.failure
+    policy = model.calls[1][1]
+    chosen = record.pipeline_trace.orchestration.calls[1].proposal['selected_candidate_refs']
+    assert set(chosen) <= set(policy['optional_exploration_candidate_refs'])
+    assert not policy['planning_conditions']
+    assert not policy['accepted_understanding']['unknown_refs']
+    [move] = record.pipeline_trace.action_selection.plan.moves
+    assert move.target_refs[0].target_type.value == 'experience'
+    assert move.parameters['question_form'] == 'free_reflection'
+    assert not record.pipeline_trace.collaboration.outcomes
+    assert [stage for stage, _ in model.calls] == ['call_one', 'call_two']
+    assert 'opportunities, not obligations' in prompt('call_two', policy)
+    assert_replay(record)
+    realized = _realized(record, "What has it been like for you, feeling scattered lately?")
+    assert realized.realization_status.value == 'accepted_shadow', realized.realization_failure
+
+
+def test_optional_exploration_can_be_ignored_or_follow_a_reflection():
+    for keys in [('give_feedback.reflect',), ('give_feedback.reflect', 'seek_information.explore_experience')]:
+        record, _, model = run(V1Double(one=lambda p: understanding(experience(p)), two=select(*keys)), SCATTERED)
+        assert record.status.value == 'completed', record.failure
+        assert model.calls[1][1]['optional_exploration_candidate_refs']
+        assert [m.definition_ref.action_key for m in record.pipeline_trace.action_selection.plan.moves] == list(keys)
+        assert_replay(record)
+
+
+@pytest.mark.parametrize('variant', [dict(polarity='negative'), dict(experiencer='other'),
+                                    dict(embedding={'kind': 'enum', 'value': 'hypothetical'}),
+                                    dict(embedding={'kind': 'enum', 'value': 'reported'})])
+def test_optional_exploration_never_invents_a_present_user_experience(variant):
+    record, _, model = run(V1Double(one=lambda p: understanding(experience(p, **variant)),
+                                    two=select('give_feedback.acknowledge')), SCATTERED)
+    assert record.status.value == 'completed', record.failure
+    assert not model.calls[1][1]['optional_exploration_candidate_refs']
+    assert 'seek_information.explore_experience' not in {
+        c['action_key'] for c in model.calls[1][1]['eligible_candidates']}
+
+
+def test_v1_2_replay_keeps_the_old_exploration_inventory(monkeypatch):
+    from app.ai.Cognitive.system.v0.two_call import v1_contracts
+    monkeypatch.setattr(v1_contracts, 'ARGUMENT_KIND_REGISTRY_VERSION', 'argument-kind-registry-v1.2')
+    record, _, model = run(V1Double(one=lambda p: understanding(experience(p)),
+                                    two=select('give_feedback.reflect')), SCATTERED)
+    assert record.status.value == 'completed', record.failure
+    assert 'optional_exploration_candidate_refs' not in model.calls[1][1]
+    assert 'seek_information.explore_experience' not in {
+        c['action_key'] for c in model.calls[1][1]['eligible_candidates']}
+    monkeypatch.undo()
+    assert_replay(record)
+
+
+def test_optional_exploration_policy_sees_recent_dialogue_without_changing_replay():
+    contents = (('user', SCATTERED), ('assistant', 'What part has felt scattered?'),
+                ('user', "I've been feeling scattered lately, but please don't ask more questions."))
+    record, _, model = run(V1Double(one=lambda p: understanding(experience(p, concern=False)),
+                                    two=select('give_feedback.reflect')), contents=contents)
+    assert record.status.value == 'completed', record.failure
+    window = model.calls[1][1]['conversation_window']
+    assert [m['text'] for m in window] == [text for _, text in contents]
+    assert [m['current_turn'] for m in window] == [False, False, True]
+    assert_replay(record)
+
+
+def test_optional_exploration_descriptor_is_bound_to_the_versioned_projector():
+    from app.ai.Cognitive.system.v0.cognitive_pipeline_v0.models import CognitivePipelineTrace
+    from app.ai.Cognitive.system.v0.contracts.actions import ActionTargetDescriptor
+    record, _, _ = run(V1Double(one=lambda p: understanding(experience(p)),
+                                two=select('give_feedback.reflect')), SCATTERED)
+    payload = record.pipeline_trace.model_dump(mode='json')
+    descriptors = payload['cognitive_turn']['input_snapshot']['action_target_descriptors']
+    descriptor = next(d for d in descriptors if d.get('optional_exploration'))
+    descriptor['optional_exploration'] = False
+    with pytest.raises(ValidationError):
+        CognitivePipelineTrace.model_validate(payload)
+    with pytest.raises(ValidationError):
+        ActionTargetDescriptor(ref='fake', target_type='unknown', owner='user', optional_exploration=True)
+
+
+def test_optional_exploration_never_displaces_a_blocking_condition():
+    def one(payload):
+        return understanding(experience(payload), event('runtime_fact_request', {
+            'fact_kind': {'kind': 'enum', 'value': 'current_time'}, 'embedding': NULL},
+            [span_of(payload, 'what time is it')], [reading('interpretation.goal.obtain_information')]))
+    record, _, model = run(V1Double(one=one, two=select('seek_information.explore_experience')),
+                            SCATTERED + ' Also, what time is it?')
+    assert model.calls[1][1]['optional_exploration_candidate_refs']
+    assert any(c['blocking'] for c in model.calls[1][1]['planning_conditions'])
+    assert record.status.value == 'failed'
+    assert 'blocking' in record.failure.code, record.failure
+
+
 TALK = "Actually, I don't want a schedule. I just want to talk through what matters most."
 
 
@@ -885,7 +1019,7 @@ def test_conversation_request_explores_instead_of_forcing_an_artifact_clarificat
         return select('seek_information.explore_goal')(payload)
     record, _, model = run(V1Double(one=lambda p: understanding(conversation(p)), two=two), TALK)
     payload = model.calls[0][1]
-    assert payload['ontology']['predicate_registry_version'] == 'argument-kind-registry-v1.2'
+    assert payload['ontology']['predicate_registry_version'] == 'argument-kind-registry-v1.8'
     assert 'conversation_request' in {p['predicate_key'] for p in payload['ontology']['predicates']}
     assert 'use conversation_request instead of collaborative_content_request' in prompt('call_one', payload)
     assert record.status.value == 'completed', record.failure
@@ -1376,7 +1510,7 @@ def test_delivering_some_prepared_content_then_stopping_is_allowed():
 
 
 # ---------------------------------------------------------------------------
-# conversational-v2 (separate_realization-v1.2): say what Columbina wants to say
+# conversational-v2 rules, current under conversational-v3 (separate_realization-v1.3): say what Columbina wants to say
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize('text,warning', [
@@ -1389,7 +1523,7 @@ def test_v2_records_other_findings_as_warnings_without_blocking(text, warning):
     record, _, _ = run()
     realized = _realized(record, text)
     status, violations, warnings, policy = _final(realized)
-    assert policy == 'conversational-v2'
+    assert policy == 'conversational-v3'
     assert status == 'accepted_shadow' and not violations, violations
     assert warning in warnings, warnings
     assert _replay_wording(realized).status.value == 'match'
@@ -1402,7 +1536,7 @@ def test_v2_records_other_findings_as_warnings_without_blocking(text, warning):
 def test_v2_still_blocks_false_action_and_memory_claims(text, code):
     record, _, _ = run()
     status, violations, _, policy = _final(_realized(record, text))
-    assert policy == 'conversational-v2'
+    assert policy == 'conversational-v3'
     assert status == 'rejected' and code in violations, violations
 
 

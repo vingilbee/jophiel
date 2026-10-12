@@ -65,7 +65,7 @@ def test_versions_are_exact_and_independent() -> None:
         RealizationVersions(compiler="realization-compiler-v0.1")
 
 
-def test_model_knowledge_is_not_a_content_source() -> None:
+def test_model_knowledge_is_a_content_source_only_when_labelled() -> None:
     assert {item.value for item in ContentSourceKind} == {
         "current_user_statement", "authorized_semantic_memory", "authorized_episodic_memory",
         "authorized_relationship_memory", "trusted_runtime_observation", "finalized_tool_result",
@@ -73,6 +73,8 @@ def test_model_knowledge_is_not_a_content_source() -> None:
         "delivered_user_utterance", "delivered_assistant_utterance",
         # Content v0.3: validated generated proposals (never facts) and delivered workspace revisions.
         "collaborative_proposal", "workspace_artifact",
+        # Registry v1.6 open world: labelled general knowledge and Columbina's own view.
+        "model_general_knowledge", "columbina_own_view",
     }
     for forbidden in ("model_knowledge", "common_knowledge", "llm_pretraining"):
         with pytest.raises(ValidationError):
