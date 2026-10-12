@@ -4,6 +4,112 @@
 
 Columbina's primary focus is general conversation as an agent with persistent identity and personality. Nutrition and meal planning are specialist topics. The dinner scenarios documented below are historical vertical-slice and regression evidence; they do not define the default behavioral evaluation. New quality evaluations should follow [the conversational test plan](../../../../../../docs/COLUMBINA_CONVERSATIONAL_TEST_PLAN.md), including ordinary social exchanges and topic continuity without requiring a plan or artifact.
 
+## V1 open world, registry v1.6 (2026-10-10)
+
+New `cognitive-two-call-v1` captures use `argument-kind-registry-v1.6`. This
+relaxes the closed-world rule on purpose (product decision, 2026-10-10):
+Columbina may share general knowledge and her own views. Both are labelled
+content sources, never presented as verified. Facts about the user still come
+only from what the user said.
+
+- **One recorded `contribution` stage** (`two_call/contribution.py`,
+  prompt `contribution_v1_6.txt`) runs between Call 1 and Call 2. It runs only
+  when requirement resolution asks for content no closed-world producer has:
+  an open question (`reviewed_knowledge.open_question`), an unanswered
+  elaboration, or the new `opinion_request` predicate ("what's your take?",
+  "change my mind"). Dialogue recall never uses it.
+- **Knowledge:** up to three claims with a confidence. They become
+  `model_general_knowledge` content: `high` is worded plainly, `medium`
+  (certainty `approximate`) and `low` (tentative) must be hedged. A question
+  about the user, current events or anything unanswerable returns nothing and
+  keeps the explicit knowledge gap.
+- **Opinion:** the model proposes two or three distinct takes (stance, tone,
+  confidence). Code picks one with `opinion-selection-v1` (`take_scores`):
+  directness favours disagreement and confident takes, warmth and the
+  charitable prior favour partial agreement, playfulness above 0.6 favours a
+  playful take, and an honest "unsure" keeps a baseline. The chosen take is
+  `columbina_own_view`, attributed to Columbina and always tentative. A
+  different core picks a different take; personality never changes facts.
+- **Replay:** contribution calls are recorded in `TwoCallTrace.contributions`
+  (omitted when empty, so earlier traces are byte-identical) and served by
+  `FrozenTwoCallModel`. Replay never calls a model.
+- The answer is delivered by the existing `provide_information.answer` move;
+  the stance (`columbina.view.<stance>`) travels in the content, not in
+  separate `express_stance.*` moves, which remain boundary-only.
+
+v1.5 and earlier captures stay closed-world and replay unchanged. Tests: the
+v1.6 section of `tests/test_cognitive_continuity_regression.py`.
+
+## V1 conversational grounding, registry v1.5 (2026-10-10)
+
+New `cognitive-two-call-v1` captures use `argument-kind-registry-v1.5`. It keeps
+the v1.4 dialogue-citation vocabulary (`two_call/continuity.py`) and fixes the
+failures in `COGNITIVE_CONTINUITY_V1_4_E2E_EVALUATION_2026-10-10.md`. Everything
+stays closed-world: no opinion or general-knowledge content source was added.
+
+- **Statements invite a follow-up.** A turn made only of the speaker's own
+  direct statements grounds one `inferred` experience with an optional
+  exploration descriptor (`v1_grounding._statement_object`, recipe
+  `action-propose.optional-statement.v1.5`). Reflect/validate stay unavailable
+  (they need an explicit expression). Content is a `topic` reference anchored
+  on the user's words.
+- **Corrections are acknowledged with the corrected value.** An acknowledge
+  move targeting an `interpretation.act.correct` hypothesis binds an anchored
+  user-contribution reference (`corrected_value`). In `realization_inventory` it
+  supersedes the generic structural reference, since a receipt binds one item.
+- **A cited recall satisfies its own referent.** `ContinuityRequirementEngine`
+  no longer lets the deterministic cue block a `known` recall whose referent
+  was a bare deictic ("which dog did that?").
+- **Unstated facts are `not_mentioned_in_conversation`** (new `GapKind`), not
+  `no_record`. The validator accepts "you haven't mentioned X" only for that
+  kind, and still rejects "you never said".
+- **Clarifications.** An ambiguous recall becomes a `choice` `GroundedQuestion`
+  with one anchored `option` per user candidate. Other referent clarifications
+  stay generic: the elicitation anchor "what you are referring to" was worded
+  back as if the user had said it.
+- **Prompts** `call_one_v1_5.txt` (follow-up referents cite dialogue, null only
+  for genuine ambiguity; answers follow identity statements; unstated facts are
+  missing, not ambiguous) and `call_two_v1_5.txt` (`policy-guidance-v1.5`:
+  prefer a brief follow-up over a bare acknowledgment; invite a user who asks to
+  share). Their examples deliberately differ from the evaluation corpora.
+- A schema-invalid Realization output now logs the parser reason (never the
+  candidate text).
+
+v1.4 and earlier captures replay unchanged; every change is gated on the
+recorded registry (`CONVERSATION_REGISTRIES` in `v1_contracts.py`). Tests:
+`tests/test_cognitive_continuity_regression.py` (v1.5 cases plus v1.4 controls)
+and the gap-wording cases in `tests/test_realization_v0_validator.py`.
+
+## V1 optional experience exploration (2026-10-06)
+
+For `cognitive-two-call-v1`, new captures use `argument-kind-registry-v1.3`.
+An accepted, explicit report of the speaker's own present experience can now
+ground `seek_information.explore_experience` without an unresolved argument.
+This is an optional conversational opportunity, not a fabricated unknown,
+blocking requirement, artifact or mandatory question. Reflection and other
+eligible responses remain alternatives; Call 2 still selects the behavior.
+
+Call 2 receives a bounded `conversation_window` and explicit
+`optional_exploration_candidate_refs`. Its versioned `call_two_v1_3.txt` prompt
+asks it to respect recent answers and requests not to ask questions, and avoid
+interviewing the user or delaying requested progress. Safety, source grounding,
+per-step eligibility and realization boundaries remain unchanged.
+
+The opportunity projector excludes negated, quoted/reported, hypothetical and
+other people's experiences. V1.0–V1.2 captures retain their old grounding,
+candidate inventories and prompts on replay. Tests exercise the actual shadow
+pipeline, action selection, scripted realization and frozen replay. They do not
+establish live-model conversation quality or latency. This first increment
+does not implement general topic connections or open-ended stance exploration.
+
+New V1 captures also use `model_policy_selection-v1.1`: the model's primary
+designation must name an accepted selected move, but need not maximize the
+deterministic direct-focal-coverage score. Scores remain recorded diagnostics.
+The former maximum-coverage gate could reject an otherwise eligible multi-move
+plan as `primary_not_focal`. Grounding, blockers, per-step eligibility and raw
+proposal/accepted-plan identity checks remain hard. Historical
+`model_policy_selection-v1` captures retain the maximum-coverage rule on replay.
+
 ## Compact two-call shadow update (2026-10-04)
 
 The new `context-conditioned-two-call-v0.1` protocol implements the compact
