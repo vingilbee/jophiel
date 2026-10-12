@@ -15,6 +15,7 @@ import type { AwarenessSnapshot } from '../types'
 
 interface Props {
   awareness: AwarenessSnapshot | null
+  hearingMuted?: boolean
   /** Turn screen sharing on or off. Omit to render the eye as read-only. */
   onToggleEye?: () => void
   /** True between the click and the first frame arriving. */
@@ -33,6 +34,7 @@ const TONE: Record<Tone, string> = {
 
 export function SenseStrip({
   awareness,
+  hearingMuted = false,
   onToggleEye,
   eyeOpening = false,
   eyeError = null,
@@ -84,8 +86,10 @@ export function SenseStrip({
           label="Ears"
           tone={hearing}
           value={
-            !senses.hearing_enabled
-              ? 'Closed'
+            hearingMuted
+              ? 'Muted'
+              : !senses.hearing_enabled
+                ? 'Closed'
               : senses.voice_state === 'listening'
                 ? 'Listening'
                 : senses.wake_armed

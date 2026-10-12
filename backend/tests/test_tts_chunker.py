@@ -14,3 +14,13 @@ def test_clause_chunker_bounds_unpunctuated_first_audio():
     chunks = list(feed("This opening sentence keeps going without any punctuation at all"))
     assert chunks[0] == "This opening sentence keeps"
     assert all(len(chunk) <= 30 for chunk in chunks)
+
+
+def test_clause_chunker_lengthens_clauses_after_the_first():
+    feed, flush = clause_chunker()
+    text = "Oh nice, you found a cave, that looks pretty deep. Want me to grab some torches first?"
+    chunks = [*feed(text), *flush()]
+    assert chunks == [
+        "Oh nice, you found a cave,",
+        "that looks pretty deep. Want me to grab some torches first?",
+    ]

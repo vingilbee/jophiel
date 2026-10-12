@@ -66,9 +66,14 @@ const HOLD_HANGOVER_MS = 400
 const HOLD_COMMIT_SPEECH_MS = 1000
 /** No decision from the server in this long → carry on with the reply. */
 const HOLD_DECISION_TIMEOUT_MS = 8000
+/** Cut off for an urgent game message that then doesn't come: listen again after this. */
+const YIELD_LISTEN_AGAIN_MS = 6000
 
 export interface VoiceSession {
   state: VoiceState
+  muted: boolean
+  setMuted: (muted: boolean) => void
+  pauseForText: () => void
   /**
    * The user is talking over a reply that is paused, not yet cancelled (shown
    * as 'listening'). If it turns out to be "I see", the reply resumes.
@@ -99,6 +104,11 @@ export interface VoiceSession {
    * words still show as text, and she never talks over them.
    */
   beginUnpromptedSpeech: () => void
+  /**
+   * The server cut off the reply because something urgent happened: stop it
+   * where it is (recording what was heard) and stand by for her message about it.
+   */
+  yieldToEvent: () => void
   /** Feed streamed reply audio in. Wire to the socket's onAudio. */
   handleAudio: (pcm: Int16Array, sampleRate: number) => void
   /** Reply audio finished streaming. Wire to the socket's onAudioEnd. */
@@ -161,6 +171,9 @@ export function useVoiceSession(opts: Options): VoiceSession {
   const [wakeWordAvailable, setWakeWordAvailable] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [holding, setHolding] = useState(false)
+  const [muted, updateMuted] = useState(false)
+  const mutedRef = useRef(false)
+  const enablingRef = useRef(false)
 
   const captureRef = useRef<MicCapture | null>(null)
   const playerRef = useRef<PcmPlayer | null>(null)
@@ -248,6 +261,10 @@ export function useVoiceSession(opts: Options): VoiceSession {
 
   /** Open an utterance and start streaming mic audio to the server. */
   const beginUtterance = useCallback(() => {
+    if (mutedRef.current) {
+      setPhase('idle')
+      return
+    }
     const { conversationId, socket } = optsRef.current
     if (!socket.startVoice(conversationId, CAPTURE_SAMPLE_RATE)) {
       // Stand down to idle rather than staying in whatever phase called us:
@@ -290,8 +307,13 @@ export function useVoiceSession(opts: Options): VoiceSession {
       if (holdRef.current) return
       epochRef.current += 1
       const { conversationId, socket } = optsRef.current
-      // Settles the stuck turn (its late events are fenced) and opens a new
-      // utterance in the same frame.
+      if (mutedRef.current) {
+        socket.cancelVoice()
+        setError('No answer came back. Please try again.')
+        setPhase('idle')
+        return
+      }
+      // Settles the stuck turn and opens a new utterance.
       if (!socket.interruptVoiceStart(conversationId, CAPTURE_SAMPLE_RATE)) {
         setError(NOT_CONNECTED)
         setPhase('idle')
@@ -404,6 +426,11 @@ export function useVoiceSession(opts: Options): VoiceSession {
     if (phase !== 'speaking' && phase !== 'thinking') return
     abandonReply()
     const { conversationId, socket } = optsRef.current
+    if (mutedRef.current) {
+      socket.cancelVoice()
+      setPhase('idle')
+      return
+    }
     if (!socket.interruptVoiceStart(conversationId, CAPTURE_SAMPLE_RATE)) {
       setError(NOT_CONNECTED)
       setPhase('idle')
@@ -538,7 +565,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
   const handleFrame = useCallback(
     ({ pcm, rms }: { pcm: Int16Array; rms: number }) => {
       const phase = stateRef.current
-      if (phase === 'off') return
+      if (phase === 'off' || mutedRef.current) return
 
       // Smoothed so the visualiser doesn't strobe on single 8ms frames.
       micLevelRef.current = micLevelRef.current * 0.7 + rms * 0.3
@@ -624,7 +651,11 @@ export function useVoiceSession(opts: Options): VoiceSession {
   )
 
   const enable = useCallback(async () => {
-    if (stateRef.current !== 'off') return
+    if (stateRef.current !== 'off' || enablingRef.current) return
+    enablingRef.current = true
+    const enableEpoch = epochRef.current
+    mutedRef.current = false
+    updateMuted(false)
     setError(null)
     try {
       playerRef.current = createPlayer()
@@ -632,19 +663,30 @@ export function useVoiceSession(opts: Options): VoiceSession {
       ringRef.current = createPcmRingBuffer(
         Math.round((CAPTURE_SAMPLE_RATE * PREROLL_RING_MS) / 1000),
       )
-      wakeRef.current = await createWakeWord(() => {
+      const wake = await createWakeWord(() => {
         if (stateRef.current === 'idle') beginUtterance()
       })
-      setWakeWordAvailable(wakeRef.current.available)
-      captureRef.current = await startCapture(handleFrame)
+      if (epochRef.current !== enableEpoch) { wake.close(); return }
+      wakeRef.current = wake
+      setWakeWordAvailable(wake.available)
+      const capture = await startCapture(handleFrame)
+      if (epochRef.current !== enableEpoch) { capture.stop(); return }
+      captureRef.current = capture
       setPhase('idle')
+      beginUtterance()
     } catch (e) {
+      if (epochRef.current !== enableEpoch) return
       setError(
         e instanceof Error && e.name === 'NotAllowedError'
           ? 'Microphone permission denied.'
           : 'Could not start the microphone.',
       )
+      captureRef.current?.stop()
+      playerRef.current?.close()
+      wakeRef.current?.close()
       setPhase('off')
+    } finally {
+      enablingRef.current = false
     }
   }, [beginUtterance, handleFrame, handleVad, setPhase])
 
@@ -665,6 +707,8 @@ export function useVoiceSession(opts: Options): VoiceSession {
     vadEndRef.current = null
     latencyRef.current = null
     micLevelRef.current = 0
+    mutedRef.current = false
+    updateMuted(false)
     setPhase('off')
   }, [clearAudioGraceTimer, clearHold, clearTimer, setPhase])
 
@@ -686,6 +730,43 @@ export function useVoiceSession(opts: Options): VoiceSession {
     void finishUtterance()
   }, [endHold, finishUtterance, setPhase])
 
+  const setMuted = useCallback((next: boolean) => {
+    if (stateRef.current === 'off' || mutedRef.current === next) return
+    mutedRef.current = next
+    updateMuted(next)
+    captureRef.current?.setMuted(next)
+    micLevelRef.current = 0
+    vadRef.current?.reset()
+    ringRef.current?.clear()
+    if (next) {
+      // Muting must not interrupt her reply. Resume an uncommitted barge-in.
+      if (holdRef.current) {
+        clearHold()
+        optsRef.current.socket.resumeHold()
+        resumeAfterHold()
+      } else if (stateRef.current === 'listening') {
+        endTurn()
+      }
+    } else if (stateRef.current === 'idle') {
+      beginUtterance()
+    }
+  }, [beginUtterance, clearHold, endTurn, resumeAfterHold])
+
+  const pauseForText = useCallback(() => {
+    if (stateRef.current === 'off') return
+    mutedRef.current = true
+    updateMuted(true)
+    captureRef.current?.setMuted(true)
+    clearHold()
+    clearTimer()
+    abandonReply()
+    optsRef.current.socket.cancelVoice()
+    vadRef.current?.reset()
+    ringRef.current?.clear()
+    micLevelRef.current = 0
+    setPhase('idle')
+  }, [abandonReply, clearHold, clearTimer, setPhase])
+
   /**
    * Normalised for display, not analysis: the square root spreads out the
    * bottom of the range, where speech actually lives, so the orb moves with
@@ -700,6 +781,27 @@ export function useVoiceSession(opts: Options): VoiceSession {
     // Armed-but-not-listening shouldn't look like an open mic; damp room noise.
     return phase === 'idle' ? level * 0.35 : level
   }, [])
+
+  const yieldToEvent = useCallback(() => {
+    if (holdRef.current) {
+      // The user is talking over the (paused) reply: drop the reply, keep
+      // their turn going. Her message then shows as text, not over them.
+      clearHold()
+      optsRef.current.socket.stopHold()
+      abandonReply()
+      beginUtterance()
+      return
+    }
+    const phase = stateRef.current
+    if (phase !== 'speaking' && phase !== 'thinking') return
+    clearTimer()
+    abandonReply()
+    setPhase('idle')
+    // Her message about it plays from idle. If none comes, listen again.
+    timerRef.current = window.setTimeout(() => {
+      if (stateRef.current === 'idle' && !mutedRef.current) beginUtterance()
+    }, YIELD_LISTEN_AGAIN_MS)
+  }, [abandonReply, beginUtterance, clearHold, clearTimer, setPhase])
 
   const beginUnpromptedSpeech = useCallback(() => {
     const phase = stateRef.current
@@ -799,6 +901,9 @@ export function useVoiceSession(opts: Options): VoiceSession {
 
   return {
     state,
+    muted,
+    setMuted,
+    pauseForText,
     holding,
     wakeWordAvailable,
     error,
@@ -809,6 +914,7 @@ export function useVoiceSession(opts: Options): VoiceSession {
     interrupt,
     getLevel,
     beginUnpromptedSpeech,
+    yieldToEvent,
     handleAudio,
     handleAudioEnd,
     handleBargeResolved: resolveHold,

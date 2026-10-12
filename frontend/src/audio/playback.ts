@@ -47,6 +47,15 @@ export interface PcmPlayer {
   readonly level: number
 }
 
+/** Jitter cushion added whenever playback (re)starts from an empty queue. */
+const START_LEAD_S = 0.12
+/**
+ * If the queue runs dry mid-reply, the audio is arriving barely in real time:
+ * the cushion doubles (up to this) for the rest of the reply, trading one
+ * slightly longer pause for a run of short stutters.
+ */
+const MAX_LEAD_S = 0.6
+
 export function createPlayer(): PcmPlayer {
   const ctx = new AudioContext()
   let cursor = 0
@@ -55,6 +64,10 @@ export function createPlayer(): PcmPlayer {
   // Suspending the context freezes its clock, so every scheduled source and
   // the cursor stay valid across a pause without any rescheduling.
   let paused = false
+  let lead = START_LEAD_S
+  // True until the first chunk of a reply is scheduled: running dry before
+  // that is just the reply starting, not an underrun.
+  let fresh = true
   // Which span of reply text each stretch of scheduled audio speaks, on the
   // context's clock, so an interruption can tell how much was heard.
   type Segment = { textStart: number; textEnd: number; startAt: number | null; endAt: number }
@@ -105,8 +118,13 @@ export function createPlayer(): PcmPlayer {
       src.connect(analyser)
 
       // Never schedule in the past: if the queue drained while we waited for
-      // the next chunk, restart the cursor from now.
-      const startAt = Math.max(cursor, ctx.currentTime)
+      // the next chunk, restart the cursor from now — plus a little lead, so
+      // a busy main thread (a long render while text streams) delays the next
+      // chunk into this cushion instead of into an audible gap.
+      const underrun = cursor <= ctx.currentTime
+      if (underrun && !fresh) lead = Math.min(lead * 2, MAX_LEAD_S)
+      fresh = false
+      const startAt = underrun ? ctx.currentTime + lead : cursor
       src.start(startAt)
       cursor = startAt + buffer.duration
       if (current) {
@@ -135,6 +153,8 @@ export function createPlayer(): PcmPlayer {
         s.disconnect()
       })
       cursor = 0
+      fresh = true
+      lead = START_LEAD_S
       segments = []
       current = null
       settle()
@@ -157,7 +177,13 @@ export function createPlayer(): PcmPlayer {
     },
 
     beginSegment(segment, textStart, textEnd) {
-      if (segment === 0) segments = []
+      if (segment === 0) {
+        segments = []
+        if (live.length === 0) {
+          fresh = true
+          lead = START_LEAD_S
+        }
+      }
       current = { textStart, textEnd, startAt: null, endAt: 0 }
       segments.push(current)
     },

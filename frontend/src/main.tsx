@@ -4,18 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './hooks/useAuth.tsx'
-import { VoiceAgentProvider } from './hooks/useVoiceAgent.tsx'
 import { DesktopSessionProvider } from './hooks/useDesktopSession.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <VoiceAgentProvider>
-          <DesktopSessionProvider>
-            <App />
-          </DesktopSessionProvider>
-        </VoiceAgentProvider>
+        <DesktopSessionProvider>
+          <App />
+        </DesktopSessionProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

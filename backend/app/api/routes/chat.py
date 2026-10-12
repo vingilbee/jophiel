@@ -177,6 +177,8 @@ class _ActiveTurn:
 # Strong references let generation survive a transport disconnect and let a
 # replacement socket interrupt the exact turn that is still running.
 _active_turns: dict[uuid.UUID, _ActiveTurn] = {}
+# At most one urgent game message cutting her off per this long.
+INTERRUPT_GAP_SECONDS = 10.0
 
 
 def _fence_active_turn(user_id: uuid.UUID) -> _ActiveTurn | None:
@@ -213,6 +215,14 @@ async def _await_teardown(active: _ActiveTurn) -> None:
         active.task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await active.task
+    except asyncio.CancelledError:
+        # Another teardown of the same turn (a committed barge-in's, running in
+        # the background) cancelled it first, and the shield passes that on.
+        # The turn is gone, which is what we wanted. Before this, the error
+        # escaped into the receive loop and closed the voice socket, dropping
+        # the utterance that had just ended. Only our own cancellation is real.
+        if not active.task.cancelled():
+            raise
 
 
 def _latest_conversation_id(user_id: uuid.UUID) -> uuid.UUID | None:
@@ -789,9 +799,13 @@ async def chat_ws(websocket: WebSocket) -> None:
         """Columbina's unprompted messages from background turns (game events).
 
         Already written to the conversation by the worker; here they're only
-        shown (as a nudge) and spoken when this socket's voice session is live
-        and idle. Waits for a reply in flight so it never talks over one.
+        shown (as a nudge) and spoken when this socket's voice session is live.
+        An urgent one (``interrupt``) cuts off the reply in flight, since what
+        she was saying is out of date (at most once per INTERRUPT_GAP_SECONDS,
+        so a fight doesn't chop every sentence). Anything else waits for that
+        reply to be generated *and* spoken, then is said.
         """
+        last_interrupt = 0.0
         url = settings.redis_url
         if not url:
             return
@@ -808,16 +822,32 @@ async def chat_ws(websocket: WebSocket) -> None:
                     data = json.loads(message["data"])
                 except (TypeError, ValueError):
                     continue
-                for _ in range(60):
-                    if current_task is None or current_task.done():
-                        break
-                    await asyncio.sleep(0.5)
-                state = await asyncio.to_thread(read_awareness)
-                # Live voice that isn't mid-reply: idle, or listening with the
-                # mic open (the client skips playback if the user is talking).
+                # This socket's voice phase, as the browser last reported it.
+                def replying() -> bool:
+                    return (current_task is not None and not current_task.done()) or \
+                        session.report.voice_state in ("thinking", "speaking")
+
+                interrupt = (bool(data.get("interrupt")) and replying()
+                             and time.monotonic() - last_interrupt >= INTERRUPT_GAP_SECONDS)
+                if interrupt:
+                    last_interrupt = time.monotonic()
+                    # The browser first, so the stale sentence stops now; then
+                    # the turn (its late audio is fenced on both ends).
+                    await send_json({"type": "reply_interrupted", "reason": data.get("reason", "game")})
+                    await _stop_active_turn(user_id)
+                else:
+                    # Wait for the reply to finish, including its audio playing.
+                    for _ in range(90):
+                        if not replying():
+                            break
+                        await asyncio.sleep(0.5)
+                senses = session.report
+                # Live voice that isn't mid-reply (an interrupted one is over):
+                # idle, or listening with the mic open (the client skips
+                # playback if the user is talking).
                 speak_aloud = (
-                    settings.voice_enabled and state.senses.hearing_enabled
-                    and state.senses.voice_state in ("idle", "listening")
+                    settings.voice_enabled and senses.hearing_enabled
+                    and (interrupt or senses.voice_state in ("idle", "listening"))
                 )
                 await send_json({"type": "nudge_start", "conversation_id": data["conversation_id"],
                                  "reason": data.get("reason", "game")})
@@ -1167,8 +1197,20 @@ async def chat_ws(websocket: WebSocket) -> None:
         pcm: bytes, sample_rate: int, turn_id: uuid.UUID,
     ) -> str:
         stt_started_at = time.perf_counter()
+        def playing_minecraft() -> bool:
+            # Only a hint for the transcriber: never worth failing the turn.
+            db = SessionLocal()
+            try:
+                return desktop_game.playing_minecraft(db, user_id)
+            except Exception:
+                logger.exception("voice: could not check for a live Minecraft session")
+                return False
+            finally:
+                db.close()
+
+        minecraft = await asyncio.to_thread(playing_minecraft)
         try:
-            transcript = await stt_service.transcribe(pcm, sample_rate)
+            transcript = await stt_service.transcribe(pcm, sample_rate, minecraft=minecraft)
         except stt_service.STTError:
             voice_latency.mark("stt_failed", turn_id, source="api")
             raise

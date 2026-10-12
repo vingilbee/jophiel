@@ -5,7 +5,6 @@ import profileIcon from '../assets/profile_icon.jpg'
 
 // The app's top-level tabs. Add a route here and it appears on every page.
 const TABS = [
-  { to: '/dashboard', label: 'Home' },
   { to: '/chat', label: 'Chat' },
   { to: '/predict', label: 'Scan Meal' },
   { to: '/learning', label: 'Learning' },
