@@ -95,8 +95,10 @@ class RealizationCompilerV0:
         safety_basis: ActionSafetyBasis,
         configured_maximum_characters: int,
         conversation_context: tuple[tuple[str, str], ...] = (),
+        ambient_play: bool = False,
     ) -> RealizationRequestV0 | RealizationCompileSkip:
-        """``conversation_context`` (policy v1.4+): earlier ``(speaker, text)`` messages, oldest first."""
+        """``conversation_context`` (policy v1.4+): earlier ``(speaker, text)`` messages, oldest first.
+        ``ambient_play`` (policy v1.5): a high playfulness band also reaches ordinary answers."""
         turn = action_result.cognitive_turn_id
         self._validate_lineage(action_result, inventory, personality, state, language_tag, current_user_utterance,
                                safety_basis,
@@ -132,7 +134,7 @@ class RealizationCompilerV0:
 
         # 7-8. Personality and reviewed Dynamic State controls -> delivery profile.
         try:
-            delivery = compile_delivery_profile(personality, state, entries)
+            delivery = compile_delivery_profile(personality, state, entries, ambient_play=ambient_play)
         except ValueError as exc:
             raise _fail(RealizationFailurePhase.STYLE_MAPPING, "delivery_profile_invalid") from exc
 
@@ -170,6 +172,7 @@ class RealizationCompilerV0:
             str(configured_maximum_characters),
             # Absent context leaves request ids exactly as before.
             *((sha256_json([list(item) for item in conversation_context]),) if conversation_context else ()),
+            *(("ambient_play",) if ambient_play else ()),
         )
         fields = dict(
             request_id=request_id, cognitive_turn_id=turn, conversation_ref=action_result.conversation_ref,

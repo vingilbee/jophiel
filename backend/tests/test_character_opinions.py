@@ -13,7 +13,7 @@ from app.ai.Cognitive.system.v0.contracts.character import Character
 from app.ai.Cognitive.system.v0.contracts.realization import GroundedProposition
 from app.ai.Cognitive.system.v0.live_shadow.models import CognitiveShadowCapture
 from app.ai.Cognitive.system.v0.live_shadow.realization import requirement_content_of
-from app.ai.Cognitive.system.v0.two_call.contribution import ContributionProposalV2, basis_check
+from app.ai.Cognitive.system.v0.two_call.contribution import ContributionProposalV3, basis_check
 from app.ai.Cognitive.system.v0.two_call.provider import prompt, response_schema
 
 _MIGRATION = Path(__file__).parents[1] / 'alembic/versions/e3a9c7b1d5f2_columbina_character.py'
@@ -60,8 +60,8 @@ def test_an_opinion_is_one_view_reasoned_from_her_character():
     assert record.compiled_request.character is not None
     contribution = record.pipeline_trace.orchestration.contributions[0]
     payload = contribution.payload
-    assert payload['schema_version'] == 'contribution-input-v1.2'
-    assert contribution.provenance['prompt_version'] == 'contribution-v1.9'
+    assert payload['schema_version'] == 'contribution-input-v1.4'
+    assert contribution.provenance['prompt_version'] == 'contribution-v1.13+followup-v1'
     assert [item['id'] for item in payload['character']['beliefs']] == [
         'deception_costs_trust', 'people_make_sense', 'more_than_it_looks']
     assert 'mood' in payload and payload['personality']
@@ -82,7 +82,7 @@ def test_a_view_may_rest_on_plain_reasoning_and_unknown_ids_never_fail_the_turn(
     capture = _with_character((('user', LIE),))
     record, _, _ = run(model, capture=capture)
     assert record.pipeline_trace is not None, record.failure
-    proposal = ContributionProposalV2.model_validate(record.pipeline_trace.orchestration.contributions[0].proposal)
+    proposal = ContributionProposalV3.model_validate(record.pipeline_trace.orchestration.contributions[0].proposal)
     # "honesty" is a value, not a belief: cited under the wrong section, it does not count.
     assert basis_check(proposal.view, capture.character) == dict(known=[], unknown=['loyalty', 'honesty'])
 

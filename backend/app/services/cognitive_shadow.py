@@ -1268,7 +1268,7 @@ def replay_realization_terminal(db: Session, *, user_id: uuid.UUID, terminal_id:
     # Protocol v1 words through the configured Realization provider, not Call 2.
     if orchestration is not None and orchestration.get("realization_policy") not in (
             "separate_realization-v1", "separate_realization-v1.1", "separate_realization-v1.2",
-            "separate_realization-v1.3", "separate_realization-v1.4"):
+            "separate_realization-v1.3", "separate_realization-v1.4", "separate_realization-v1.5", "separate_realization-v1.6"):
         from app.ai.Cognitive.system.v0.two_call.contracts import TwoCallTrace
         from app.ai.Cognitive.system.v0.two_call.realization import CapturedRealizationModel
         try:

@@ -42,6 +42,8 @@ CONTRIBUTION_INPUT_VERSION_V1_1 = 'contribution-input-v1.1'
 # With her character (core memory v2): one opinion reasoned from her values,
 # principles and beliefs replaces the take-scoring formula (``contribution_v1_9.txt``).
 CONTRIBUTION_INPUT_VERSION_V1_2 = 'contribution-input-v1.2'
+CONTRIBUTION_INPUT_VERSION_V1_3 = 'contribution-input-v1.3'
+CONTRIBUTION_INPUT_VERSION_V1_4 = 'contribution-input-v1.4'
 CONTRIBUTION_SCHEMA_VERSION_V2 = 'contribution-proposal-v2'
 CHARACTER_REASONING_VERSION = 'character-reasoning-v1'
 MAX_RESOLUTION_CHARACTERS = 300
@@ -117,7 +119,7 @@ class View(FrozenModel):
 class ContributionProposalV2(FrozenModel):
     """Input v1.2: knowledge as claims, an opinion as one reasoned view (no takes, no formula)."""
     schema_version: Literal['contribution-proposal-v2']
-    question_kind: QuestionKind
+    question_kind: QuestionKind | Literal['dialogue_reasoning']
     claims: tuple[Claim, ...] = Field(max_length=3)
     view: View | None
 
@@ -125,12 +127,18 @@ class ContributionProposalV2(FrozenModel):
     def consistent(self) -> ContributionProposalV2:
         if self.question_kind == 'general_knowledge' and (not self.claims or self.view is not None):
             raise ValueError('general knowledge carries claims and no view')
-        if self.question_kind == 'opinion' and (self.claims or self.view is None):
+        if self.question_kind in ('opinion', 'dialogue_reasoning') and (self.claims or self.view is None):
             raise ValueError('an opinion carries one view and no claims')
-        if self.question_kind not in ('general_knowledge', 'opinion') and (self.claims or self.view is not None):
+        if self.question_kind not in ('general_knowledge', 'opinion', 'dialogue_reasoning') and (self.claims or self.view is not None):
             raise ValueError('a question Columbina cannot answer carries no content')
         return self
 
+
+from .premise import PremiseAssessment, premise_context, assessment_schema, validate_assessment
+
+class ContributionProposalV3(ContributionProposalV2):
+    schema_version: Literal['contribution-proposal-v3']
+    premise_assessment: PremiseAssessment
 
 _SECTION = {'value': 'values', 'principle': 'principles', 'belief': 'beliefs'}
 
@@ -153,7 +161,7 @@ def _obj(properties: dict) -> dict:
 def contribution_schema(payload: dict | None = None) -> dict:
     text = {'type': 'string', 'minLength': 1, 'maxLength': MAX_CLAIM_CHARACTERS}
     enum = lambda values: {'type': 'string', 'enum': list(values)}
-    if (payload or {}).get('schema_version') == CONTRIBUTION_INPUT_VERSION_V1_2:
+    if (payload or {}).get('schema_version') in (CONTRIBUTION_INPUT_VERSION_V1_2, CONTRIBUTION_INPUT_VERSION_V1_3, CONTRIBUTION_INPUT_VERSION_V1_4):
         refs = [item['id'] for section in ('values', 'principles', 'beliefs')
                 for item in payload['character'][section]]
         ref = {'anyOf': [enum(refs), {'type': 'null'}]} if refs else {'type': 'null'}
@@ -165,12 +173,19 @@ def contribution_schema(payload: dict | None = None) -> dict:
                 'between': {'type': 'array', 'minItems': 2, 'maxItems': 2, 'items': {'type': 'string'}},
                 'resolution': {'type': 'string', 'minLength': 1, 'maxLength': MAX_RESOLUTION_CHARACTERS}})},
         })
-        return _obj({
-            'schema_version': enum([CONTRIBUTION_SCHEMA_VERSION_V2]),
-            'question_kind': enum(QuestionKind.__args__),
+        schema = _obj({
+            'schema_version': enum(['contribution-proposal-v3' if payload['schema_version'] == CONTRIBUTION_INPUT_VERSION_V1_4 else CONTRIBUTION_SCHEMA_VERSION_V2]),
+            'question_kind': enum((*QuestionKind.__args__, 'dialogue_reasoning')
+                                  if payload['schema_version'] in (CONTRIBUTION_INPUT_VERSION_V1_3, CONTRIBUTION_INPUT_VERSION_V1_4) else QuestionKind.__args__),
             'claims': {'type': 'array', 'maxItems': 3, 'items': _obj({'text': text, 'confidence': enum(Confidence.__args__)})},
             'view': {'anyOf': [view, {'type': 'null'}]},
         })
+        if payload['schema_version'] == CONTRIBUTION_INPUT_VERSION_V1_4:
+            properties = schema['properties']
+            schema = _obj(dict(schema_version=properties['schema_version'], question_kind=properties['question_kind'],
+                               premise_assessment=assessment_schema(payload['premise_context']),
+                               claims=properties['claims'], view=properties['view']))
+        return schema
     return _obj({
         'schema_version': enum(['contribution-proposal-v1']),
         'question_kind': enum(QuestionKind.__args__),
@@ -208,7 +223,11 @@ def personality_view(request) -> dict:
 
 
 def contribution_input_version(owner) -> str:
-    from .v1_contracts import WRITTEN_RECALL_REGISTRIES
+    from .v1_contracts import WRITTEN_RECALL_REGISTRIES, SCOPED_SOURCE_REGISTRIES, PREMISE_REGISTRIES
+    if owner.understanding_registry in PREMISE_REGISTRIES and getattr(owner.request, 'character', None) is not None:
+        return CONTRIBUTION_INPUT_VERSION_V1_4
+    if owner.understanding_registry in SCOPED_SOURCE_REGISTRIES and getattr(owner.request, 'character', None) is not None:
+        return CONTRIBUTION_INPUT_VERSION_V1_3
     if owner.understanding_registry not in WRITTEN_RECALL_REGISTRIES:
         return CONTRIBUTION_INPUT_VERSION
     return (CONTRIBUTION_INPUT_VERSION_V1_2 if getattr(owner.request, 'character', None) is not None
@@ -234,7 +253,19 @@ def build_payload(owner, *, kind: str, frame, query) -> dict:
     topic = next((value for name, value in sorted(frame.arguments.items())
                   if name in ('topic', 'topic_ref', 'referent_phrase') and isinstance(value, str)), None)
     version = contribution_input_version(owner)
-    if version == CONTRIBUTION_INPUT_VERSION_V1_2:
+    from .followup import contribution_context
+    followup = contribution_context(owner, frame)
+    if version == CONTRIBUTION_INPUT_VERSION_V1_4:
+        followup['premise_context'] = premise_context(request, followup)
+        if owner.understanding_registry in ('argument-kind-registry-v1.12', 'argument-kind-registry-v1.13'):
+            from .premise import INDEPENDENT_ASSESSMENT_VERSION
+            followup['premise_context']['version'] = INDEPENDENT_ASSESSMENT_VERSION
+        if owner.understanding_registry == 'argument-kind-registry-v1.13':
+            followup['premise_context']['version'] = 'recorded-position-premise-v3'
+            followup['referent_contract'] = dict(question=topic, predicate=frame.predicate,
+                scope='accepted_interpretation', source='semantic_frame',
+                instruction='Preserve this resolved referent through history assessment and answer construction.')
+    if version in (CONTRIBUTION_INPUT_VERSION_V1_2, CONTRIBUTION_INPUT_VERSION_V1_3, CONTRIBUTION_INPUT_VERSION_V1_4):
         # Her character, her tendencies and her mood inform every answer; the
         # model reasons over them (no formula picks for her).
         character = request.character
@@ -245,11 +276,13 @@ def build_payload(owner, *, kind: str, frame, query) -> dict:
             character={section: [dict(id=item.id, text=item.text) for item in getattr(character, section)]
                        for section in ('values', 'principles', 'beliefs')},
             mood=mood_view(request),
+            **followup,
         ))
     return plain_json(dict(
         protocol='cognitive-two-call-v1', schema_version=version,
         requested=kind, question_topic=topic, conversation_window=window,
         personality=personality_view(request) if kind == 'opinion' else None,
+        **followup,
     ))
 
 
@@ -300,18 +333,29 @@ def _key(*parts: str) -> str:
 
 
 def compile_result(proposal: ContributionProposalV1 | ContributionProposalV2, *, kind: str, query, request,
-                   capture_digest: str) -> ProducerResult:
+                   capture_digest: str, payload: dict | None = None) -> ProducerResult:
+    if isinstance(proposal, ContributionProposalV3):
+        if payload is None:
+            raise ValueError('premise assessment needs its original input')
+        validate_assessment(proposal.premise_assessment, payload['premise_context'])
     common = dict(result_id=f'contribution-result:{_key(query.query_id)}', query_ref=query.query_id,
                   producer_id=CONTRIBUTION_PRODUCER_VERSION, producer_version=CONTRIBUTION_PRODUCER_VERSION,
                   manifest_version=QUERY_MANIFEST_VERSION)
     source = f'contribution:{capture_digest}'
 
+    def surface(text):
+        if not (payload or {}).get('referent_contract'):
+            return text
+        from .text_surface import model_surface
+        return model_surface(text)
+
     def view_fact(text: str, producer_version: str, predicate: str) -> ProducerResult:
+        text = surface(text)
         authority = AuthorityClass.COLUMBINA_VIEW
         fact = ProducedFact(
             fact_id=f'contribution-fact:{_key(query.query_id, text)}', query_ref=query.query_id,
             authority_class=authority, producer_id=CONTRIBUTION_PRODUCER_VERSION, producer_version=producer_version,
-            predicate=predicate, subject_anchor=query.subject_anchor,
+            predicate=predicate, subject_anchor=surface(query.subject_anchor),
             value=text, value_type=ArgumentValueType.STRING, value_anchor=text, owner='application',
             source_kind=ContentSourceKind.COLUMBINA_OWN_VIEW, source_ref=source,
             revision=CONTRIBUTION_PRODUCER_VERSION, attribution=ContentAttribution.COLUMBINA,
@@ -321,9 +365,9 @@ def compile_result(proposal: ContributionProposalV1 | ContributionProposalV2, *,
     if isinstance(proposal, ContributionProposalV2):
         # Input v1.2: the content she produced decides, not how Call 1 routed the
         # question ("should I tell them?" routed as factual still gets her view).
-        if proposal.question_kind == 'opinion':
+        if proposal.question_kind in ('opinion', 'dialogue_reasoning'):
             return view_fact(proposal.view.text, f'{CONTRIBUTION_PRODUCER_VERSION}+{CHARACTER_REASONING_VERSION}',
-                             'columbina.view.reasoned')
+                             'dialogue.reasoned_account' if proposal.question_kind == 'dialogue_reasoning' else 'columbina.view.reasoned')
         if proposal.question_kind == 'general_knowledge':
             kind = 'knowledge'
     if kind == 'knowledge' and proposal.question_kind == 'general_knowledge':
@@ -332,8 +376,8 @@ def compile_result(proposal: ContributionProposalV1 | ContributionProposalV2, *,
             fact_id=f'contribution-fact:{_key(query.query_id, str(i), claim.text)}', query_ref=query.query_id,
             authority_class=authority, producer_id=CONTRIBUTION_PRODUCER_VERSION,
             producer_version=CONTRIBUTION_PRODUCER_VERSION,
-            predicate=f'general_knowledge.{claim.confidence}_confidence', subject_anchor=query.subject_anchor,
-            value=claim.text, value_type=ArgumentValueType.STRING, value_anchor=claim.text, owner='application',
+            predicate=f'general_knowledge.{claim.confidence}_confidence', subject_anchor=surface(query.subject_anchor),
+            value=surface(claim.text), value_type=ArgumentValueType.STRING, value_anchor=surface(claim.text), owner='application',
             source_kind=ContentSourceKind.MODEL_GENERAL_KNOWLEDGE, source_ref=source,
             revision=CONTRIBUTION_PRODUCER_VERSION, attribution=ContentAttribution.COLUMBINA,
         ) for i, claim in enumerate(proposal.claims))
@@ -347,7 +391,7 @@ def compile_result(proposal: ContributionProposalV1 | ContributionProposalV2, *,
                           reason=ProducerReason.NO_MATCHING_RECORD)
 
 __all__ = [
-    'CONTRIBUTION_STAGE', 'ContributionProposalV1', 'ContributionProposalV2', 'basis_check', 'KNOWLEDGE_QUERY_KINDS', 'OPINION_QUERY_KIND',
+    'CONTRIBUTION_STAGE', 'ContributionProposalV1', 'ContributionProposalV2', 'ContributionProposalV3', 'basis_check', 'KNOWLEDGE_QUERY_KINDS', 'OPINION_QUERY_KIND',
     'OPINION_SELECTION_VERSION', 'build_payload', 'choose_take', 'compile_result', 'contribution_schema',
     'take_scores',
 ]

@@ -1177,7 +1177,7 @@ class RealizationModelProvenance(FrozenModel):
     # ``conversational-v1``: the natural-voice instruction set paired with the
     # conversational validation policy.  Omitted for the strict instructions.
     # ``conversational-v2`` (realization policy v1.4) also reads recent conversation.
-    instruction_variant: Literal["conversational-v1", "conversational-v2"] | None = None
+    instruction_variant: Literal["conversational-v1", "conversational-v2", "conversational-v3", "conversational-v4"] | None = None
     candidate_count: Literal[1] | None = None
     sdk_retries: Literal[0] | None = None
 
@@ -1373,8 +1373,8 @@ def violation(code: ViolationCode, subject_ref: str) -> RealizationViolation:
 
 
 RealizationValidationPolicy = Literal["strict-v0.1", "style_advisory-v0.1", "segmented_response-v0.1", "segmented_response-v0.2",
-                                      "conversational-v1", "conversational-v2", "conversational-v3"]
-CONVERSATIONAL_POLICIES = frozenset({"conversational-v1", "conversational-v2", "conversational-v3"})
+                                      "conversational-v1", "conversational-v2", "conversational-v3", "conversational-v4"]
+CONVERSATIONAL_POLICIES = frozenset({"conversational-v1", "conversational-v2", "conversational-v3", "conversational-v4"})
 STYLE_ADVISORY_CODES = frozenset({
     ViolationCode.STYLE_MARKER_BUDGET_EXCEEDED,
     ViolationCode.ENDEARMENT_USED,
@@ -1435,10 +1435,10 @@ def advisory_finding_allowed(
     questions, and advice remain hard failures.
     """
 
-    if policy in {"conversational-v2", "conversational-v3"}:
+    if policy in {"conversational-v2", "conversational-v3", "conversational-v4"}:
         if item.code == ViolationCode.OUTPUT_TOO_LONG:
             return item.subject_ref == "text:discourse_length"
-        blocking = CONVERSATIONAL_V3_BLOCKING_CODES if policy == "conversational-v3" else CONVERSATIONAL_V2_BLOCKING_CODES
+        blocking = CONVERSATIONAL_V3_BLOCKING_CODES if policy in {"conversational-v3", "conversational-v4"} else CONVERSATIONAL_V2_BLOCKING_CODES
         return item.code not in blocking
     if policy == "conversational-v1":
         return (item.code in CONVERSATIONAL_ADVISORY_CODES

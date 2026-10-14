@@ -303,7 +303,7 @@ def test_shared_statement_offers_an_optional_follow_up():
         return select('seek_information.explore_experience')(payload)
     record, _, model = run(V1Double(_statement(text.rstrip('.')), two), text=text)
     assert record.pipeline_trace is not None, record.failure
-    assert offered['guidance'] == 'policy-guidance-v1.5'
+    assert offered['guidance'] == 'policy-guidance-v1.6'
     assert [offered['keys'][ref] for ref in offered['optional']] == ['seek_information.explore_experience']
     # An inferred experience: no reflect/validate (those need an explicit expression).
     assert not {'give_feedback.reflect', 'support_socially.validate_experience'} & set(offered['keys'].values())
@@ -405,7 +405,7 @@ def test_open_question_is_answered_with_labelled_general_knowledge():
     assert [stage for stage, _ in model.calls] == ['call_one', 'contribution', 'call_two']
     contribution = record.pipeline_trace.orchestration.contributions[0]
     # Registry v1.8: follow-ups are answered in context (input v1.1, prompt v1.8).
-    assert contribution.provenance['prompt_version'] == 'contribution-v1.8'
+    assert contribution.provenance['prompt_version'] == 'contribution-v1.8+followup-v1'
     assert contribution.payload['schema_version'] == 'contribution-input-v1.1'
     assert 'questions to Columbina (v1.8)' in prompt('contribution', contribution.payload)
     content = [i for i in requirement_content_of(record.pipeline_trace) if isinstance(i, GroundedProposition)]

@@ -31,11 +31,12 @@ def _validate(policy, request, candidate):
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['note'][:50] for case in CASES])
-def test_stored_candidates_under_v2_and_v3(case):
+@pytest.mark.parametrize('policy', ['conversational-v3', 'conversational-v4'])
+def test_stored_candidates_under_v2_and_v3(case, policy):
     request = RealizationRequestV0.model_validate(case['request'])
     candidate = RealizationCandidateV0.model_validate(case['candidate'])
     assert _validate('conversational-v2', request, candidate).status == case['expected_v2']
-    result = _validate('conversational-v3', request, candidate)
+    result = _validate(policy, request, candidate)
     assert result.status == case['expected_v3'], (case['note'], result.violations)
     assert sorted({item.code.value for item in result.violations}) == case['expected_v3_codes']
 
@@ -71,8 +72,8 @@ def test_recall_answer_variants(text, codes):
 
 
 def test_current_realization_policy_words_under_v3_and_old_policies_keep_theirs():
-    assert REALIZATION_POLICY_V1 == 'separate_realization-v1.4'
-    assert VALIDATION_POLICY_BY_REALIZATION_POLICY[REALIZATION_POLICY_V1] == 'conversational-v3'
+    assert REALIZATION_POLICY_V1 == 'separate_realization-v1.6'
+    assert VALIDATION_POLICY_BY_REALIZATION_POLICY[REALIZATION_POLICY_V1] == 'conversational-v4'
     assert VALIDATION_POLICY_BY_REALIZATION_POLICY['separate_realization-v1.3'] == 'conversational-v3'
     assert VALIDATION_POLICY_BY_REALIZATION_POLICY['separate_realization-v1.2'] == 'conversational-v2'
 

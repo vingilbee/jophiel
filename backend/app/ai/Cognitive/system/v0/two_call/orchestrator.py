@@ -51,7 +51,11 @@ V1_FAILURE_CODES = frozenset(message.replace(' ', '_') for message in (
     'dialogue citation differs from supplied source', 'dialogue citation must name a supplied user message',
     'dialogue citation exceeds excerpt bound', 'duplicate dialogue candidates',
     'recall answer and knowledge status disagree', 'perspective needs distinct supporting passages',
-    'unambiguous recall must not carry competing candidates'))
+    'unambiguous recall must not carry competing candidates',
+    'followup context requires registry v1.9', 'followup context requires conversational predicate',
+    'empty resolved followup question', 'duplicate followup source',
+    'speech act scope requires registry v1.10', 'empty followup sources require registry v1.10',
+    'followup position must cite earlier assistant speech'))
 
 
 class TwoCallError(AppraisalModelError):
@@ -436,19 +440,27 @@ class TwoCallOrchestrator:
                     context_version=(contribution_input_version(self) if stage=='contribution'
                                      else UNDERSTANDING_INPUT_VERSION if stage=='call_one' else POLICY_INPUT_VERSION),
                     schema_version=f'{stage}-v1',
-                    prompt_version=({'contribution-input-v1.1': 'contribution-v1.8', 'contribution-input-v1.2': 'contribution-v1.9'}
+                    prompt_version=('contribution-v1.13' if stage == 'contribution' and self.understanding_registry == 'argument-kind-registry-v1.13' and contribution_input_version(self) == 'contribution-input-v1.4' else 'contribution-v1.12' if stage == 'contribution' and self.understanding_registry == 'argument-kind-registry-v1.12' and contribution_input_version(self) == 'contribution-input-v1.4' else {'contribution-input-v1.1': 'contribution-v1.8', 'contribution-input-v1.2': 'contribution-v1.9', 'contribution-input-v1.3': 'contribution-v1.10', 'contribution-input-v1.4': 'contribution-v1.11'}
                                     .get(contribution_input_version(self), 'contribution-v1.6')
                         if stage == 'contribution'
+                        else 'call_one-v1.13' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.13'
+                        else 'call_two-v1.6' if stage == 'call_two' and self.understanding_registry == 'argument-kind-registry-v1.13'
+                        else 'call_one-v1.11' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.12'
+                        else 'call_one-v1.11' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.11'
+                        else 'call_one-v1.10' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.10'
+                        else 'call_one-v1.9' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.9'
                         else 'call_one-v1.8' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.8'
                         else 'call_one-v1.7' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.7'
                         else 'call_one-v1.6' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.6'
                         else 'call_two-v1.5' if stage == 'call_two' and self.understanding_registry in (
-                            'argument-kind-registry-v1.6', 'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8')
+                            'argument-kind-registry-v1.6', 'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8', 'argument-kind-registry-v1.9', 'argument-kind-registry-v1.10', 'argument-kind-registry-v1.11', 'argument-kind-registry-v1.12')
                         else f'{stage}-v1.5' if self.understanding_registry == 'argument-kind-registry-v1.5'
                         else f'{stage}-v1.4' if stage == 'call_one' and self.understanding_registry == 'argument-kind-registry-v1.4'
                         else f'{stage}-v1.3' if stage == 'call_two' and self.understanding_registry in ('argument-kind-registry-v1.3', 'argument-kind-registry-v1.4')
                         else f'{stage}-v1.2' if self.understanding_registry in ('argument-kind-registry-v1.2', 'argument-kind-registry-v1.3')
                         else f'{stage}-v1'))
+                if stage == 'contribution' and payload.get('followup_context_version'):
+                    provenance['prompt_version'] += '+followup-v1'
             elif self.protocol!='legacy-v0.1':
                 from .provider import compact_prompt_version
                 version=compact_prompt_version(stage,payload).replace('_','.')
@@ -474,8 +486,15 @@ class TwoCallOrchestrator:
         try:
             payload = build_payload(self, kind=kind, frame=frame, query=query)
             output = self.call('contribution', payload)
-            return compile_result(output, kind=kind, query=query, request=self.request,
-                                  capture_digest=self.contribution_captures[-1].payload_digest)
+            result = compile_result(output, kind=kind, query=query, request=self.request,
+                                    capture_digest=self.contribution_captures[-1].payload_digest, payload=payload)
+            from .contribution import ContributionProposalV3
+            if isinstance(output, ContributionProposalV3):
+                from .premise import validate_assessment
+                capture = self.contribution_captures[-1]
+                self.contribution_captures[-1] = CallCapture(**(capture.model_dump(mode='python') |
+                    dict(compiled_proposal=validate_assessment(output.premise_assessment, payload['premise_context']))))
+            return result
         finally:
             self.recorder.stage = stage
 
@@ -939,7 +958,7 @@ def install(pipeline, model, *, protocol="legacy-v0.1"):
     pipeline.cognitive_turn_runner.appraisal_engine = AppraisalAdapter(owner)
     if owner.protocol==V1:
         if owner.understanding_registry in ('argument-kind-registry-v1.4', 'argument-kind-registry-v1.5', 'argument-kind-registry-v1.6',
-                                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8'):
+                                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8', 'argument-kind-registry-v1.9', 'argument-kind-registry-v1.10', 'argument-kind-registry-v1.11', 'argument-kind-registry-v1.12', 'argument-kind-registry-v1.13'):
             from .continuity import ContinuityRequirementEngine
             pipeline.requirement_engine = ContinuityRequirementEngine(owner, pipeline.requirement_engine)
         from .compact_runtime import ContextInterpretationEngine,ModelBiasOwner,UnderstandingGrounder,UnderstandingReadingRules

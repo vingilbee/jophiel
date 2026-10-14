@@ -306,6 +306,15 @@ CONVERSATIONAL_V2_TEXT_DESCRIPTION = (
 )
 
 
+# ``conversational-v3`` (realization policy v1.5): conversational-v2, plus a
+# playful personality may word ordinary content playfully (ambient play).
+CONVERSATIONAL_V3_TEXT_DESCRIPTION = CONVERSATIONAL_V2_TEXT_DESCRIPTION.replace(
+    " Never claim memories,",
+    " When `delivery_controls.playfulness_intensity` is subtle or light, let that playfulness show in how you "
+    "word the content -- a wry turn of phrase, a playful image, a light quip -- keeping every meaning exactly; "
+    "when it is none, stay plain. Never claim memories,", 1)
+
+
 def response_json_schema(variant: str | None = None) -> dict[str, Any]:
     """The response schema; the conversational variants swap only the wording instructions."""
     schema = json.loads(json.dumps(RESPONSE_JSON_SCHEMA))
@@ -313,6 +322,19 @@ def response_json_schema(variant: str | None = None) -> dict[str, Any]:
         schema["properties"]["text"]["description"] = CONVERSATIONAL_TEXT_DESCRIPTION
     elif variant == "conversational-v2":
         schema["properties"]["text"]["description"] = CONVERSATIONAL_V2_TEXT_DESCRIPTION
+    elif variant in ("conversational-v3", "conversational-v4"):
+        schema["properties"]["text"]["description"] = CONVERSATIONAL_V3_TEXT_DESCRIPTION
+    if variant == 'conversational-v4':
+        schema['properties']['move_alignments']['description'] = (
+            'For each realized move, copy one nonempty contiguous substring of the final text exactly. '
+            'Do not concatenate separate phrases or paraphrase an excerpt. '
+            'A move listed in omitted_move_refs has NO alignment entry, not an empty excerpt. '
+            'Do not omit a required move. Keep distinct moves in their selected order.')
+        schema['properties']['content_alignments']['description'] = (
+            'For each delivered bound item, copy a nonempty contiguous substring of the final text '
+            'within the move that expresses it. Never invent, paraphrase or join excerpts.')
+        for key in ('move_alignments', 'content_alignments'):
+            schema['properties'][key]['items']['properties']['excerpt']['minLength'] = 1
     return schema
 
 

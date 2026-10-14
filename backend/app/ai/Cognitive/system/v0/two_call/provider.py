@@ -29,27 +29,53 @@ def prompt(stage, payload=None):
     if payload and payload.get('protocol')==V1_PROTOCOL:
         if stage=='contribution':
             text = Path(__file__).with_name('contribution_v1_6.txt').read_text()
-            if payload.get('schema_version') in ('contribution-input-v1.1', 'contribution-input-v1.2'):
+            if payload.get('schema_version') in ('contribution-input-v1.1', 'contribution-input-v1.2', 'contribution-input-v1.3', 'contribution-input-v1.4'):
                 text += Path(__file__).with_name('contribution_v1_8.txt').read_text()
-            if payload.get('schema_version') == 'contribution-input-v1.2':
+            if payload.get('schema_version') in ('contribution-input-v1.2', 'contribution-input-v1.3', 'contribution-input-v1.4'):
                 text += Path(__file__).with_name('contribution_v1_9.txt').read_text()
+            if payload.get('followup_context_version') == 'source-linked-followup-v1':
+                text += Path(__file__).with_name('contribution_followup_v1.txt').read_text()
+            if payload.get('schema_version') in ('contribution-input-v1.3', 'contribution-input-v1.4'):
+                text += Path(__file__).with_name('contribution_v1_10.txt').read_text()
+            if payload.get('schema_version') == 'contribution-input-v1.4':
+                text += Path(__file__).with_name('contribution_premise_v1.txt').read_text()
+                if (payload.get('premise_context') or {}).get('version') in ('recorded-position-premise-v2', 'recorded-position-premise-v3'):
+                    text += Path(__file__).with_name('contribution_premise_v2.txt').read_text()
+                if payload.get('referent_contract'):
+                    text += Path(__file__).with_name('contribution_referent_v1.txt').read_text()
             return text
         # The capture's registry version selects its prompt; v1.0/v1.1 replay unchanged.
         if stage=='call_one':
             registry = (payload.get('ontology') or {}).get('predicate_registry_version')
+            # v1.12 changes only contribution assessment, not understanding.
+            referent_contract = registry == 'argument-kind-registry-v1.13'
+            if registry in ('argument-kind-registry-v1.12', 'argument-kind-registry-v1.13'):
+                registry = 'argument-kind-registry-v1.11'
             if registry in ('argument-kind-registry-v1.4', 'argument-kind-registry-v1.5', 'argument-kind-registry-v1.6',
-                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8'):
+                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8', 'argument-kind-registry-v1.9', 'argument-kind-registry-v1.10', 'argument-kind-registry-v1.11'):
                 extensions = {'argument-kind-registry-v1.4': ('call_one_v1_4.txt',),
                               'argument-kind-registry-v1.5': ('call_one_v1_5.txt',),
                               'argument-kind-registry-v1.6': ('call_one_v1_5.txt', 'call_one_v1_6.txt'),
                               'argument-kind-registry-v1.7': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
                                                               'call_one_v1_7.txt'),
                               'argument-kind-registry-v1.8': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
-                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt')}[registry]
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt'),
+                              'argument-kind-registry-v1.9': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt'),
+                              'argument-kind-registry-v1.10': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt', 'call_one_v1_10.txt'),
+                              'argument-kind-registry-v1.11': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt', 'call_one_v1_10.txt')}[registry]
                 return Path(__file__).with_name('call_one_v1_2.txt').read_text() + ''.join(
-                    Path(__file__).with_name(name).read_text() for name in extensions)
+                    Path(__file__).with_name(name).read_text() for name in extensions) + (
+                    Path(__file__).with_name('call_one_v1_13.txt').read_text() if referent_contract else '')
             current = (payload.get('ontology') or {}).get('predicate_registry_version') in ('argument-kind-registry-v1.2', 'argument-kind-registry-v1.3', 'argument-kind-registry-v1.4')
         else:
+            if payload.get('policy_guidance') == 'policy-guidance-v1.6':
+                return Path(__file__).with_name('call_two_v1_5.txt').read_text() + Path(__file__).with_name('call_two_v1_6.txt').read_text()
             if payload.get('policy_guidance') == 'policy-guidance-v1.5':
                 return Path(__file__).with_name('call_two_v1_5.txt').read_text()
             if payload.get('policy_guidance') == 'policy-guidance-v1.3':
@@ -196,8 +222,10 @@ def response_schema(stage, payload):
 
 def output_type(stage,payload):
     if payload.get('protocol')==V1_PROTOCOL and stage=='contribution':
-        from .contribution import CONTRIBUTION_INPUT_VERSION_V1_2, ContributionProposalV1, ContributionProposalV2
-        return ContributionProposalV2 if payload.get('schema_version') == CONTRIBUTION_INPUT_VERSION_V1_2 else ContributionProposalV1
+        from .contribution import CONTRIBUTION_INPUT_VERSION_V1_2, ContributionProposalV1, ContributionProposalV2, ContributionProposalV3
+        if payload.get('schema_version') == 'contribution-input-v1.4':
+            return ContributionProposalV3
+        return ContributionProposalV2 if payload.get('schema_version') in (CONTRIBUTION_INPUT_VERSION_V1_2, 'contribution-input-v1.3') else ContributionProposalV1
     if payload.get('protocol')==V1_PROTOCOL:
         from .v1_contracts import UnderstandingProposalV1,ActionPolicyProposalV1
         return UnderstandingProposalV1 if stage=='call_one' else ActionPolicyProposalV1

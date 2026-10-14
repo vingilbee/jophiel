@@ -1,0 +1,5778 @@
+[
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-opinion_compact-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r1",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-preference-r3",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r2",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-revision-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r1",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r2",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "opposing-values-r3",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-opinion_compact-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r1",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-preference-r3",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r1",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r2",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-revision-r3",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r1",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r2",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 1,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 2,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 3,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 4,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 5,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 6,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 7,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  },
+  {
+    "run": "standard-values-r3",
+    "turn": 8,
+    "compiled_character_exact": true,
+    "compiled_numeric_exact": true,
+    "state_lineage_exact": true,
+    "no_reset": true,
+    "predecessor_terminal_exact": true,
+    "stages": [
+      {
+        "stage": "call_one",
+        "traits_exact": true,
+        "biases_exact": true,
+        "state_before_exact": true
+      },
+      {
+        "stage": "contribution",
+        "character_exact": true,
+        "traits_projection_exact": true,
+        "mood_before_exact": true
+      },
+      {
+        "stage": "call_two",
+        "traits_exact": true,
+        "state_after_exact": true
+      },
+      {
+        "stage": "realization_candidate",
+        "delivery_controls_exact": true,
+        "numeric_sources_exact": true,
+        "post_state_source_exact": true,
+        "state_bands_exact": true
+      }
+    ]
+  }
+]

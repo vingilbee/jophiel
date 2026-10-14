@@ -1,0 +1,8 @@
+{
+  "backend/app/ai/Cognitive/system/v0/two_call/v1.py": "7434d8eaa02d2fc05ba6d4e9bc76a4b887f036309700f7f184205a753cc9a14f",
+  "backend/app/ai/Cognitive/system/v0/two_call/contribution_followup_v1.txt": "ccaec596071c153d053dcae9490c54de965dd695d892dfa1165b765e9ba5a9a5",
+  "backend/app/ai/Cognitive/system/v0/two_call/followup.py": "af5d9a943283a971fa96a45ab0ee8dbb969dbb3f85f9210041bfd8f0f23d9593",
+  "backend/app/ai/Cognitive/system/v0/two_call/contribution.py": "ccae46add674474fe84564be7554c9592173049197bd76e1089752d7d761c38a",
+  "backend/app/ai/Cognitive/system/v0/two_call/orchestrator.py": "471649abdf654a09c08a3f86446617179dcdd9640e82cc19c93aed04e455f372",
+  "backend/app/ai/Cognitive/system/v0/two_call/v1_contracts.py": "e150b921335f31b9adee24c2da12b89dfd10628f331769d6a429cb5001a2315a"
+}

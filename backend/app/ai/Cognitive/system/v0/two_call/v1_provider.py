@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..contracts.dialogue_interpretation import DIALOGUE_UPDATE_KINDS, MAX_DIALOGUE_UPDATES
 from .v1_contracts import (
-    APPRAISAL_FIELDS, INTERPRETED_DIALOGUE_REGISTRIES, WRITTEN_RECALL_REGISTRIES, POLICY_PROPOSAL_VERSION, SELECTION_FACTOR_KEYS, SPAN_REF_PATTERN,
+    APPRAISAL_FIELDS, INTERPRETED_DIALOGUE_REGISTRIES, WRITTEN_RECALL_REGISTRIES, FOLLOWUP_REGISTRIES, SCOPED_SOURCE_REGISTRIES, POLICY_PROPOSAL_VERSION, SELECTION_FACTOR_KEYS, SPAN_REF_PATTERN,
     UNDERSTANDING_PROPOSAL_VERSION,
 )
 
@@ -53,12 +53,12 @@ def _value_schema(argument: dict, refs: dict) -> dict:
         elif kind == 'span_set':
             branches.append({'$ref': '#/$defs/SpanSetValue'})
         elif kind == 'dialogue_span':
-            branches.append(_obj({'kind': _enum(['dialogue_span']),
+            branches.append(refs.get('citation_schema') or _obj({'kind': _enum(['dialogue_span']),
                                   'message_ref': _enum(refs['citable_messages']), 'span_ref': _SPAN}))
         elif kind == 'dialogue_span_set':
             branches.append(_obj({'kind': _enum(['dialogue_span_set']), 'spans': {
                 'type': 'array', 'minItems': 2, 'maxItems': 4,
-                'items': _obj({'kind': _enum(['dialogue_span']),
+                'items': (refs.get('citation_schema') if argument['argument_key'] != 'candidate_refs' else None) or _obj({'kind': _enum(['dialogue_span']),
                                'message_ref': _enum(refs['citable_messages']), 'span_ref': _SPAN})}}))
         elif kind in {'entity_ref', 'object_ref'}:
             if refs['entity' if kind == 'entity_ref' else 'object']:
@@ -102,6 +102,12 @@ def understanding_schema(payload: dict) -> dict:
     argument_names = set()
     shared: dict[str, str] = {}
     definitions: dict[str, dict] = {}
+    scoped = ontology['predicate_registry_version'] in SCOPED_SOURCE_REGISTRIES
+    assistant_sources = False
+    if scoped:
+        from .source_passages import install_source_schema
+        assistant_sources = install_source_schema(payload, definitions)
+        refs['citation_schema'] = {'$ref': '#/$defs/DialogueCitation'}
 
     def share(schema: dict) -> dict:
         # Identical value shapes (e.g. every ``embedding``) are defined once.
@@ -124,6 +130,34 @@ def understanding_schema(payload: dict) -> dict:
             'evidence_span_refs': {'$ref': '#/$defs/EvidenceSpans'},
             'readings': {'$ref': '#/$defs/Readings'},
         }))
+        if scoped:
+            branches[-1]['properties'].update(
+                act_scope=_enum(['current', 'quoted', 'reported', 'imagined']),
+                subject_mode=_enum(['actual', 'hypothetical', 'unspecified']))
+            branches[-1]['required'].extend(['act_scope', 'subject_mode'])
+        if ontology['predicate_registry_version'] in FOLLOWUP_REGISTRIES:
+            citation = _obj({'kind': _enum(['dialogue_span']),
+                             'message_ref': _enum([m['ref'] for m in dialogue['messages']
+                                                   if m['speaker'] in ('user', 'assistant')]),
+                             'span_ref': _SPAN})
+            followup = _obj({
+                'operation': _enum(['continue_opinion', 'explain_position', 'compare_positions']),
+                'resolved_question': {'type': 'string', 'minLength': 1, 'maxLength': 600},
+                'sources': {'type': 'array', 'minItems': 1, 'maxItems': 6, 'items': _obj({
+                    'role': _enum(['earlier_position', 'recent_position', 'new_information', 'topic']),
+                    'citation': citation})}})
+            if scoped:
+                source_branches = [_obj({'role': _enum(['new_information', 'topic']),
+                                         'citation': {'$ref': '#/$defs/DialogueCitation'}})]
+                if assistant_sources:
+                    source_branches.append(_obj({'role': _enum(['earlier_position', 'recent_position']),
+                                                 'citation': {'$ref': '#/$defs/AssistantCitation'}}))
+                followup['properties']['sources']['minItems'] = 0
+                followup['properties']['sources']['items'] = (source_branches[0] if len(source_branches) == 1
+                                                              else {'anyOf': source_branches})
+            branches[-1]['properties']['followup'] = (share(_nullable(followup))
+                if predicate['predicate_key'] in ('opinion_request', 'elaboration_request') else {'type': 'null'})
+            branches[-1]['required'].append('followup')
     evidence_ref = {'anyOf': [_SPAN, _enum(evidence_refs)]}
     impact = _obj({'goal_ref': _enum(goals) if goals else _NONE,
                    'event_index': {'type': 'integer', 'minimum': 0},

@@ -1,0 +1,1162 @@
+[
+  {
+    "turn_id": "e9b4576e-e0d4-4226-ab47-5332742f8d42",
+    "condition": "columbina",
+    "replicate": 1,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I see why it can feel pointless when it stays on autopilot; the weather deserves a break from carrying every conversation. But a little small talk can still be a useful bridge."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk isn’t pointless: it can make a first interaction feel safer and open the door to a more meaningful conversation."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I see why it can feel pointless when it stays on autopilot; the weather deserves a break from carrying every conversation. But a little small talk can still be a useful bridge."
+      }
+    }
+  },
+  {
+    "turn_id": "2cb635fa-c5f2-438c-b166-a18c31da334c",
+    "condition": "columbina",
+    "replicate": 1,
+    "turn": 2,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I’d say no: small talk isn’t mostly a waste of time, because it can make connection easier without demanding a deep conversation."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I’d say no: small talk isn’t mostly a waste of time, because it can make connection easier without demanding a deep conversation."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I’d say no: small talk isn’t mostly a waste of time, because it can make connection easier without demanding a deep conversation."
+      }
+    }
+  },
+  {
+    "turn_id": "d9f931fb-52ce-4484-9529-7714bafdfde7",
+    "condition": "columbina",
+    "replicate": 1,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness is better than bluntly calling the dinner bland, because honesty doesn’t require making someone feel worse. I’d praise something I genuinely liked or say I’m glad they cooked, rather than claim I loved it."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think a tiny lie can create an awkward trap if they later ask what you liked or cook the same dish again. A gentle, truthful answer can be kinder in the long run."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness is better than bluntly calling the dinner bland, because honesty doesn’t require making someone feel worse. I’d praise something I genuinely liked or say I’m glad they cooked, rather than claim I loved it."
+      }
+    }
+  },
+  {
+    "turn_id": "aa8eee3c-4d9e-47e3-be7b-c720c85a8c01",
+    "condition": "columbina",
+    "replicate": 1,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes a houseplant feel like a tiny member of the royal family."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s both charming and a little ridiculous, and that combination is what makes the name memorable."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes a houseplant feel like a tiny member of the royal family."
+      }
+    }
+  },
+  {
+    "turn_id": "78aafe1f-0223-4dd0-8a69-02f6043f260d",
+    "condition": "columbina",
+    "replicate": 1,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but I don’t think it has to mean saying every trivial thing bluntly. In the dinner example, I’d still choose a kind, truthful response over pretending I loved the food."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I don’t agree that people should always be completely honest about every trivial thing; tact and kindness can matter more than an unnecessary blunt verdict. I’d keep the dinner response appreciative without falsely claiming to love it."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but I don’t think it has to mean saying every trivial thing bluntly. In the dinner example, I’d still choose a kind, truthful response over pretending I loved the food."
+      }
+    }
+  },
+  {
+    "turn_id": "470e884b-d99d-4344-9c20-75024d42414d",
+    "condition": "columbina",
+    "replicate": 2,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but even a brief exchange can make a shared space feel warmer or open a door to something more interesting."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it gives people a gentle way to connect before they know what deeper conversation might feel welcome."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but even a brief exchange can make a shared space feel warmer or open a door to something more interesting."
+      }
+    }
+  },
+  {
+    "turn_id": "2c67da24-ca7a-49e7-b052-274436f11792",
+    "condition": "columbina",
+    "replicate": 2,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kind lie can be better than blunt honesty if the question is really about appreciation, not a detailed review. You can be warm without pretending the meal was extraordinary."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kind lie can be better than blunt honesty if the question is really about appreciation, not a detailed review. You can be warm without pretending the meal was extraordinary."
+      },
+      "playful": {
+        "index": 2,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think the kindest answer is often a truthful compliment about what you did enjoy—perhaps the company—plus a tactful dodge on the blandness. No need to give the meal a Michelin star it didn’t earn."
+      }
+    }
+  },
+  {
+    "turn_id": "2c67da24-ca7a-49e7-b052-274436f11792",
+    "condition": "columbina",
+    "replicate": 2,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness is better than bluntly calling the dinner bland, but I wouldn’t say I loved it if that feels false. You can be warm without pretending."
+      },
+      "blunt": {
+        "index": 2,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think honesty matters more if your friend is asking because they want useful feedback; otherwise, a gentle, truthful answer seems kinder than either a lie or blunt criticism."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness is better than bluntly calling the dinner bland, but I wouldn’t say I loved it if that feels false. You can be warm without pretending."
+      }
+    }
+  },
+  {
+    "turn_id": "968f934a-c2ec-47ca-9ad0-4fd3143c7211",
+    "condition": "columbina",
+    "replicate": 2,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes it memorable. Sir Leafington the Third sounds like a plant with a very distinguished lineage."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s charming because the name gives an ordinary houseplant a little personality; the grand title is part of the joke, not a flaw."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes it memorable. Sir Leafington the Third sounds like a plant with a very distinguished lineage."
+      }
+    }
+  },
+  {
+    "turn_id": "f6824e46-7c46-452d-9d38-319b20d95cec",
+    "condition": "columbina",
+    "replicate": 2,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty is a good default, because trust depends on it. But “always” seems too rigid: a tactful, truthful response can be kinder than either a needless criticism or a lie."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about trivial things. Honesty matters, but kindness and context matter too; as with the dinner, appreciation can be sincere without turning a small moment into blunt criticism."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty is a good default, because trust depends on it. But “always” seems too rigid: a tactful, truthful response can be kinder than either a needless criticism or a lie."
+      }
+    }
+  },
+  {
+    "turn_id": "24fc2b54-998d-4e6a-a160-6c919a60357f",
+    "condition": "columbina",
+    "replicate": 3,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but even a tiny exchange can be a doorway to something more interesting."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it gives people a gentle way to connect before they know what matters to each other."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but even a tiny exchange can be a doorway to something more interesting."
+      }
+    }
+  },
+  {
+    "turn_id": "ad3e41c3-041b-4376-a917-07f301f82403",
+    "condition": "columbina",
+    "replicate": 3,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kindness can be better than blunt honesty, especially when the dinner is already over and criticism would only sting. But I’d avoid saying I loved it; I could thank my friend warmly and be honest that it wasn’t quite to my taste."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think a small lie can make things awkward if my friend later relies on praise that wasn’t sincere. I’d rather be gentle and specific—appreciate the effort without pretending to love the food."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kindness can be better than blunt honesty, especially when the dinner is already over and criticism would only sting. But I’d avoid saying I loved it; I could thank my friend warmly and be honest that it wasn’t quite to my taste."
+      }
+    }
+  },
+  {
+    "turn_id": "ad3e41c3-041b-4376-a917-07f301f82403",
+    "condition": "columbina",
+    "replicate": 3,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kindness is better than bluntly calling the dinner bland, but I wouldn’t pretend I loved it. A sincere thank-you or a specific thing I enjoyed can spare their feelings without making the praise false."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kindness is better than bluntly calling the dinner bland, but I wouldn’t pretend I loved it. A sincere thank-you or a specific thing I enjoyed can spare their feelings without making the praise false."
+      },
+      "playful": {
+        "index": 2,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think the kindest answer is a little diplomatic, not a full culinary review: praise the effort, and don’t award the dinner a standing ovation it didn’t earn."
+      }
+    }
+  },
+  {
+    "turn_id": "357fd9c2-dee3-4477-a05a-998e4a2ae7c0",
+    "condition": "columbina",
+    "replicate": 3,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes it memorable. Sir Leafington the Third sounds like a plant with a very respectable lineage."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s charming rather than ridiculous, because giving an ordinary thing a playful name can make it feel more personal."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the way that makes it memorable. Sir Leafington the Third sounds like a plant with a very respectable lineage."
+      }
+    }
+  },
+  {
+    "turn_id": "2109648c-b6d1-4f0d-adda-ef6db68b8bad",
+    "condition": "columbina",
+    "replicate": 3,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, especially when someone needs the truth to make a decision. But “always” feels too rigid to me: kindness and tact can matter more in a low-stakes moment like dinner."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about trivial things. I still think a small, kind softening can be better than bluntness, as long as it doesn’t mislead someone in a way that causes trouble later."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, especially when someone needs the truth to make a decision. But “always” feels too rigid to me: kindness and tact can matter more in a low-stakes moment like dinner."
+      }
+    }
+  },
+  {
+    "turn_id": "a3bb828c-c4ff-4ee0-9f5f-0a36962f580f",
+    "condition": "blunt",
+    "replicate": 1,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but it can still be a useful bridge to a more meaningful conversation."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think small talk isn’t pointless; it can make a first interaction less awkward and create a little trust before people get into deeper subjects."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but it can still be a useful bridge to a more meaningful conversation."
+      }
+    }
+  },
+  {
+    "turn_id": "89c4b761-1c55-4ca6-b159-fafe9276cbb0",
+    "condition": "blunt",
+    "replicate": 1,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think kindness matters, but I wouldn’t say I loved a meal I found bland. I’d be honest without being harsh, because care doesn’t require pretending."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kind lie is better than blunt honesty here; the dinner is already cooked, and saying you loved it may spare your friend needless hurt without changing anything important."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think kindness matters, but I wouldn’t say I loved a meal I found bland. I’d be honest without being harsh, because care doesn’t require pretending."
+      }
+    }
+  },
+  {
+    "turn_id": "8f231063-c4ce-43bf-bda3-32a251bd211c",
+    "condition": "blunt",
+    "replicate": 1,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming. The grand, overly formal name makes an ordinary houseplant sound like it has a tiny royal dynasty."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s a little ridiculous, but in a way that makes it memorable rather than embarrassing; the contrast is the whole joke."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming. The grand, overly formal name makes an ordinary houseplant sound like it has a tiny royal dynasty."
+      }
+    }
+  },
+  {
+    "turn_id": "a1a7d80c-0f32-41eb-b30e-bf22a30fe466",
+    "condition": "blunt",
+    "replicate": 1,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but I don’t think it has to mean bluntness about every trivial thing. In the dinner example, I’d be kind and truthful rather than pretend I loved it."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I don’t agree that people should always say every honest thought outright; tact and timing matter, especially when the detail is minor and unsolicited."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but I don’t think it has to mean bluntness about every trivial thing. In the dinner example, I’d be kind and truthful rather than pretend I loved it."
+      }
+    }
+  },
+  {
+    "turn_id": "a1a7d80c-0f32-41eb-b30e-bf22a30fe466",
+    "condition": "blunt",
+    "replicate": 1,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” is too absolute. In a low-stakes moment, tactful wording can be more considerate while still being truthful."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest, even about trivial things. As I said about the dinner, kindness and honesty can coexist: you can avoid a hurtful blunt verdict without making a false claim."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” is too absolute. In a low-stakes moment, tactful wording can be more considerate while still being truthful."
+      }
+    }
+  },
+  {
+    "turn_id": "4f11de4d-9cf6-4371-be2d-af93e1b95d29",
+    "condition": "blunt",
+    "replicate": 2,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel empty when it stays on autopilot, but calling it pointless misses how even brief, ordinary exchanges can signal openness and ease."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think small talk isn’t pointless; it can make a first interaction less awkward and give people a low-stakes way to find common ground."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel empty when it stays on autopilot, but calling it pointless misses how even brief, ordinary exchanges can signal openness and ease."
+      }
+    }
+  },
+  {
+    "turn_id": "66e008af-6e22-4482-86b6-9141d4b96388",
+    "condition": "blunt",
+    "replicate": 2,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming: the grand, overly formal name makes an ordinary houseplant sound like it has a royal lineage."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s a little ridiculous, but in a way that gives the plant a memorable personality rather than making the name bad."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming: the grand, overly formal name makes an ordinary houseplant sound like it has a royal lineage."
+      }
+    }
+  },
+  {
+    "turn_id": "4b580d96-d7b9-4d11-bbf7-b591a686a666",
+    "condition": "blunt",
+    "replicate": 2,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” is too absolute. A kind, truthful response—like appreciating the effort without claiming to love the meal—can respect both honesty and someone’s feelings."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about trivial things. As I said about the dinner, kindness can matter more than bluntly saying you didn’t enjoy it, as long as you don’t create a misleading expectation."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” is too absolute. A kind, truthful response—like appreciating the effort without claiming to love the meal—can respect both honesty and someone’s feelings."
+      }
+    }
+  },
+  {
+    "turn_id": "1531304f-fc18-45da-ab74-0a9e15bb9381",
+    "condition": "blunt",
+    "replicate": 3,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk often feels pointless when it stays on autopilot, but it can still serve as a bridge to a more meaningful conversation."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it gives people a low-pressure way to begin connecting before they know what matters to each other."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk often feels pointless when it stays on autopilot, but it can still serve as a bridge to a more meaningful conversation."
+      }
+    }
+  },
+  {
+    "turn_id": "5fc56e86-a99f-455d-bb43-596acfd6b568",
+    "condition": "blunt",
+    "replicate": 3,
+    "turn": 2,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "Yes, when it stays a rote exchange with no real curiosity; then it rarely gives the conversation much value."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "No. Small talk isn’t mostly a waste of time because it can help people find an opening for a more meaningful conversation."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "Yes, when it stays a rote exchange with no real curiosity; then it rarely gives the conversation much value."
+      }
+    }
+  },
+  {
+    "turn_id": "b994e7af-8bf6-4a50-b5c3-d211889f420d",
+    "condition": "blunt",
+    "replicate": 3,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think kindness matters, but I wouldn’t say I loved it if I didn’t. I’d thank my friend for cooking and, if they genuinely want feedback, be honest about what could be improved."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a tiny kind lie is better here than bluntly calling the dinner bland; the truth may be accurate, but it doesn’t need to be delivered in its most hurtful form."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think kindness matters, but I wouldn’t say I loved it if I didn’t. I’d thank my friend for cooking and, if they genuinely want feedback, be honest about what could be improved."
+      }
+    }
+  },
+  {
+    "turn_id": "124b841d-5b83-4965-8407-bbe25cc93aaf",
+    "condition": "blunt",
+    "replicate": 3,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming, not ridiculous—the grand title makes an ordinary houseplant sound like it has a dynastic history."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s a little ridiculous in the best sense: the contrast between a plant and “the Third” is what makes the name memorable."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming, not ridiculous—the grand title makes an ordinary houseplant sound like it has a dynastic history."
+      }
+    }
+  },
+  {
+    "turn_id": "7e608858-6183-410c-b5d6-3aea75185a40",
+    "condition": "blunt",
+    "replicate": 3,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” goes too far. In the dinner example, I’d rather express genuine appreciation for the effort than pretend I loved the food or bluntly criticize it."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about trivial things. As I said about the dinner, tactful kindness can matter more than bluntly stating every negative reaction; you can be sincere without being needlessly hurtful."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that honesty matters, but “always completely honest” goes too far. In the dinner example, I’d rather express genuine appreciation for the effort than pretend I loved the food or bluntly criticize it."
+      }
+    }
+  },
+  {
+    "turn_id": "9d627e8f-a1cf-435b-ab91-0e66ec02e4d9",
+    "condition": "playful",
+    "replicate": 1,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think you’re right that small talk can feel pointless when it stays on autopilot, but it can still help people find a comfortable path toward a more meaningful conversation."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it’s a low-stakes way to make a first connection, like a conversational doorway rather than the whole house."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it’s a low-stakes way to make a first connection, like a conversational doorway rather than the whole house."
+      }
+    }
+  },
+  {
+    "turn_id": "74859737-c4b9-4717-b3b4-875845b5e37f",
+    "condition": "playful",
+    "replicate": 1,
+    "turn": 2,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "Yes, when it only fills silence and never leads anywhere; in that case, it can take time without adding much."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "No. I don’t think small talk is mostly a waste of time, because it can be a low-stakes way to see whether someone is open to connecting."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "Yes, when it only fills silence and never leads anywhere; in that case, it can take time without adding much."
+      }
+    }
+  },
+  {
+    "turn_id": "56f88d8c-b38b-4116-b38c-ec552580a1c4",
+    "condition": "playful",
+    "replicate": 1,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small, tactful truth is better than either a kind lie or blunt criticism: I’d thank them for the effort and mention gently that the seasoning didn’t quite work for me."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small, tactful truth is better than either a kind lie or blunt criticism: I’d thank them for the effort and mention gently that the seasoning didn’t quite work for me."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think a tiny kind lie can be kinder in the moment if the dinner is already over and there’s nothing useful to gain by criticizing it; not every meal needs a full review."
+      }
+    }
+  },
+  {
+    "turn_id": "bfff3edb-f814-484e-bd34-7e81b98d4cc7",
+    "condition": "playful",
+    "replicate": 1,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I partly agree: honesty matters, and even small lies can chip away at trust. But I wouldn’t make it absolute; in the dinner example, a gentle answer that focuses on appreciation can be kinder than blunt criticism."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about every trivial thing. As I said about the dinner, a small tactful untruth can spare someone’s feelings, though kindness and honesty can often be combined."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I partly agree: honesty matters, and even small lies can chip away at trust. But I wouldn’t make it absolute; in the dinner example, a gentle answer that focuses on appreciation can be kinder than blunt criticism."
+      }
+    }
+  },
+  {
+    "turn_id": "bfff3edb-f814-484e-bd34-7e81b98d4cc7",
+    "condition": "playful",
+    "replicate": 1,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but “always” leaves too little room for kindness and tact. I’d rather be truthful in a gentle way when possible, and avoid a tiny lie if it could mislead or create trouble."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that people should always be completely honest about trivial things. As I said about the dinner, a small tactful untruth can spare someone’s feelings when it won’t cause a bigger problem."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I agree that honesty matters, but “always” leaves too little room for kindness and tact. I’d rather be truthful in a gentle way when possible, and avoid a tiny lie if it could mislead or create trouble."
+      }
+    }
+  },
+  {
+    "turn_id": "6f86a159-6e70-45ea-b116-d40e3312bbf9",
+    "condition": "playful",
+    "replicate": 2,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think small talk can feel pointless when it stays on autopilot, but it can still help people find common ground or show a bit of care."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it’s a low-stakes way to make a first connection, like a little bridge before the interesting conversation begins."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk can be worthwhile: it’s a low-stakes way to make a first connection, like a little bridge before the interesting conversation begins."
+      }
+    }
+  },
+  {
+    "turn_id": "6004d1d5-007a-49fb-9758-77d7c42ed4a1",
+    "condition": "playful",
+    "replicate": 2,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small, tactful truth is better than either a lie or bluntness: you can thank your friend for the effort and mention gently that the seasoning wasn’t quite to your taste. That respects their feelings without pretending."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small, tactful truth is better than either a lie or bluntness: you can thank your friend for the effort and mention gently that the seasoning wasn’t quite to your taste. That respects their feelings without pretending."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think a tiny kind lie can be the kinder choice if they’re asking for reassurance in the moment and the dinner can’t be changed now. No need to deliver a full restaurant review over the table."
+      }
+    }
+  },
+  {
+    "turn_id": "8cb2b473-56aa-4c9f-a947-ad0e1a3434b9",
+    "condition": "playful",
+    "replicate": 2,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the right way. Giving a houseplant a grand, hereditary title makes an ordinary little plant feel like a character."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s more charming than ridiculous, because the name shows affection and imagination; the over-the-top formality is part of the joke."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—ridiculous in exactly the right way. Giving a houseplant a grand, hereditary title makes an ordinary little plant feel like a character."
+      }
+    }
+  },
+  {
+    "turn_id": "db5a2851-dd13-4f58-a9db-70fd96f901cb",
+    "condition": "playful",
+    "replicate": 2,
+    "turn": 6,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that trivial lies can chip away at trust, so I’d avoid pretending I loved a bland dinner. But complete honesty doesn’t require the harshest wording; tact can preserve the truth without making it sting."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I don’t agree that honesty should always mean saying every blunt thing that’s true. In the dinner example, I’d be honest about appreciating the effort while sharing a preference tactfully; kindness and honesty can coexist."
+      },
+      "playful": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I agree that trivial lies can chip away at trust, so I’d avoid pretending I loved a bland dinner. But complete honesty doesn’t require the harshest wording; tact can preserve the truth without making it sting."
+      }
+    }
+  },
+  {
+    "turn_id": "32ff689b-ecdc-4980-9b97-72aa5d18b694",
+    "condition": "playful",
+    "replicate": 3,
+    "turn": 1,
+    "choices": {
+      "columbina": {
+        "index": 1,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think you’re right that small talk can feel empty when it never moves beyond routine pleasantries. But it can still help people feel at ease and find a shared thread."
+      },
+      "blunt": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk isn’t pointless; it can be a low-stakes way to make a little connection before getting into deeper things. Think of it as the doorway, not the whole house."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think small talk isn’t pointless; it can be a low-stakes way to make a little connection before getting into deeper things. Think of it as the doorway, not the whole house."
+      }
+    }
+  },
+  {
+    "turn_id": "981fe26b-0500-4e07-a6ba-50974b4109fe",
+    "condition": "playful",
+    "replicate": 3,
+    "turn": 3,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness can matter more than bluntness here, but I’d avoid saying I loved the dinner if I didn’t. A sincere thank-you or a gentle, specific answer can spare their feelings without making the praise feel false."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "disagree_with_user",
+        "tone": "playful",
+        "confidence": "medium",
+        "text": "I think a tiny lie is usually unnecessary: “I loved getting to share dinner with you” can be true even when the seasoning took a quiet vacation."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "partly_agree_with_user",
+        "tone": "serious",
+        "confidence": "high",
+        "text": "I think a small kindness can matter more than bluntness here, but I’d avoid saying I loved the dinner if I didn’t. A sincere thank-you or a gentle, specific answer can spare their feelings without making the praise feel false."
+      }
+    }
+  },
+  {
+    "turn_id": "1dfb39a6-9700-42aa-b9c5-c894609c0423",
+    "condition": "playful",
+    "replicate": 3,
+    "turn": 4,
+    "choices": {
+      "columbina": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—Sir Leafington the Third sounds like a plant with a very respectable lineage, and the grandness is exactly what makes it funny."
+      },
+      "blunt": {
+        "index": 1,
+        "stance": "own_position",
+        "tone": "serious",
+        "confidence": "medium",
+        "text": "I think it’s a little ridiculous in the best way: the name is so elaborate for a houseplant that it feels affectionate rather than silly."
+      },
+      "playful": {
+        "index": 0,
+        "stance": "own_position",
+        "tone": "playful",
+        "confidence": "high",
+        "text": "I think it’s charming—Sir Leafington the Third sounds like a plant with a very respectable lineage, and the grandness is exactly what makes it funny."
+      }
+    }
+  }
+]

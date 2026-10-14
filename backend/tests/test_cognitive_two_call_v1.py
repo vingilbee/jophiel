@@ -93,6 +93,17 @@ class V1Double:
         json.dumps(response_schema(stage, payload))
         assert prompt(stage, payload)
         raw = {'call_one': self.one, 'call_two': self.two, 'contribution': self.contribution}[stage](payload)
+        if stage == 'contribution' and payload.get('schema_version') == 'contribution-input-v1.4' and raw['schema_version'] == 'contribution-proposal-v2':
+            # Legacy scripted fixtures do not model premise reasoning. The
+            # dedicated premise tests supply actual assessments explicitly.
+            raw = dict(raw, schema_version='contribution-proposal-v3', premise_assessment=dict(
+                premise=None, status='not_applicable', position_refs=[], relation='not_applicable',
+                reason='This scripted fixture does not model a comparison premise.'))
+        if stage == 'call_one' and payload['ontology']['predicate_registry_version'] in ('argument-kind-registry-v1.10', 'argument-kind-registry-v1.11', 'argument-kind-registry-v1.12', 'argument-kind-registry-v1.13'):
+            for item in raw['events']:
+                embedding = item['arguments'].get('embedding', {}).get('value', 'direct')
+                item.setdefault('act_scope', {'direct': 'current', 'hypothetical': 'imagined'}.get(embedding, embedding))
+                item.setdefault('subject_mode', 'unspecified')
         if stage == 'call_one' and payload['ontology']['predicate_registry_version'] in INTERPRETED_DIALOGUE_REGISTRIES:
             raw.setdefault('dialogue_updates', [])  # registry v1.7: required, usually empty
             if payload['ontology']['predicate_registry_version'] in WRITTEN_RECALL_REGISTRIES:
@@ -102,10 +113,12 @@ class V1Double:
         return output_type(stage, payload).model_validate(raw)
 
 
-def run(model=None, text='Hi', *, contents=None, collaboration=None, capture=None):
+def run(model=None, text='Hi', *, contents=None, collaboration=None, capture=None, registry=None):
     capture = capture or make_capture(contents=contents or (('user', text),))
     model = model or V1Double()
     pipeline = install(build_pipeline(capture.turn_id), model, protocol=PROTOCOL_V1)
+    if registry is not None:
+        pipeline.two_call.understanding_registry = registry
     if collaboration is not None:
         pipeline.collaboration_engine = collaboration
     record = observe(capture, None, ObservationContext(job_id=capture.capture_id, attempt=1, capture_digest=payload_digest(capture),
@@ -138,7 +151,7 @@ def test_social_turn_completes_with_model_policy_planner_and_replays():
     trace = record.pipeline_trace
     assert trace.orchestration.protocol == PROTOCOL_V1
     assert (trace.orchestration.behavior_policy, trace.orchestration.realization_policy) == (
-        'model_policy_selection-v1.1', 'separate_realization-v1.4')
+        'model_policy_selection-v1.1', 'separate_realization-v1.6')
     assert trace.action_selection.versions.planner == 'action-planner-model-policy-v1'
     assert [m.definition_ref.action_key for m in trace.action_selection.plan.moves] == ['manage_dialogue.greet']
     assert trace.action_selection.plan.primary_designation.rule_id == 'action-primary.model-selected.v1.1'
@@ -146,7 +159,7 @@ def test_social_turn_completes_with_model_policy_planner_and_replays():
     assert trace.interpretation.versions.semantic_parser.protocol_version == PROTOCOL_V1
     assert_replay(record)
     provenance = trace.orchestration.calls[0].provenance
-    assert (provenance['context_version'], provenance['prompt_version']) == ('understanding-input-v1', 'call_one-v1.8')
+    assert (provenance['context_version'], provenance['prompt_version']) == ('understanding-input-v1', 'call_one-v1.13')
 
 
 def test_v1_capture_recompiles_and_rejects_a_tampered_compiled_handoff():
@@ -401,6 +414,9 @@ def test_call_one_has_no_unrestricted_strings_or_model_identifiers():
             for index, value in enumerate(node):
                 yield from strings(value, f'{path}/{index}')
     for path, node in strings(schema):
+        if path.endswith('/resolved_question'):
+            assert node['minLength'] == 1 and node['maxLength'] == 600
+            continue  # v1.9 bounded interpretation, never answer text or an identifier
         assert 'enum' in node or 'pattern' in node, path
     assert 'candidate_meaning' not in json.dumps(schema) and 'handle' not in json.dumps(schema)
 
@@ -539,7 +555,7 @@ def test_call_two_input_is_fully_bound_and_output_has_no_content_or_wording():
     for candidate in payload['eligible_candidates']:
         assert set(candidate) == {'candidate_ref', 'action_key', 'goal_refs', 'target_refs', 'typed_parameters',
                                   'planned_effect_keys', 'addressed_condition_refs', 'addressed_condition_keys',
-                                  'cost_band', 'risk_band'}
+                                  'cost_band', 'risk_band', 'answer_content'}
     schema = response_schema('call_two', payload)
     assert set(schema['properties']) == {'schema_version', 'selected_candidate_refs', 'primary_index',
                                          'stop_after_selected', 'selection_factors'}
@@ -1019,7 +1035,7 @@ def test_conversation_request_explores_instead_of_forcing_an_artifact_clarificat
         return select('seek_information.explore_goal')(payload)
     record, _, model = run(V1Double(one=lambda p: understanding(conversation(p)), two=two), TALK)
     payload = model.calls[0][1]
-    assert payload['ontology']['predicate_registry_version'] == 'argument-kind-registry-v1.8'
+    assert payload['ontology']['predicate_registry_version'] == 'argument-kind-registry-v1.13'
     assert 'conversation_request' in {p['predicate_key'] for p in payload['ontology']['predicates']}
     assert 'use conversation_request instead of collaborative_content_request' in prompt('call_one', payload)
     assert record.status.value == 'completed', record.failure
@@ -1523,7 +1539,7 @@ def test_v2_records_other_findings_as_warnings_without_blocking(text, warning):
     record, _, _ = run()
     realized = _realized(record, text)
     status, violations, warnings, policy = _final(realized)
-    assert policy == 'conversational-v3'
+    assert policy == 'conversational-v4'
     assert status == 'accepted_shadow' and not violations, violations
     assert warning in warnings, warnings
     assert _replay_wording(realized).status.value == 'match'
@@ -1536,7 +1552,7 @@ def test_v2_records_other_findings_as_warnings_without_blocking(text, warning):
 def test_v2_still_blocks_false_action_and_memory_claims(text, code):
     record, _, _ = run()
     status, violations, _, policy = _final(_realized(record, text))
-    assert policy == 'conversational-v3'
+    assert policy == 'conversational-v4'
     assert status == 'rejected' and code in violations, violations
 
 

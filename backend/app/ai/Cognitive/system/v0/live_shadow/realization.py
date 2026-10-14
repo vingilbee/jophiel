@@ -69,7 +69,7 @@ def wording_content_of(trace: CognitivePipelineTrace) -> tuple[tuple, tuple]:
     requirement, collaboration = requirement_content_of(trace), collaboration_content_of(trace)
     if trace.orchestration is not None and trace.orchestration.realization_policy in (
             'separate_realization-v1.1', 'separate_realization-v1.2', 'separate_realization-v1.3',
-            'separate_realization-v1.4'):
+            'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6'):
         from ..two_call.v1_content import conversational_content
         requirement = conversational_content(requirement, trace)
         collaboration = conversational_content(collaboration, trace)
@@ -98,7 +98,14 @@ def _realization_inputs(record: CognitiveShadowTerminalRecord, dialogue_context:
         current_user_utterance=_focus_user_utterance(record.compiled_request),
         safety_basis=action.safety,
         conversation_context=conversation_context_of(trace, record.compiled_request),
+        ambient_play=ambient_play_of(trace),
     )
+
+
+def ambient_play_of(trace: CognitivePipelineTrace) -> bool:
+    """Realization policy v1.5+: a high playfulness band also reaches ordinary answers."""
+    from ..two_call.v1_contracts import AMBIENT_PLAY_REALIZATION_POLICIES
+    return trace.orchestration is not None and trace.orchestration.realization_policy in AMBIENT_PLAY_REALIZATION_POLICIES
 
 
 def conversation_context_of(trace: CognitivePipelineTrace, request: CognitivePipelineRequest,
@@ -337,6 +344,7 @@ def replay_realization(
             current_user_utterance=_focus_user_utterance(pipeline_request),
             safety_basis=action.safety, configured_maximum_characters=maximum,
             conversation_context=conversation_context_of(pipeline, pipeline_request),
+            ambient_play=ambient_play_of(pipeline),
         )
     except RealizationExecutionError as exc:
         return report(ReplayStatus.MISMATCH, f"recompile_failed.{exc.code}")

@@ -259,7 +259,7 @@ class OpenAIRealizationModel:
             raise RealizationProviderError(ProviderErrorCode.OUTPUT_INVALID)
         try:
             return output_from_excerpts(json.loads(message.content), payload,
-                                        tolerant=self._provenance.instruction_variant in ("conversational-v1", "conversational-v2"))
+                                        tolerant=self._provenance.instruction_variant in ("conversational-v1", "conversational-v2", "conversational-v3", "conversational-v4"))
         except (ValueError, ValidationError, TypeError) as exc:
             # The trace keeps only ``output_schema_invalid``. Log why, without the
             # candidate text: fixed parser messages, or validation locations/types.

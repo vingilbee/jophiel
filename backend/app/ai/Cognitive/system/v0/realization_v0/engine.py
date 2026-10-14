@@ -90,6 +90,7 @@ class RealizationEngineV0:
         safety_basis: ActionSafetyBasis,
         configured_maximum_characters: int,
         conversation_context: tuple[tuple[str, str], ...] = (),
+        ambient_play: bool = False,
     ) -> RealizationTraceV0:
         """Return one terminal trace.  Raises ``RealizationExecutionError`` only for deterministic failures."""
 
@@ -98,6 +99,7 @@ class RealizationEngineV0:
             action_result=action_result, inventory=inventory, personality=personality, state=state,
             language_tag=language_tag, current_user_utterance=current_user_utterance, safety_basis=safety_basis,
             configured_maximum_characters=configured_maximum_characters, conversation_context=conversation_context,
+            ambient_play=ambient_play,
         )
         compile_ms = (self.clock() - started) * 1000
         turn, result_ref = action_result.cognitive_turn_id, action_result.result_id

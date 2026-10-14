@@ -175,6 +175,20 @@ def project_training_example(record) -> dict[str, Any]:
         events.append(dict(predicate=event.predicate_key, polarity=event.polarity,
                            arguments=arguments,
                            evidence_spans=[list(span_bounds(ref, tokens)) for ref in event.evidence_span_refs]))
+        if event.act_scope is not None:
+            events[-1]['act_scope'] = event.act_scope
+            events[-1]['subject_mode'] = event.subject_mode
+        if event.followup is not None:
+            # Preserve source-linked interpretation in reviewed training data;
+            # it must not become an unexplained free-text target.
+            sources = []
+            for source in event.followup.sources:
+                start, end, text = dialogue_span(source.citation, entries)
+                sources.append(dict(role=source.role,
+                    message_ref=local.get(entries[source.citation.message_ref]['canonical_ref']),
+                    span=[start, end], text=text))
+            events[-1]['followup'] = dict(operation=event.followup.operation,
+                resolved_question=event.followup.resolved_question, sources=sources)
     readings, impacts = [], []
     for index, event in enumerate(proposal.events):
         for reading in event.readings:

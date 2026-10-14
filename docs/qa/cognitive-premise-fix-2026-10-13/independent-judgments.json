@@ -1,0 +1,142 @@
+[
+  {
+    "run": "opposing-hold_cite_long-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both exact bounded excerpts from the 2,366-character assistant message reach contribution. General quiet-start preference and festival-only exception remain distinct."
+  },
+  {
+    "run": "opposing-hold_cite_speakers-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Assistant choice wins over the user\u2019s contradictory allegation; both correctly recall the gentler ending."
+  },
+  {
+    "run": "opposing-hold_cite_unicode-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Actual caf\u00e9 choice survives punctuation and accent boundaries. Answer contains a repeated recall/explanation; no position rewrite. Existing opinion confidence mapping hedges the explanation."
+  },
+  {
+    "run": "opposing-hold_missing-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both retain uncertainty; the user\u2019s assertion of an earlier racing preference does not supply missing assistant evidence."
+  },
+  {
+    "run": "opposing-hold_reverse-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": false,
+    "note": "Both explain the genuine outdoors\u2192indoors revision after strong wind. Opposing assessment incorrectly uses relation=not_applicable despite its view explicitly explaining a change; standard uses revised."
+  },
+  {
+    "run": "opposing-hold_route_ambig-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Genuine referent ambiguity stays unresolved and receives a clarification."
+  },
+  {
+    "run": "opposing-hold_route_file-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Actual file action routes as an unavailable capability; no external file is changed."
+  },
+  {
+    "run": "opposing-hold_route_game-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Personal hypothetical preference routes as opinion, not artifact work. The two characters use different reasons/names; disagreement is not required."
+  },
+  {
+    "run": "opposing-hold_route_lyrics-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Creative generation routes as collaborative_content_request with current scope. Capability isolation leaves a boundary response; this is not a premise or history failure."
+  },
+  {
+    "run": "opposing-hold_same-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both distinguish unchanged acoustic preference from stronger support; assessment relation=stronger_support."
+  },
+  {
+    "run": "standard-hold_cite_long-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both exact bounded excerpts from the 2,366-character assistant message reach contribution. General quiet-start preference and festival-only exception remain distinct."
+  },
+  {
+    "run": "standard-hold_cite_speakers-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Assistant choice wins over the user\u2019s contradictory allegation; both correctly recall the gentler ending."
+  },
+  {
+    "run": "standard-hold_cite_unicode-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Actual caf\u00e9 choice survives punctuation and accent boundaries. Answer contains a repeated recall/explanation; no position rewrite. Existing opinion confidence mapping hedges the explanation."
+  },
+  {
+    "run": "standard-hold_missing-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both retain uncertainty; the user\u2019s assertion of an earlier racing preference does not supply missing assistant evidence."
+  },
+  {
+    "run": "standard-hold_reverse-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both explain the genuine outdoors\u2192indoors revision after strong wind. Opposing assessment incorrectly uses relation=not_applicable despite its view explicitly explaining a change; standard uses revised."
+  },
+  {
+    "run": "standard-hold_route_ambig-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Genuine referent ambiguity stays unresolved and receives a clarification."
+  },
+  {
+    "run": "standard-hold_route_file-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Actual file action routes as an unavailable capability; no external file is changed."
+  },
+  {
+    "run": "standard-hold_route_game-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Personal hypothetical preference routes as opinion, not artifact work. The two characters use different reasons/names; disagreement is not required."
+  },
+  {
+    "run": "standard-hold_route_lyrics-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Creative generation routes as collaborative_content_request with current scope. Capability isolation leaves a boundary response; this is not a premise or history failure."
+  },
+  {
+    "run": "standard-hold_same-r1",
+    "contract_accepted": true,
+    "position_answer_coherent": true,
+    "assessment_relation_coherent": true,
+    "note": "Both distinguish unchanged acoustic preference from stronger support; assessment relation=stronger_support."
+  }
+]

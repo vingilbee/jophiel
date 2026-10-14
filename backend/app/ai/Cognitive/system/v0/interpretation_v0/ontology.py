@@ -637,6 +637,17 @@ V1_PREDICATES_BY_REGISTRY = {
                                             "dialogue_recall_request", "contextual_perspective_request",
                                             "opinion_request"}),
     # v1.8 adds no predicate: recall support is a separate output field.
+    "argument-kind-registry-v1.9": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.10": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    # v1.11 changes contribution premise assessment, not interpretation vocabulary.
+    "argument-kind-registry-v1.13": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.12": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.11": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
     "argument-kind-registry-v1.8": frozenset({"experience_report", "conversation_request",
                                             "dialogue_recall_request", "contextual_perspective_request",
                                             "opinion_request"}),

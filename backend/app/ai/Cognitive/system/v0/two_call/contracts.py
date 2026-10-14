@@ -109,14 +109,21 @@ class CallCapture(FrozenModel):
         if hashlib.sha256(canonical.encode()).hexdigest()!=self.payload_digest:
             raise ValueError('captured payload digest mismatch')
         if self.protocol != 'legacy-v0.1' and self.compiled_proposal is not None:
-            if self.protocol == 'cognitive-two-call-v1':
+            if self.stage == 'contribution':
+                from .premise import PremiseAssessment,validate_assessment
+                if self.proposal.get('schema_version') != 'contribution-proposal-v3':
+                    raise ValueError('compiled contribution requires premise assessment')
+                compiled = validate_assessment(PremiseAssessment.model_validate(self.proposal['premise_assessment']),self.payload['premise_context'])
+            elif self.protocol == 'cognitive-two-call-v1':
                 from .v1 import compile_understanding,compile_policy
                 compiler=compile_understanding if self.stage=='call_one' else compile_policy
+                compiled = compiler(self.proposal,self.payload,self.reference_table)
             else:
                 from .compact import compile_mind,compile_response
                 compiler=compile_mind if self.stage=='call_one' else compile_response
+                compiled = compiler(self.proposal,self.payload,self.reference_table)
             from .provider import digest
-            if digest(compiler(self.proposal,self.payload,self.reference_table)) != digest(self.compiled_proposal):
+            if digest(compiled) != digest(self.compiled_proposal):
                 raise ValueError('compiled proposal differs from captured compact source')
         if len(self.prompt_hash)!=64:
             raise ValueError('invalid captured prompt hash')
@@ -139,7 +146,7 @@ class TwoCallTrace(FrozenModel):
     # choices to grounded candidates; gates and transitions remain authoritative.
     # v1 selects an ordered plan from candidate refs; Realization is separate.
     behavior_policy: Literal['strict_plan_agreement-v0.1', 'model_grounded_selection-v0.1', 'model_policy_selection-v1', 'model_policy_selection-v1.1'] = 'strict_plan_agreement-v0.1'
-    realization_policy: Literal['strict-v0.1', 'style_advisory-v0.1', 'segmented_response-v0.1', 'segmented_response-v0.2', 'separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2', 'separate_realization-v1.3', 'separate_realization-v1.4'] = 'strict-v0.1'
+    realization_policy: Literal['strict-v0.1', 'style_advisory-v0.1', 'segmented_response-v0.1', 'segmented_response-v0.2', 'separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2', 'separate_realization-v1.3', 'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6'] = 'strict-v0.1'
     alignment_policy: Literal['complete_bindings-v0.1', 'compiled_move_spans-v0.1', 'not_applicable-v1'] = 'complete_bindings-v0.1'
     calls: tuple[CallCapture, ...]
     # Registry v1.6 open-world contribution calls, in order; empty (and omitted
@@ -173,7 +180,7 @@ class TwoCallTrace(FrozenModel):
             raise ValueError('contribution captures are protocol v1 contribution calls')
         v1_realization = self.realization_policy in ('separate_realization-v1', 'separate_realization-v1.1',
                                                      'separate_realization-v1.2', 'separate_realization-v1.3',
-                                                     'separate_realization-v1.4')
+                                                     'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6')
         v1_behavior = self.behavior_policy in ('model_policy_selection-v1', 'model_policy_selection-v1.1')
         v1_policies = v1_behavior and self.alignment_policy == 'not_applicable-v1' and v1_realization
         if (self.protocol == 'cognitive-two-call-v1') != v1_policies or (not v1_policies and (

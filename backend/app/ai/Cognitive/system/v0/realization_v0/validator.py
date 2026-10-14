@@ -428,6 +428,23 @@ _ADDRESSED = {"i": "you", "me": "you", "my": "your", "mine": "yours", "myself": 
 _FIRST_PERSON = re.compile(r"\b(?:i[’']m|i[’']ve|i[’']d|i[’']ll|myself|mine|my|me|i)\b", re.IGNORECASE)
 
 
+def answer_negated(text, values, anchors):
+    """Scope negation to a cited answer rather than its contrasted alternative."""
+    for value in values:
+        for match in re.finditer(r'(?<!\w)' + re.escape(value) + r'(?!\w)', text, re.IGNORECASE):
+            prefix, suffix = text[:match.start()], text[match.end():]
+            prefix = re.split(r'\b(?:but|whereas)\b|;', prefix, flags=re.IGNORECASE)[-1]
+            if NEGATION.search(outside_anchors(prefix, anchors)):
+                return True
+            # "Y, not X" affirms Y. "Y was not my answer" still denies Y.
+            if re.match(r'\s*[,\u2014\u2013-]?\s*not\b', suffix, re.IGNORECASE):
+                continue
+            suffix = re.split(r'\b(?:but|whereas)\b|;', suffix, flags=re.IGNORECASE)[0]
+            if NEGATION.search(outside_anchors(suffix, anchors)):
+                return True
+    return False
+
+
 def addressed(anchor: str) -> str:
     """The user's own words as said back to them: "me" becomes "you" (conversational-v3 answer matching)."""
 
@@ -632,7 +649,7 @@ class _Run:
         self.per_move()
         self.structural_moves()
         self.style_and_length()
-        if self.policy == "conversational-v3":
+        if self.policy in {"conversational-v3", "conversational-v4"}:
             self.answer_fidelity()
 
     def ownership(self) -> None:
@@ -1088,6 +1105,8 @@ class _Run:
                 relevant = [s for s in sentences(text) if any(contains_anchor(s.text, a) for a in values)]
                 # Negation inside the answer's own words is part of the answer, not a reversal of it.
                 negated = [bool(NEGATION.search(outside_anchors(s.text, item.anchors))) for s in relevant]
+                if self.policy == 'conversational-v4':
+                    negated = [answer_negated(s.text, values, item.anchors) for s in relevant]
                 if relevant and not question and (
                         (item.polarity == Polarity.POSITIVE and all(negated))
                         or (item.polarity == Polarity.NEGATIVE and not any(negated))):

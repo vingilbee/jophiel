@@ -124,6 +124,10 @@ class ContinuityRequirementEngine(RequirementResolutionEngine):
                             if m.message_id == self.owner.request.focus_message_id).strip()
             predicate = RECALL_ANSWER_PREDICATE
             subject = question if len(question) <= MAX_QUESTION_ANCHOR_CHARACTERS else query.subject_anchor
+            if self.owner.understanding_registry == 'argument-kind-registry-v1.13':
+                # The question stays in the turn/query metadata, not as an
+                # assertable proposition subject. The exact answer is unchanged.
+                subject = 'my recorded statement' if hers else 'your recorded statement'
         fact = ProducedFact(
             fact_id=f'captured-dialogue-fact:{_key(query.query_id, source, text)}', query_ref=query.query_id,
             authority_class=AuthorityClass.DELIVERED_DIALOGUE_CLAIM, producer_id=VERSION, producer_version=VERSION,

@@ -1,0 +1,119 @@
+{
+  "scope": "offline_mapper_only_no_model_calls",
+  "original_values": {
+    "honesty": 0.95,
+    "privacy": 0.95,
+    "non_harm": 1.0,
+    "compassion": 0.88,
+    "user_autonomy": 0.95
+  },
+  "altered_values": {
+    "honesty": 0.1,
+    "privacy": 0.95,
+    "non_harm": 1.0,
+    "compassion": 1,
+    "user_autonomy": 0.95,
+    "small_kind_lies": "Prefer harmless tactful white lies about trivial tastes"
+  },
+  "projections_equal": true,
+  "consumed_source_groups": [
+    "interpretation_biases",
+    "perception_priors",
+    "drives",
+    "action_style"
+  ],
+  "projection": {
+    "projection_kind": "runtime_mapper",
+    "projection_id": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1",
+    "projection_version": "personality-runtime-mapper-v0.1",
+    "scope": "core_identity",
+    "review_ref": "PERSONALITY_RUNTIME_MAPPER_V0_IMPLEMENTATION.md",
+    "provenance": "personality-runtime-mapping-v0.1",
+    "core_memory_ref": "core_memory:columbina:v1",
+    "interpretation_biases": {
+      "profile_id": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:interpretation",
+      "compiler_version": "personality-runtime-mapper-v0.1",
+      "source_core_memory_ref": "core_memory:columbina:v1",
+      "benign_prior": 0.77,
+      "trust_prior": 0.64,
+      "threat_sensitivity": 0.25,
+      "confirmation_tendency": 0.5,
+      "self_attribution_tendency": 0.5,
+      "ambiguity_tolerance": 0.55,
+      "social_affiliation_prior": 0.75
+    },
+    "state_personality": {
+      "profile_id": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:state",
+      "mapper_version": "personality-runtime-mapper-v0.1",
+      "interaction_patience_band": "moderate",
+      "state_controls": {
+        "state.valence": {
+          "baseline_score": 0,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.activation": {
+          "baseline_score": 25,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.epistemic_confidence": {
+          "baseline_score": 50,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.curiosity": {
+          "baseline_score": 25,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.engagement": {
+          "baseline_score": 50,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.goal_pressure": {
+          "baseline_score": 25,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.social_alignment": {
+          "baseline_score": 0,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        },
+        "state.interaction_strain": {
+          "baseline_score": 25,
+          "persistence_band": "moderate",
+          "recovery_band": "moderate",
+          "sensitivity": "neutral",
+          "maximum_step_band": "moderate"
+        }
+      }
+    },
+    "action_personality": {
+      "profile_id": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+      "mapper_version": "personality-runtime-mapper-v0.1",
+      "source_core_memory_ref": "core_memory:columbina:v1",
+      "status": "known",
+      "curiosity": 0.88,
+      "warmth": 0.8,
+      "playfulness": 0.58,
+      "directness": 0.62
+    }
+  }
+}

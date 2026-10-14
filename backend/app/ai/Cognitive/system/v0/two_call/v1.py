@@ -27,7 +27,7 @@ from .v1_contracts import (
     UNDERSTANDING_INPUT_VERSION, UNKNOWN_KEYS, UNKNOWN_REGISTRY_VERSION, ActionPolicyProposalV1, CompiledPolicy,
     UnderstandingProposalV1, parse_span_ref, ref_kind,
     CONTINUITY_REGISTRIES, CONVERSATION_REGISTRIES, EXPLORATION_REGISTRIES, INTERPRETED_DIALOGUE_REGISTRIES,
-    WRITTEN_RECALL_REGISTRIES,
+    WRITTEN_RECALL_REGISTRIES, FOLLOWUP_REGISTRIES, SCOPED_SOURCE_REGISTRIES,
 )
 from ..action_selection_v0.construction import OPTIONAL_EXPLORATION_RULE_IDS
 
@@ -238,6 +238,9 @@ def build_understanding_input(owner, semantic) -> dict:
                              authority='current_user_task' if message.message_id == request.focus_message_id else 'context_only'))
         if metadata and (message.role.value == 'user' or own_words):
             messages[-1]['indexed_tokens'] = ' '.join(f'[{i}]{t}' for i, (_, _, t) in enumerate(focus_tokens(message.content)))
+            if owner.understanding_registry in SCOPED_SOURCE_REGISTRIES:
+                from .source_passages import passages
+                messages[-1]['citation_passages'] = passages(message.content)
     focus_ref = table.reverse[focus.message_id]
 
     # Authorized spans: the code-owned evidence regions, as token ranges.
@@ -340,6 +343,12 @@ def build_understanding_input(owner, semantic) -> dict:
                                   enum_values=list(argument_enum_values(spec.predicate, argument.name, open_questions)),
                                   description=ARGUMENT_DESCRIPTIONS_V1.get((spec.predicate, argument.name), argument.description)))
         predicates.append(dict(predicate_key=spec.predicate, description=spec.description, arguments=arguments))
+        if owner.understanding_registry in SCOPED_SOURCE_REGISTRIES:
+            from .scope import predicate_description
+            predicates[-1]['description'] = predicate_description(spec.predicate, spec.description)
+            for argument in arguments:
+                if argument['argument_key'] == 'embedding':
+                    argument['description'] = 'Scope of the speech act only; mirror act_scope. An imagined subject does not make the current request imagined.'
 
     return plain_json(dict(
         schema_version=UNDERSTANDING_INPUT_VERSION, protocol=PROTOCOL_V1,
@@ -463,6 +472,10 @@ def compiled_arguments(event, *, tokens, text, entries) -> list[SemanticArgument
     keep_null = set(definition.required_arguments) | set(definition.referent_arguments)
     out = []
     for name, value in sorted(event.arguments.items()):
+        if name == 'embedding' and event.act_scope is not None:
+            from .scope import embedding_for
+            out.append(SemanticArgumentCandidate(name=name, value=embedding_for(event.act_scope)))
+            continue
         if (event.predicate_key == 'dialogue_recall_request' and name == 'answer_ref'
                 and event.arguments['knowledge_status'].value != 'known'):
             # An uncertainty declaration wins over a simultaneously supplied
@@ -482,6 +495,12 @@ def compiled_arguments(event, *, tokens, text, entries) -> list[SemanticArgument
             # the explicit ambiguity as the existing canonical argument unknown.
             compiled = None
         out.append(SemanticArgumentCandidate(name=name, value=compiled))
+    if event.followup is not None:
+        # The same resolved question feeds semantic compilation AND accepted
+        # observations. It is interpretation, never an authorized answer.
+        key = 'topic' if event.predicate_key == 'opinion_request' else 'referent_phrase'
+        out = [SemanticArgumentCandidate(name=a.name, value=event.followup.resolved_question)
+               if a.name == key else a for a in out]
     return out
 
 
@@ -534,6 +553,28 @@ def validate_understanding(raw, payload, entries):
         return dialogue_span(span, entries)
 
     for event in proposal.events:
+        if (event.act_scope is not None or event.subject_mode is not None) and payload['ontology']['predicate_registry_version'] not in SCOPED_SOURCE_REGISTRIES:
+            raise ValueError('speech act scope requires registry v1.10')
+        if event.followup is not None:
+            if payload['ontology']['predicate_registry_version'] not in FOLLOWUP_REGISTRIES:
+                raise ValueError('followup context requires registry v1.9')
+            if event.predicate_key not in ('opinion_request', 'elaboration_request'):
+                raise ValueError('followup context requires conversational predicate')
+            if not event.followup.resolved_question.strip():
+                raise ValueError('empty resolved followup question')
+            if not event.followup.sources and payload['ontology']['predicate_registry_version'] not in SCOPED_SOURCE_REGISTRIES:
+                raise ValueError('empty followup sources require registry v1.10')
+            seen = set()
+            for source in event.followup.sources:
+                check_dialogue_span(source.citation)
+                signature = (source.role, source.citation.message_ref, source.citation.span_ref)
+                if signature in seen:
+                    raise ValueError('duplicate followup source')
+                seen.add(signature)
+                if source.role in ('earlier_position', 'recent_position'):
+                    entry = entries[source.citation.message_ref]
+                    if entry['speaker'] != 'assistant' or source.citation.message_ref == payload['focus']['message_ref']:
+                        raise ValueError('followup position must cite earlier assistant speech')
         spec = predicates.get(event.predicate_key)
         if spec is None:
             raise ValueError('foreign predicate')
@@ -664,6 +705,8 @@ def derived_epistemic_status(event) -> str:
     """``epistemic-status-derivation-v1`` (views and training projection only)."""
     embedding = event.arguments.get('embedding')
     embedded = embedding is not None and embedding.kind == 'enum' and embedding.value != 'direct'
+    if event.act_scope is not None:
+        embedded = event.act_scope != 'current'
     if event.predicate_key == 'unknown' or event.polarity == 'unknown' or embedded:
         return 'uncertain'
     return 'user_claim' if event.predicate_key in _ASSERTIVE else 'expressed'
@@ -925,6 +968,13 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
                                              if addresses(candidate, c, engine.registry, index)}),
             cost_band=_band(features.get(FeatureKey.RESPONSE_COST)),
             risk_band=_band(features.get(FeatureKey.SOFT_RISK_COST))))
+        if owner.understanding_registry == 'argument-kind-registry-v1.13':
+            targets = {target.ref for target in candidate.target_refs}
+            targets.update(ref for obj in action_request.grounded_objects if obj.object_id in targets
+                           for ref in obj.answer_content_refs)
+            views[-1]['answer_content'] = [item.model_dump(mode='json')
+                for item in requirement.realization_content
+                if targets.intersection({item.content_id, *item.represents_refs})]
     # Grounded objects candidates target, so targets are meaningful without IDs.
     objects = []
     by_id = {o.object_id: o for o in action_request.grounded_objects}
@@ -984,7 +1034,7 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
         iterative_planning=False,
         **({'primary_selection_policy': dict(rule='model_choice', direct_focal_coverage='diagnostic_only')}
            if owner.behavior_policy == 'model_policy_selection-v1.1' else {}),
-        **({'policy_guidance': 'policy-guidance-v1.5' if registry in CONVERSATION_REGISTRIES else 'policy-guidance-v1.3',
+        **({'policy_guidance': 'policy-guidance-v1.6' if registry == 'argument-kind-registry-v1.13' else 'policy-guidance-v1.5' if registry in CONVERSATION_REGISTRIES else 'policy-guidance-v1.3',
             'conversation_window': dialogue,
             'optional_exploration_candidate_refs': [v['candidate_ref'] for v, c in zip(views, eligible)
                 if set(OPTIONAL_EXPLORATION_RULE_IDS) & set(c.proposal_rule_ids)]}

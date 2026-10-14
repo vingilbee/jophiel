@@ -87,6 +87,20 @@ def test_playfulness_has_no_effect_without_a_selected_play_action() -> None:
     assert with_play.playfulness_intensity == "light"
 
 
+def test_ambient_play_lets_a_clearly_playful_personality_play_in_ordinary_answers() -> None:
+    """Policy v1.5: high playfulness reaches an answer; never a correction, comfort or a decline."""
+    answer = (MANIFEST["provide_information.answer"],)
+
+    def intensity(value, entries=answer, ambient=True):
+        return compile_delivery_profile(known_personality(CORE, playfulness=value), STATE, entries,
+                                        ambient_play=ambient).controls.playfulness_intensity
+
+    assert [intensity(value) for value in (0.3, 0.58, 0.7, 0.9)] == ["none", "none", "subtle", "light"]
+    assert intensity(0.9, ambient=False) == "none"
+    for key in ("provide_information.correct", "manage_dialogue.repair", "commit_or_coordinate.decline_request"):
+        assert intensity(0.9, entries=(*answer, MANIFEST[key])) == "none", key
+
+
 def test_curiosity_cannot_create_a_question() -> None:
     requests = [compile_request(case_inputs("acknowledge-without-agreement", (),
                                             personality=known_personality(CORE, curiosity=value)))
