@@ -32,6 +32,7 @@ let runner = null
 let motion = null
 let noticing = null
 let sightings = null
+let watching = null
 let manifest = []
 let spawned = false
 let viewer = null
@@ -77,7 +78,7 @@ async function join () {
     // Microsoft sign-in prints a device code once; the token is cached in authCacheDir.
     onMsaCode: (data) => log(`sign in for her account: open ${data.verification_uri} and enter ${data.user_code}`)
   })
-  ;({ runner, motion, noticing, sightings, manifest } = attachSkills(bot, { memoryPath, modes }))
+  ;({ runner, motion, noticing, sightings, watching, manifest } = attachSkills(bot, { memoryPath, modes }))
   runner.on('start', (r) => log(`skill ${r.skill} ${JSON.stringify(r.params)}`))
   noticing.onNotice?.((n) => log(`noticed [${n.urgency}] ${n.kind}: ${n.text}`))
   runner.on('finish', (r) => log(`skill ${r.skill} -> ${r.status}${r.reason ? ` (${r.reason})` : ''} ${JSON.stringify(r.data)}`))
@@ -108,6 +109,7 @@ async function join () {
     runner?.detach()
     noticing?.detach()
     sightings?.detach()
+    watching?.detach()
     viewer?.close()
     viewer = null
     if (quitting) return

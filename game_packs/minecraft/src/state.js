@@ -7,6 +7,7 @@
 
 import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
+import { watchedPlayers } from './watching.js'
 
 const DEG = 180 / Math.PI
 
@@ -136,6 +137,8 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     players_online: Object.keys(bot.players).filter((name) => name !== bot.username),
     // Online but beyond entity range, with where she last saw them (null: not since she joined).
     players_out_of_sight: outOfSight(bot, now.getTime()),
+    // The players she can see, and what they're doing (src/watching.js).
+    players: watchedPlayers(bot),
     version: bot.version,
     dimension: bot.game.dimension,
     game_mode: bot.game.gameMode,

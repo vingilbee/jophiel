@@ -20,6 +20,7 @@ export function describeState (state) {
     `Nearby: ${state.nearby.length ? state.nearby.map((e) => `${e.label} ${where(e)}`).join('; ') : 'nothing within range'}.`,
     `Blocks: ${state.blocks?.length ? state.blocks.map((b) => `${b.name} ${where(b)}`).join('; ') : 'nothing notable close by'}.`
   ]
+  for (const p of state.players ?? []) lines.push(describePlayer(p, state.nearby))
   for (const p of state.players_out_of_sight ?? []) {
     lines.push(p.last_seen
       ? `${p.name} is online but out of sight: last seen at (${p.last_seen.x}, ${p.last_seen.y}, ${p.last_seen.z}), ` +
@@ -28,6 +29,21 @@ export function describeState (state) {
   }
   if (state.noticed?.length) lines.push(`Noticed lately: ${state.noticed.map((n) => n.text).join('; ')}.`)
   return lines.join('\n')
+}
+
+// "tearDrop12 (4 m ahead-left): walking north, towards you; holding stone pickaxe; wearing iron
+// chestplate; looking at oak log 3 m away. Last minute: broke oak log (x3) 5 s ago."
+export function describePlayer (p, nearby = []) {
+  const seen = nearby.find((e) => e.label === p.name)
+  const parts = [p.pose === 'sleeping' ? 'in bed' : p.moving + (p.pose === 'sneaking' ? ', sneaking' : p.pose === 'swimming' ? ', swimming' : '')]
+  parts.push(`holding ${p.holding ? p.holding.replace(/_/g, ' ') : 'nothing'}`)
+  if (p.armor?.length) parts.push(`wearing ${p.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`)
+  if (p.health !== null && p.health !== undefined) parts.push(`${hearts(p.health)} of 10 hearts`)
+  if (p.looking_at) parts.push(`looking at ${p.looking_at.name.replace(/_/g, ' ')} ${p.looking_at.distance} m away`)
+  const recent = p.recent?.length
+    ? ` Last minute: ${p.recent.map((r) => `${r.text} ${r.seconds_ago} s ago`).join('; ')}.`
+    : ''
+  return `${p.name}${seen ? ` (${where(seen)})` : ''}: ${parts.join('; ')}.${recent}`
 }
 
 // Minecraft health is 20 points, shown as 10 hearts: say it the way the player sees it.

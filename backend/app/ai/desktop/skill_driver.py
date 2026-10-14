@@ -59,7 +59,8 @@ DISCOVERIES = frozenset({"village", "spawner", "ore"})
 # cave session she lost 9 hearts and night fell without a word, because these were
 # "notable" and the session was in occasional mode. Urgent ones are danger anyway. A "mode"
 # heads-up is something a background mode did that the user may like to hear (the pack decides).
-WARNINGS = frozenset({"hurt", "night_coming", "hostile_near_player", "mode"})
+# The user getting hit or getting into bed (src/watching.js) is the same kind of moment.
+WARNINGS = frozenset({"hurt", "night_coming", "hostile_near_player", "mode", "player_hurt", "player_sleeping"})
 MODES_KEPT = 5  # what background modes did lately, for her summary
 # She respawns by herself, so a death isn't a reason to stop for the user: "needs_human" this
 # soon after one is overruled and she decides again.
