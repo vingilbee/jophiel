@@ -14,3 +14,18 @@ procs:
   frontend:
     cwd: frontend
     shell: "bun run dev"
+  
+  desktop:
+    cwd: backend
+    shell: "uv run python -m app.ai.desktop.relay"
+
+  # Stage G: Columbina's Minecraft pack. Start by hand once set up (game_packs/minecraft/README.md).
+  minecraft-server:
+    cwd: game_packs/minecraft
+    shell: "node --env-file-if-exists=.env scripts/server.js start"
+    autostart: false
+
+  minecraft-pack:
+    cwd: game_packs/minecraft
+    shell: "node --env-file-if-exists=.env src/index.js"
+    autostart: false

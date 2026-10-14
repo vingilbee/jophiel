@@ -86,7 +86,9 @@ class Settings(BaseSettings):
 
     # --- AI chatbot (LangChain + OpenAI) ---
     # Uses OPENAI_API_KEY below, shared with memory, vision, and speech.
-    chat_model: str = "gpt-4.1"
+    chat_model: str = "gpt-6-luna"
+    # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*).
+    chat_reasoning_effort: str | None = "none"
     # Optional override for the isolated, single-call cognitive inspector.
     cognitive_model: str | None = None
     chat_max_tokens: int = 4096
@@ -105,7 +107,9 @@ class Settings(BaseSettings):
     # --- Long-term memory ---
     long_term_memory_enabled: bool = True
     # A small model extracts durable, explicitly stated facts after a turn.
-    memory_model: str = "gpt-4o-mini"
+    # gpt-4o-mini ignored the rules on real game turns (it saved "the assistant doesn't have the
+    # bread"); gpt-6-luna got 10/10 (2026-10-12). One call per reply, in the memory worker.
+    memory_model: str = "gpt-6-luna"
     memory_embedding_model: str = "text-embedding-3-small"
     memory_retrieval_limit: int = 6
     # Redis is only a wake-up channel. Pending jobs also live in Postgres and
@@ -202,7 +206,7 @@ class Settings(BaseSettings):
     # Voice turns use a faster model than typed chat: opus-4-8's time-to-first
     # -token is fine when you're reading and bad when you're waiting to hear a
     # reply. Set to None to use `chat_model` for voice too.
-    voice_chat_model: str | None = "gpt-4.1-mini"
+    voice_chat_model: str | None = "gpt-6-luna"
     # Per-stage timestamps for voice turns, appended as JSON lines by the
     # browser, API, and worker (see app/services/voice_latency.py). Ids, stage
     # names, and numbers only, never transcript or audio. Read with
@@ -343,6 +347,87 @@ class Settings(BaseSettings):
     cognitive_dialogue_memory_worker_lease_seconds: int = Field(default=120, gt=0)
     cognitive_dialogue_memory_worker_poll_seconds: float = Field(default=2.0, gt=0)
     cognitive_dialogue_memory_max_attempts: int = Field(default=5, gt=0)
+
+    # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md) ---
+    # Off by default: the /api/desktop routes answer 404 and the UI hides the
+    # panel. Enabling it creates no VM and sends no input on its own.
+    desktop_agent_enabled: bool = False
+    # Trusted game profiles. A relative path resolves against the backend root.
+    desktop_profiles_dir: str = "desktop_profiles"
+    # Upper bound for one gameplay session's requested duration.
+    desktop_max_session_seconds: int = Field(default=2 * 60 * 60, gt=0, le=24 * 60 * 60)
+    # Plan bounds (plan §17): steps per plan revision.
+    desktop_plan_max_steps: int = Field(default=12, ge=1, le=50)
+    # Controller relay (plan §5.1): a separate process the game VM dials over
+    # TLS. Bind it to the Mac's LAN address only (e.g. 192.168.1.76), never
+    # 0.0.0.0; the default keeps it on this machine.
+    desktop_controller_bind_host: str = "127.0.0.1"
+    desktop_controller_port: int = Field(default=8765, ge=1, le=65535)
+    # The address the VM dials, shown with pairing codes. Defaults to the bind host.
+    desktop_controller_public_host: str | None = None
+    # The relay's self-signed certificate and key. Relative paths resolve against the backend root.
+    desktop_relay_dir: str = "var/desktop_relay"
+    desktop_pairing_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    desktop_pairing_max_attempts: int = Field(default=5, ge=1, le=20)
+    # Driver model (stage D, plan §8.5): plays one step per call. No fallback:
+    # a missing or failing driver pauses the session.
+    desktop_driver_backend: str = "openai"
+    desktop_driver_model: str = "gpt-6-luna"
+    # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*); "none"
+    # keeps a step to one quick answer instead of seconds of thinking.
+    desktop_driver_reasoning_effort: str | None = "none"
+    desktop_driver_image_detail: str = Field(default="auto", pattern="^(low|high|auto)$")
+    desktop_driver_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    desktop_driver_max_tokens: int = Field(default=400, ge=64, le=2000)
+    # A frame older than this is never decided on.
+    desktop_driver_freshness_ms: int = Field(default=3000, ge=200, le=10_000)
+    # Spending bound: model steps per session before it pauses ("budget").
+    desktop_driver_max_steps: int = Field(default=1500, ge=1, le=100_000)
+    desktop_driver_metrics_path: str = "var/desktop_driver.jsonl"
+    # Opt-in tuning aid: when set, every driver step's frame, prompt and raw
+    # reply are saved here (one folder per session). Off by default: it keeps
+    # screenshots of the VM on disk. Relative paths resolve against the backend root.
+    desktop_driver_debug_dir: str | None = None
+    # Stage D2b: Columbina acting on game events.
+    # Goals she may pick herself per session when playing on her own.
+    desktop_max_auto_goals: int = Field(default=10, ge=0, le=100)
+    # After a goal is done, how long the driver waits for her next one.
+    desktop_planning_wait_seconds: float = Field(default=60.0, ge=5, le=600)
+    # Minimum gap between unprompted messages she sends in occasional mode (a third
+    # of it in commentary mode; needs-you ignores it, danger waits only 8 s).
+    agent_say_min_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
+    # Stage G: game packs. The Minecraft pack (game_packs/minecraft) is her own
+    # player, driven by skills instead of keys. Its API is loopback-only on the
+    # Mac; the token is PACK_API_TOKEN if the pack has one set, else the file the
+    # pack writes at start. Only this user gets the pack (empty = nobody), since
+    # it is one Minecraft account on one machine.
+    minecraft_pack_owner_email: str = ""
+    minecraft_pack_url: str = "http://127.0.0.1:8790"
+    minecraft_pack_token: str = ""
+    minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
+    # Spending bound for skill decisions per session (each is one model call).
+    minecraft_pack_max_decisions: int = Field(default=400, ge=1, le=10_000)
+    # Game learning (services/game_learning.py): skill outcomes and notices are
+    # recorded per session; when a session ends, one reflection call turns them
+    # into an episode, lessons (applied to her hands automatically) and code
+    # proposals (shown on the Learning page, never applied by the app).
+    game_learning_enabled: bool = True
+    # The A/B switch for measuring learning: False keeps recording and
+    # reflecting but leaves lessons out of her hands' prompt.
+    game_learning_apply_lessons: bool = True
+    game_learning_model: str = "gpt-6-luna"
+    # Sent only to models with reasoning controls. Reflection is rare and
+    # benefits from thinking, unlike a per-step driver call.
+    game_learning_reasoning_effort: str | None = "low"
+    # A stretch of play with fewer skill outcomes than this is too short to
+    # learn from (when the session goes offline or ends). A pause, often brief,
+    # waits for a longer stretch so it doesn't split one up.
+    game_learning_min_outcomes: int = Field(default=5, ge=1, le=1000)
+    game_learning_segment_outcomes: int = Field(default=15, ge=1, le=1000)
+    # Lessons shown to her hands per run, and active lessons kept per game.
+    game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
+    game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
+    game_learning_queue_name: str = "macrovision:game-learning:wakeups"
 
 
 @lru_cache

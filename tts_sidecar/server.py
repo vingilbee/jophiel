@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import io
 import os
+import threading
 import wave
+import weakref
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +26,15 @@ from pydantic import BaseModel, Field
 import engine
 
 _state: dict = {}
+
+# One synthesis at a time. The endpoints are sync, so each request runs in its
+# own thread, and the pipeline is not safe to share: two overlapping requests
+# (a barge-in's next clause while the cut-off one is still generating, or a
+# spoken nudge during a reply) wedged it and every later request hung until
+# the caller's timeout. A request that can't get the model in time is a 503,
+# which the backend turns into a text-only reply.
+_synth_lock = threading.Lock()
+LOCK_WAIT_SECONDS = 20.0
 
 
 def _rss_mb() -> float:
@@ -84,19 +95,39 @@ def tts(req: SpeakRequest) -> StreamingResponse:
     # Pull the first chunk eagerly so the sample rate is known for the header,
     # then drain the *same* generator -- re-calling synthesize() would redo the
     # whole utterance.
-    gen = engine.synthesize(pipeline, req.text, streaming=req.streaming)
-    first = next(gen, None)
+    if not _synth_lock.acquire(timeout=LOCK_WAIT_SECONDS):
+        raise HTTPException(status_code=503, detail="Busy synthesizing")
+    try:
+        gen = engine.synthesize(pipeline, req.text, streaming=req.streaming)
+        first = next(gen, None)
+    except BaseException:
+        _synth_lock.release()
+        raise
     if first is None:
+        _synth_lock.release()
         raise HTTPException(status_code=500, detail="Synthesis produced no audio")
     sample_rate, first_chunk = first
+    once = threading.Lock()
+
+    def release() -> None:
+        if once.acquire(blocking=False):
+            gen.close()
+            _synth_lock.release()
 
     def body():
-        yield first_chunk.tobytes()
-        for _sr, chunk in gen:
-            yield chunk.tobytes()
+        try:
+            yield first_chunk.tobytes()
+            for _sr, chunk in gen:
+                yield chunk.tobytes()
+        finally:
+            release()
 
+    # Released when the stream ends, or when the client goes away: the body is
+    # then dropped, and a body that never started has no ``finally`` to run.
+    stream = body()
+    weakref.finalize(stream, release)
     return StreamingResponse(
-        body(),
+        stream,
         media_type="application/octet-stream",
         headers={"X-Sample-Rate": str(sample_rate), "X-Audio-Format": "pcm_s16le_mono"},
     )
@@ -110,9 +141,14 @@ def tts_wav(req: SpeakRequest):
         raise HTTPException(status_code=503, detail="Model still loading")
 
     sample_rate, parts = None, []
-    for sr, chunk in engine.synthesize(pipeline, req.text, streaming=False):
-        sample_rate = sr
-        parts.append(chunk.tobytes())
+    if not _synth_lock.acquire(timeout=LOCK_WAIT_SECONDS):
+        raise HTTPException(status_code=503, detail="Busy synthesizing")
+    try:
+        for sr, chunk in engine.synthesize(pipeline, req.text, streaming=False):
+            sample_rate = sr
+            parts.append(chunk.tobytes())
+    finally:
+        _synth_lock.release()
     if not parts:
         raise HTTPException(status_code=500, detail="Synthesis produced no audio")
 

@@ -19,6 +19,7 @@ export interface CaptureFrame {
 
 export interface MicCapture {
   stop: () => void
+  setMuted: (muted: boolean) => void
   resume: () => Promise<boolean>
   readonly sampleRate: number
   readonly active: boolean
@@ -62,6 +63,9 @@ export async function startCapture(
 
   let stopped = false
   return {
+    setMuted(muted) {
+      stream.getAudioTracks().forEach((track) => { track.enabled = !muted })
+    },
     sampleRate: ctx.sampleRate,
     get active() {
       return !stopped && stream.active && stream.getAudioTracks().some((t) => t.readyState === 'live')

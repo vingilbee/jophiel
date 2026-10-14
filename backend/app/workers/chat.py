@@ -23,6 +23,7 @@ from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
+from app.services import desktop_game
 from app.services import asset_store, chat as chat_service, google_account
 from app.services import cognitive_shadow
 from app.services import dialogue_memory
@@ -79,6 +80,44 @@ def request_cancel(turn_id: uuid.UUID | str) -> None:
 def _cancelled(turn_id: uuid.UUID | str) -> bool:
     r = _redis()
     return bool(r and r.exists(cancel_key(turn_id)))
+
+
+# How often a wait on the model or the speech sidecar looks for a stop, so a
+# barge-in ends the turn at once instead of when the next token or chunk lands.
+CANCEL_POLL_SECONDS = 0.2
+# The sidecar's first chunk normally comes in ~1-2 s, and later chunks faster.
+# Silence beyond these means it is wedged: finish the turn as text instead of
+# hanging on the HTTP timeout (60 s) with the user stuck on "thinking".
+TTS_FIRST_CHUNK_SECONDS = 12.0
+TTS_STALL_SECONDS = 8.0
+
+
+class _Stopped(Exception):
+    """The turn was stopped while waiting for the next item."""
+
+
+async def _next_unless(iterator, should_stop, limit: float | None = None):
+    """The iterator's next item, unless ``should_stop()`` turns true first
+    (raises ``_Stopped``) or ``limit`` seconds pass (raises ``TimeoutError``).
+    End of iteration raises ``StopAsyncIteration`` as usual. The pending read
+    is cancelled on the way out, so the iterator can be closed right after."""
+    task = asyncio.ensure_future(iterator.__anext__())
+    waited = 0.0
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=CANCEL_POLL_SECONDS)
+            if done:
+                return task.result()
+            waited += CANCEL_POLL_SECONDS
+            if should_stop():
+                raise _Stopped
+            if limit is not None and waited >= limit:
+                raise TimeoutError
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
 
 
 def event_bus_available() -> bool:
@@ -170,6 +209,10 @@ async def _generate(job: ChatJob) -> None:
             raise
 
     long_term_memory, _ = await asyncio.gather(*background)
+    game = await asyncio.to_thread(desktop_game.summary_for, job.user_id)
+    spoke_at = payload.get("spoke_at")
+    picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
+               if game is not None and spoke_at else None)
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -187,6 +230,12 @@ async def _generate(job: ChatJob) -> None:
         long_term_memory=long_term_memory,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
+        game=game.summary if game else None,
+        game_activity=game.activity if game else None,
+        game_vm=game.vm if game else False,
+        spoke_at=spoke_at,
+        game_picture=picture[0] if picture else None,
+        game_picture_note=picture[1] if picture else None,
     )
     mark("context_ready", model=settings.voice_chat_model or settings.chat_model)
     turn_id = job.turn_id
@@ -200,12 +249,15 @@ async def _generate(job: ChatJob) -> None:
     spoken_end = 0
 
     speech_cancelled = False
+    speech_failed = False  # the sidecar went silent: the rest of the reply is text only
 
     async def speak(clause: str) -> None:
-        nonlocal audio_started, clauses_spoken, speech_cancelled, spoken_end
+        nonlocal audio_started, clauses_spoken, speech_cancelled, speech_failed, spoken_end
         # A barge-in must silence the reply now, not after the clause being
-        # synthesized finishes: check the fence before every chunk, and close
-        # the sidecar stream so its next request isn't queued behind this one.
+        # synthesized finishes: wait for each chunk only while not stopped, and
+        # close the sidecar stream so its next request isn't queued behind this one.
+        if speech_failed:
+            return
         if speech_cancelled or _cancelled(turn_id):
             speech_cancelled = True
             return
@@ -219,8 +271,23 @@ async def _generate(job: ChatJob) -> None:
             mark("tts_request_started")
         announced = False
         async with contextlib.aclosing(tts_service.synthesize(clause)) as stream:
-            async for pcm in stream:
-                if _cancelled(turn_id):
+            limit = TTS_FIRST_CHUNK_SECONDS
+            while True:
+                try:
+                    pcm = await _next_unless(stream, lambda: _cancelled(turn_id), limit)
+                except StopAsyncIteration:
+                    break
+                except _Stopped:
+                    speech_cancelled = True
+                    return
+                except TimeoutError:
+                    speech_failed = True
+                    mark("tts_stalled", seconds=limit, clause_index=segment)
+                    logger.warning("TTS sidecar sent nothing for %.0f s on turn %s; finishing as text",
+                                   limit, turn_id)
+                    return
+                limit = TTS_STALL_SECONDS
+                if _cancelled(turn_id):  # chunks that arrive back to back never wait
                     speech_cancelled = True
                     return
                 first_audio = not audio_started
@@ -273,9 +340,15 @@ async def _generate(job: ChatJob) -> None:
     sticker_buffer = ""
     first_token = True
     first_subagent = True
+    events = stream_chat(messages=history, context=context, on_stage=lambda stage: mark(stage))
     try:
-        async for event in stream_chat(messages=history, context=context,
-                                       on_stage=lambda stage: mark(stage)):
+        while True:
+            # Wait for the model only while the turn isn't stopped: a tool call
+            # or a slow stream must not hold a barge-in for its whole duration.
+            try:
+                event = await _next_unless(events, lambda: _cancelled(turn_id) or lost_claim.is_set())
+            except (StopAsyncIteration, _Stopped):
+                break
             if _cancelled(turn_id) or lost_claim.is_set():
                 break
             if event.get("type") == "token":
@@ -399,6 +472,10 @@ async def _generate(job: ChatJob) -> None:
         except Exception:
             logger.exception("Could not persist failure outcome for chat job %s", job.id)
     finally:
+        # Stopped mid-stream: close the model run now (its pending read was
+        # already cancelled), not whenever the generator is collected.
+        with contextlib.suppress(Exception):
+            await events.aclose()
         heartbeat.cancel()
         try:
             await heartbeat

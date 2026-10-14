@@ -9,6 +9,7 @@ it stopped (an untagged one could settle a newer, barge-in turn).
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from unittest.mock import Mock
 
@@ -162,7 +163,7 @@ def _voice_socket(socket_client, monkeypatch, transcript: str):
     client, user, chat = socket_client
     heard: list[tuple[bytes, int]] = []
 
-    async def transcribe(pcm: bytes, sample_rate: int) -> str:
+    async def transcribe(pcm: bytes, sample_rate: int, *, minecraft: bool = False) -> str:
         heard.append((pcm, sample_rate))
         return transcript
 
@@ -418,11 +419,91 @@ def test_each_clause_announces_its_span_of_the_reply(voice_turn) -> None:
     result = voice_turn()
     segments = [e for e in result["events"] if e["type"] == "audio_segment"]
     reply = "".join(REPLY)
-    assert [e["segment"] for e in segments] == [0, 1, 2]
+    # The first sentence is its own clause; later ones join until a clause is
+    # long enough to cover the next one's synthesis start-up.
+    assert [e["segment"] for e in segments] == [0, 1]
     spans = [reply[e["text_start"]:e["text_end"]].strip() for e in segments]
-    assert spans == [token.strip() for token in REPLY]
+    assert spans == [REPLY[0].strip(), (REPLY[1] + REPLY[2]).strip()]
     assert segments[-1]["text_end"] == len(reply.rstrip())
     # Each label precedes its clause's audio and follows audio_start.
     kinds = [e["type"] for e in result["events"] if e["type"].startswith("audio")]
     assert kinds[:3] == ["audio_start", "audio_segment", "audio_chunk"]
     assert all(e["turn_id"] == result["turn_id"] for e in segments)
+
+
+def test_a_long_silent_wait_before_speaking_still_makes_a_turn(socket_client, monkeypatch) -> None:
+    """Listening can stay open for minutes (e.g. watching her play). The words
+    at the end must reach transcription; the oldest silence is what gets cut."""
+    import time
+
+    client, chat, headers, heard = _voice_socket(socket_client, monkeypatch, transcript="Collect some wood")
+    add_message = Mock(side_effect=RuntimeError("persisted"))  # end the task here
+    monkeypatch.setattr(chat.chat_service, "add_message", add_message)
+    monkeypatch.setattr(chat.chat_service, "get_or_create_conversation", Mock())
+
+    turn = str(uuid.uuid4())
+    silence, words = b"\x00\x00" * 16000, b"\x05\x00" * 16000  # 1 s each
+    with client.websocket_connect("/api/chat/ws", headers=headers) as ws:
+        assert ws.receive_json()["type"] == "state"
+        ws.send_json({"type": "voice_start", "turn_id": turn, "sample_rate": 16000})
+        for _ in range(65):
+            ws.send_bytes(silence)
+        ws.send_bytes(words)
+        ws.send_json({"type": "voice_end", "turn_id": turn})
+        transcript = _receive_until(ws, lambda f: f["type"] in {"done", "transcript", "error"})
+        deadline = time.monotonic() + 2
+        while not add_message.called and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+    assert transcript["type"] == "transcript"
+    pcm, rate = heard[0]
+    assert len(pcm) == chat.MAX_UTTERANCE_BYTES and pcm.endswith(words)
+    assert add_message.call_args.kwargs["content"] == "Collect some wood"
+
+
+def test_a_done_with_nothing_open_is_answered_not_ignored(socket_client, monkeypatch) -> None:
+    """The client waits on every voice_end; silence from the server froze it in "thinking"."""
+    client, chat, headers, _heard = _voice_socket(socket_client, monkeypatch, transcript="")
+    with client.websocket_connect("/api/chat/ws", headers=headers) as ws:
+        assert ws.receive_json()["type"] == "state"
+        ws.send_json({"type": "voice_end", "turn_id": str(uuid.uuid4())})
+        frame = _receive_until(ws, lambda f: f["type"] == "error")
+    assert "say it again" in frame["detail"]
+
+
+def test_a_wedged_sidecar_finishes_the_turn_as_text_quickly(voice_turn, monkeypatch) -> None:
+    """Seen live: the sidecar stopped answering and every turn sat on its 60 s
+    HTTP timeout. Now a silent sidecar is given up on and the reply is text."""
+    calls: list[str] = []
+
+    async def wedged(text: str):
+        calls.append(text)
+        await asyncio.sleep(3600)
+        yield b""
+
+    monkeypatch.setattr(chat_worker.tts_service, "synthesize", wedged)
+    monkeypatch.setattr(chat_worker, "TTS_FIRST_CHUNK_SECONDS", 0.4)
+    started = time.monotonic()
+    result = voice_turn()
+    assert time.monotonic() - started < 5
+    assert calls == [calls[0]]  # no further clause waits on a sidecar known to be down
+    assert result["events"][-1]["type"] == "done"
+    assert "".join(e["content"] for e in result["events"] if e["type"] == "token") == "".join(REPLY)
+
+
+def test_a_stop_ends_a_turn_waiting_on_the_model(voice_turn, monkeypatch) -> None:
+    """A barge-in while the model is in a long tool call ends the turn at once."""
+    stop = {"now": False}
+
+    async def slow_model(*, messages, context, **_):
+        yield {"type": "token", "content": "One moment. "}
+        stop["now"] = True
+        await asyncio.sleep(3600)
+        yield {"type": "token", "content": "never"}
+
+    monkeypatch.setattr(chat_worker, "stream_chat", slow_model)
+    monkeypatch.setattr(chat_worker, "_cancelled", lambda turn_id: stop["now"])
+    started = time.monotonic()
+    result = voice_turn()
+    assert time.monotonic() - started < 5
+    assert result["events"][-1]["type"] == "stopped"

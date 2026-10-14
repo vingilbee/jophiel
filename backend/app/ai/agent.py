@@ -31,6 +31,11 @@ from app.core.config import get_settings
 BASE_TOOLS: list[Any] = []
 
 
+def supports_reasoning_controls(model: str) -> bool:
+    """Model families that accept ``reasoning_effort`` (others reject it)."""
+    return model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4"))
+
+
 @lru_cache
 def get_chat_model(model: str | None = None) -> ChatOpenAI:
     """The OpenAI chat model. Streaming is driven by calling ``.astream``.
@@ -42,10 +47,15 @@ def get_chat_model(model: str | None = None) -> ChatOpenAI:
     Sampling parameters are intentionally left at provider defaults.
     """
     settings = get_settings()
+    model_id = model or settings.chat_model
     kwargs: dict[str, Any] = {
-        "model": model or settings.chat_model,
+        "model": model_id,
         "max_tokens": settings.chat_max_tokens,
     }
+    # Reasoning-capable models (e.g. gpt-6-luna) would otherwise think for
+    # seconds before the first word; conversation wants the quick reply.
+    if settings.chat_reasoning_effort and supports_reasoning_controls(model_id):
+        kwargs["reasoning_effort"] = settings.chat_reasoning_effort
     if settings.openai_api_key:
         kwargs["api_key"] = settings.openai_api_key
     return ChatOpenAI(**kwargs)

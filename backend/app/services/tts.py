@@ -42,6 +42,10 @@ _MIN_CLAUSE_CHARS = 12
 # sentence or markdown-free explanation; emitting at a word boundary keeps
 # time-to-first-speech bounded without feeding TTS broken word fragments.
 _MAX_CLAUSE_CHARS = 96
+# After the first clause: long enough that its audio covers the next clause's
+# setup time (measured ~0.7-1.4 s on the M1, RTF ~0.85 with other load).
+_LATER_MIN_CLAUSE_CHARS = 60
+_LATER_MAX_CLAUSE_CHARS = 220
 
 def _sample_aligned(chunks: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
     """Re-chunk a byte stream so every yielded piece has an even length.
@@ -68,8 +72,15 @@ def _sample_aligned(chunks: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
 def clause_chunker(
     min_chars: int = _MIN_CLAUSE_CHARS,
     max_chars: int = _MAX_CLAUSE_CHARS,
+    later_min_chars: int = _LATER_MIN_CLAUSE_CHARS,
+    later_max_chars: int = _LATER_MAX_CLAUSE_CHARS,
 ):
     """Accumulate streamed tokens, yielding whole clauses.
+
+    The first clause is short so audio starts soon. Later ones are longer:
+    each clause pays ~1 s of fixed sidecar setup before its first byte, and
+    clauses are synthesized one after another, so a short clause's audio runs
+    out before the next one starts and the reply plays in cut-up pieces.
 
     Usage:
         feed, flush = clause_chunker()
@@ -80,34 +91,35 @@ def clause_chunker(
             ...
     """
     buf = ""
+    emitted = 0
 
     def feed(token: str) -> Iterable[str]:
-        nonlocal buf
+        nonlocal buf, emitted
         buf += token
         while True:
-            m = _CLAUSE_END.search(buf)
-            if m is None:
-                if len(buf) >= max_chars:
-                    split = buf.rfind(" ", 0, max_chars + 1)
-                    if split < min_chars:
-                        split = max_chars
+            lo, hi = (min_chars, max_chars) if emitted == 0 else (later_min_chars, later_max_chars)
+            # The first boundary that makes a long enough clause. Shorter ones
+            # (an abbreviation, a decimal point, a brief phrase) are skipped.
+            end = next(
+                (m.end() for m in _CLAUSE_END.finditer(buf) if len(buf[: m.end()].strip()) >= lo),
+                None,
+            )
+            if end is None:
+                if len(buf) >= hi:
+                    split = buf.rfind(" ", 0, hi + 1)
+                    if split < lo:
+                        split = hi
                     clause = buf[:split].strip()
                     buf = buf[split:].lstrip()
                     if clause:
+                        emitted += 1
                         yield clause
                     continue
                 return
-            head, rest = buf[: m.end()], buf[m.end() :]
-            if len(head.strip()) < min_chars:
-                # Too short to stand alone (an abbreviation, a decimal point).
-                # Keep scanning past this boundary instead of emitting it.
-                nxt = _CLAUSE_END.search(buf, m.end())
-                if nxt is None:
-                    return
-                head, rest = buf[: nxt.end()], buf[nxt.end() :]
-            clause = head.strip()
-            buf = rest
+            clause = buf[:end].strip()
+            buf = buf[end:]
             if clause:
+                emitted += 1
                 yield clause
 
     def flush() -> Iterable[str]:

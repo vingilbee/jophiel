@@ -1216,3 +1216,395 @@ event.listen(
     CognitiveDialogueMemorySnapshot.__table__, "after_create",
     DDL(DIALOGUE_SNAPSHOT_GUARD_DDL).execute_if(dialect="postgresql"),
 )
+
+
+# --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §6, §17) -------
+
+DESKTOP_SESSION_STATES = ("starting", "running", "paused", "manual", "disconnected", "ended", "failed")
+DESKTOP_TERMINAL_STATES = ("ended", "failed")
+
+
+class DesktopEnvironment(Base):
+    """A controlled desktop (v1: the game VM) owned by one user.
+
+    Connection health and session state are separate: an environment can be
+    online with no session. Stage B adds the controller's device credential and
+    pairing; until then environments are registered directly by their owner.
+    """
+
+    __tablename__ = "desktop_environments"
+
+    @property
+    def capture_confirmed(self) -> bool:
+        """The connected controller has acknowledged the current capture setting."""
+        return self.status == "online" and self.capture_confirmed_epoch == self.capture_epoch
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    hosting_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="local_vm", server_default="local_vm")
+    guest_os: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Trusted policy: the profile ids this environment may run. Never model-supplied.
+    allowed_profile_ids: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="offline", server_default="offline")
+    controller_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Device credential from pairing: only its SHA-256 is stored. Re-pairing
+    # replaces it, which locks the previous controller out.
+    controller_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    controller_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Screen capture (plan §10, §23): off until the owner allows it. Every
+    # change bumps ``capture_epoch``; frames carry the epoch they were taken
+    # under, and the controller reports the epoch it is obeying
+    # (``capture_confirmed_epoch``), so "off" can be shown as confirmed.
+    capture_gate: Mapped[str] = mapped_column(String(16), nullable=False, default="blocked", server_default="blocked")
+    capture_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    capture_confirmed_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # "desktop" (the VM's whole screen) or "game_window" (the profile's game only).
+    capture_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="desktop", server_default="desktop")
+    # The controller's last reason for having or not having a picture.
+    target_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The game's input mode the controller last reported ("playing", "menu", ...).
+    input_context: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # game_pack: a game pack service on this machine (stage G), not a VM.
+        CheckConstraint(
+            "hosting_kind IN ('local_vm', 'cloud_vm', 'game_pack')", name="ck_desktop_environments_hosting_kind"
+        ),
+        CheckConstraint("status IN ('offline', 'online')", name="ck_desktop_environments_status"),
+        CheckConstraint(
+            "capture_gate IN ('allowed', 'blocked', 'manual_auth')", name="ck_desktop_environments_capture_gate"
+        ),
+        CheckConstraint(
+            "capture_scope IN ('desktop', 'game_window')", name="ck_desktop_environments_capture_scope"
+        ),
+    )
+
+
+class DesktopPairing(Base):
+    """A one-time pairing code for an environment (plan §10: expiring,
+    single-use, bound to the user who created it).
+
+    The relay needs the code itself to check the controller's proof, so it is
+    stored until the pairing is used or dies, then cleared. ``code_lookup`` is
+    how the relay finds the row without the controller ever sending the code.
+    """
+
+    __tablename__ = "desktop_pairings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    code_lookup: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class DesktopSession(Base):
+    """One gameplay session: lifecycle, input ownership, and the current plan.
+
+    ``state_revision`` is the compare-and-swap counter for lifecycle changes;
+    ``execution_generation`` fences input (bumped by anything that stops it);
+    ``plan_revision`` is bumped only by a plan replace, never by an append.
+    """
+
+    __tablename__ = "desktop_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    profile_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    state_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    reason_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    control_owner: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
+    execution_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    plan_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_step_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    current_step_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    driver_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    commentary_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="occasional", server_default="occasional"
+    )
+    # When a goal is done: "continue" = Columbina picks the next goal herself;
+    # "stop" = she says so and the session pauses.
+    autonomy: Mapped[str] = mapped_column(String(16), nullable=False, default="continue", server_default="continue")
+    max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Retried start requests (e.g. a repeated tool call) return the same session.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('starting', 'running', 'paused', 'manual', 'disconnected', 'ended', 'failed')",
+            name="ck_desktop_sessions_state",
+        ),
+        CheckConstraint("control_owner IN ('none', 'gameplay', 'manual')", name="ck_desktop_sessions_control_owner"),
+        CheckConstraint(
+            "commentary_mode IN ('quiet', 'occasional', 'commentary')", name="ck_desktop_sessions_commentary_mode"
+        ),
+        CheckConstraint("autonomy IN ('continue', 'stop')", name="ck_desktop_sessions_autonomy"),
+        # One live session per environment: concurrent starts cannot both win.
+        Index(
+            "uq_desktop_sessions_active_environment",
+            "environment_id",
+            unique=True,
+            postgresql_where=text("state NOT IN ('ended', 'failed')"),
+        ),
+        Index(
+            "uq_desktop_sessions_owner_idempotency",
+            "owner_user_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+
+class AgentEventJob(Base):
+    """Something that should wake Columbina without a user message (plan §8.2).
+
+    One *pending* job per ``(source, dedupe_key)`` (e.g. per desktop session):
+    new events append their reason to it instead of queueing a second turn. A
+    worker claims it with a lease, runs one background turn, and marks it
+    done. Postgres is authoritative; Redis only wakes the worker.
+    """
+
+    __tablename__ = "agent_event_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    reasons: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed')", name="ck_agent_event_jobs_status"
+        ),
+        Index(
+            "uq_agent_event_jobs_pending", "source", "dedupe_key",
+            unique=True, postgresql_where=text("status = 'pending'"),
+        ),
+        Index("ix_agent_event_jobs_claim", "status", "not_before"),
+    )
+
+
+class DesktopSessionEvent(Base):
+    """Bounded, persisted lifecycle/plan history. High-rate decision events
+    never land here (plan §17 Events)."""
+
+    __tablename__ = "desktop_session_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(String(48), nullable=False)
+    state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_desktop_session_events_session_id", "session_id", "id"),)
+
+
+# --------------------------------------------------------------------------- #
+# Game learning: experience -> reflection -> lessons / proposals
+# --------------------------------------------------------------------------- #
+
+
+class GameExperience(Base):
+    """One thing that happened in a game session, recorded by code, never by a
+    model: a skill's outcome, something the pack noticed, the lessons in her
+    hands' prompt when a run started. Append-only; the raw material reflection
+    learns from, and what measuring learning counts."""
+
+    __tablename__ = "game_experiences"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('skill_outcome', 'notice', 'lessons_applied')", name="ck_game_experiences_kind"
+        ),
+        Index("ix_game_experiences_session", "session_id", "id"),
+        Index("ix_game_experiences_user_game", "user_id", "game", "id"),
+    )
+
+
+class GamePlayerLink(Base):
+    """Which player in a game is the user ("tearDrop12" in Minecraft), so she knows who "me" is
+    whoever else is online, and remembers play with the user by name. Set when the user says so."""
+
+    __tablename__ = "game_player_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    player_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("user_id", "game", name="uq_game_player_links_user_game"),)
+
+
+class GameLesson(Base):
+    """Something she learned about playing a game: when <situation>, <advice>.
+
+    Level 1 learning, applied automatically: a ``skill`` lesson (how an action
+    behaves) goes to her hands' prompt; a ``plan`` lesson (what to do, in what
+    order, when) goes to Columbina's game summary, where she sets goals. A lesson
+    starts as ``trial`` and earns trust from evidence: each reflection that
+    finds a later session supporting it adds support, contradicting it adds
+    contradiction. Every count is backed by experience ids, so a model's guess
+    never becomes a lesson on its own."""
+
+    __tablename__ = "game_lessons"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    situation: Mapped[str] = mapped_column(Text, nullable=False)
+    advice: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[str] = mapped_column(String(8), nullable=False, default="skill", server_default="skill")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="trial", server_default="trial")
+    support_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    contradict_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # [{"session_id", "verdict": "new"|"supports"|"contradicts", "experience_ids": [...], "at"}]
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('trial', 'confirmed', 'retired')", name="ck_game_lessons_status"),
+        CheckConstraint("level IN ('skill', 'plan')", name="ck_game_lessons_level"),
+        UniqueConstraint("user_id", "game", "normalized_key", name="uq_game_lessons_key"),
+    )
+
+
+class GameProposal(Base):
+    """Level 3 learning: a change to the game code she suggests (a skill that
+    fails for reasons she can't fix by choosing differently, a missing skill).
+    Never applied by the app: the user reviews it and hands it to a coding
+    agent. Repeats add evidence to the same proposal instead of a new one."""
+
+    __tablename__ = "game_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    area: Mapped[str] = mapped_column(String(64), nullable=False)
+    problem: Mapped[str] = mapped_column(Text, nullable=False)
+    suggestion: Mapped[str] = mapped_column(Text, nullable=False)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # [{"session_id", "experience_ids": [...], "examples": [outcome lines], "at"}]
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    user_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'accepted', 'implemented', 'rejected')", name="ck_game_proposals_status"
+        ),
+        UniqueConstraint("user_id", "game", "normalized_key", name="uq_game_proposals_key"),
+    )
+
+
+class GameReflectionJob(Base):
+    """One reflection per stretch of play: the experiences after
+    ``from_experience_id`` up to ``up_to_experience_id``. Queued in the
+    transaction that takes the session out of play (paused, offline, ended),
+    since a session is rarely ended outright. Leased like the other job
+    tables; Postgres is authoritative."""
+
+    __tablename__ = "game_reflection_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The stretch reflected on: experiences with from < id <= up_to (from 0 = the session's start).
+    from_experience_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    up_to_experience_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the reflection did: counts and ids, for the learning page and reports.
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'done', 'skipped', 'failed')", name="ck_game_reflection_jobs_status"
+        ),
+        Index("ix_game_reflection_jobs_claim", "status", "created_at"),
+        UniqueConstraint("session_id", "up_to_experience_id", name="uq_game_reflection_jobs_segment"),
+    )

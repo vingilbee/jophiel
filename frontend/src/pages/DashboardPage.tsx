@@ -5,6 +5,7 @@ import { SenseStrip } from '../components/SenseStrip'
 import { VoiceOrb } from '../components/VoiceOrb'
 import { heardCut } from '../audio/heardText'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
+import { DesktopSessionPanel } from '../components/DesktopSessionPanel'
 import { useAwareness } from '../hooks/useAwareness'
 import { useScreenSense } from '../hooks/useScreenSense'
 import { useVoiceAgent, type VoiceMessage } from '../hooks/useVoiceAgent'
@@ -250,6 +251,7 @@ export function DashboardPage() {
             eyeOpening={eye.status === 'opening'}
             eyeError={eye.error}
           />
+          <DesktopSessionPanel />
 
           <section className="flex flex-col rounded-2xl border border-[#D9E8F6] bg-white/90 p-4 shadow-[0_8px_24px_rgba(35,49,79,0.04)] backdrop-blur-sm">
             <div className="flex items-center justify-between">

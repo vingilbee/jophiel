@@ -1,0 +1,27 @@
+{
+  "name": "columbina-minecraft-pack",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "state": "node --env-file-if-exists=.env src/print_state.js",
+    "server:setup": "node --env-file-if-exists=.env scripts/server.js setup",
+    "server:start": "node --env-file-if-exists=.env scripts/server.js start",
+    "smoke": "node scripts/smoke.js",
+    "check": "node --env-file-if-exists=.env src/check.js",
+    "test": "node --test test/*.test.js",
+    "itest": "node --test --test-concurrency=1 --test-timeout=600000 test/integration/*.itest.js",
+    "skill": "node --env-file-if-exists=.env src/skill_cli.js"
+  },
+  "dependencies": {
+    "express": "4.22.3",
+    "minecraft-protocol": "1.68.0",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "prismarine-viewer": "1.33.0",
+    "socket.io": "4.8.4"
+  },
+  "devDependencies": {
+    "flying-squid": "1.12.0"
+  }
+}

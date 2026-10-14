@@ -23,13 +23,14 @@ Users with nothing available skip all of it and get the cached, tool-less agent.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
-from langchain_core.messages import AIMessageChunk, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -41,6 +42,7 @@ from app.ai.prompts import build_system_prompt
 from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
+from app.ai.tools.desktop import build_desktop_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -132,6 +134,18 @@ def _build_inputs(
         SystemMessage(build_system_prompt(context, list(specs))),
         *to_lc_messages(messages),
     ]
+    if context.game_picture is not None and lc_messages and isinstance(lc_messages[-1], HumanMessage):
+        # Her game as the user saw it when they spoke, on the in-flight message
+        # only (never persisted): she sees it without a tool round trip.
+        last = lc_messages[-1]
+        text = last.content if isinstance(last.content, str) else extract_text(last.content)
+        lc_messages[-1] = HumanMessage(content=[
+            {"type": "text", "text": text},
+            {"type": "text", "text": context.game_picture_note or "[Your game when the user spoke.]"},
+            {"type": "image_url", "image_url": {
+                "url": "data:image/jpeg;base64," + base64.b64encode(context.game_picture).decode(),
+                "detail": "low"}},
+        ])
     return {"messages": lc_messages}
 
 
@@ -166,6 +180,10 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         direct_tools.append(
             build_look_at_screen(context.user_id, context.screen_image_id)
         )
+    # The game tools: same exception as the eye (few, cheap, latency-sensitive),
+    # and only for a user with a game VM.
+    if context.game is not None:
+        direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at))
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)

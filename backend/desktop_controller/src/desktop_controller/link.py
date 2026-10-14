@@ -1,0 +1,349 @@
+"""The controller <-> relay link: messages and pairing proofs (plan §5.1, §10, §19).
+
+Shared by both ends, so the relay and the guest controller cannot disagree on
+the wire format or the proof math.
+
+Pairing, in one paragraph. The relay uses a self-signed certificate. The
+first time a controller connects it cannot verify that certificate, so the
+user's one-time pairing code does the verifying instead: the controller sends
+``HMAC(code, "client" | certificate fingerprint it saw | nonce)``, never the
+code. The real relay recomputes that with its own fingerprint; a machine in
+the middle has a different certificate, so the proof it relays fails, and it
+cannot forge one without the code. The relay answers with the mirror proof
+(``"server"``), which only a holder of the code can produce, and only then
+does the controller pin the certificate and keep the device token it was
+given. Codes carry 60 bits, so the proof can't be brute-forced in the minutes
+a pairing lives.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import re
+import secrets
+from typing import Annotated, Literal, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+PROTOCOL = "desktop-link/1"
+HEARTBEAT_SECONDS = 2.0
+# While a session is set up, beats come faster so the lease can stay short.
+HEARTBEAT_ACTIVE_SECONDS = 0.4
+LEASE_MS = 1500
+# The relay drops a controller after this long without a heartbeat.
+HEARTBEAT_TIMEOUT_SECONDS = 6.0
+
+# Crockford base32 without the look-alikes: no I, L, O, U.
+_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_CODE_CHARS = 12  # 60 bits
+_CODE_SHAPE = re.compile(rf"^[{_ALPHABET}]{{{_CODE_CHARS}}}$")
+
+
+# --------------------------------------------------------------------------- #
+# Pairing codes and proofs
+# --------------------------------------------------------------------------- #
+
+
+def new_pairing_code() -> str:
+    """A fresh code, formatted for reading aloud/typing: ``ABCD-EFGH-JKMN``."""
+    raw = "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_CHARS))
+    return "-".join(raw[i:i + 4] for i in range(0, _CODE_CHARS, 4))
+
+
+def normalize_code(code: str) -> str:
+    """Accept what people type: any case, spaces or dashes, and O/I/L as 0/1/1."""
+    cleaned = re.sub(r"[\s-]", "", code).upper().translate(str.maketrans("OIL", "011"))
+    if not _CODE_SHAPE.match(cleaned):
+        raise ValueError("a pairing code is 12 letters and digits, like ABCD-EFGH-JKMN")
+    return cleaned
+
+
+def code_lookup(code: str) -> str:
+    """How the relay finds the pairing without receiving the code itself."""
+    return hashlib.sha256(b"desktop-link/1|lookup|" + normalize_code(code).encode()).hexdigest()
+
+
+def _proof(code: str, role: str, fingerprint: str, nonce: str) -> str:
+    message = f"{PROTOCOL}|{role}|{fingerprint.lower()}|{nonce}".encode()
+    return hmac.new(normalize_code(code).encode(), message, hashlib.sha256).hexdigest()
+
+
+def client_proof(code: str, fingerprint: str, nonce: str) -> str:
+    return _proof(code, "client", fingerprint, nonce)
+
+
+def server_proof(code: str, fingerprint: str, nonce: str) -> str:
+    return _proof(code, "server", fingerprint, nonce)
+
+
+def proofs_match(expected: str, given: str) -> bool:
+    return hmac.compare_digest(expected.encode(), given.encode())
+
+
+def cert_fingerprint(der: bytes) -> str:
+    """SHA-256 of the DER certificate, lowercase hex (what both ends compare)."""
+    return hashlib.sha256(der).hexdigest()
+
+
+def display_fingerprint(fingerprint: str) -> str:
+    """``ab12cd...`` -> ``AB:12:CD:...`` for showing a person."""
+    return ":".join(fingerprint[i:i + 2] for i in range(0, len(fingerprint), 2)).upper()
+
+
+def token_hash(token: str) -> str:
+    """Device tokens are stored hashed, like session tokens."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# Messages
+# --------------------------------------------------------------------------- #
+
+_Hex64 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+_Nonce = Annotated[str, Field(pattern=r"^[0-9a-f]{32,64}$")]
+_Version = Annotated[str, Field(min_length=1, max_length=32)]
+
+
+class _Msg(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+# controller -> relay
+
+class Pair(_Msg):
+    type: Literal["pair"] = "pair"
+    protocol: Literal["desktop-link/1"] = PROTOCOL
+    lookup: _Hex64
+    nonce: _Nonce
+    proof: _Hex64
+    controller_version: _Version
+
+
+class Hello(_Msg):
+    type: Literal["hello"] = "hello"
+    protocol: Literal["desktop-link/1"] = PROTOCOL
+    environment_id: str = Field(min_length=36, max_length=36)
+    token: str = Field(min_length=32, max_length=128)
+    controller_version: _Version
+
+
+# "sensitive": a Windows sign-in or admin-permission prompt is in front, so the
+# picture is withheld even in whole-screen mode.
+TargetState = Literal["ok", "not_found", "not_foreground", "minimized", "sensitive", "capture_off", "error"]
+
+
+class SessionReady(_Msg):
+    type: Literal["session_ready"] = "session_ready"
+    session_id: str
+    viewport: tuple[int, int]
+    context: str = Field(max_length=32)
+
+
+class SessionProblem(_Msg):
+    """Not ready yet (the game isn't running) or never (the profile is bad)."""
+
+    type: Literal["session_problem"] = "session_problem"
+    session_id: str
+    reason: Literal["target_missing", "profile_invalid", "no_input"]
+
+
+class ReflexReport(_Msg):
+    """A reflex that fired during a move (``acted`` False: watch mode, it only would have)."""
+
+    name: str = Field(max_length=32)
+    at_ms: int = Field(ge=0)
+    acted: bool
+
+
+class DecisionReport(_Msg):
+    type: Literal["decision_report"] = "decision_report"
+    session_id: str
+    decision_id: str = Field(max_length=64)
+    state: str = Field(max_length=16)
+    ended_by: str | None = Field(default=None, max_length=48)
+    ran_ms: int | None = None
+    rejection_code: str | None = Field(default=None, max_length=48)
+    rejection_reason: str | None = Field(default=None, max_length=300)
+    reflexes: list[ReflexReport] = Field(default_factory=list, max_length=8)
+    # A pursue move: {"seen": samples it was found in, "attacks": taps, "lost": bool}.
+    pursuit: dict[str, int | bool] | None = None
+
+
+class PauseRequest(_Msg):
+    """The controller stopped on its own (game window lost, watchdog): the
+    session must pause until the user resumes."""
+
+    type: Literal["pause_request"] = "pause_request"
+    session_id: str
+    reason: str = Field(max_length=48)
+
+
+class Heartbeat(_Msg):
+    type: Literal["heartbeat"] = "heartbeat"
+    # The capture setting this controller is obeying (its epoch), so the app can
+    # say "capture off — confirmed" rather than just "requested".
+    gate_epoch_seen: int = Field(default=0, ge=0)
+    # Why there is or isn't a picture: the game window missing, behind another
+    # window, minimized, or capture switched off.
+    target_state: TargetState = "capture_off"
+    # The game's input mode during a session ("playing", "menu", "unknown"),
+    # from the profile's detector; None without a session.
+    context: str | None = Field(default=None, max_length=32)
+
+
+# relay -> controller
+
+class Paired(_Msg):
+    type: Literal["paired"] = "paired"
+    environment_id: str
+    token: str
+    proof: _Hex64
+
+
+class Welcome(_Msg):
+    type: Literal["welcome"] = "welcome"
+    controller_generation: int
+
+
+CaptureGate = Literal["allowed", "blocked", "manual_auth"]
+CaptureScope = Literal["desktop", "game_window"]
+
+
+class CaptureConfig(_Msg):
+    """What the controller may capture. Anything but ``allowed`` means no
+    pixels at all; ``epoch`` fences frames taken under an older setting."""
+
+    gate: CaptureGate = "blocked"
+    epoch: int = Field(default=0, ge=0)
+    # "desktop": the VM's whole primary screen. "game_window": only the window
+    # of ``target_process`` (from the trusted profile), only while it is the
+    # foreground window.
+    scope: CaptureScope = "desktop"
+    target_process: str | None = Field(default=None, max_length=64)
+    max_width: int = Field(default=1280, ge=64, le=1920)
+    max_height: int = Field(default=720, ge=64, le=1080)
+    fps: float = Field(default=2.0, gt=0, le=4)
+    # Model observations (stage D): the game window at exactly this size,
+    # separate from the preview. Only sent while capture is allowed and a
+    # session is playing; None means no observations.
+    observe: "ObserveConfig | None" = None
+
+
+class ObserveConfig(_Msg):
+    target_process: str = Field(max_length=64)
+    width: int = Field(ge=160, le=1920)
+    height: int = Field(ge=90, le=1080)
+    fps: float = Field(default=2.0, gt=0, le=4)
+
+
+CaptureConfig.model_rebuild()
+
+
+class ControlGrant(_Msg):
+    """The lease (plan §19): input is allowed for ``session_id`` under
+    ``generation`` until ``lease_ms`` after this arrives, unless renewed. No
+    grant in a heartbeat reply means no control: release everything."""
+
+    session_id: str
+    generation: int = Field(ge=1)
+    lease_ms: int = Field(ge=200, le=5000)
+
+
+class HeartbeatAck(_Msg):
+    type: Literal["heartbeat_ack"] = "heartbeat_ack"
+    capture: CaptureConfig = CaptureConfig()
+    control: ControlGrant | None = None
+
+
+class SessionStart(_Msg):
+    """Prepare to play: the trusted profile (validated again on arrival) and
+    the session it belongs to. Repeated until the controller reports ready."""
+
+    type: Literal["session_start"] = "session_start"
+    session_id: str
+    profile: dict
+
+
+class SessionStop(_Msg):
+    type: Literal["session_stop"] = "session_stop"
+    session_id: str
+
+
+class DecisionCommand(_Msg):
+    type: Literal["decision"] = "decision"
+    session_id: str
+    decision_id: str = Field(min_length=1, max_length=64)
+    generation: int = Field(ge=1)
+    decision: dict
+
+
+class Cancel(_Msg):
+    """Stop now (pause, take over, end, new plan). Faster than waiting for the
+    lease to lapse; the lease is the backstop if this is lost."""
+
+    type: Literal["cancel"] = "cancel"
+    session_id: str
+    reason: str = Field(default="cancelled", max_length=48)
+
+
+class LinkError(_Msg):
+    """Sent just before the relay closes the connection."""
+
+    type: Literal["error"] = "error"
+    code: Literal[
+        "bad_message", "unsupported_protocol", "pairing_invalid", "not_authorized",
+        "superseded", "revoked", "heartbeat_timeout",
+    ]
+
+
+ControllerMessage = Annotated[
+    Union[Pair, Hello, Heartbeat, SessionReady, SessionProblem, DecisionReport, PauseRequest],
+    Field(discriminator="type"),
+]
+RelayMessage = Annotated[
+    Union[Paired, Welcome, HeartbeatAck, LinkError, SessionStart, SessionStop, DecisionCommand, Cancel],
+    Field(discriminator="type"),
+]
+controller_message = TypeAdapter(ControllerMessage)
+relay_message = TypeAdapter(RelayMessage)
+
+
+# --------------------------------------------------------------------------- #
+# Frames: binary messages, [4-byte header length][JSON FrameHeader][JPEG]
+# --------------------------------------------------------------------------- #
+
+MAX_FRAME_BYTES = 512 * 1024
+
+
+class FrameHeader(_Msg):
+    seq: int = Field(ge=0)
+    # Controller's monotonic clock at capture, ms (never compared across machines).
+    captured_ms: int = Field(ge=0)
+    width: int = Field(ge=1, le=1920)
+    height: int = Field(ge=1, le=1080)
+    encoding: Literal["jpeg"] = "jpeg"
+    gate_epoch: int = Field(ge=0)
+    # "preview" for the card; "observation" for the driver model (game window,
+    # exact observation size, with the input context at capture).
+    kind: Literal["preview", "observation"] = "preview"
+    context: str | None = Field(default=None, max_length=32)
+
+
+def pack_frame(header: FrameHeader, image: bytes) -> bytes:
+    head = header.model_dump_json().encode()
+    return len(head).to_bytes(4, "big") + head + image
+
+
+def unpack_frame(data: bytes) -> tuple[FrameHeader, bytes]:
+    """Raises ``ValueError`` on anything malformed; frames are untrusted input."""
+    if len(data) > MAX_FRAME_BYTES or len(data) < 4:
+        raise ValueError("frame size out of bounds")
+    size = int.from_bytes(data[:4], "big")
+    if not 0 < size <= 1024 or len(data) < 4 + size:
+        raise ValueError("bad frame header length")
+    header = FrameHeader.model_validate_json(data[4:4 + size])
+    image = data[4 + size:]
+    if not image:
+        raise ValueError("empty frame")
+    return header, image

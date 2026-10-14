@@ -32,6 +32,26 @@ logger = logging.getLogger(__name__)
 # No example phrases in it: on near-silent audio these models can echo prompt
 # words back as a transcript, which would put "stop" in the user's mouth.
 TRANSCRIBE_PROMPT = "The speaker is talking in English."
+# While the user plays Minecraft with Columbina: game words the model would
+# otherwise hear as everyday ones ("sheep" as "ship", "creeper" as "keeper").
+# Only nouns, and no command words, for the echo reason above; a transcript made
+# of nothing but these words is treated as an echo and dropped.
+MINECRAFT_WORDS = (
+    "sheep", "wool", "bed", "creeper", "zombie", "skeleton", "spider", "enderman",
+    "pickaxe", "crafting table", "furnace", "torch", "cobblestone", "oak logs",
+    "planks", "iron", "diamond", "village", "cave", "Nether",
+)
+MINECRAFT_PROMPT = (
+    "The speaker is talking in English while playing Minecraft, so they may "
+    "mention " + ", ".join(MINECRAFT_WORDS) + "."
+)
+_PROMPT_WORDS = {w for phrase in MINECRAFT_WORDS for w in phrase.lower().split()} | {
+    "and", "the", "a", "an", "of", "or",
+}
+# A transcript sharing this many words in a row with a prompt is the prompt read
+# back (seen live: "The speaker is talking in English while playing Minecraft,
+# so they may mention sheep, ..." and "context: ### The speaker is ...").
+_ECHO_RUN = 4
 # whisper-1 enforces `language` strictly, so it is the retry when the primary
 # model still returns another script. Slower, but only paid in that rare case.
 FALLBACK_MODEL = "whisper-1"
@@ -63,11 +83,12 @@ def pcm_to_wav(pcm: bytes, sample_rate: int, channels: int = 1) -> bytes:
     return buf.getvalue()
 
 
-async def transcribe(pcm: bytes, sample_rate: int) -> str:
+async def transcribe(pcm: bytes, sample_rate: int, *, minecraft: bool = False) -> str:
     """Transcribe one complete utterance of 16-bit mono PCM.
 
     Returns "" for audio too short to be speech, so a stray VAD trigger is a
-    no-op turn rather than an error the user has to see.
+    no-op turn rather than an error the user has to see. ``minecraft``: the
+    user is playing, so game words are expected.
     """
     settings = get_settings()
 
@@ -84,14 +105,37 @@ async def transcribe(pcm: bytes, sample_rate: int) -> str:
 
     audio = pcm_to_wav(pcm, sample_rate)
 
-    text = await _create(client, settings.stt_model, audio, prompt=TRANSCRIBE_PROMPT)
+    prompt = MINECRAFT_PROMPT if minecraft else TRANSCRIBE_PROMPT
+    text = await _create(client, settings.stt_model, audio, prompt=prompt)
     if is_wrong_script(text) and settings.stt_model != FALLBACK_MODEL:
         logger.warning("STT returned non-English script; retrying with %s", FALLBACK_MODEL)
-        text = await _create(client, FALLBACK_MODEL, audio, prompt=TRANSCRIBE_PROMPT)
+        text = await _create(client, FALLBACK_MODEL, audio, prompt=prompt)
     if is_wrong_script(text):
         # Still not English: better to hear nothing than to switch languages.
         return ""
+    if is_prompt_echo(text):
+        logger.warning("STT echoed its prompt; treating it as silence")
+        return ""
     return text
+
+
+def _runs(words: list[str], n: int) -> set[tuple[str, ...]]:
+    return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
+
+
+_PROMPT_RUNS = set().union(*(_runs(re.findall(r"[a-z]+", p.lower()), _ECHO_RUN)
+                             for p in (TRANSCRIBE_PROMPT, MINECRAFT_PROMPT)))
+
+
+def is_prompt_echo(text: str) -> bool:
+    """True when a transcript is the model reading its prompt back on
+    near-silent audio: several game-prompt words and nothing else, or any
+    stretch of the prompt's own sentence. One word ("Sheep.") is a real answer
+    and is kept."""
+    words = re.findall(r"[a-z]+", text.lower())
+    if len(words) >= 3 and all(w in _PROMPT_WORDS for w in words):
+        return True
+    return bool(_runs(words, _ECHO_RUN) & _PROMPT_RUNS)
 
 
 def is_wrong_script(text: str) -> bool:

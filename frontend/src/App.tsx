@@ -2,9 +2,9 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { ChatPage } from './pages/ChatPage'
-import { DashboardPage } from './pages/DashboardPage'
 import { PredictPage } from './pages/PredictPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
+import { LearningPage } from './pages/LearningPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 export default function App() {
@@ -16,7 +16,7 @@ export default function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <DashboardPage />
+            <Navigate to="/chat" replace />
           </ProtectedRoute>
         }
       />
@@ -41,6 +41,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <IntegrationsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/learning"
+        element={
+          <ProtectedRoute>
+            <LearningPage />
           </ProtectedRoute>
         }
       />

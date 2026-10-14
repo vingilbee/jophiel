@@ -21,6 +21,8 @@ RUN apt-get update \
 
 # Install deps first (cached) from the lockfile — reproducible, no dev deps.
 COPY pyproject.toml uv.lock ./
+# Local path dependency (the desktop agent's action contract) must exist before sync.
+COPY desktop_controller ./desktop_controller
 RUN uv sync --frozen --no-dev --no-install-project
 
 # App code + Alembic config/migrations.

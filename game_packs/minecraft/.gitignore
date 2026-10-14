@@ -1,0 +1,5 @@
+node_modules/
+# the local Minecraft server: jar, world, logs
+server/
+# api token, Microsoft sign-in cache
+var/

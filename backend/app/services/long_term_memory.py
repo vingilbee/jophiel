@@ -31,7 +31,22 @@ Extract only durable, future-useful information explicitly stated or corrected b
 Good memories include stable preferences, goals, constraints, explicit personal facts, important
 episodes, relationships, ongoing projects, routines, and interaction preferences. Ignore greetings,
 one-off questions, assistant suggestions, guesses, transient moods, and facts already represented by
-an authoritative application record. Never infer diagnoses, sensitive traits, relationships, or
+an authoritative application record.
+Games: the assistant plays games with the user. Never store the game's state: what the assistant or the
+user carries, has, or is doing in the game, where things are in a world, the time of day there. It changes
+by the minute and the game records it. One-off game tasks ("collect five oak logs", "build a house", "stop
+playing", "follow me") aren't the user's goals: skip them; so are tips on how to do a game action ("you can
+break blocks"): the game learns those itself. But do store what lasts about playing together: games the user
+plays with the assistant and likes, and standing wishes about how the assistant should be with them while
+playing, especially said more than once ("tell me when you find something", "warn me about mobs",
+"talk more") as `preference:` items.
+The USER text is often a speech transcript and can be misheard: never store a fact from a phrase that doesn't
+make sense in context (an odd brand or name in the middle of a game, a fragment), and when unsure store nothing.
+EARLIER messages, when given, are context for understanding the latest exchange only: extract from the latest
+USER message, and use earlier ones only to see what it refers to or that it repeats an earlier wish.
+KNOWN memories, when given, are what is already stored: for the same thing, reuse its normalized_key exactly
+(updated wording is fine) instead of making a new key; don't repeat one that adds nothing new.
+Never infer diagnoses, sensitive traits, relationships, or
 emotional conditions. A model interpretation is not a user fact. Use `forget` only when the user
 explicitly retracts something or asks for it to be forgotten. Give related facts a stable lowercase
 namespaced normalized_key such as `preference:communication_style`, `relationship:sister_name`,
@@ -111,14 +126,54 @@ def _turn_for_job(db: Session, job: MemoryJob) -> tuple[str, str, uuid.UUID] | N
             user_message.id)
 
 
-def _extract(user_text: str, assistant_text: str) -> list[MemoryCandidate]:
+EARLIER_MESSAGES = 6  # before the latest exchange, so "yes, always" or a repeated wish reads right
+EARLIER_CHARS = 300
+
+
+def _earlier_messages(db: Session, conversation_id: uuid.UUID, before_message_id: uuid.UUID) -> list[str]:
+    """The few messages before the extracted exchange, oldest first, as "USER: ..." lines."""
+    before = db.get(ChatMessage, before_message_id)
+    if before is None:
+        return []
+    rows = db.scalars(
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation_id, ChatMessage.created_at < before.created_at)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(EARLIER_MESSAGES)
+    ).all()
+    lines = []
+    for message in reversed(rows):
+        text = heard_text(message.content, message.heard_chars) if message.role == "assistant" else message.content
+        text = " ".join(text.split())[:EARLIER_CHARS]
+        if text:
+            lines.append(f"{message.role.upper()}: {text}")
+    return lines
+
+
+KNOWN_SHOWN = 60  # stored memories shown to the extractor, so the same thing keeps its key
+
+
+def _known(db: Session, user_id: uuid.UUID) -> list[str]:
+    rows = db.scalars(
+        select(SemanticMemory)
+        .where(SemanticMemory.user_id == user_id, SemanticMemory.status == "active")
+        .order_by(SemanticMemory.last_confirmed_at.desc())
+        .limit(KNOWN_SHOWN)
+    ).all()
+    return [f"{m.normalized_key}: {' '.join(m.content.split())[:160]}" for m in rows]
+
+
+def _extract(user_text: str, assistant_text: str, earlier: list[str] = (),
+             known: list[str] = ()) -> list[MemoryCandidate]:
+    context = ("KNOWN:\n" + "\n".join(known) + "\n\n") if known else ""
+    context += ("EARLIER (context only):\n" + "\n".join(earlier) + "\n\n") if earlier else ""
     response = _client().responses.parse(
         model=get_settings().memory_model,
         input=[
             {"role": "system", "content": _EXTRACTION_PROMPT},
             {
                 "role": "user",
-                "content": f"USER:\n{user_text}\n\nASSISTANT:\n{assistant_text}",
+                "content": f"{context}USER:\n{user_text}\n\nASSISTANT:\n{assistant_text}",
             },
         ],
         text_format=MemoryExtraction,
@@ -150,7 +205,8 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
     db.commit()
     try:
         turn = _turn_for_job(db, job)
-        candidates = _extract(turn[0], turn[1]) if turn else []
+        earlier = _earlier_messages(db, job.conversation_id, turn[2]) if turn else []
+        candidates = _extract(turn[0], turn[1], earlier, _known(db, job.user_id)) if turn else []
         source_message_id = turn[2] if turn else None
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         for candidate in candidates:
@@ -250,6 +306,35 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float:
     return dot / norm if norm else 0.0
 
 
+EPISODE_CANDIDATES = 200
+# What counts as relevant, measured on real messages (text-embedding-3-small): a message about
+# a memory scores 0.3+ ("remember when you died in the cave?" 0.44); small talk scores up to
+# ~0.24 against any game recap ("how was your day?", "I'm so tired from work today").
+MIN_SIMILARITY = 0.3
+# ...or most of the message's own words appear in it (embeddings off, or a name the model blurs).
+MIN_WORD_OVERLAP = 0.5
+MAX_EPISODES = 3  # of memory_retrieval_limit: recaps alone never fill the block
+RECENCY_DAYS = 3.0  # an episode's recency bonus halves every this many days
+# Only these may come along without matching the message, and only when this important.
+ALWAYS_KINDS = frozenset({"preference", "constraint"})
+ALWAYS_IMPORTANCE = 0.85
+_STOPWORDS = frozenset("""a an and are as at be but by can did do does for from had has have he her him his how i
+if in is it its just let me my no not of oh ok okay on or our she so that the their them then there they this to
+up us was we were what when where which who why will with would yeah yes you your""".split())
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in _WORD_RE.findall(text.lower()) if len(w) > 2 and w not in _STOPWORDS}
+
+
+def _memory_line(memory: SemanticMemory | EpisodicMemory) -> str:
+    if isinstance(memory, EpisodicMemory):
+        source = (memory.context or {}).get("source")
+        label = f"episode, {memory.event_at:%Y-%m-%d}" + (f", {source}" if source else "")
+        return f"- [{label}] {memory.summary}"
+    return f"- [{memory.kind}] {memory.content}"
+
+
 def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
     """Return a compact ranked memory block; failures never break chat."""
     settings = get_settings()
@@ -267,28 +352,55 @@ def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
                     )
                 )
             )
-            if not memories:
+            # Episodes (e.g. a game session she reflected on) compete with facts
+            # on the same score; only the most recent ones are considered.
+            episodes = list(
+                db.scalars(
+                    select(EpisodicMemory)
+                    .where(EpisodicMemory.user_id == user_id, EpisodicMemory.status == "active")
+                    .order_by(EpisodicMemory.event_at.desc())
+                    .limit(EPISODE_CANDIDATES)
+                )
+            )
+            if not memories and not episodes:
                 return None
             query_vector = _embedding(query)
-            query_words = set(_WORD_RE.findall(query.lower()))
-            ranked: list[tuple[float, SemanticMemory]] = []
-            for memory in memories:
-                memory_words = set(_WORD_RE.findall(memory.content.lower()))
-                lexical = len(query_words & memory_words) / max(1, len(query_words))
+            query_words = _content_words(query)
+            ranked: list[tuple[float, SemanticMemory | EpisodicMemory]] = []
+            for memory in [*memories, *episodes]:
+                episode = isinstance(memory, EpisodicMemory)
+                content = memory.summary if episode else memory.content
+                lexical = len(query_words & _content_words(content)) / max(1, len(query_words))
                 semantic = max(0.0, _cosine(query_vector, memory.embedding))
-                # Important constraints remain recallable even without a close
-                # wording match; semantic and lexical relevance dominate.
-                score = semantic * 0.55 + lexical * 0.25 + memory.importance * 0.15 + memory.confidence * 0.05
-                if semantic >= 0.2 or lexical > 0 or memory.importance >= 0.85:
+                # Recent episodes first among equals: "last time" means the latest one.
+                recency = 0.0
+                if episode:
+                    event_at = memory.event_at if memory.event_at.tzinfo else memory.event_at.replace(tzinfo=timezone.utc)
+                    age_days = max(0.0, (datetime.now(timezone.utc) - event_at).total_seconds() / 86400)
+                    recency = 0.5 ** (age_days / RECENCY_DAYS)
+                score = (semantic * 0.55 + lexical * 0.25 + memory.importance * 0.1 + recency * 0.1
+                         + memory.confidence * 0.05)
+                # Standing preferences and constraints stay recallable without a close match.
+                always = not episode and memory.kind in ALWAYS_KINDS and memory.importance >= ALWAYS_IMPORTANCE
+                if semantic >= MIN_SIMILARITY or (query_words and lexical >= MIN_WORD_OVERLAP) or always:
                     ranked.append((score, memory))
-            selected = [item for _, item in sorted(ranked, key=lambda x: x[0], reverse=True)[:settings.memory_retrieval_limit]]
+            selected: list[SemanticMemory | EpisodicMemory] = []
+            shown_episodes = 0
+            for _, item in sorted(ranked, key=lambda x: x[0], reverse=True):
+                if isinstance(item, EpisodicMemory):
+                    if shown_episodes >= MAX_EPISODES:
+                        continue
+                    shown_episodes += 1
+                selected.append(item)
+                if len(selected) >= settings.memory_retrieval_limit:
+                    break
             if not selected:
                 return None
             for memory in selected:
                 memory.last_accessed_at = now
                 memory.access_count += 1
             db.commit()
-            return "\n".join(f"- [{memory.kind}] {memory.content}" for memory in selected)
+            return "\n".join(_memory_line(memory) for memory in selected)
     except Exception:
         logger.exception("Long-term memory retrieval failed; continuing without it")
         return None

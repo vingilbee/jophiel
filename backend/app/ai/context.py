@@ -11,7 +11,20 @@ agent.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class GameEvent:
+    """Why a background turn woke her (desktop game events), and how chatty
+    the session lets her be. Set only on background turns."""
+
+    reasons: tuple[str, ...]
+    commentary_mode: str = "occasional"
+    keep_playing: bool = True
+    described: tuple[str, ...] = field(default=())
+    # The plan she woke up to: if the user changes it while she thinks, her plan changes are refused.
+    plan_revision: int | None = None
 
 
 @dataclass
@@ -75,6 +88,27 @@ class AgentRuntimeContext:
     # The newest screen frame's id in the user's image store, already validated.
     # None while sharing is on but no frame has arrived yet.
     screen_image_id: str | None = None
+
+    # --- The game (desktop agent) ---
+    # The game summary for this turn, rendered by `app.services.desktop_game`
+    # (trusted session state plus untrusted driver observations, labelled).
+    # None when the user has no paired game VM: then no section and no tools.
+    game: str | None = None
+    # One line for her sense of the moment while a game is on ("Right now you
+    # are playing Minecraft..."), added to the awareness facts.
+    game_activity: str | None = None
+    # A key-pressing game VM is paired: its rules (preview, lag, counted moves) apply.
+    game_vm: bool = False
+    # A background turn about the game (no user message): her game tools
+    # become the background set (with ``say``) and the prompt says why she woke.
+    game_event: GameEvent | None = None
+    # When the user started speaking (or sent a typed message), Unix seconds:
+    # the moment they were reacting to. None for turns without a user message.
+    spoke_at: float | None = None
+    # A small picture of her game at ``spoke_at`` (JPEG), attached to the
+    # user's message so she sees what they saw without a tool round trip.
+    game_picture: bytes | None = None
+    game_picture_note: str | None = None
 
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,

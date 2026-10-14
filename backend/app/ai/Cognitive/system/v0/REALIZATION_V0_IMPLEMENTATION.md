@@ -70,8 +70,10 @@ Realization V0 must preserve all of these:
    move or claim.
 6. Realization receives no tools, network capability, database session, memory
    writer, chat-agent loop, or recursive planning capability.
-7. The model receives no raw conversation history and no open-ended instruction
-   to “answer the user.”
+7. The model receives no open-ended instruction to “answer the user.” Under
+   realization policy `separate_realization-v1.4` and later, it reads the recent
+   conversation for comprehension only (§25). Earlier policies receive no
+   conversation history.
 8. The model cannot add questions, offers, apologies, jokes, commitments, or
    recommendations absent from the selected Action plan.
 9. A model-produced alignment is diagnostic evidence, not self-validating
@@ -678,8 +680,9 @@ authorized content inventory.
 
 It excludes:
 
-- prior chat messages and any untyped transcript;
-- system/assistant/user role history;
+- prior chat messages and any untyped transcript (policy v1.4+: up to eight
+  earlier messages as `conversation_context`, for comprehension only, §25);
+- system/assistant/user role history beyond that bounded context;
 - full Perception, Interpretation, Goal, Appraisal, or Dynamic State traces;
 - rejected Action candidates and scores;
 - memories not projected into authorized content;
@@ -693,7 +696,8 @@ It excludes:
 The canonical implementation must not assemble a natural-language prompt from
 templates. If a hosted SDK accepts only text input, serialize the canonical JSON
 payload mechanically under the fixed protocol version and require a structured
-JSON-schema response. The adapter may not concatenate conversational history,
+JSON-schema response. The adapter may not concatenate conversational history
+(policy v1.4 history travels only inside the typed `conversation_context` field),
 developer instructions, an assistant persona, or per-case prose.
 
 If a provider cannot enforce the required structured output and tool-free
@@ -1043,7 +1047,8 @@ Requirements:
 Use a recording fake provider and prove the payload carries the exact current
 utterance with the non-authoritative usage policy and excludes:
 
-- prior messages and history;
+- prior messages and history (policy v1.4+: exactly the bounded, typed
+  `conversation_context` and nothing more);
 - memories not projected into content;
 - tools and tool schemas;
 - rejected action candidates;
@@ -1141,7 +1146,8 @@ Realization V0 is implementation-accepted for shadow review only when:
 6. personality and state cannot change meaning, actions, evidence, safety, or
    authorization;
 7. the provider receives a strict JSON projection, no conversation-agent
-   prompt/history/tools;
+   prompt or tools, and no history beyond policy v1.4's bounded
+   `conversation_context`;
 8. generation is single-call, bounded, non-recursive, and model-explicit;
 9. all candidate output is treated as untrusted and independently validated;
 10. typed adversarial mutations fail closed;
@@ -1187,7 +1193,8 @@ Do not begin by wiring model text into the chat response.
 Do not:
 
 - reuse the existing chatbot agent or its system prompt;
-- pass the chat transcript to the realization model;
+- pass the raw chat transcript to the realization model (policy v1.4 passes
+  only the bounded, typed, non-authoritative `conversation_context`, §25);
 - ask the model to choose actions or decide what is true;
 - treat model weights as SemanticMemory;
 - let the model call tools, retrieve memory, or browse;
@@ -1216,8 +1223,8 @@ When implementation is complete, report:
 - model/provider configuration and confirmation that no fallback exists;
 - focused and complete pass/skip counts;
 - real-PostgreSQL persistence/replay/retention results;
-- confirmation that no raw conversation history or agent prompt reaches the
-  model;
+- confirmation that no agent prompt and no history beyond the bounded
+  `conversation_context` (policy v1.4+) reaches the model;
 - confirmation that no realization candidate affects chat, tools, or memory;
 - known validator limitations and behavioral-review needs; and
 - remaining blockers before any live-response experiment.
@@ -1236,3 +1243,41 @@ model protocol are unchanged.** Faithful wording is accepted as written, and a
 clarification that echoes the user's request is rejected because it does not
 bind the reviewed anchor. Known gap: an echo that includes the anchor is still
 accepted (see the behavioral results).
+
+
+## 25. Amendment: conversation context for comprehension (2026-10-11)
+
+Realization policy `separate_realization-v1.4` gives the wording model the
+recent conversation. Boundary 7 previously withheld all history. That treated
+*seeing* the conversation as the same as *being allowed to assert* from it, and
+it caused wrong wording of correct plans. Example: the model received the answer
+"hiking" for "What was the other option?" without knowing painting and hiking
+had been offered, and replied that it did not know.
+
+What changes:
+
+- `RealizationRequestV0.conversation_context` holds up to eight messages before
+  the focus, oldest first, as `user` / `columbina` turns taken from the
+  immutable compiled request. A message over 2,000 characters is left out
+  whole, never cut. The field is omitted when empty, so every earlier request
+  and payload keeps its exact digest.
+- It carries the same non-authority as `linguistic_context`: comprehension and
+  reference resolution only, with no fact, action, authorization, or safety
+  authority.
+- Instruction variant `conversational-v2` tells the model to read the context
+  to understand the question. It must still assert only `content_items`, give a
+  supplied answer plainly, and say it does not know only when a
+  `knowledge_gap` item says so.
+- Validation stays `conversational-v3`. Answer fidelity (§ CLAUDE.md
+  conversational-v3) blocks denying, reversing, or dropping a known answer.
+
+What does not change: Action Selection still owns every move; only authorized
+content may be asserted; replay recompiles the context from the stored compiled
+request and never calls a model.
+
+Watch: most other findings (unsupported claims, unplanned moves) are warnings
+under conversational-v2/v3. A model that can read the conversation may restate
+it or quietly repair a weak plan, which would hide pipeline errors. Compare those
+warning rates with and without context. If they rise, make them blocking for
+content that appears only in the context.
+

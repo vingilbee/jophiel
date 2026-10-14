@@ -10,7 +10,9 @@ from slowapi.errors import RateLimitExceeded
 from app.core.limiter import limiter
 
 from app.ai.tools.macrovision import macrovision_mcp_lifespan, mount_macrovision_mcp
-from app.api.routes import assets, auth, chat, cognitive, dashboard, images, integrations, predict, whatsapp
+from app.api.routes import (
+    assets, auth, chat, cognitive, dashboard, desktop, images, integrations, learning, predict, whatsapp,
+)
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.get("/api/capabilities", tags=["health"])
 def capabilities() -> dict[str, bool]:
     """Expose server-gated client capabilities without requiring a session."""
-    return {"voice_enabled": settings.voice_enabled}
+    return {"voice_enabled": settings.voice_enabled, "desktop_enabled": settings.desktop_agent_enabled}
 
 # Mounted at construction time so the session manager exists by the time the
 # lifespan above runs.
@@ -68,6 +70,8 @@ app.include_router(assets.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
 app.include_router(cognitive.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
+app.include_router(desktop.router, prefix="/api")
+app.include_router(learning.router, prefix="/api")
 
 
 @app.get("/health", tags=["health"])

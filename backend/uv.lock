@@ -6,6 +6,12 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "desktop-controller",
+    "macrovision-backend",
+]
+
 [[package]]
 name = "accelerate"
 version = "1.14.0"
@@ -485,6 +491,37 @@ sdist = { url = "https://files.pythonhosted.org/packages/49/85/12f0a49a7c4ffb705
 wheels = [
     { url = "https://files.pythonhosted.org/packages/84/d0/205d54408c08b13550c733c4b85429e7ead111c7f0014309637425520a9a/deprecated-1.3.1-py2.py3-none-any.whl", hash = "sha256:597bfef186b6f60181535a29fbe44865ce137a5079f295b479886c82729d5f3f", size = 11298, upload-time = "2025-10-30T08:19:00.758Z" },
 ]
+
+[[package]]
+name = "desktop-controller"
+version = "0.9.0"
+source = { editable = "desktop_controller" }
+dependencies = [
+    { name = "mss", marker = "sys_platform == 'win32'" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mss", marker = "sys_platform == 'win32'", specifier = ">=9.0.1" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pillow", specifier = ">=10" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "websockets", specifier = ">=13" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.3" }]
 
 [[package]]
 name = "distro"
@@ -1123,6 +1160,7 @@ dependencies = [
     { name = "alembic" },
     { name = "bitsandbytes" },
     { name = "cryptography" },
+    { name = "desktop-controller" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langchain-mcp-adapters" },
@@ -1158,6 +1196,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "bitsandbytes", specifier = ">=0.49.2" },
     { name = "cryptography", specifier = ">=44" },
+    { name = "desktop-controller", editable = "desktop_controller" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1" },
@@ -1349,6 +1388,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e0/47/dd32fa426cc72114383ac549964eecb20ecfd886d1e5ccf5340b55b02f57/mpmath-1.3.0.tar.gz", hash = "sha256:7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f", size = 508106, upload-time = "2023-03-07T16:47:11.061Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/43/e3/7d92a15f894aa0c9c4b49b8ee9ac9850d6e63b03c9c32c0367a13ae62209/mpmath-1.3.0-py3-none-any.whl", hash = "sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c", size = 536198, upload-time = "2023-03-07T16:47:09.197Z" },
+]
+
+[[package]]
+name = "mss"
+version = "10.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/5d/eee782a6d674f562c946ae6a026f4c595ea2b7b031f290bf9fbf60da09b5/mss-10.2.0.tar.gz", hash = "sha256:ab271860775545e62f29d7b11f82f279ac1048f5bbdd26cfad84830208dbd393", size = 200317, upload-time = "2026-04-23T10:44:57.305Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/c3/313e14f245c79b4c05bd0f3a84a4813aa26fa10f8993aebd91d04c5fad3f/mss-10.2.0-py3-none-any.whl", hash = "sha256:e79f428899280e7e64e38365b5bfed683851ebea807eeaeadaf06eb8e0d67197", size = 67106, upload-time = "2026-04-23T10:44:56.266Z" },
 ]
 
 [[package]]

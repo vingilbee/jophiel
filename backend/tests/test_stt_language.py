@@ -51,3 +51,35 @@ def test_english_is_not_retried(monkeypatch) -> None:
     monkeypatch.setattr(stt.get_settings(), "stt_model", "gpt-4o-mini-transcribe")
     assert asyncio.run(stt.transcribe(PCM, 16000)) == "Wait, what about rice?"
     assert len(calls) == 1
+
+
+def test_minecraft_turns_get_the_game_word_prompt(monkeypatch) -> None:
+    calls = _fake_client(monkeypatch, {"gpt-4o-mini-transcribe": "We should find a sheep to make a bed."})
+    monkeypatch.setattr(stt.get_settings(), "stt_model", "gpt-4o-mini-transcribe")
+    assert asyncio.run(stt.transcribe(PCM, 16000, minecraft=True)) == "We should find a sheep to make a bed."
+    assert "Minecraft" in calls[0]["prompt"] and "sheep" in calls[0]["prompt"]
+    asyncio.run(stt.transcribe(PCM, 16000))
+    assert calls[1]["prompt"] == stt.TRANSCRIBE_PROMPT
+
+
+@pytest.mark.parametrize(("text", "echo"), [
+    ("Sheep, wool, bed, creeper, zombie.", True),
+    ("crafting table and furnace", True),
+    ("Sheep.", False),  # a real one-word answer
+    ("Find a sheep for the bed.", False),
+    ("Stop.", False),
+    # Seen live: the whole prompt sentence, and with a "context:" header.
+    ("The speaker is talking in English while playing Minecraft, so they may mention sheep, wool, bed.", True),
+    ("context: ###\nThe speaker is talking in English while playing", True),
+    ("The speaker is talking in English.", True),
+    ("Is it in the cave?", False),
+    ("Can you mention the sheep to the speaker later?", False),
+])
+def test_prompt_echo(text: str, echo: bool) -> None:
+    assert stt.is_prompt_echo(text) is echo
+
+
+def test_echoed_game_prompt_becomes_silence(monkeypatch) -> None:
+    _fake_client(monkeypatch, {"gpt-4o-mini-transcribe": "Sheep, wool, bed, creeper, zombie, skeleton."})
+    monkeypatch.setattr(stt.get_settings(), "stt_model", "gpt-4o-mini-transcribe")
+    assert asyncio.run(stt.transcribe(PCM, 16000, minecraft=True)) == ""

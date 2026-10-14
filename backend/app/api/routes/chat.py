@@ -132,7 +132,9 @@ from app.services import asset_store, google_account, image_store, salience
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
+from app.services import agent_say
 from app.services import cognitive_shadow
+from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import stickers
@@ -175,6 +177,8 @@ class _ActiveTurn:
 # Strong references let generation survive a transport disconnect and let a
 # replacement socket interrupt the exact turn that is still running.
 _active_turns: dict[uuid.UUID, _ActiveTurn] = {}
+# At most one urgent game message cutting her off per this long.
+INTERRUPT_GAP_SECONDS = 10.0
 
 
 def _fence_active_turn(user_id: uuid.UUID) -> _ActiveTurn | None:
@@ -211,6 +215,14 @@ async def _await_teardown(active: _ActiveTurn) -> None:
         active.task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await active.task
+    except asyncio.CancelledError:
+        # Another teardown of the same turn (a committed barge-in's, running in
+        # the background) cancelled it first, and the shield passes that on.
+        # The turn is gone, which is what we wanted. Before this, the error
+        # escaped into the receive loop and closed the voice socket, dropping
+        # the utterance that had just ended. Only our own cancellation is real.
+        if not active.task.cancelled():
+            raise
 
 
 def _latest_conversation_id(user_id: uuid.UUID) -> uuid.UUID | None:
@@ -241,8 +253,14 @@ def _active_jobs_for_user(user_id: uuid.UUID):
     finally:
         db.close()
 
-# A client that opens an utterance and never closes it would otherwise buffer
-# without bound. 60s at 16kHz/16-bit is ~1.9MB; well past any real utterance.
+def _game_fields(game) -> dict:
+    """The game summary and activity line for a turn's context (none without a game VM)."""
+    return {"game": game.summary if game else None, "game_activity": game.activity if game else None}
+
+
+# An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
+# client that opens one and never closes it can't buffer without bound, and a
+# long silent wait before speaking still ends in a turn.
 MAX_UTTERANCE_BYTES = 16000 * 2 * 60
 
 # An interruption that says only this was a request to stop talking, not a
@@ -605,6 +623,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         clauses: asyncio.Queue[str | None],
         stop_event: asyncio.Event,
         audio_already_started: bool = False,
+        unprompted: bool = False,
     ) -> None:
         """Synthesize queued clauses and stream the PCM out.
 
@@ -620,11 +639,14 @@ async def chat_ws(websocket: WebSocket) -> None:
             # Acknowledge immediately while the model is still producing its
             # first clause. Previously this lived below clauses.get(), which
             # meant it could not hide model/endpointing latency at all.
-            filler = None if started else tts_service.pick_filler()
+            # Unprompted speech has nobody waiting on it: no filler, and its
+            # audio is marked so a listening client knows to play it.
+            audio_start = {"type": "audio_start", "sample_rate": settings.tts_sample_rate}
+            if unprompted:
+                audio_start["unprompted"] = True
+            filler = None if started or unprompted else tts_service.pick_filler()
             if filler is not None and filler[1] == settings.tts_sample_rate:
-                await send_json(
-                    {"type": "audio_start", "sample_rate": settings.tts_sample_rate}
-                )
+                await send_json(audio_start)
                 started = True
                 await send_bytes(filler[0])
                 logger.info(
@@ -636,9 +658,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                 if clause is None or stop_event.is_set():
                     break
                 if not started:
-                    await send_json(
-                        {"type": "audio_start", "sample_rate": settings.tts_sample_rate}
-                    )
+                    await send_json(audio_start)
                     started = True
                 async for pcm in tts_service.synthesize(clause):
                     if stop_event.is_set():
@@ -775,6 +795,80 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         await send_json({"type": "nudge_end"})
 
+    async def deliver_agent_messages() -> None:
+        """Columbina's unprompted messages from background turns (game events).
+
+        Already written to the conversation by the worker; here they're only
+        shown (as a nudge) and spoken when this socket's voice session is live.
+        An urgent one (``interrupt``) cuts off the reply in flight, since what
+        she was saying is out of date (at most once per INTERRUPT_GAP_SECONDS,
+        so a fight doesn't chop every sentence). Anything else waits for that
+        reply to be generated *and* spoken, then is said.
+        """
+        last_interrupt = 0.0
+        url = settings.redis_url
+        if not url:
+            return
+        import redis.asyncio as aioredis
+
+        client = aioredis.from_url(url)
+        pubsub = client.pubsub()
+        try:
+            await pubsub.subscribe(agent_say.channel(user_id))
+            async for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                except (TypeError, ValueError):
+                    continue
+                # This socket's voice phase, as the browser last reported it.
+                def replying() -> bool:
+                    return (current_task is not None and not current_task.done()) or \
+                        session.report.voice_state in ("thinking", "speaking")
+
+                interrupt = (bool(data.get("interrupt")) and replying()
+                             and time.monotonic() - last_interrupt >= INTERRUPT_GAP_SECONDS)
+                if interrupt:
+                    last_interrupt = time.monotonic()
+                    # The browser first, so the stale sentence stops now; then
+                    # the turn (its late audio is fenced on both ends).
+                    await send_json({"type": "reply_interrupted", "reason": data.get("reason", "game")})
+                    await _stop_active_turn(user_id)
+                else:
+                    # Wait for the reply to finish, including its audio playing.
+                    for _ in range(90):
+                        if not replying():
+                            break
+                        await asyncio.sleep(0.5)
+                senses = session.report
+                # Live voice that isn't mid-reply (an interrupted one is over):
+                # idle, or listening with the mic open (the client skips
+                # playback if the user is talking).
+                speak_aloud = (
+                    settings.voice_enabled and senses.hearing_enabled
+                    and (interrupt or senses.voice_state in ("idle", "listening"))
+                )
+                await send_json({"type": "nudge_start", "conversation_id": data["conversation_id"],
+                                 "reason": data.get("reason", "game")})
+                await send_json({"type": "nudge_token", "content": data["text"]})
+                if speak_aloud:
+                    clauses: asyncio.Queue[str | None] = asyncio.Queue()
+                    feed, flush = tts_service.clause_chunker()
+                    for clause in [*feed(data["text"]), *flush()]:
+                        clauses.put_nowait(clause)
+                    clauses.put_nowait(None)
+                    await speak(clauses, asyncio.Event(), unprompted=True)
+                await send_json({"type": "nudge_end"})
+        except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
+            pass
+        except Exception:
+            logger.exception("Delivering an agent message failed.")
+        finally:
+            with contextlib.suppress(Exception):
+                await pubsub.aclose()
+                await client.aclose()
+
     async def run_turn(
         conversation_id: uuid.UUID | None,
         content: str,
@@ -892,6 +986,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             long_term_memory=long_term_memory,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
+            **_game_fields(await asyncio.to_thread(desktop_game.summary_for, user_id)),
         )
         clauses: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = (
@@ -1052,6 +1147,9 @@ async def chat_ws(websocket: WebSocket) -> None:
         the whole request: there is nothing to answer, and persisting it
         would make the next turn respond to the word "stop".
         """
+        # When the user started speaking (what they were looking at): the end
+        # of the recording minus its length, measured here, not by the browser.
+        spoke_at = time.time() - len(pcm) / 2 / max(sample_rate, 1)
         if transcript is None:
             try:
                 transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
@@ -1082,7 +1180,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                 db, user_id=user_id, conversation=conversation, turn_id=turn_id,
                 user_message_id=user_message.id,
                 payload={"content": transcript, "image_ids": [], "asset_ids": [],
-                         "voice": True, "awareness": state.describe(),
+                         "voice": True, "spoke_at": spoke_at, "awareness": state.describe(),
                          "vision_enabled": state.senses.vision_enabled,
                          "screen_image_id": state.senses.screen_image_id},
             )
@@ -1099,8 +1197,20 @@ async def chat_ws(websocket: WebSocket) -> None:
         pcm: bytes, sample_rate: int, turn_id: uuid.UUID,
     ) -> str:
         stt_started_at = time.perf_counter()
+        def playing_minecraft() -> bool:
+            # Only a hint for the transcriber: never worth failing the turn.
+            db = SessionLocal()
+            try:
+                return desktop_game.playing_minecraft(db, user_id)
+            except Exception:
+                logger.exception("voice: could not check for a live Minecraft session")
+                return False
+            finally:
+                db.close()
+
+        minecraft = await asyncio.to_thread(playing_minecraft)
         try:
-            transcript = await stt_service.transcribe(pcm, sample_rate)
+            transcript = await stt_service.transcribe(pcm, sample_rate, minecraft=minecraft)
         except stt_service.STTError:
             voice_latency.mark("stt_failed", turn_id, source="api")
             raise
@@ -1289,6 +1399,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     # Push an initial reading immediately (the client has told us nothing yet,
     # so this is UTC and senses-off) and keep it ticking for the clock.
     heartbeat_task = asyncio.create_task(heartbeat())
+    agent_messages_task = asyncio.create_task(deliver_agent_messages())
     with contextlib.suppress(Exception):
         await push_state()
 
@@ -1339,13 +1450,14 @@ async def chat_ws(websocket: WebSocket) -> None:
             if (data := event.get("bytes")) is not None:
                 if utterance is None:
                     continue  # no utterance open; ignore stray audio
-                if len(utterance) + len(data) > MAX_UTTERANCE_BYTES:
-                    utterance = None
-                    await send_json(
-                        {"type": "error", "detail": "Utterance too long."}
-                    )
-                    continue
                 utterance.extend(data)
+                # Listening can stay open a long time before anyone speaks
+                # (e.g. watching her play). Keep the most recent audio rather
+                # than dropping the utterance: what's trimmed is the oldest,
+                # usually silence, and the words that end it are kept.
+                excess = len(utterance) - MAX_UTTERANCE_BYTES
+                if excess > 0:
+                    del utterance[: excess + (excess % 2)]  # whole 16-bit samples
                 continue
 
             raw_text = event.get("text")
@@ -1490,6 +1602,9 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             if isinstance(message, VoiceEndRequest):
                 if utterance is None:
+                    # Never leave the client waiting on a turn that won't
+                    # happen: it re-arms listening on this error.
+                    await send_json({"type": "error", "detail": "I didn't catch that. Please say it again."})
                     continue
                 pcm, rate = bytes(utterance), utterance_rate
                 conversation_id = utterance_conversation
@@ -1564,7 +1679,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         payload={
                             "content": message.content, "image_ids": attached,
                             "asset_ids": attached_assets, "voice": False,
-                            "awareness": state.describe(),
+                            "spoke_at": time.time(), "awareness": state.describe(),
                             "vision_enabled": state.senses.vision_enabled,
                             "screen_image_id": state.senses.screen_image_id,
                         },
@@ -1587,8 +1702,11 @@ async def chat_ws(websocket: WebSocket) -> None:
     finally:
         connected = False
         heartbeat_task.cancel()
+        agent_messages_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await heartbeat_task
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await agent_messages_task
         for task in subscription_tasks:
             if not task.done():
                 task.cancel()
