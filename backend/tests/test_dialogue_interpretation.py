@@ -132,7 +132,7 @@ NEIGHBORS = (('user', 'My two neighbors are Ana and Bea. Ana is the gardener and
              ('user', 'So who gave me the tomatoes?'))
 
 
-def _recall(answer, contents=NEIGHBORS):
+def _recall(answer, contents=NEIGHBORS, *, registry=None):
     from test_cognitive_two_call_v1 import NULL, event, reading, select, span_of, understanding
 
     def one(payload):
@@ -143,18 +143,24 @@ def _recall(answer, contents=NEIGHBORS):
         }, payload['focus']['authorized_span_refs'][:1], [reading('interpretation.goal.obtain_information')]))
         raw['recall_answer'] = answer
         return raw
-    return run(V1Double(one, select('provide_information.answer')), contents=contents)
+    return run(V1Double(one, select('provide_information.answer')), contents=contents, registry=registry)
 
 
-def test_a_written_answer_found_in_the_users_words_is_the_answer():
+@pytest.mark.parametrize('registry,subject', [
+    (None, 'your recorded statement'),
+    ('argument-kind-registry-v1.12', 'So who gave me the tomatoes?'),
+])
+def test_a_written_answer_found_in_the_users_words_is_the_answer(registry, subject):
     from app.ai.Cognitive.system.v0.live_shadow.realization import requirement_content_of
-    record, pipeline, _ = _recall('Bea.')
+    record, pipeline, _ = _recall('Bea.', registry=registry)
     assert record.status.value == 'completed', record.failure
     assert _compiled(pipeline)['recall_answer_source'] == 'written'
     [content] = requirement_content_of(record.pipeline_trace)
     assert content.arguments[0].value == 'Bea'
-    # The answer to the question, not "you said Bea".
-    assert (content.predicate, content.subject.surface_anchor) == ('dialogue.recall_answer', 'So who gave me the tomatoes?')
+    # Bea remains the answer. New runs identify the source speaker without
+    # promoting the user's question into an assertable subject; replay keeps
+    # the older registry's representation.
+    assert (content.predicate, content.subject.surface_anchor) == ('dialogue.recall_answer', subject)
     assert_replay(record)
 
 
