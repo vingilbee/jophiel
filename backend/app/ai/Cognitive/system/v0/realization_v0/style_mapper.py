@@ -25,6 +25,11 @@ STATE_ORDER = (
 )
 CORRECTION_ACTIONS = frozenset({"provide_information.correct", "manage_dialogue.self_correct"})
 REPAIR_ACTIONS = frozenset({"manage_dialogue.repair", "manage_dialogue.self_correct"})
+# Realization policy v1.5: a clearly playful personality is playful in ordinary
+# answers too, not only in a selected play move.  Never next to a correction,
+# repair, apology, reassurance, comfort, a misunderstanding or a decline.
+AMBIENT_PLAY_PROFILES = frozenset({"fact", "uncertainty", "question", "paraphrase", "dialogue", "opening", "closing"})
+AMBIENT_PLAY_INTENSITY = {DeliveryBand.HIGH: "subtle", DeliveryBand.VERY_HIGH: "light"}
 
 
 def trait_sources(personality: ActionPersonalityProfile) -> tuple[TraitBandSource, ...]:
@@ -43,8 +48,14 @@ def compile_delivery_profile(
     personality: ActionPersonalityProfile,
     state: StateSnapshot,
     entries: Sequence[ActionRealizationEntry],
+    *,
+    ambient_play: bool = False,
 ) -> ResolvedDeliveryProfile:
-    """Resolve the delivery profile for the selected moves' manifest entries."""
+    """Resolve the delivery profile for the selected moves' manifest entries.
+
+    ``ambient_play`` (realization policy v1.5) lets a high playfulness band
+    reach ordinary answers; without it only a play move is playful.
+    """
 
     sources = trait_sources(personality)
     bands = {item.trait: item.band for item in sources}
@@ -92,7 +103,11 @@ def compile_delivery_profile(
                                 else "balanced"),
         style_marker_budget=(min(manifest.MAXIMUM_STYLE_MARKER_BUDGET, manifest.STYLE_MARKER_BUDGET[bands["warmth"]])
                              if warm else 0),
-        playfulness_intensity=manifest.PLAYFULNESS_INTENSITY[bands["playfulness"]] if plays else "none",
+        playfulness_intensity=(manifest.PLAYFULNESS_INTENSITY[bands["playfulness"]] if plays
+                               else AMBIENT_PLAY_INTENSITY.get(bands["playfulness"], "none")
+                               if ambient_play and entries and all(entry.profile in AMBIENT_PLAY_PROFILES
+                                                                    for entry in entries)
+                               else "none"),
         question_directness=(state_value("clarification_pressure", manifest.QUESTION_DIRECTNESS)
                              if seeks else "not_applicable"),
         question_openness=(state_value("exploration_readiness", manifest.QUESTION_OPENNESS)
@@ -111,4 +126,4 @@ def compile_delivery_profile(
     )
 
 
-__all__ = ["CORRECTION_ACTIONS", "REPAIR_ACTIONS", "STATE_ORDER", "TRAITS", "compile_delivery_profile", "trait_sources"]
+__all__ = ["AMBIENT_PLAY_INTENSITY", "AMBIENT_PLAY_PROFILES", "CORRECTION_ACTIONS", "REPAIR_ACTIONS", "STATE_ORDER", "TRAITS", "compile_delivery_profile", "trait_sources"]

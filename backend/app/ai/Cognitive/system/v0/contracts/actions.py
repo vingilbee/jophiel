@@ -68,6 +68,7 @@ PRIMARY_RULE_ID = "action-primary.focal-goal-direct-coverage.v1"
 # Planner action-planner-model-policy-v1: the model names the primary move,
 # which must carry the plan's greatest direct focal-goal coverage.
 MODEL_PRIMARY_RULE_ID = "action-primary.model-selected-focal-coverage.v1"
+MODEL_PRIMARY_CHOICE_RULE_ID = "action-primary.model-selected.v1.1"
 
 _DECIMAL_PATTERN = re.compile(r"^-?\d+\.\d{6}$")
 
@@ -722,10 +723,23 @@ class ActionTargetDescriptor(FrozenModel):
     tentative_value_refs: tuple[str, ...] = ()
     explanation_basis_refs: tuple[str, ...] = ()
     about_refs: tuple[str, ...] = ()
+    # Optional conversational opportunity, not an unresolved requirement.
+    # Only the versioned understanding projector enables it for explicit
+    # user experiences; absent in historical captures.
+    optional_exploration: bool = False
+
+    @model_serializer(mode="wrap")
+    def omit_absent_exploration(self, handler):
+        data = handler(self)
+        if not self.optional_exploration:
+            data.pop("optional_exploration", None)
+        return data
 
     @model_validator(mode="after")
     def valid(self) -> ActionTargetDescriptor:
         _nonblank(self.ref, "descriptor ref")
+        if self.optional_exploration and (self.target_type != ActionTargetType.EXPERIENCE or self.owner != "user"):
+            raise ValueError("optional exploration requires a user-owned experience")
         for values in (self.competing_candidate_refs, self.candidate_answer_refs,
                        self.tentative_value_refs, self.explanation_basis_refs, self.about_refs):
             _unique(values, "descriptor references")
@@ -2121,8 +2135,11 @@ class ActionSelectionResult(FrozenModel):
             if model_policy:
                 best = max(decimal_from(item["direct_focal_coverage"]) for item in compared)
                 chosen = next((item for item in compared if item["move_ref"] == designation.primary_move_ref), None)
-                if (designation.rule_id != MODEL_PRIMARY_RULE_ID or chosen is None
-                        or decimal_from(chosen["direct_focal_coverage"]) != best):
+                if designation.rule_id == MODEL_PRIMARY_CHOICE_RULE_ID:
+                    if chosen is None:
+                        raise ValueError("the model primary move is not in the accepted plan")
+                elif (designation.rule_id != MODEL_PRIMARY_RULE_ID or chosen is None
+                      or decimal_from(chosen["direct_focal_coverage"]) != best):
                     raise ValueError("the model primary move lacks the plan's greatest direct focal coverage")
             elif designation.primary_move_ref != designate_primary(compared) or designation.rule_id != PRIMARY_RULE_ID:
                 raise ValueError("the primary move is not the one the designation rule derives")

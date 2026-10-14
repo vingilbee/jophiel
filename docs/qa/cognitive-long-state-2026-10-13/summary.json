@@ -1,0 +1,74 @@
+[
+  {
+    "run": "standard-base-strained-club_values_conversational-r1",
+    "condition": "standard-base-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-base-calm-club_values_conversational-r1",
+    "condition": "standard-base-calm",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": false,
+    "accepted_turns": 9,
+    "stop_reason": "unaccepted_turn"
+  },
+  {
+    "run": "standard-blunt-strained-club_values_conversational-r1",
+    "condition": "standard-blunt-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": false,
+    "accepted_turns": 6,
+    "stop_reason": "unaccepted_turn"
+  },
+  {
+    "run": "standard-blunt-calm-club_values_conversational-r1",
+    "condition": "standard-blunt-calm",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": false,
+    "accepted_turns": 9,
+    "stop_reason": "unaccepted_turn"
+  },
+  {
+    "run": "opposing-base-calm-club_values_conversational-r1",
+    "condition": "opposing-base-calm",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-base-strained-club_values_conversational-r1",
+    "condition": "opposing-base-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-blunt-calm-club_values_conversational-r1",
+    "condition": "opposing-blunt-calm",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-blunt-strained-club_values_conversational-r1",
+    "condition": "opposing-blunt-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": false,
+    "accepted_turns": 9,
+    "stop_reason": "unaccepted_turn"
+  }
+]

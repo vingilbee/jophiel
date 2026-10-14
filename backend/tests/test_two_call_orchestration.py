@@ -1010,3 +1010,21 @@ def test_missing_bindings_across_multiple_moves_reach_normal_validation():
     candidate=build_candidate(request,1,output,model.provenance)
     result=RealizationValidatorV0().validate(request,candidate)
     assert result.status=='accepted_for_shadow_review',result.codes
+
+
+def test_call_one_reasoning_applies_to_the_reader_only_and_is_recorded(monkeypatch):
+    from app.ai.Cognitive.system.v0.appraisal.model_contracts import AppraisalModelError
+    from app.ai.Cognitive.system.v0.two_call import provider
+    from app.ai.Cognitive.system.v0.two_call.provider import OpenAITwoCallModel
+    monkeypatch.setattr(provider, 'prompt', lambda stage, payload: 'prompt')
+    payload = {'protocol': 'cognitive-two-call-v1'}
+    model = OpenAITwoCallModel(model_id='gpt-6-luna', api_key=None, client=object(), call_one_reasoning_effort='low')
+    one = model.parameters('call_one', payload, schema={})
+    two = model.parameters('call_two', payload, schema={})
+    assert one['reasoning_effort'] == 'low' and 'temperature' not in one
+    assert two['reasoning_effort'] == 'none' and two['temperature'] == 0.0
+    assert model.provenance_for('call_one')['reasoning_effort'] == 'low'
+    assert model.provenance_for('call_two') == OpenAITwoCallModel(
+        model_id='gpt-6-luna', api_key=None, client=object()).provenance
+    with pytest.raises(AppraisalModelError):
+        OpenAITwoCallModel(model_id='gpt-6-luna', api_key=None, client=object(), call_one_reasoning_effort='high')

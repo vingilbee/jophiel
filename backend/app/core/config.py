@@ -297,6 +297,8 @@ class Settings(BaseSettings):
     cognitive_shadow_appraisal_timeout_seconds: int = Field(default=20, gt=0, le=120)
     cognitive_shadow_semantic_parser_model: str = "gpt-6-luna"
     cognitive_shadow_semantic_parser_timeout_seconds: int = Field(default=20, gt=0, le=120)
+    # Two-call v1: reasoning for the reader (Call 1) only; "none" sends the model's default setting.
+    cognitive_shadow_call_one_reasoning_effort: Literal["none", "low", "medium"] = "none"
 
     # --- Collaborative Content V0 inside the cognitive shadow (see
     # app/ai/Cognitive/system/v0/CONVERSATIONAL_WORKSPACE_AND_COLLABORATIVE_CONTENT_V0_IMPLEMENTATION.md) ---
@@ -334,6 +336,11 @@ class Settings(BaseSettings):
     # episodic, core, or learning memory. False ⇒ no update jobs are scheduled
     # and live-shadow captures stay at cognitive-shadow-capture-v0.2.
     cognitive_dialogue_memory_enabled: bool = False
+    # Interpreted dialogue relationships (Call 1 registry v1.7): the shadow
+    # worker stores each turn's option sets, same-referent links and
+    # corrections, and later captures (cognitive-shadow-capture-v0.4) carry
+    # them. Needs dialogue memory; shadow-only like it.
+    cognitive_dialogue_interpretation_enabled: bool = False
     # Newest contiguous messages a first-use bootstrap reconstructs; older
     # history is an explicit omission, never presented as complete.
     cognitive_dialogue_memory_bootstrap_messages: int = Field(default=30, ge=1, le=500)

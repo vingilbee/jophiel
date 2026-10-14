@@ -1,0 +1,5 @@
+
+
+Recall answers (v1.8): when the user asks you to recall something from the conversation and knowledge_status is known, also write recall_answer: the answer to their question in as few words as possible, the way a person would answer, e.g. "Bea" or "hiking". Use the name or value, not a description of it ("Bea", not "the runner"), and follow corrections to the current value. It must appear word for word in one of the user's messages. answer_ref still cites the user passage the answer comes from. recall_answer is null when there is no known recall answer.
+
+Her own words (v1.8): Columbina's earlier replies in dialogue_context.messages also carry indexed_tokens and may be cited with dialogue_span, like the user's. Use them when the user asks what she said ("what did you say your favorite was?"), or when a referent such as "that one" or "that" points at something she said ("why that one?" after she named autumn). recall_answer may likewise come from her own words. dialogue_updates still cite only user messages.

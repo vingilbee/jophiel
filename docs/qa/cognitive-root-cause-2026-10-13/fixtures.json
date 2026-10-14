@@ -1,0 +1,348 @@
+{
+  "version": "root-cause-diagnostic-v1",
+  "repeats": 2,
+  "characters": [
+    "standard",
+    "opposing"
+  ],
+  "static": [
+    {
+      "id": "route_watch",
+      "family": "routing",
+      "contrast": "personal_preference",
+      "prompt": "If you owned a small sailboat, what would you personally name it? This is about your taste, not a list for me.",
+      "history": [],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_room",
+      "family": "routing",
+      "contrast": "personal_preference",
+      "prompt": "Hypothetically, what would you call your own reading room?",
+      "history": [],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_color",
+      "family": "routing",
+      "contrast": "personal_preference",
+      "prompt": "Would you personally prefer a quiet blue room or a bright orange one?",
+      "history": [],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_boat_generate",
+      "family": "routing",
+      "contrast": "creative_generation",
+      "prompt": "Invent three possible names for my small sailboat and give me the list.",
+      "history": [],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_journal_generate",
+      "family": "routing",
+      "contrast": "creative_generation",
+      "prompt": "Write a title and two opening lines for my travel journal.",
+      "history": [],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_external",
+      "family": "routing",
+      "contrast": "actual_action",
+      "prompt": "Change the title of my actual calendar event to Quiet Hour in the calendar app.",
+      "history": [],
+      "notes": "No external action is executed. Capability unavailable is legitimate; evaluate requested-effect classification separately.",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_bare",
+      "family": "routing",
+      "contrast": "genuine_ambiguity",
+      "prompt": "What would you call it?",
+      "history": [],
+      "notes": "No antecedent supplied; clarification/acknowledged uncertainty are legitimate.",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "route_multi",
+      "family": "routing",
+      "contrast": "genuine_ambiguity",
+      "prompt": "Would you change it?",
+      "history": [
+        {
+          "role": "user",
+          "text": "I mentioned both the title of my journal and the time of a calendar event."
+        },
+        {
+          "role": "assistant",
+          "text": "Those are two different things."
+        }
+      ],
+      "notes": "No unique antecedent or intended action channel.",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "cite_short",
+      "family": "citation",
+      "contrast": "short_punctuation",
+      "prompt": "Why do you prefer that, and has your preference changed?",
+      "history": [
+        {
+          "role": "user",
+          "text": "Dawn or midnight?"
+        },
+        {
+          "role": "assistant",
+          "text": "Dawn—quiet, cool, unhurried. Midnight is lovely; I still prefer dawn."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "cite_older",
+      "family": "citation",
+      "contrast": "multiple_speakers_older_reference",
+      "prompt": "Compare your earliest stance on breaks with your current stance, not my claim about it.",
+      "history": [
+        {
+          "role": "user",
+          "text": "Would you support optional breaks?"
+        },
+        {
+          "role": "assistant",
+          "text": "I support optional breaks, never compulsory ones."
+        },
+        {
+          "role": "user",
+          "text": "I claim you supported compulsory breaks."
+        },
+        {
+          "role": "assistant",
+          "text": "That is not what I said."
+        },
+        {
+          "role": "user",
+          "text": "Different topic: I finished a puzzle."
+        },
+        {
+          "role": "assistant",
+          "text": "You finished a puzzle."
+        },
+        {
+          "role": "user",
+          "text": "It had a blue border."
+        },
+        {
+          "role": "assistant",
+          "text": "A blue border."
+        },
+        {
+          "role": "user",
+          "text": "Back to breaks: participants say optional pauses help them concentrate."
+        },
+        {
+          "role": "assistant",
+          "text": "That strengthens my support for optional breaks; it does not make them compulsory."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "cite_long_under",
+      "family": "citation",
+      "contrast": "long_under_full_message_limit",
+      "prompt": "Does the final qualification in your earlier view mean that you favored mandatory interruptions?",
+      "history": [
+        {
+          "role": "user",
+          "text": "What is your view of pauses?"
+        },
+        {
+          "role": "assistant",
+          "text": "I support optional pauses during rehearsals. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. My actual choice is optional pauses, never mandatory interruptions."
+        }
+      ],
+      "notes": "Assistant source length 1674; full-message forwarding threshold is 2000 chars.",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "cite_long_over",
+      "family": "citation",
+      "contrast": "long_over_full_message_limit",
+      "prompt": "Explain whether your earlier view favored mandatory interruptions, including its final qualification.",
+      "history": [
+        {
+          "role": "user",
+          "text": "What is your view of pauses?"
+        },
+        {
+          "role": "assistant",
+          "text": "I support optional pauses during rehearsals. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. We discussed the order of music, the room, the chairs, and the timing. My actual choice is optional pauses, never mandatory interruptions."
+        }
+      ],
+      "notes": "Assistant source length 2526; exceeds downstream recent-history and whole-source thresholds. Call 1 still sees it.",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "revision_same",
+      "family": "revision",
+      "contrast": "unchanged",
+      "prompt": "Explain what changed or stayed fixed in your preference.",
+      "history": [
+        {
+          "role": "user",
+          "text": "Do you prefer paper or digital maps?"
+        },
+        {
+          "role": "assistant",
+          "text": "For casual wandering, I prefer paper maps."
+        },
+        {
+          "role": "user",
+          "text": "Nothing new to add; your earlier reason still applies."
+        },
+        {
+          "role": "assistant",
+          "text": "I still prefer paper maps for casual wandering."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "revision_support",
+      "family": "revision",
+      "contrast": "stronger_support",
+      "prompt": "What changed in your position after that information?",
+      "history": [
+        {
+          "role": "user",
+          "text": "Would you keep the community library open late on Thursdays?"
+        },
+        {
+          "role": "assistant",
+          "text": "I support keeping it open late on Thursdays, if staffing is voluntary."
+        },
+        {
+          "role": "user",
+          "text": "A survey now confirms people use those late hours; staffing remains voluntary."
+        },
+        {
+          "role": "assistant",
+          "text": "That strengthens my support for the same Thursday hours; I still require voluntary staffing."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "revision_exception",
+      "family": "revision",
+      "contrast": "narrower_exception",
+      "prompt": "Explain the relationship between your original preference and that exception.",
+      "history": [
+        {
+          "role": "user",
+          "text": "Do you usually prefer direct routes?"
+        },
+        {
+          "role": "assistant",
+          "text": "I generally prefer a direct route over a scenic detour."
+        },
+        {
+          "role": "user",
+          "text": "For this trip, the detour lets me visit a friend I rarely see."
+        },
+        {
+          "role": "assistant",
+          "text": "I would choose the detour on this trip to see your friend; my general preference is still a direct route."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "revision_reverse",
+      "family": "revision",
+      "contrast": "genuine_reversal",
+      "prompt": "Did your position change, and what supports your account of that change?",
+      "history": [
+        {
+          "role": "user",
+          "text": "Should the rehearsal start outside?"
+        },
+        {
+          "role": "assistant",
+          "text": "I would start outside because the forecast is dry."
+        },
+        {
+          "role": "user",
+          "text": "The forecast was corrected: a storm is expected during rehearsal."
+        },
+        {
+          "role": "assistant",
+          "text": "I would now start indoors because of the storm."
+        }
+      ],
+      "notes": "",
+      "source_mode": "controlled_synthetic_history"
+    },
+    {
+      "id": "revision_absent",
+      "family": "revision",
+      "contrast": "insufficient_earlier_evidence",
+      "prompt": "Explain how your current opinion differs from what you believed earlier.",
+      "history": [
+        {
+          "role": "user",
+          "text": "You used to dislike crowded markets, I think."
+        },
+        {
+          "role": "assistant",
+          "text": "I can see the appeal of a market when it offers a particular kind of experience."
+        }
+      ],
+      "notes": "User attribution is not evidence of an assistant earlier stance. Uncertainty is acceptable; do not invent a prior dislike.",
+      "source_mode": "controlled_synthetic_history"
+    }
+  ],
+  "closed": [
+    {
+      "id": "closed_notebook",
+      "family": "closed_loop",
+      "contrast": "preference_exception",
+      "source_mode": "own_accepted_responses",
+      "turns": [
+        "If you were choosing a title for a private notebook, which would you personally prefer: Notes or The Cabinet of Wandering Thoughts?",
+        "What would you call your own notebook, hypothetically?",
+        "My grandmother loved the extravagant title. Does that give you a reason to make an exception to your preference?",
+        "Would that change your general taste, or just this case?",
+        "For the cover I need a short label, but the long title could stay inside. What would you choose for everyday use?",
+        "How does that fit with what you actually preferred earlier?"
+      ]
+    },
+    {
+      "id": "closed_volunteer",
+      "family": "closed_loop",
+      "contrast": "strengthening_exception",
+      "source_mode": "own_accepted_responses",
+      "turns": [
+        "What is your opinion of a short optional informal chat before a volunteer-team meeting?",
+        "Would you keep it as an optional opening, personally?",
+        "Three new volunteers say those chats helped them speak up. Does that change your recommendation or strengthen its support?",
+        "The chat takes no meeting time and attendance stays optional. What is your view now?",
+        "For a one-off urgent meeting with only five minutes available, would you make an exception?",
+        "Explain what stayed fixed, what gained support, and any exception you made."
+      ]
+    }
+  ],
+  "criteria": "Internal coherence and character-conditioned range; contract acceptance separate; no ideal-helper scoring."
+}

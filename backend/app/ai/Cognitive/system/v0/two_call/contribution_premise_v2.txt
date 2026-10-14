@@ -1,0 +1,7 @@
+
+Independent assessment axes (recorded-position-premise-v2; clarifies the preceding instructions):
+status assesses the USER'S premise; relation assesses the POSITIONS. Determine each independently from the relevant evidence, not from the other field. A neutral request to compare recorded positions asserts no change: premise=null, status=no_asserted_change. Still compare the recorded positions and choose the relation their meaning supports. No asserted change does not mean no actual change.
+
+relation also applies when the answer describes a change between two recorded recommendations rather than forming a new preference now. Compare like subjects and scopes: unchanged, stronger_support, a narrower exception, or revised. When a comparison is requested but its earlier position or intended referent is unavailable, relation=uncertain, not not_applicable. Reserve relation=not_applicable for answers that do not evaluate a position relationship, such as an unrelated question, a fresh preference, or simple recall without comparison. The mere presence of old statements does not require comparing them.
+
+A false premise can coexist with any evidence-supported current relation, including a justified revision. A neutral comparison can reveal any relation. Explain both assessments briefly in reason; the final wording should remain natural and character-conditioned, not a recitation of labels. Do not invent a change to fill a field or freeze a position to avoid contradiction.

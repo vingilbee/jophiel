@@ -18,7 +18,7 @@ from __future__ import annotations
 from ..contracts.actions import ActionGroundedObject, ActionTargetType as T
 from ..contracts.interpretation import HypothesisSupport
 from ..contracts.realization import (
-    REALIZABLE_SENSITIVITY, ContentAttribution, ContentEpistemicStatus, ContentSourceKind, GroundedProposition,
+    REALIZABLE_SENSITIVITY, Certainty, ContentAttribution, ContentEpistemicStatus, ContentSourceKind, GroundedProposition,
     KnowledgeGap, PropositionArgument, PropositionTerm, RealizationContentItem,
 )
 from .contracts import AuthorityClass, KnowledgeGapRecord, ProducedFact, ProducerResult, ProducerStatus, SemanticQuery
@@ -83,6 +83,23 @@ def project_action_objects(
     return (question, *answers)
 
 
+def _open_world_labels(fact: ProducedFact):
+    """Registry v1.6: how sure the wording may sound. ``None`` keeps the historical labels.
+
+    High-confidence general knowledge is stated plainly; medium or low
+    confidence must be hedged; Columbina's own view is always tentative.
+    """
+    if fact.authority_class == AuthorityClass.COLUMBINA_VIEW:
+        return ContentEpistemicStatus.TENTATIVE, Certainty.TENTATIVE
+    if fact.authority_class == AuthorityClass.MODEL_KNOWLEDGE:
+        if fact.predicate.endswith(".high_confidence"):
+            return ContentEpistemicStatus.GROUNDED, Certainty.EXACT
+        if fact.predicate.endswith(".medium_confidence"):
+            return ContentEpistemicStatus.GROUNDED, Certainty.APPROXIMATE
+        return ContentEpistemicStatus.TENTATIVE, Certainty.TENTATIVE
+    return None, None
+
+
 def project_realization_content(
     query: SemanticQuery, result: ProducerResult, gap: KnowledgeGapRecord | None = None,
 ) -> tuple[RealizationContentItem, ...]:
@@ -94,16 +111,18 @@ def project_realization_content(
             if fact.sensitivity not in REALIZABLE_SENSITIVITY:
                 continue
             claim = fact.authority_class == AuthorityClass.DELIVERED_DIALOGUE_CLAIM
+            status, certainty = _open_world_labels(fact)
             items.append(GroundedProposition(
                 content_id=f"producer-content:{fact.fact_id}", cognitive_turn_id=turn,
                 source_kind=fact.source_kind, source_refs=(fact.source_ref,), represents_refs=(fact_object_id(fact),),
                 authorized_for_realization=True, revision_ref=fact.revision, sensitivity_class=fact.sensitivity,
-                epistemic_status=ContentEpistemicStatus.ATTRIBUTED if claim else ContentEpistemicStatus.GROUNDED,
+                epistemic_status=status or (ContentEpistemicStatus.ATTRIBUTED if claim else ContentEpistemicStatus.GROUNDED),
                 attribution=fact.attribution, surface_anchors=(fact.value_anchor,),
                 subject=PropositionTerm(ref=query.subject_ref, surface_anchor=fact.subject_anchor),
                 predicate=fact.predicate,
                 arguments=(PropositionArgument(role="value", value_type=fact.value_type, value=fact.value,
                                                unit=fact.unit, surface_anchor=fact.value_anchor),),
+                **({"certainty": certainty} if certainty is not None else {}),
             ))
         return tuple(items)
     if gap is not None:

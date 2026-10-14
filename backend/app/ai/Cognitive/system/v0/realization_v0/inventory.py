@@ -2,7 +2,8 @@
 
 from ..contracts.dialogue_memory import DialogueTurnContext
 from ..contracts.realization import (
-    REALIZATION_CONTENT_VERSION, RealizationContentInventory, RealizationFailurePhase, realization_uuid,
+    REALIZATION_CONTENT_VERSION, DialogueReference, DialogueReferenceKind, RealizationContentInventory,
+    RealizationFailurePhase, ReferenceForm, realization_uuid,
 )
 from ..contracts.collaboration import COLLABORATION_CONTENT_PRODUCER
 from ..contracts.requirement_resolution import REQUIREMENT_RESOLUTION_CONTENT_PRODUCER
@@ -40,6 +41,16 @@ def realization_inventory(action, dialogue_context: DialogueTurnContext | None, 
     items = {item.content_id: item for item in base.items}
     added = set()
     from ..two_call.v1_grounding import UNDERSTANDING_CONTENT_PRODUCER
+    # An anchored understanding reference to the user's contribution (registry
+    # v1.5 correction receipts) supersedes the generic structural reference to
+    # the same target; a receipt binds exactly one item.
+    anchored_targets = {item.target_ref for item in understanding_content
+                        if isinstance(item, DialogueReference) and item.reference_form == ReferenceForm.ANCHORED
+                        and item.reference_kind == DialogueReferenceKind.USER_CONTRIBUTION}
+    for key, item in list(items.items()):
+        if (isinstance(item, DialogueReference) and item.reference_form == ReferenceForm.GENERIC
+                and item.reference_kind == DialogueReferenceKind.USER_CONTRIBUTION and item.target_ref in anchored_targets):
+            del items[key]
     for producer, content in ((REQUIREMENT_RESOLUTION_CONTENT_PRODUCER, requirement_content),
                               (COLLABORATION_CONTENT_PRODUCER, collaboration_content),
                               (UNDERSTANDING_CONTENT_PRODUCER, understanding_content)):

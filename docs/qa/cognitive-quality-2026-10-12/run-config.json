@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-12",
+  "timezone": "America/Vancouver",
+  "frontend": "http://127.0.0.1:54173",
+  "api": "http://127.0.0.1:58001",
+  "database": "cognitive_quality_1012",
+  "redis_database": 12,
+  "protocol": "cognitive-two-call-v1",
+  "understanding_and_realization_model": "gpt-6-luna",
+  "dialogue_memory": true,
+  "dialogue_interpretation": true,
+  "collaboration": false,
+  "state_intervention_replicates": 1,
+  "personality_replicates": 3,
+  "source_sha256": {
+    "backend/app/services/cognitive_shadow.py": "b74e6c8b294681ea247c1b2a47b46a4182bceb0e919aacaac06a496b06e05c87",
+    "backend/app/ai/Cognitive/system/v0/two_call/contribution.py": "1036bdb5fb8b8c6b787cbccff3a08c4fcbab343fc7f05a36d80db8fc58b00cff",
+    "backend/app/ai/Cognitive/system/v0/two_call/contribution_v1_6.txt": "725cb8280bf5fccb7edfc69607aaa3e643411f92fd196f067f4d5e2ba259a218",
+    "backend/app/ai/Cognitive/system/v0/two_call/contribution_v1_8.txt": "dc46b9b928dd06a7f73b9994fa9d219db515adea9c1ed1450447cb1a4dbb85b3",
+    "backend/app/ai/Cognitive/system/v0/personality_runtime_v0/models.py": "264d3d7e43f5d63e27b9b9aa6881289b0d0636e024565908aa6e52ec106c180a",
+    "backend/app/ai/Cognitive/system/v0/realization_v0/style_mapper.py": "77f1d899e81d60588ccad80b1ec4a28469cd8616a30cd30b02149ef45e65f301",
+    "backend/app/ai/Cognitive/system/v0/two_call/v1_contracts.py": "c7705a29c0dcec39f92ef48b8da523da494104562c699e951325bd9480b064c5"
+  }
+}

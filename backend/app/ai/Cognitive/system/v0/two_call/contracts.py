@@ -3,6 +3,7 @@ import hashlib
 import json
 from typing import Any, Literal
 from pydantic import model_serializer, Field, model_validator
+from ..contracts.dialogue_interpretation import InterpretedUpdate
 from ..contracts.interpretation import FrozenModel
 from ..interpretation_v0.model_protocol import SemanticModelOutput
 from ..appraisal.model_contracts import DimensionProposal
@@ -23,6 +24,23 @@ class OutcomeAssessment(FrozenModel):
 class CallOneOutput(FrozenModel):
     interpretation: SemanticModelOutput
     appraisal: tuple[OutcomeAssessment, ...]
+    # Registry v1.7 only (omitted otherwise, so earlier digests never change):
+    # the validated relationships, and how many proposed ones failed validation.
+    dialogue_updates: tuple[InterpretedUpdate, ...] | None = None
+    dialogue_updates_dropped: int | None = Field(default=None, ge=0)
+    # Registry v1.8 only, when there is a known recall: where its answer came
+    # from. "written" is the model's own answer, found in a user message;
+    # "cited" means it fell back to the cited passage.
+    recall_answer_source: Literal['written', 'cited'] | None = None
+
+    @model_serializer(mode='wrap')
+    def _omit_absent_updates(self, handler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ('dialogue_updates', 'dialogue_updates_dropped', 'recall_answer_source'):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        return data
 
 class ContentProposal(FrozenModel):
     # Index in the ordered, code-prepared content requests, not a future ID.
@@ -63,7 +81,8 @@ class CallTwoOutput(FrozenModel):
     response_candidate: ResponseCandidate
 
 class CallCapture(FrozenModel):
-    stage: Literal['call_one', 'call_two']
+    # ``contribution`` (registry v1.6) is recorded in ``TwoCallTrace.contributions``.
+    stage: Literal['call_one', 'call_two', 'contribution']
     prompt_hash: str
     payload_digest: str
     payload: dict[str, Any]
@@ -90,14 +109,21 @@ class CallCapture(FrozenModel):
         if hashlib.sha256(canonical.encode()).hexdigest()!=self.payload_digest:
             raise ValueError('captured payload digest mismatch')
         if self.protocol != 'legacy-v0.1' and self.compiled_proposal is not None:
-            if self.protocol == 'cognitive-two-call-v1':
+            if self.stage == 'contribution':
+                from .premise import PremiseAssessment,validate_assessment
+                if self.proposal.get('schema_version') != 'contribution-proposal-v3':
+                    raise ValueError('compiled contribution requires premise assessment')
+                compiled = validate_assessment(PremiseAssessment.model_validate(self.proposal['premise_assessment']),self.payload['premise_context'])
+            elif self.protocol == 'cognitive-two-call-v1':
                 from .v1 import compile_understanding,compile_policy
                 compiler=compile_understanding if self.stage=='call_one' else compile_policy
+                compiled = compiler(self.proposal,self.payload,self.reference_table)
             else:
                 from .compact import compile_mind,compile_response
                 compiler=compile_mind if self.stage=='call_one' else compile_response
+                compiled = compiler(self.proposal,self.payload,self.reference_table)
             from .provider import digest
-            if digest(compiler(self.proposal,self.payload,self.reference_table)) != digest(self.compiled_proposal):
+            if digest(compiled) != digest(self.compiled_proposal):
                 raise ValueError('compiled proposal differs from captured compact source')
         if len(self.prompt_hash)!=64:
             raise ValueError('invalid captured prompt hash')
@@ -119,10 +145,13 @@ class TwoCallTrace(FrozenModel):
     # Legacy captures require scorer agreement. New captures compile model
     # choices to grounded candidates; gates and transitions remain authoritative.
     # v1 selects an ordered plan from candidate refs; Realization is separate.
-    behavior_policy: Literal['strict_plan_agreement-v0.1', 'model_grounded_selection-v0.1', 'model_policy_selection-v1'] = 'strict_plan_agreement-v0.1'
-    realization_policy: Literal['strict-v0.1', 'style_advisory-v0.1', 'segmented_response-v0.1', 'segmented_response-v0.2', 'separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2'] = 'strict-v0.1'
+    behavior_policy: Literal['strict_plan_agreement-v0.1', 'model_grounded_selection-v0.1', 'model_policy_selection-v1', 'model_policy_selection-v1.1'] = 'strict_plan_agreement-v0.1'
+    realization_policy: Literal['strict-v0.1', 'style_advisory-v0.1', 'segmented_response-v0.1', 'segmented_response-v0.2', 'separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2', 'separate_realization-v1.3', 'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6'] = 'strict-v0.1'
     alignment_policy: Literal['complete_bindings-v0.1', 'compiled_move_spans-v0.1', 'not_applicable-v1'] = 'complete_bindings-v0.1'
     calls: tuple[CallCapture, ...]
+    # Registry v1.6 open-world contribution calls, in order; empty (and omitted
+    # from the serialized trace) for every earlier capture.
+    contributions: tuple[CallCapture, ...] = ()
     goal_binding_version: Literal['goal-formation-binding-v0.1', 'goal-formation-binding-v0.2', 'goal-formation-binding-v0.3', 'goal-formation-binding-v0.4'] = 'goal-formation-binding-v0.1'
     goal_bindings: tuple[FormationBinding, ...] = ()
     spans: tuple[LatencySpan, ...] = ()
@@ -135,6 +164,8 @@ class TwoCallTrace(FrozenModel):
             data.pop('alignment_policy', None)
         if self.realization_policy == 'strict-v0.1':
             data.pop('realization_policy', None)
+        if not self.contributions:
+            data.pop('contributions', None)
         return data
 
     @model_validator(mode='after')
@@ -145,12 +176,15 @@ class TwoCallTrace(FrozenModel):
             raise ValueError('compact captures require compiled accepted handoffs')
         if tuple(c.stage for c in self.calls) != ('call_one', 'call_two'):
             raise ValueError('a completed two-call trace has exactly the two ordered captures')
+        if any(c.stage != 'contribution' or c.protocol != 'cognitive-two-call-v1' for c in self.contributions):
+            raise ValueError('contribution captures are protocol v1 contribution calls')
         v1_realization = self.realization_policy in ('separate_realization-v1', 'separate_realization-v1.1',
-                                                     'separate_realization-v1.2')
-        v1_policies = (self.behavior_policy, self.alignment_policy) == (
-            'model_policy_selection-v1', 'not_applicable-v1') and v1_realization
+                                                     'separate_realization-v1.2', 'separate_realization-v1.3',
+                                                     'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6')
+        v1_behavior = self.behavior_policy in ('model_policy_selection-v1', 'model_policy_selection-v1.1')
+        v1_policies = v1_behavior and self.alignment_policy == 'not_applicable-v1' and v1_realization
         if (self.protocol == 'cognitive-two-call-v1') != v1_policies or (not v1_policies and (
-                'model_policy_selection-v1' == self.behavior_policy or v1_realization
+                v1_behavior or v1_realization
                 or 'not_applicable-v1' == self.alignment_policy)):
             raise ValueError('protocol v1 and its selection/realization policies occur together')
         return self

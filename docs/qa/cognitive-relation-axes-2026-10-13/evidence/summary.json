@@ -1,0 +1,128 @@
+[
+  {
+    "run": "standard-neutral_unchanged-r1",
+    "condition": "standard",
+    "topic": "neutral_unchanged",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-neutral_revision-r1",
+    "condition": "standard",
+    "topic": "neutral_revision",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-neutral_support-r1",
+    "condition": "standard",
+    "topic": "neutral_support",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-false_premise-r1",
+    "condition": "standard",
+    "topic": "false_premise",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-contextual_exception-r1",
+    "condition": "standard",
+    "topic": "contextual_exception",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-missing_position-r1",
+    "condition": "standard",
+    "topic": "missing_position",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-neutral_revision-r1",
+    "condition": "opposing",
+    "topic": "neutral_revision",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-unrelated_preference-r1",
+    "condition": "standard",
+    "topic": "unrelated_preference",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-neutral_unchanged-r1",
+    "condition": "opposing",
+    "topic": "neutral_unchanged",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-neutral_support-r1",
+    "condition": "opposing",
+    "topic": "neutral_support",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-false_premise-r1",
+    "condition": "opposing",
+    "topic": "false_premise",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-contextual_exception-r1",
+    "condition": "opposing",
+    "topic": "contextual_exception",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-missing_position-r1",
+    "condition": "opposing",
+    "topic": "missing_position",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-unrelated_preference-r1",
+    "condition": "opposing",
+    "topic": "unrelated_preference",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  }
+]

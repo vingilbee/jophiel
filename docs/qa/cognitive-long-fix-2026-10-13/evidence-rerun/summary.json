@@ -1,0 +1,11 @@
+[
+  {
+    "run": "opposing-blunt-strained-club_values_conversational-r1",
+    "condition": "opposing-blunt-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  }
+]

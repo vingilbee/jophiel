@@ -572,6 +572,51 @@ _V1_PREDICATES = (
         argument_values={"mode": ("talk_through", "perspective", "vent", "other"), "embedding": EMBEDDING_VALUES},
         act=ActFamily.INFORM, referents=("topic",),
     ),
+    _predicate(
+        "dialogue_recall_request", ("what did I mention", "given that correction"),
+        ("referent_phrase", "answer_ref", "candidate_refs", "knowledge_status", "embedding"), ("referent_phrase", "knowledge_status"),
+        description=("A question answered by what the user actually said in the supplied conversation, including "
+                     "option recall and corrected preferences. Not external knowledge. Select the minimal supporting "
+                     "user passage; later explicit corrections take precedence over the corrected claim. "
+                     "If two readings remain possible use ambiguous_reference; if no statement supplies the fact "
+                     "use missing_dialogue_fact. Neither is evidence that the fact is false."),
+        argument_descriptions={"referent_phrase": "The focus question's referent.",
+                               "answer_ref": "Exact supplied user passage supporting the recalled answer, or null.",
+                               "candidate_refs": "Two to four distinct candidate user passages for an ambiguous reference; otherwise null.",
+                               "knowledge_status": "known, ambiguous_reference, or missing_dialogue_fact.",
+                               "embedding": _EMBEDDING},
+        argument_values={"knowledge_status": ("known", "ambiguous_reference", "missing_dialogue_fact"),
+                         "embedding": EMBEDDING_VALUES},
+        act=ActFamily.REQUEST_INFORMATION, referents=("referent_phrase",), outcome=RequestedOutcome.INFORMATION_ANSWER,
+    ),
+    _predicate(
+        "contextual_perspective_request", ("what makes this difficult", "how do these fit together"),
+        ("first_basis_ref", "second_basis_ref", "relation", "embedding"),
+        ("first_basis_ref", "second_basis_ref", "relation"),
+        description=("The user asks for a conversational perspective linking two things they have explicitly said. "
+                     "Select two exact user passages and a tentative relation, not a hidden motive, diagnosis, "
+                     "advice, or external explanation. Use conversation_request when two supporting passages "
+                     "are not available. This is reflection on their account, not creation of an artifact."),
+        argument_descriptions={"first_basis_ref": "First explicit user passage relevant to the requested perspective.",
+                               "second_basis_ref": "Second distinct explicit user passage.",
+                               "relation": "tension, contrast, or connection; always a tentative reading.",
+                               "embedding": _EMBEDDING},
+        argument_values={"relation": ("tension", "contrast", "connection"), "embedding": EMBEDDING_VALUES},
+        act=ActFamily.INFORM,
+    ),
+    # v1.6: Columbina's own view is requested ("what's your take?", "change my mind").
+    _predicate(
+        "opinion_request", ("what's your take", "what do you think about", "change my mind"),
+        ("topic", "embedding"), ("topic",),
+        description=("The user asks what Columbina herself thinks about a matter of opinion or judgement, "
+                     "or states a view and invites her to respond to it. Not a factual question (use "
+                     "information_request) and not a request to reflect on their own feelings."),
+        argument_descriptions={"topic": "The matter she is asked to give a view on; cite an earlier user passage "
+                                        "when the question points back to it.",
+                               "embedding": _EMBEDDING},
+        argument_values={"embedding": EMBEDDING_VALUES},
+        act=ActFamily.REQUEST_INFORMATION, referents=("topic",), outcome=RequestedOutcome.INFORMATION_ANSWER,
+    ),
 )
 V1_ONLY_MODEL_PREDICATES = frozenset(item.predicate for item in _V1_PREDICATES)
 # The cognitive two-call registry version that introduced each v1-only predicate.
@@ -579,6 +624,33 @@ V1_PREDICATES_BY_REGISTRY = {
     "argument-kind-registry-v1": frozenset(),
     "argument-kind-registry-v1.1": frozenset({"experience_report"}),
     "argument-kind-registry-v1.2": frozenset({"experience_report", "conversation_request"}),
+    "argument-kind-registry-v1.3": frozenset({"experience_report", "conversation_request"}),
+    "argument-kind-registry-v1.4": frozenset({"experience_report", "conversation_request",
+                                            "dialogue_recall_request", "contextual_perspective_request"}),
+    "argument-kind-registry-v1.5": frozenset({"experience_report", "conversation_request",
+                                            "dialogue_recall_request", "contextual_perspective_request"}),
+    "argument-kind-registry-v1.6": frozenset({"experience_report", "conversation_request",
+                                            "dialogue_recall_request", "contextual_perspective_request",
+                                            "opinion_request"}),
+    # v1.7 adds no predicate: dialogue updates are a separate output field.
+    "argument-kind-registry-v1.7": frozenset({"experience_report", "conversation_request",
+                                            "dialogue_recall_request", "contextual_perspective_request",
+                                            "opinion_request"}),
+    # v1.8 adds no predicate: recall support is a separate output field.
+    "argument-kind-registry-v1.9": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.10": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    # v1.11 changes contribution premise assessment, not interpretation vocabulary.
+    "argument-kind-registry-v1.13": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.12": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.11": frozenset({"experience_report", "conversation_request",
+                                             "dialogue_recall_request", "contextual_perspective_request", "opinion_request"}),
+    "argument-kind-registry-v1.8": frozenset({"experience_report", "conversation_request",
+                                            "dialogue_recall_request", "contextual_perspective_request",
+                                            "opinion_request"}),
 }
 
 PREDICATE_MANIFEST = _LEGACY_PREDICATES + _COMPOSITIONAL_PREDICATES + _V1_PREDICATES

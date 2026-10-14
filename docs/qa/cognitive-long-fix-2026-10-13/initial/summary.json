@@ -1,0 +1,38 @@
+[
+  {
+    "run": "standard-base-strained-club_values_conversational-r1",
+    "condition": "standard-base-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-base-strained-club_values-r1",
+    "condition": "standard-base-strained",
+    "topic": "club_values",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-blunt-strained-club_values_conversational-r1",
+    "condition": "opposing-blunt-strained",
+    "topic": "club_values_conversational",
+    "repeat": 1,
+    "complete": false,
+    "accepted_turns": 2,
+    "stop_reason": "unaccepted_turn"
+  },
+  {
+    "run": "opposing-blunt-strained-club_values-r1",
+    "condition": "opposing-blunt-strained",
+    "topic": "club_values",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 10,
+    "stop_reason": null
+  }
+]

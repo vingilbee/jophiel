@@ -1,0 +1,38 @@
+[
+  {
+    "run": "standard-cite_long_over-r1",
+    "condition": "standard",
+    "topic": "cite_long_over",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "standard-revision_absent-r1",
+    "condition": "standard",
+    "topic": "revision_absent",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-cite_long_over-r1",
+    "condition": "opposing",
+    "topic": "cite_long_over",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  },
+  {
+    "run": "opposing-revision_absent-r1",
+    "condition": "opposing",
+    "topic": "revision_absent",
+    "repeat": 1,
+    "complete": true,
+    "accepted_turns": 1,
+    "stop_reason": null
+  }
+]

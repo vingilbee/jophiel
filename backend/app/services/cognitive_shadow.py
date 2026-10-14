@@ -50,8 +50,11 @@ from app.ai.Cognitive.system.v0.live_shadow.models import (
     CAPTURE_PRODUCER_VERSION,
     CAPTURE_SCHEMA_VERSION,
     CAPTURE_SCHEMA_VERSION_V03,
+    CAPTURE_SCHEMA_VERSION_V04,
+    DIALOGUE_CAPTURE_SCHEMAS,
     DIALOGUE_SUPPLIED_INPUTS,
     CapturedDialogueMemory,
+    CapturedInterpretedDialogue,
     MEMORY_RETRIEVAL_POLICY_VERSION,
     CapturedAttachment,
     CapturedCapabilities,
@@ -71,6 +74,7 @@ from app.ai.Cognitive.system.v0.live_shadow.models import (
     capture_id_for,
     core_memory_ref_for,
 )
+from app.ai.Cognitive.system.v0.contracts.character import Character, character_from_identity
 from app.ai.Cognitive.system.v0.personality_runtime_v0 import (
     PersonalityMappingError,
     PersonalityMappingErrorCode,
@@ -92,6 +96,7 @@ from app.core.config import get_settings
 from app.db.models import (
     ChatJob,
     ChatMessage,
+    CognitiveDialogueInterpretation,
     CognitiveShadowJob,
     CognitiveShadowTrace,
     Conversation,
@@ -311,6 +316,89 @@ def _dialogue_capture(
                                   turn_context_digest=turn_context_digest(context))
 
 
+def _call_one_reasoning(settings) -> str | None:
+    effort = getattr(settings, "cognitive_shadow_call_one_reasoning_effort", "none")
+    return None if effort == "none" else effort
+
+
+def _interpreted_capture(
+    db: Session, *, conversation_id: uuid.UUID, focus: ChatMessage, messages: tuple[CapturedMessage, ...],
+) -> CapturedInterpretedDialogue:
+    """Stored interpretation records before the focus, plus earlier window messages still being read."""
+
+    from app.ai.Cognitive.system.v0.contracts.dialogue_interpretation import (
+        MAX_FOLDED_RECORDS, DialogueInterpretationRecord,
+    )
+
+    rows = db.scalars(
+        select(CognitiveDialogueInterpretation)
+        .where(CognitiveDialogueInterpretation.conversation_id == conversation_id,
+               CognitiveDialogueInterpretation.source_conversation_sequence < focus.conversation_sequence)
+        .order_by(CognitiveDialogueInterpretation.source_conversation_sequence.desc())
+        .limit(MAX_FOLDED_RECORDS)
+    ).all()
+    records = []
+    for row in rows:
+        record = DialogueInterpretationRecord.model_validate(row.payload)
+        if record.digest != row.record_digest:
+            metrics.increment("dialogue_interpretation_digest_mismatch")
+            continue
+        records.append(record)
+    records.sort(key=lambda record: record.source_conversation_sequence)
+    read = {record.source_message_ref for record in records}
+    unread = [message.message_id for message in messages[:-1] if message.role == "user" and message.message_id not in read]
+    pending = set()
+    if unread:
+        pending = {str(ref) for ref in db.scalars(
+            select(CognitiveShadowJob.user_message_id).where(
+                CognitiveShadowJob.conversation_id == conversation_id,
+                CognitiveShadowJob.user_message_id.in_([uuid.UUID(ref) for ref in unread]),
+                CognitiveShadowJob.status.in_(("pending", "processing")),
+            )
+        )}
+    return CapturedInterpretedDialogue(records=tuple(records),
+                                       pending_message_refs=tuple(ref for ref in unread if ref in pending))
+
+
+def _store_interpretation(db: Session, *, record: CognitiveShadowTerminalRecord, job: CognitiveShadowJob) -> None:
+    """Keep the dialogue updates a completed v1.7 turn read from its own message.
+
+    Runs in a savepoint: a failure here is counted and never costs the trace.
+    """
+
+    from app.ai.Cognitive.system.v0.contracts.dialogue_interpretation import (
+        DialogueInterpretationRecord, InterpretedUpdate,
+    )
+
+    trace = record.pipeline_trace
+    orchestration = trace.orchestration if trace is not None else None
+    if record.status != TerminalStatus.COMPLETED or orchestration is None:
+        return
+    call_one = next((call for call in orchestration.calls if call.stage == "call_one"), None)
+    compiled = call_one.compiled_proposal if call_one is not None else None
+    if not compiled or "dialogue_updates" not in compiled:
+        return
+    sequence = db.scalar(select(ChatMessage.conversation_sequence).where(ChatMessage.id == job.user_message_id))
+    if sequence is None:
+        return
+    try:
+        with db.begin_nested():
+            interpretation = DialogueInterpretationRecord(
+                source_message_ref=str(job.user_message_id), source_conversation_sequence=sequence,
+                updates=tuple(InterpretedUpdate.model_validate(item) for item in compiled["dialogue_updates"]),
+            )
+            db.add(CognitiveDialogueInterpretation(
+                user_id=job.user_id, conversation_id=job.conversation_id, source_message_id=job.user_message_id,
+                source_conversation_sequence=sequence, shadow_trace_id=uuid.UUID(record.terminal_id),
+                schema_version=interpretation.schema_version, payload=interpretation.model_dump(mode="json"),
+                record_digest=interpretation.digest,
+            ))
+            db.flush()
+        metrics.increment("dialogue_interpretations_stored", updates=str(len(interpretation.updates)))
+    except Exception as exc:  # noqa: BLE001 - never fail the terminal write
+        metrics.increment("dialogue_interpretation_store_failures", error=type(exc).__name__)
+
+
 def _verified_attachments(
     user_id: uuid.UUID, focus: ChatMessage
 ) -> tuple[bool, tuple[CapturedAttachment, ...]]:
@@ -380,8 +468,9 @@ _mapper = PersonalityRuntimeMapperV0()
 
 def _core_personality(
     db: Session, *, turn_id: uuid.UUID,
-) -> tuple[CoreMemoryLineage | None, ShadowPersonalityProjection | None, PersonalityMissingReason | None]:
-    """One turn-time CoreMemory read producing both lineage and personality.
+) -> tuple[CoreMemoryLineage | None, ShadowPersonalityProjection | None, PersonalityMissingReason | None,
+           Character | None]:
+    """One turn-time CoreMemory read producing lineage, personality and (core v2+) character.
 
     The configured source is used exclusively; there is no fallback between
     the runtime mapper and the reviewed baseline. Any failure yields no
@@ -393,9 +482,9 @@ def _core_personality(
     settings = get_settings()
     row = db.scalar(select(CoreMemory).where(CoreMemory.name == settings.cognitive_live_shadow_core_memory_name))
     if row is None:
-        return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE
+        return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE, None
     if not row.is_active:
-        return None, None, PersonalityMissingReason.CORE_MEMORY_INACTIVE
+        return None, None, PersonalityMissingReason.CORE_MEMORY_INACTIVE, None
 
     if settings.cognitive_live_shadow_personality_source == "reviewed_baseline":
         try:
@@ -404,9 +493,9 @@ def _core_personality(
                 name=row.name, version=row.version, schema_version=row.schema_version,
             )
         except ValueError:
-            return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE
+            return None, None, PersonalityMissingReason.CORE_MEMORY_UNAVAILABLE, None
         projection, reason = _reviewed_baseline(core)
-        return core, projection, reason
+        return core, projection, reason, _character_of(row, core, turn_id=turn_id) if projection else None
 
     # Runtime mapper: supported schema and positive version before lineage.
     try:
@@ -414,7 +503,7 @@ def _core_personality(
     except PersonalityMappingError as exc:
         metrics.increment("personality_mapping_failures", code=exc.code.value)
         logger.warning("Cognitive shadow personality mapping failed for turn %s: %s", turn_id, exc.code.value)
-        return None, None, _MAPPER_FAILURE_REASONS[exc.code]
+        return None, None, _MAPPER_FAILURE_REASONS[exc.code], None
     core = CoreMemoryLineage(
         core_memory_ref=core_ref, name=row.name, version=row.version, schema_version=row.schema_version,
     )
@@ -434,8 +523,22 @@ def _core_personality(
             "Cognitive shadow personality mapping failed for turn %s (%s): %s",
             turn_id, core.core_memory_ref, exc.code.value,
         )
-        return core, None, _MAPPER_FAILURE_REASONS[exc.code]
-    return core, projection, None
+        return core, None, _MAPPER_FAILURE_REASONS[exc.code], None
+    return core, projection, None, _character_of(row, core, turn_id=turn_id)
+
+
+def _character_of(row: CoreMemory, core: CoreMemoryLineage, *, turn_id: uuid.UUID) -> Character | None:
+    """Her values, principles and beliefs from the same core-memory row, or ``None``.
+
+    A core without a character (version 1) or with an invalid one captures
+    none; the turn still runs, with opinions reasoned without it.
+    """
+    try:
+        return character_from_identity(copy.deepcopy(row.identity), core_memory_ref=core.core_memory_ref)
+    except ValueError:
+        metrics.increment("personality_mapping_failures", code="character_invalid")
+        logger.warning("Cognitive shadow character invalid for turn %s (%s)", turn_id, core.core_memory_ref)
+        return None
 
 
 def _reviewed_baseline(
@@ -497,7 +600,7 @@ def build_capture(
 
     from app.services import dialogue_memory
 
-    dialogue = None
+    dialogue = interpreted = None
     if dialogue_memory.enabled():
         # Capture v0.3: position-bounded window plus the committed dialogue
         # context immediately before the focus (never the reply to come).
@@ -506,12 +609,15 @@ def build_capture(
         )
         dialogue = _dialogue_capture(db, user_id=user_id, conversation_id=conversation_id, turn_id=turn_id,
                                      focus_message_id=focus.id)
+        if settings.cognitive_dialogue_interpretation_enabled:
+            # Capture v0.4: what earlier turns interpreted between messages.
+            interpreted = _interpreted_capture(db, conversation_id=conversation_id, focus=focus, messages=messages)
     else:
         messages, truncated, previous_user = _bounded_messages(
             db, conversation_id=conversation_id, focus=focus, focus_at=focus_at,
         )
     attachments_available, attachments = _verified_attachments(user_id, focus)
-    core, personality, missing_reason = _core_personality(db, turn_id=turn_id)
+    core, personality, missing_reason, character = _core_personality(db, turn_id=turn_id)
     omitted = set(ALWAYS_OMITTED if dialogue is None else ALWAYS_OMITTED_V03) | {
         OmittedInput.MEMORY_PROJECTION,
         OmittedInput.RELATIONSHIP_PROJECTION,
@@ -524,8 +630,11 @@ def build_capture(
 
     capture = CognitiveShadowCapture(
         capture_id=capture_id_for(str(turn_id)),
-        schema_version=CAPTURE_SCHEMA_VERSION if dialogue is None else CAPTURE_SCHEMA_VERSION_V03,
+        schema_version=(CAPTURE_SCHEMA_VERSION if dialogue is None
+                        else CAPTURE_SCHEMA_VERSION_V04 if interpreted is not None else CAPTURE_SCHEMA_VERSION_V03),
         dialogue=dialogue,
+        interpreted_dialogue=interpreted,
+        character=character,
         producer_version=CAPTURE_PRODUCER_VERSION,
         user_ref=str(user_id),
         conversation_ref=str(conversation_id),
@@ -878,6 +987,9 @@ def persist_terminal(
         db.rollback()
         return False
     db.add(terminal_row(record, job=job))
+    if get_settings().cognitive_dialogue_interpretation_enabled:
+        db.flush()
+        _store_interpretation(db, record=record, job=job)
     db.commit()
     return True
 
@@ -953,6 +1065,7 @@ def cognitive_pipeline(turn_id: str, settings=None) -> CognitivePipelineV0:
                 api_key=settings.openai_api_key,
                 timeout_seconds=settings.cognitive_shadow_semantic_parser_timeout_seconds,
                 max_output_tokens=settings.cognitive_shadow_orchestration_max_output_tokens,
+                call_one_reasoning_effort=_call_one_reasoning(settings),
             )
         except AppraisalModelError as exc:
             code = (SemanticParserErrorCode.MODEL_NOT_CONFIGURED if exc.code == "configuration_unavailable"
@@ -1141,7 +1254,7 @@ def replay_realization_terminal(db: Session, *, user_id: uuid.UUID, terminal_id:
     settings = get_settings()
     dialogue_context = None
     job = db.get(CognitiveShadowJob, row.job_id)
-    if job is not None and job.capture_schema_version == CAPTURE_SCHEMA_VERSION_V03:
+    if job is not None and job.capture_schema_version in DIALOGUE_CAPTURE_SCHEMAS:
         # The dialogue inventory is rebuilt from the immutable capture, never
         # from the current head or a cache.
         if payload_digest(job.capture_payload) != job.capture_digest:
@@ -1154,7 +1267,8 @@ def replay_realization_terminal(db: Session, *, user_id: uuid.UUID, terminal_id:
     orchestration = (row.pipeline_trace_payload or {}).get("orchestration")
     # Protocol v1 words through the configured Realization provider, not Call 2.
     if orchestration is not None and orchestration.get("realization_policy") not in (
-            "separate_realization-v1", "separate_realization-v1.1", "separate_realization-v1.2"):
+            "separate_realization-v1", "separate_realization-v1.1", "separate_realization-v1.2",
+            "separate_realization-v1.3", "separate_realization-v1.4", "separate_realization-v1.5", "separate_realization-v1.6"):
         from app.ai.Cognitive.system.v0.two_call.contracts import TwoCallTrace
         from app.ai.Cognitive.system.v0.two_call.realization import CapturedRealizationModel
         try:
@@ -1164,7 +1278,10 @@ def replay_realization_terminal(db: Session, *, user_id: uuid.UUID, terminal_id:
         expected_model = settings.cognitive_shadow_semantic_parser_model
     else:
         # Protocol v1 words in the conversational variant of the configured provider.
-        variant = "conversational-v1" if orchestration is not None else None
+        from app.ai.Cognitive.system.v0.two_call.v1_contracts import INSTRUCTION_VARIANT_BY_REALIZATION_POLICY
+        variant = (INSTRUCTION_VARIANT_BY_REALIZATION_POLICY.get(orchestration.get("realization_policy"),
+                                                                 "conversational-v1")
+                   if orchestration is not None else None)
         expected = expected_realization_provenance(settings, instruction_variant=variant)
         expected_model = settings.cognitive_shadow_realization_model
     return replay_realization(

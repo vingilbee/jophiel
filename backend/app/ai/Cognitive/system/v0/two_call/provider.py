@@ -27,10 +27,59 @@ V1_PROTOCOL = 'cognitive-two-call-v1'
 
 def prompt(stage, payload=None):
     if payload and payload.get('protocol')==V1_PROTOCOL:
+        if stage=='contribution':
+            text = Path(__file__).with_name('contribution_v1_6.txt').read_text()
+            if payload.get('schema_version') in ('contribution-input-v1.1', 'contribution-input-v1.2', 'contribution-input-v1.3', 'contribution-input-v1.4'):
+                text += Path(__file__).with_name('contribution_v1_8.txt').read_text()
+            if payload.get('schema_version') in ('contribution-input-v1.2', 'contribution-input-v1.3', 'contribution-input-v1.4'):
+                text += Path(__file__).with_name('contribution_v1_9.txt').read_text()
+            if payload.get('followup_context_version') == 'source-linked-followup-v1':
+                text += Path(__file__).with_name('contribution_followup_v1.txt').read_text()
+            if payload.get('schema_version') in ('contribution-input-v1.3', 'contribution-input-v1.4'):
+                text += Path(__file__).with_name('contribution_v1_10.txt').read_text()
+            if payload.get('schema_version') == 'contribution-input-v1.4':
+                text += Path(__file__).with_name('contribution_premise_v1.txt').read_text()
+                if (payload.get('premise_context') or {}).get('version') in ('recorded-position-premise-v2', 'recorded-position-premise-v3'):
+                    text += Path(__file__).with_name('contribution_premise_v2.txt').read_text()
+                if payload.get('referent_contract'):
+                    text += Path(__file__).with_name('contribution_referent_v1.txt').read_text()
+            return text
         # The capture's registry version selects its prompt; v1.0/v1.1 replay unchanged.
         if stage=='call_one':
-            current = (payload.get('ontology') or {}).get('predicate_registry_version')=='argument-kind-registry-v1.2'
+            registry = (payload.get('ontology') or {}).get('predicate_registry_version')
+            # v1.12 changes only contribution assessment, not understanding.
+            referent_contract = registry == 'argument-kind-registry-v1.13'
+            if registry in ('argument-kind-registry-v1.12', 'argument-kind-registry-v1.13'):
+                registry = 'argument-kind-registry-v1.11'
+            if registry in ('argument-kind-registry-v1.4', 'argument-kind-registry-v1.5', 'argument-kind-registry-v1.6',
+                            'argument-kind-registry-v1.7', 'argument-kind-registry-v1.8', 'argument-kind-registry-v1.9', 'argument-kind-registry-v1.10', 'argument-kind-registry-v1.11'):
+                extensions = {'argument-kind-registry-v1.4': ('call_one_v1_4.txt',),
+                              'argument-kind-registry-v1.5': ('call_one_v1_5.txt',),
+                              'argument-kind-registry-v1.6': ('call_one_v1_5.txt', 'call_one_v1_6.txt'),
+                              'argument-kind-registry-v1.7': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt'),
+                              'argument-kind-registry-v1.8': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt'),
+                              'argument-kind-registry-v1.9': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt'),
+                              'argument-kind-registry-v1.10': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt', 'call_one_v1_10.txt'),
+                              'argument-kind-registry-v1.11': ('call_one_v1_5.txt', 'call_one_v1_6.txt',
+                                                              'call_one_v1_7.txt', 'call_one_v1_8.txt',
+                                                              'call_one_v1_9.txt', 'call_one_v1_10.txt')}[registry]
+                return Path(__file__).with_name('call_one_v1_2.txt').read_text() + ''.join(
+                    Path(__file__).with_name(name).read_text() for name in extensions) + (
+                    Path(__file__).with_name('call_one_v1_13.txt').read_text() if referent_contract else '')
+            current = (payload.get('ontology') or {}).get('predicate_registry_version') in ('argument-kind-registry-v1.2', 'argument-kind-registry-v1.3', 'argument-kind-registry-v1.4')
         else:
+            if payload.get('policy_guidance') == 'policy-guidance-v1.6':
+                return Path(__file__).with_name('call_two_v1_5.txt').read_text() + Path(__file__).with_name('call_two_v1_6.txt').read_text()
+            if payload.get('policy_guidance') == 'policy-guidance-v1.5':
+                return Path(__file__).with_name('call_two_v1_5.txt').read_text()
+            if payload.get('policy_guidance') == 'policy-guidance-v1.3':
+                return Path(__file__).with_name('call_two_v1_3.txt').read_text()
             current = payload.get('policy_guidance')=='policy-guidance-v1.2'
         name = f'{stage}_v1_2.txt' if current else f'{stage}_v1.txt'
         return Path(__file__).with_name(name).read_text()
@@ -72,6 +121,9 @@ def call_one_evidence_refs(payload):
 
 
 def response_schema(stage, payload):
+    if payload.get('protocol')==V1_PROTOCOL and stage=='contribution':
+        from .contribution import contribution_schema
+        return contribution_schema(payload)
     if payload.get('protocol')==V1_PROTOCOL:
         from .v1_provider import v1_schema
         return v1_schema(stage,payload)
@@ -169,6 +221,11 @@ def response_schema(stage, payload):
     return schema
 
 def output_type(stage,payload):
+    if payload.get('protocol')==V1_PROTOCOL and stage=='contribution':
+        from .contribution import CONTRIBUTION_INPUT_VERSION_V1_2, ContributionProposalV1, ContributionProposalV2, ContributionProposalV3
+        if payload.get('schema_version') == 'contribution-input-v1.4':
+            return ContributionProposalV3
+        return ContributionProposalV2 if payload.get('schema_version') in (CONTRIBUTION_INPUT_VERSION_V1_2, 'contribution-input-v1.3') else ContributionProposalV1
     if payload.get('protocol')==V1_PROTOCOL:
         from .v1_contracts import UnderstandingProposalV1,ActionPolicyProposalV1
         return UnderstandingProposalV1 if stage=='call_one' else ActionPolicyProposalV1
@@ -177,13 +234,20 @@ def output_type(stage,payload):
         return MindProposal if stage=='call_one' else ResponseProposal
     return CallOneOutput if stage=='call_one' else CallTwoOutput
 
+# Reasoning the reader (Call 1) may use. Any other stage keeps the manifest setting.
+CALL_ONE_REASONING_EFFORTS = ('low', 'medium')
+
+
 class OpenAITwoCallModel:
-    def __init__(self, *, model_id, api_key, timeout_seconds=20, max_output_tokens=4000, client=None):
+    def __init__(self, *, model_id, api_key, timeout_seconds=20, max_output_tokens=4000, client=None,
+                 call_one_reasoning_effort=None):
         try:
             self.capabilities = capabilities_for(model_id)
             validate_protocol_capabilities(self.capabilities)
         except Exception as exc:
             raise AppraisalModelError('configuration_incompatible') from exc
+        if call_one_reasoning_effort not in (None, *CALL_ONE_REASONING_EFFORTS):
+            raise AppraisalModelError('configuration_incompatible')
         if not api_key and client is None:
             raise AppraisalModelError('configuration_unavailable')
         if client is None:
@@ -194,7 +258,8 @@ class OpenAITwoCallModel:
         self.timeout = timeout_seconds
         self.max_tokens = max_output_tokens
         self.usage = {}
-        self.provenance = dict(provider='openai', provider_adapter=VERSION, model_id=model_id,
+        self.call_one_reasoning_effort = call_one_reasoning_effort
+        self.provenance = self.base_provenance = dict(provider='openai', provider_adapter=VERSION, model_id=model_id,
             protocol_version=VERSION, endpoint='chat.completions', reasoning_effort=self.capabilities.reasoning_effort,
             temperature='0.000000', max_output_tokens=max_output_tokens, timeout_seconds=timeout_seconds,
             sdk_retries=0, streaming=False, store=False, candidate_count=1)
@@ -209,11 +274,22 @@ class OpenAITwoCallModel:
         params[self.capabilities.token_limit_parameter] = self.max_tokens
         if self.capabilities.reasoning_effort is not None:
             params['reasoning_effort'] = self.capabilities.reasoning_effort
+        if stage == 'call_one' and self.call_one_reasoning_effort is not None:
+            # Reasoning models accept only their default temperature.
+            params['reasoning_effort'] = self.call_one_reasoning_effort
+            del params['temperature']
         return params
+
+    def provenance_for(self, stage):
+        if stage == 'call_one' and self.call_one_reasoning_effort is not None:
+            return self.base_provenance | dict(reasoning_effort=self.call_one_reasoning_effort, temperature='default')
+        return self.base_provenance
 
     def generate(self, stage, payload, schema=None):
         import openai,time
         self.usage = {}
+        # Read by the orchestrator after the call, so each call records its own settings.
+        self.provenance = self.provenance_for(stage)
         started=time.perf_counter()
         try:
             response = self.client.chat.completions.create(**self.parameters(stage, payload, schema))
@@ -260,6 +336,16 @@ class FrozenTwoCallModel:
         self.cursor = 0
 
     def generate(self, stage, payload, schema=None):
+        if stage == 'contribution':
+            # Registry v1.6: recorded contribution calls replay in their own order.
+            index = getattr(self, 'contribution_cursor', 0)
+            if index >= len(self.trace.contributions):
+                raise AppraisalModelError('proposal_rejected')
+            capture = self.trace.contributions[index]
+            if capture.payload_digest != digest(payload) or capture.prompt_hash != hashlib.sha256(prompt(stage, payload).encode()).hexdigest():
+                raise AppraisalModelError('proposal_rejected')
+            self.contribution_cursor = index + 1
+            return output_type(stage, payload).model_validate(capture.proposal)
         if self.cursor >= len(self.trace.calls):
             raise AppraisalModelError('proposal_rejected')
         capture = self.trace.calls[self.cursor]

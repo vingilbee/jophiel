@@ -3,8 +3,8 @@
 Normative sources: ``CONTEXT_CONDITIONED_TWO_CALL_PIPELINE_REDESIGN.md`` and
 ``SIMPLIFIED_TWO_CALL_COGNITIVE_TRAINING_SCHEMA_PROPOSAL.md``.  Both model
 outputs are closed: no unrestricted strings, no model-authored durable IDs,
-no target-binding graphs, no content, segments or wording.  Every value is a
-registered key, a bounded enum, or a code-supplied reference.
+no target-binding graphs, no answer content, segments or wording. Registry
+v1.9 additionally permits a bounded, source-linked question restatement.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import math
 import re
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from ..contracts.interpretation import FrozenModel
 
@@ -32,8 +32,47 @@ SPAN_ADDRESSING_VERSION = 'focus-token-span-v1'
 # A capture records its registry version and replays under it.
 # v1.2 adds ``conversation_request`` (talk, not a produced artifact) and the
 # user-owned goal unknown it grounds.
-ARGUMENT_KIND_REGISTRY_VERSION = 'argument-kind-registry-v1.2'
-ARGUMENT_KIND_REGISTRY_VERSIONS = ('argument-kind-registry-v1', 'argument-kind-registry-v1.1', 'argument-kind-registry-v1.2')
+# v1.3 retains that vocabulary and enables optional exploration of already
+# grounded user experiences, plus bounded conversational context for selection.
+# v1.4 adds extractive dialogue citations: ``dialogue_recall_request`` and
+# ``contextual_perspective_request`` (``two_call/continuity.py``).
+# v1.5 keeps that vocabulary and changes what it grounds (see
+# ``CONVERSATION_REGISTRIES``): a cited recall satisfies its own referent,
+# follow-up referents may cite dialogue, statements invite optional follow-up,
+# corrections are acknowledged with their corrected value, unstated facts are
+# typed ``not_mentioned_in_conversation``, and ambiguity clarifies as a choice.
+# v1.6 opens the world: ``opinion_request``, and a recorded ``contribution``
+# stage supplying labelled general knowledge and Columbina's own
+# personality-selected view (``two_call/contribution.py``).
+# v1.7 keeps the v1.6 vocabulary and adds ``dialogue_updates``: Call 1 proposes
+# option sets, same-referent links and corrections for the current message as
+# exact user spans, and sees earlier ones (``contracts/dialogue_interpretation.py``).
+# v1.8 keeps that and adds ``recall_answer``: for a known recall, the answer
+# written in a few words ("Bea"), not only a cited passage. Code accepts it only
+# if it appears word for word in a supplied user message.
+# v1.9 adds turn-local source-linked follow-up interpretation and forwarding.
+ARGUMENT_KIND_REGISTRY_VERSION = 'argument-kind-registry-v1.13'
+ARGUMENT_KIND_REGISTRY_VERSIONS = ('argument-kind-registry-v1', 'argument-kind-registry-v1.1', 'argument-kind-registry-v1.2',
+                                   'argument-kind-registry-v1.3', 'argument-kind-registry-v1.4', 'argument-kind-registry-v1.5',
+                                   'argument-kind-registry-v1.6', 'argument-kind-registry-v1.7',
+                                   'argument-kind-registry-v1.8', 'argument-kind-registry-v1.9', 'argument-kind-registry-v1.10', 'argument-kind-registry-v1.11', 'argument-kind-registry-v1.12', 'argument-kind-registry-v1.13')
+REFERENT_REGISTRIES = ('argument-kind-registry-v1.13',)
+PREMISE_REGISTRIES = ('argument-kind-registry-v1.11', 'argument-kind-registry-v1.12', *REFERENT_REGISTRIES)
+SCOPED_SOURCE_REGISTRIES = ('argument-kind-registry-v1.10', *PREMISE_REGISTRIES)
+FOLLOWUP_REGISTRIES = ('argument-kind-registry-v1.9', *SCOPED_SOURCE_REGISTRIES)
+# Registries where Call 1 writes the recall answer (v1.8+).
+WRITTEN_RECALL_REGISTRIES = ('argument-kind-registry-v1.8', *FOLLOWUP_REGISTRIES)
+MAX_RECALL_ANSWER_CHARACTERS = 80
+# Registries with interpreted dialogue relationships (v1.7+).
+INTERPRETED_DIALOGUE_REGISTRIES = ('argument-kind-registry-v1.7', *WRITTEN_RECALL_REGISTRIES)
+# Registries with open-world contribution (general knowledge, own view).
+OPEN_WORLD_REGISTRIES = ('argument-kind-registry-v1.6', *INTERPRETED_DIALOGUE_REGISTRIES)
+# Registries with the v1.5 conversational grounding changes.
+CONVERSATION_REGISTRIES = ('argument-kind-registry-v1.5', *OPEN_WORLD_REGISTRIES)
+# Registries that carry the v1.4 dialogue-citation vocabulary.
+CONTINUITY_REGISTRIES = ('argument-kind-registry-v1.4', *CONVERSATION_REGISTRIES)
+# Registries with optional exploration and a bounded conversation window (v1.3+).
+EXPLORATION_REGISTRIES = ('argument-kind-registry-v1.3', *CONTINUITY_REGISTRIES)
 GROUNDING_PROJECTION_VERSION = 'understanding-grounding-v1.1'
 GROUNDING_PROJECTION_VERSION_V1_2 = 'understanding-grounding-v1.2'
 UNKNOWN_REGISTRY_VERSION = 'interpretation-unknown-keys-v1'
@@ -41,15 +80,34 @@ CONFLICT_REGISTRY_VERSION = 'interpretation-conflict-keys-v1'
 SELECTION_FACTOR_REGISTRY_VERSION = 'action-selection-factors-v1'
 APPRAISAL_SCHEMA_VERSION = 'appraisal-named-dimensions-v1'
 # Trace-level policies recorded on the orchestration trace.
-BEHAVIOR_POLICY_V1 = 'model_policy_selection-v1'
+BEHAVIOR_POLICY_V1 = 'model_policy_selection-v1.1'
 # v1.1: conversational wording content (``two_call/v1_content.py``).
 # v1.2: validation policy ``conversational-v2`` (schema + two real-world claims block).
-REALIZATION_POLICY_V1 = 'separate_realization-v1.2'
-REALIZATION_POLICIES_V1 = ('separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2')
+# v1.3: validation policy ``conversational-v3`` (v2 + a known answer is never denied, reversed or dropped).
+# v1.4: the wording model also reads the recent conversation (comprehension only), with
+# instruction variant ``conversational-v2``; validation stays ``conversational-v3``.
+# v1.5: a clearly playful personality may be playful in ordinary answers (ambient play),
+# with instruction variant ``conversational-v3``; validation stays ``conversational-v3``.
+REALIZATION_POLICY_V1 = 'separate_realization-v1.6'
+REALIZATION_POLICIES_V1 = ('separate_realization-v1', 'separate_realization-v1.1', 'separate_realization-v1.2',
+                           'separate_realization-v1.3', 'separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6')
+# Realization policies whose wording model reads the recent conversation.
+CONVERSATION_CONTEXT_REALIZATION_POLICIES = ('separate_realization-v1.4', 'separate_realization-v1.5', 'separate_realization-v1.6')
+# Realization policies under which a high playfulness band reaches ordinary answers.
+AMBIENT_PLAY_REALIZATION_POLICIES = ('separate_realization-v1.5', 'separate_realization-v1.6')
+# The wording instructions each v1 realization policy uses.
+INSTRUCTION_VARIANT_BY_REALIZATION_POLICY = {
+    'separate_realization-v1.6': 'conversational-v4',
+    'separate_realization-v1': 'conversational-v1', 'separate_realization-v1.1': 'conversational-v1',
+    'separate_realization-v1.2': 'conversational-v1', 'separate_realization-v1.3': 'conversational-v1',
+    'separate_realization-v1.4': 'conversational-v2', 'separate_realization-v1.5': 'conversational-v3',
+}
 # The Realization validation policy each v1 realization policy words under.
 VALIDATION_POLICY_BY_REALIZATION_POLICY = {
+    'separate_realization-v1.6': 'conversational-v4',
     'separate_realization-v1': 'conversational-v1', 'separate_realization-v1.1': 'conversational-v1',
-    'separate_realization-v1.2': 'conversational-v2',
+    'separate_realization-v1.2': 'conversational-v2', 'separate_realization-v1.3': 'conversational-v3',
+    'separate_realization-v1.4': 'conversational-v3', 'separate_realization-v1.5': 'conversational-v3',
 }
 ALIGNMENT_POLICY_V1 = 'not_applicable-v1'
 
@@ -106,7 +164,7 @@ POLICY_MODES = ('direct', 'contextual', 'deliberative')
 MAX_MOVES_BY_MODE = {'direct': 2, 'contextual': 3, 'deliberative': 4}
 
 ARGUMENT_VALUE_KINDS = ('enum', 'span', 'span_set', 'entity_ref', 'object_ref', 'runtime_ref', 'memory_ref',
-                        'integer', 'decimal', 'boolean', 'null')
+                        'integer', 'decimal', 'boolean', 'null', 'dialogue_span', 'dialogue_span_set')
 
 # ---------------------------------------------------------------------------
 # Supplied-reference grammar.  Spans address the focus message's code-owned
@@ -197,9 +255,21 @@ class NullValue(FrozenModel):
     kind: Literal['null']
 
 
+class DialogueSpanValue(FrozenModel):
+    """An extractive citation into a supplied user message, never model prose."""
+    kind: Literal['dialogue_span']
+    message_ref: str = Field(pattern=r'^message:[0-9]+$')
+    span_ref: str = Field(pattern=SPAN_REF_PATTERN)
+
+
+class DialogueSpanSetValue(FrozenModel):
+    kind: Literal['dialogue_span_set']
+    spans: tuple[DialogueSpanValue, ...] = Field(min_length=2, max_length=4)
+
+
 TypedArgumentValue = Annotated[Union[EnumValue, SpanValue, SpanSetValue, EntityRefValue, ObjectRefValue,
                                      RuntimeRefValue, MemoryRefValue, IntegerValue, DecimalValue, BooleanValue,
-                                     NullValue], Field(discriminator='kind')]
+                                     NullValue, DialogueSpanValue, DialogueSpanSetValue], Field(discriminator='kind')]
 
 Ordinal = Literal['low', 'moderate', 'high', 'not_applicable']
 Signed = Literal['negative', 'neutral', 'positive', 'not_applicable']
@@ -237,6 +307,18 @@ class InterpretationReading(FrozenModel):
         return self
 
 
+class FollowupSource(FrozenModel):
+    role: Literal['earlier_position', 'recent_position', 'new_information', 'topic']
+    citation: DialogueSpanValue
+
+
+class FollowupContext(FrozenModel):
+    """Turn-local understanding, not new answer content or durable belief."""
+    operation: Literal['continue_opinion', 'explain_position', 'compare_positions']
+    resolved_question: str = Field(min_length=1, max_length=600)
+    sources: tuple[FollowupSource, ...] = Field(max_length=6)
+
+
 class SemanticEvent(FrozenModel):
     predicate_key: str = Field(min_length=1)
     polarity: Literal['positive', 'negative', 'unknown']
@@ -245,6 +327,18 @@ class SemanticEvent(FrozenModel):
     arguments: dict[str, TypedArgumentValue]
     evidence_span_refs: tuple[Annotated[str, Field(pattern=SPAN_REF_PATTERN)], ...] = Field(min_length=1)
     readings: tuple[InterpretationReading, ...]
+    followup: FollowupContext | None = None
+    # The speech act's scope is independent from its imagined subject matter.
+    act_scope: Literal['current', 'quoted', 'reported', 'imagined'] | None = None
+    subject_mode: Literal['actual', 'hypothetical', 'unspecified'] | None = None
+
+    @model_serializer(mode='wrap')
+    def omit_absent_followup(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        for key in ('followup', 'act_scope', 'subject_mode'):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
     @model_validator(mode='after')
     def unique_evidence(self):
@@ -291,12 +385,31 @@ class ConflictRecord(FrozenModel):
         return self
 
 
+class DialogueUpdateProposal(FrozenModel):
+    """Registry v1.7: one relationship, as exact user spans (meaning by order, see ``InterpretedUpdate``)."""
+    kind: Literal['option_set', 'same_referent', 'correction']
+    spans: tuple[DialogueSpanValue, ...] = Field(min_length=2, max_length=4)
+
+
 class UnderstandingProposalV1(FrozenModel):
     schema_version: Literal['understanding-proposal-v1']
     events: tuple[SemanticEvent, ...] = Field(min_length=1)
     existing_goal_impacts: tuple[ExistingGoalImpact, ...]
     unknowns: tuple[UnknownRecord, ...]
     conflicts: tuple[ConflictRecord, ...]
+    # Registry v1.7+ only; absent from earlier proposals, so their digests never change.
+    dialogue_updates: tuple[DialogueUpdateProposal, ...] | None = Field(default=None, max_length=4)
+    # Registry v1.8+ only: the written answer to a known recall question.
+    recall_answer: str | None = None
+
+    @model_serializer(mode='wrap')
+    def _omit_absent_updates(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ('dialogue_updates', 'recall_answer'):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        return data
 
 
 # ---------------------------------------------------------------------------

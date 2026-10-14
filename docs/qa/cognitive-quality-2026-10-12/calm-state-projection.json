@@ -1,0 +1,94 @@
+{
+  "scope": "application_baseline",
+  "provenance": "synthetic-state-intervention",
+  "review_ref": "docs/qa/cognitive-quality-2026-10-12/REPORT.md",
+  "projection_id": "qa-calm_state",
+  "core_memory_ref": "core_memory:columbina:v4",
+  "projection_kind": "reviewed_baseline",
+  "state_personality": {
+    "profile_id": "qa-calm_state:state",
+    "mapper_version": "personality-runtime-mapper-v0.1",
+    "state_controls": {
+      "state.valence": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 50,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.curiosity": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 25,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.activation": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 10,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.engagement": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 75,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.goal_pressure": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 25,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.social_alignment": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 70,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.interaction_strain": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 5,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      },
+      "state.epistemic_confidence": {
+        "sensitivity": "neutral",
+        "recovery_band": "moderate",
+        "baseline_score": 50,
+        "persistence_band": "moderate",
+        "maximum_step_band": "moderate"
+      }
+    },
+    "interaction_patience_band": "moderate"
+  },
+  "action_personality": {
+    "status": "known",
+    "warmth": 0.8,
+    "curiosity": 0.88,
+    "directness": 0.62,
+    "profile_id": "personality-runtime:core_memory:columbina:v4:personality-runtime-mapper-v0.1:action",
+    "playfulness": 0.58,
+    "mapper_version": "personality-runtime-mapper-v0.1",
+    "source_core_memory_ref": "core_memory:columbina:v4"
+  },
+  "projection_version": "qa-state-1012-v1",
+  "interpretation_biases": {
+    "profile_id": "personality-runtime:core_memory:columbina:v4:personality-runtime-mapper-v0.1:interpretation",
+    "trust_prior": 0.64,
+    "benign_prior": 0.77,
+    "compiler_version": "personality-runtime-mapper-v0.1",
+    "threat_sensitivity": 0.25,
+    "ambiguity_tolerance": 0.55,
+    "confirmation_tendency": 0.5,
+    "source_core_memory_ref": "core_memory:columbina:v4",
+    "social_affiliation_prior": 0.75,
+    "self_attribution_tendency": 0.5
+  }
+}

@@ -1,12 +1,75 @@
 # Cognitive input system
 
+## Long-conversation handoff repairs (2026-10-13)
+
+New V1 captures use registry **v1.13** and realization policy **v1.6**.
+Conversational reconsideration remains an opinion request; contribution retains
+the resolved referent; Call 2 sees the exact answer content when selecting
+compatible moves. Recalled questions no longer become assertable answer subjects.
+Model-authored display text is normalized before projection, alignment excerpts
+must be nonempty, and fidelity validation distinguishes negating an alternative
+from negating the recalled answer. Older policies retain their versioned behavior.
+
+See [implementation and verification](../../../../../../docs/qa/cognitive-long-fix-2026-10-13/REPORT.md).
+
+## Independent premise and position assessments (2026-10-13)
+
+Registry **v1.12** introduced independent assessment guidance. Written-character
+contribution keeps input v1.4/proposal v3, with versioned premise context v2.
+The user's premise verdict and the actual position relation are assessed
+independently: a neutral comparison can reveal a revision without the user
+having asserted one. No deterministic opinion rule or additional model call
+was added. V1.11 prompts/schemas/replay remain unchanged.
+
+See [targeted verification and limitations](../../../../../../docs/qa/cognitive-relation-axes-2026-10-13/REPORT.md).
+
+## Recorded-position premise assessment (2026-10-13)
+
+Registry **v1.11** introduced recorded-position assessment. With a
+written character, contribution input v1.4 supplies exact prior assistant
+speech and requires a premise assessment before the proposed answer. It
+separates whether a user's premise fits that speech from whether the current
+judgment stays unchanged, gains support, makes an exception, changes, or remains
+uncertain. Code checks evidence references and preserves their exact text in
+the trace; the model still judges the premise and current position. Personality
+conditions that judgment without replacing historical evidence. No opinion
+memory subsystem or deterministic consistency rule is introduced. Older
+versioned inputs retain their schemas and prompts.
+
+See [targeted development and independent evaluation](../../../../../../docs/qa/cognitive-premise-fix-2026-10-13/REPORT.md).
+
+## Speech scope, safe sources and dialogue reasoning (2026-10-13)
+
+New `cognitive-two-call-v1` runs now use argument registry **v1.10**. A real
+question about an imagined situation is separated from an imagined/quoted
+request. Dialogue citations select code-owned bounded passages with linked
+speaker roles. Contribution can reason about its own public dialogue without
+misclassifying that as an unknown fact about the user. Retrospective comparison
+preserves conditions and distinguishes stronger support from a changed view.
+
+These changes preserve character conditioning, permission boundaries and older
+versioned captures. They do not switch the application's configured protocol.
+See [implementation, verification and remaining limits](SCOPE_SOURCE_V1_10_IMPLEMENTATION.md).
+
+## Source-linked conversational follow-ups (2026-10-12)
+
+Registry **v1.9** introduced source-linked follow-ups. Interpretation
+can pass a bounded resolved question and checked user/assistant source excerpts
+to contribution, including relevant earlier positions outside its recent-history
+window. Conversational explanation/comparison is distinguished from literal
+recall and artifact requests. This does not add permanent opinion memory, alter
+character values, change opinion confidence policy, or switch the application's
+configured protocol. Older captures retain their versioned behavior.
+
+See [implementation and verification](FOLLOWUP_HANDOFF_V1_9_IMPLEMENTATION.md).
+
 ## Current product and evaluation scope (2026-10-05)
 
 Columbina's primary focus is general conversation as an agent with persistent identity and personality. Nutrition and meal planning are specialist topics. The dinner scenarios documented below are historical vertical-slice and regression evidence; they do not define the default behavioral evaluation. New quality evaluations should follow [the conversational test plan](../../../../../../docs/COLUMBINA_CONVERSATIONAL_TEST_PLAN.md), including ordinary social exchanges and topic continuity without requiring a plan or artifact.
 
 ## V1 open world, registry v1.6 (2026-10-10)
 
-New `cognitive-two-call-v1` captures use `argument-kind-registry-v1.6`. This
+Registry `argument-kind-registry-v1.6` introduced the following behavior. This
 relaxes the closed-world rule on purpose (product decision, 2026-10-10):
 Columbina may share general knowledge and her own views. Both are labelled
 content sources, never presented as verified. Facts about the user still come

@@ -1,0 +1,114 @@
+[
+  [
+    "neutral_revision",
+    [
+      [
+        "assistant",
+        "I recommend glass jars for the samples."
+      ],
+      [
+        "user",
+        "The courier cannot safely transport glass."
+      ],
+      [
+        "assistant",
+        "Then I recommend metal tins for this shipment."
+      ]
+    ],
+    "Compare your two packaging recommendations.",
+    "no_asserted_change",
+    "revised"
+  ],
+  [
+    "neutral_unchanged",
+    [
+      [
+        "assistant",
+        "I prefer a pencil for this sketch."
+      ],
+      [
+        "assistant",
+        "A pencil is still my choice for this sketch."
+      ]
+    ],
+    "How do your two choices relate?",
+    "no_asserted_change",
+    "unchanged"
+  ],
+  [
+    "neutral_support",
+    [
+      [
+        "assistant",
+        "I recommend the washable cover."
+      ],
+      [
+        "user",
+        "The wash test found it easy to clean."
+      ],
+      [
+        "assistant",
+        "I still recommend the washable cover; that test strengthens my reasons."
+      ]
+    ],
+    "Compare your first and latest recommendations.",
+    "no_asserted_change",
+    "stronger_support"
+  ],
+  [
+    "false_premise",
+    [
+      [
+        "assistant",
+        "I prefer short chapter headings."
+      ]
+    ],
+    "You preferred long chapter headings before. Why did you switch to short ones?",
+    "contradicted",
+    "unchanged"
+  ],
+  [
+    "contextual_exception",
+    [
+      [
+        "assistant",
+        "I generally prefer plain wrapping paper."
+      ],
+      [
+        "assistant",
+        "For this costume-party gift only, glittery paper is an exception; plain paper remains my usual preference."
+      ]
+    ],
+    "How does your choice for this gift relate to your usual preference?",
+    "no_asserted_change",
+    "exception"
+  ],
+  [
+    "missing_position",
+    [
+      [
+        "user",
+        "Let us discuss desk lamps."
+      ],
+      [
+        "assistant",
+        "We have not established a lamp preference."
+      ]
+    ],
+    "Compare your earlier lamp preference with your current one.",
+    "insufficient_evidence",
+    "uncertain"
+  ],
+  [
+    "unrelated_preference",
+    [
+      [
+        "assistant",
+        "I prefer short chapter headings."
+      ]
+    ],
+    "Separate topic: what imaginary cloud shape would you enjoy seeing?",
+    "not_applicable",
+    "not_applicable"
+  ]
+]

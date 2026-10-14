@@ -219,6 +219,8 @@ def test_every_violation_code_has_a_triggering_mutation() -> None:
     triggered = {code for *_, required in MUTATIONS for code in required} | {
         "move_order_changed", "required_move_missing", "alignment_invalid", "content_alignment_missing",
         "request_ownership_mismatch", "output_schema_invalid", "move_form_invalid",
+        # conversational-v3 only: triggered in test_realization_answer_fidelity.py.
+        "answer_contradicted", "answer_dropped",
     }
     assert {code.value for code in ViolationCode} <= triggered
 
@@ -334,3 +336,23 @@ def test_hard_findings_cannot_be_forged_into_advisory_warnings():
         RealizationValidationResult(request_ref=ACK.request_digest, candidate_ref="candidate", attempt_number=1,
             validation_policy="style_advisory-v0.1", status="accepted_for_shadow_review",
             warnings=(violation(ViolationCode.FALSE_TOOL_COMPLETION_CLAIM, "text"),))
+
+
+def _gap_request(kind: str):
+    return compile_request(case_inputs("action-selection-prior-failure", [REQ, gap(
+        "content-gap", ("prop-result-10",), "the percentage", gap_kind=kind)]))
+
+
+@pytest.mark.parametrize(("kind", "text", "answered"), [
+    # Registry v1.5: a fact the user never stated is worded as not mentioned.
+    ("not_mentioned_in_conversation", "You haven't mentioned the percentage.", False),
+    ("not_mentioned_in_conversation", "You didn't say what the percentage was.", False),
+    ("not_mentioned_in_conversation", "I'm not sure about the percentage.", False),
+    ("not_mentioned_in_conversation", "You never said the percentage.", True),
+    ("not_mentioned_in_conversation", "The percentage is 10 percent.", True),
+    # Mention wording is licensed only by that gap kind (replay of older gaps is unchanged).
+    ("no_grounded_answer", "You haven't mentioned the percentage.", True),
+])
+def test_not_mentioned_gap_wording(kind, text, answered) -> None:
+    codes = _codes(_gap_request(kind), *_two(text))
+    assert ("knowledge_gap_answered" in codes or "unrecorded_memory_claimed" in codes) == answered, codes

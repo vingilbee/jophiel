@@ -26,7 +26,7 @@ from decimal import Decimal, InvalidOperation
 
 from ..contracts.realization import (
     DIALOGUE_SOURCE_KINDS, MEMORY_SOURCE_KINDS, NON_ASSERTABLE_STATUSES, REALIZATION_UNITS, ArgumentValueType,
-    ArtifactPresentation, AuthorizedQuote, ContentAttribution, DialogueReference, DialogueReferenceKind, InquiryPrompt,
+    CONVERSATIONAL_POLICIES, ArtifactPresentation, AuthorizedQuote, ContentAttribution, DialogueReference, DialogueReferenceKind, InquiryPrompt,
     ContentEpistemicStatus, ContentSourceKind, GapKind, GroundedProposition, GroundedQuestion, KnowledgeGap,
     Modality, Polarity, RealizationCandidateV0, RealizationFailurePhase, RealizationRequestV0,
     RealizationValidationResult, RealizationValidationPolicy, RealizationViolation, advisory_finding_allowed,
@@ -274,6 +274,10 @@ GAP_STATEMENT = _rx(rf"\b(don{_APOS}?t have|do not have|no grounded|can{_APOS}?t
                     rf"cannot verify|not able to (confirm|verify)|unable to (confirm|verify|answer)|no record|no memory|"
                     rf"not sure|don{_APOS}?t know|do not know|no information|i lack|without a grounded|i have no|"
                     rf"i{_APOS}?m not able to|not in what i have)\b")
+# A ``not_mentioned_in_conversation`` gap (registry v1.5) is stated as what the
+# user has not said; only that gap kind accepts this wording.
+MENTION_GAP_STATEMENT = _rx(rf"\b((didn{_APOS}?t|did not|haven{_APOS}?t|have not|hasn{_APOS}?t) (mention|mentioned|say|said|tell|told)|"
+                            rf"not mentioned|not something you{_APOS}?ve (said|mentioned))\b")
 CORRECTION_MARKER = _rx(rf"\b(not|rather than|instead of|instead|correction|incorrect|wrong|mistaken|earlier i said|"
                         rf"i said earlier|previously|actually|should have been|was wrong|misstated|to correct|"
                         rf"isn{_APOS}?t|wasn{_APOS}?t|no longer)\b")
@@ -418,6 +422,35 @@ def contains_anchor(haystack: str, anchor: str) -> bool:
     return re.search(pattern, hay) is not None
 
 
+_ADDRESSED = {"i": "you", "me": "you", "my": "your", "mine": "yours", "myself": "yourself",
+              "i'm": "you're", "i’m": "you’re", "i've": "you've", "i’ve": "you’ve", "i'd": "you'd", "i’d": "you’d",
+              "i'll": "you'll", "i’ll": "you’ll"}
+_FIRST_PERSON = re.compile(r"\b(?:i[’']m|i[’']ve|i[’']d|i[’']ll|myself|mine|my|me|i)\b", re.IGNORECASE)
+
+
+def answer_negated(text, values, anchors):
+    """Scope negation to a cited answer rather than its contrasted alternative."""
+    for value in values:
+        for match in re.finditer(r'(?<!\w)' + re.escape(value) + r'(?!\w)', text, re.IGNORECASE):
+            prefix, suffix = text[:match.start()], text[match.end():]
+            prefix = re.split(r'\b(?:but|whereas)\b|;', prefix, flags=re.IGNORECASE)[-1]
+            if NEGATION.search(outside_anchors(prefix, anchors)):
+                return True
+            # "Y, not X" affirms Y. "Y was not my answer" still denies Y.
+            if re.match(r'\s*[,\u2014\u2013-]?\s*not\b', suffix, re.IGNORECASE):
+                continue
+            suffix = re.split(r'\b(?:but|whereas)\b|;', suffix, flags=re.IGNORECASE)[0]
+            if NEGATION.search(outside_anchors(suffix, anchors)):
+                return True
+    return False
+
+
+def addressed(anchor: str) -> str:
+    """The user's own words as said back to them: "me" becomes "you" (conversational-v3 answer matching)."""
+
+    return _FIRST_PERSON.sub(lambda match: _ADDRESSED[match.group().casefold()], anchor)
+
+
 def outside_anchors(text: str, anchors: Iterable[str]) -> str:
     """``text`` with every authorized anchor occurrence blanked, so content words never count as markers."""
 
@@ -485,7 +518,7 @@ class RealizationValidatorV0:
 
     def __init__(self, *, policy: RealizationValidationPolicy = "strict-v0.1") -> None:
         if policy not in {"strict-v0.1", "style_advisory-v0.1", "segmented_response-v0.1", "segmented_response-v0.2",
-                          "conversational-v1", "conversational-v2"}:
+                          *CONVERSATIONAL_POLICIES}:
             raise ValueError("unsupported realization validation policy")
         self.policy = policy
 
@@ -524,7 +557,7 @@ class _Run:
 
     def __init__(self, request: RealizationRequestV0, candidate: RealizationCandidateV0, flag, *, policy="strict-v0.1") -> None:
         self.policy=policy
-        self.conversational = policy in {"conversational-v1", "conversational-v2"}
+        self.conversational = policy in CONVERSATIONAL_POLICIES
         self.request, self.candidate, self.flag = request, candidate, flag
         self.entries = {move.move_ref: entry_for(move.action_key, move.definition_version)
                         for move in request.action_plan.moves}
@@ -535,7 +568,7 @@ class _Run:
         # The user's authorized verbatim words are not Columbina's acts: lexical
         # act detectors scan the text with those quotes blanked.
         quotes = [item.quote_text for item in request.content_items if isinstance(item, AuthorizedQuote)]
-        if policy in {"conversational-v1", "conversational-v2"}:
+        if policy in CONVERSATIONAL_POLICIES:
             # Quoting the user's own current words is not an act either.
             user_words = request.linguistic_context.text.casefold()
             quotes += [match.group(1) for match in QUOTED.finditer(self.text)
@@ -616,6 +649,8 @@ class _Run:
         self.per_move()
         self.structural_moves()
         self.style_and_length()
+        if self.policy in {"conversational-v3", "conversational-v4"}:
+            self.answer_fidelity()
 
     def ownership(self) -> None:
         if self.candidate.request_ref != self.request.request_digest:
@@ -768,7 +803,7 @@ class _Run:
                 if word == "I" or re.fullmatch(r"I['’](m|ll|ve|d)", word):
                     continue
                 if first is not None and match.start() == first.start() and (_norm(word) in SENTENCE_STARTERS or (
-                    self.policy in {"segmented_response-v0.2", "conversational-v1", "conversational-v2"} and _norm(word) in SUGGESTION_STARTERS
+                    self.policy in {"segmented_response-v0.2", *CONVERSATIONAL_POLICIES} and _norm(word) in SUGGESTION_STARTERS
                 )):
                     continue
                 if first is not None and match.start() == first.start() and re.search(
@@ -1031,13 +1066,54 @@ class _Run:
                 self.flag(V.ATTRIBUTION_DROPPED, ref)
             elif item.attribution == ContentAttribution.THIRD_PARTY and not ATTRIBUTION_THIRD.search(text):
                 self.flag(V.ATTRIBUTION_DROPPED, ref)
-            elif item.attribution == ContentAttribution.COLUMBINA and not re.search(r"\bi\b", text, re.IGNORECASE):
+            elif (item.attribution == ContentAttribution.COLUMBINA and not re.search(r"\bi\b", text, re.IGNORECASE)
+                  # Registry v1.6 general knowledge is hers to state plainly ("Tides are caused by…").
+                  and item.source_kind != ContentSourceKind.MODEL_GENERAL_KNOWLEDGE):
                 self.flag(V.ATTRIBUTION_DROPPED, ref)
         if isinstance(item, KnowledgeGap):
-            if not GAP_STATEMENT.search(outside_anchors(text, item.anchors)):
+            outside = outside_anchors(text, item.anchors)
+            if not (GAP_STATEMENT.search(outside) or (item.gap_kind == GapKind.NOT_MENTIONED
+                                                      and MENTION_GAP_STATEMENT.search(outside))):
                 self.flag(V.KNOWLEDGE_GAP_ANSWERED, ref)
-            if item.gap_kind == GapKind.NO_RECORD and NEVER_CLAIM.search(text):
+            if item.gap_kind in (GapKind.NO_RECORD, GapKind.NOT_MENTIONED) and NEVER_CLAIM.search(text):
                 self.flag(V.KNOWLEDGE_GAP_ANSWERED, ref)
+
+    def answer_fidelity(self) -> None:
+        """A fact move delivers its known answer: no denial, reversal, or (for dialogue content) omission.
+
+        Only propositions that need no uncertainty are checked, so an honest
+        hedge on her own view or a tentative fact stays free.  Omission is only
+        checked for content taken from the conversation or memory, whose exact
+        value the wording must carry; model-written content may be paraphrased.
+        """
+
+        for move in self.moves:
+            if self.entries[move.move_ref].profile != "fact":
+                continue
+            span = self.spans.get(move.move_ref)
+            text = self.text if span is None else self.text[span[0]:span[1]]
+            act_text = self.act_text if span is None else self.act_text[span[0]:span[1]]
+            question = "?" in text
+            for item in self.items_of(move.move_ref):
+                if (not isinstance(item, GroundedProposition) or content_is_generic(item)
+                        or item.epistemic_status in NON_ASSERTABLE_STATUSES or item.requires_uncertainty):
+                    continue
+                ref = item.content_id
+                values = tuple(anchor for anchor in item.anchors if anchor != item.subject.surface_anchor)
+                if GAP_STATEMENT.search(outside_anchors(act_text, item.anchors)):
+                    self.flag(V.ANSWER_CONTRADICTED, ref)
+                relevant = [s for s in sentences(text) if any(contains_anchor(s.text, a) for a in values)]
+                # Negation inside the answer's own words is part of the answer, not a reversal of it.
+                negated = [bool(NEGATION.search(outside_anchors(s.text, item.anchors))) for s in relevant]
+                if self.policy == 'conversational-v4':
+                    negated = [answer_negated(s.text, values, item.anchors) for s in relevant]
+                if relevant and not question and (
+                        (item.polarity == Polarity.POSITIVE and all(negated))
+                        or (item.polarity == Polarity.NEGATIVE and not any(negated))):
+                    self.flag(V.ANSWER_CONTRADICTED, ref)
+                if item.source_kind in DIALOGUE_SOURCE_KINDS | MEMORY_SOURCE_KINDS and values and not any(
+                        contains_anchor(self.text, form) for anchor in values for form in (anchor, addressed(anchor))):
+                    self.flag(V.ANSWER_DROPPED, ref)
 
     def corrections(self, move, entry) -> None:
         subjects = {item.subject_ref for item in move.realization_constraints

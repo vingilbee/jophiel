@@ -227,6 +227,8 @@ class ActionReferenceIndex:
         if entry is None:
             raise ValueError("target descriptor does not describe an indexed object")
         attrs = dict(entry.attrs)
+        if descriptor.optional_exploration:
+            attrs["optional_exploration"] = True
         for name in ("owner", "unknown_kind", "represents_ref", "scale_min", "scale_max"):
             value = getattr(descriptor, name)
             if value is not None:

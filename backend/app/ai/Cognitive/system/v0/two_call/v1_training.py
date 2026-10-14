@@ -134,7 +134,8 @@ def project_training_example(record) -> dict[str, Any]:
         personality_fidelity_status=REVIEW_UNREVIEWED, domain_label_status=REVIEW_UNREVIEWED,
         outcome_status='unavailable', promotion_status='not_promoted')
     example['provenance'] = dict(
-        ontology_versions=dict(argument_kinds=ARGUMENT_KIND_REGISTRY_VERSION, unknowns=UNKNOWN_REGISTRY_VERSION,
+        ontology_versions=dict(argument_kinds=(orchestration.calls[0].payload['ontology']['predicate_registry_version']
+                                              if orchestration else ARGUMENT_KIND_REGISTRY_VERSION), unknowns=UNKNOWN_REGISTRY_VERSION,
                                conflicts=CONFLICT_REGISTRY_VERSION, selection_factors=SELECTION_FACTOR_REGISTRY_VERSION,
                                span_addressing=SPAN_ADDRESSING_VERSION,
                                action_registry=trace.action_selection.versions.registry if trace is not None else None),
@@ -159,9 +160,35 @@ def project_training_example(record) -> dict[str, Any]:
         local.add(item.hypothesis_id, 'hypothesis')
     events = []
     for event, frame in zip(proposal.events, orchestration.calls[0].compiled_proposal['interpretation']['frames']):
+        arguments = {a['name']: _plain(a['value']) for a in frame['arguments']}
+        from .continuity import dialogue_span
+        entries = orchestration.calls[0].reference_table
+        for name, value in event.arguments.items():
+            if value.kind not in {'dialogue_span', 'dialogue_span_set'}:
+                continue
+            def source_span(span):
+                start, end, text = dialogue_span(span, entries)
+                return dict(message_ref=local.get(entries[span.message_ref]['canonical_ref']),
+                            span=[start, end], text=text)
+            arguments[name] = (source_span(value) if value.kind == 'dialogue_span'
+                               else [source_span(span) for span in value.spans])
         events.append(dict(predicate=event.predicate_key, polarity=event.polarity,
-                           arguments={a['name']: _plain(a['value']) for a in frame['arguments']},
+                           arguments=arguments,
                            evidence_spans=[list(span_bounds(ref, tokens)) for ref in event.evidence_span_refs]))
+        if event.act_scope is not None:
+            events[-1]['act_scope'] = event.act_scope
+            events[-1]['subject_mode'] = event.subject_mode
+        if event.followup is not None:
+            # Preserve source-linked interpretation in reviewed training data;
+            # it must not become an unexplained free-text target.
+            sources = []
+            for source in event.followup.sources:
+                start, end, text = dialogue_span(source.citation, entries)
+                sources.append(dict(role=source.role,
+                    message_ref=local.get(entries[source.citation.message_ref]['canonical_ref']),
+                    span=[start, end], text=text))
+            events[-1]['followup'] = dict(operation=event.followup.operation,
+                resolved_question=event.followup.resolved_question, sources=sources)
     readings, impacts = [], []
     for index, event in enumerate(proposal.events):
         for reading in event.readings:

@@ -25,7 +25,7 @@ from ..contracts.realization import (
     ConstraintOrigin, ContentBinding, ContentEpistemicStatus, DialogueReference, DiscourseControls, GapKind,
     GroundedProposition, GroundedQuestion, KnowledgeGap, Modality, Polarity, RealizationActionPlan,
     RealizationConstraintItem, RealizationContentInventory, RealizationFailurePhase, RealizationMoveBinding,
-    RealizationLinguisticContext, RealizationMoveSpec, RealizationProvenance, RealizationRequestV0,
+    RealizationConversationContext, RealizationConversationTurn, RealizationLinguisticContext, RealizationMoveSpec, RealizationProvenance, RealizationRequestV0,
     RealizationSkip, RealizationStatus,
     ReferenceFormKind, content_is_generic, realization_uuid, request_digest_for, sha256_json,
 )
@@ -94,7 +94,11 @@ class RealizationCompilerV0:
         current_user_utterance: str,
         safety_basis: ActionSafetyBasis,
         configured_maximum_characters: int,
+        conversation_context: tuple[tuple[str, str], ...] = (),
+        ambient_play: bool = False,
     ) -> RealizationRequestV0 | RealizationCompileSkip:
+        """``conversation_context`` (policy v1.4+): earlier ``(speaker, text)`` messages, oldest first.
+        ``ambient_play`` (policy v1.5): a high playfulness band also reaches ordinary answers."""
         turn = action_result.cognitive_turn_id
         self._validate_lineage(action_result, inventory, personality, state, language_tag, current_user_utterance,
                                safety_basis,
@@ -130,7 +134,7 @@ class RealizationCompilerV0:
 
         # 7-8. Personality and reviewed Dynamic State controls -> delivery profile.
         try:
-            delivery = compile_delivery_profile(personality, state, entries)
+            delivery = compile_delivery_profile(personality, state, entries, ambient_play=ambient_play)
         except ValueError as exc:
             raise _fail(RealizationFailurePhase.STYLE_MAPPING, "delivery_profile_invalid") from exc
 
@@ -166,6 +170,9 @@ class RealizationCompilerV0:
             COMPILER_VERSION, "request", action_result.result_id, inventory.inventory_id, personality.profile_id,
             state.state_snapshot_id, str(language_tag), sha256_json(current_user_utterance),
             str(configured_maximum_characters),
+            # Absent context leaves request ids exactly as before.
+            *((sha256_json([list(item) for item in conversation_context]),) if conversation_context else ()),
+            *(("ambient_play",) if ambient_play else ()),
         )
         fields = dict(
             request_id=request_id, cognitive_turn_id=turn, conversation_ref=action_result.conversation_ref,
@@ -179,6 +186,9 @@ class RealizationCompilerV0:
             ),
             content_items=content_items, move_bindings=move_bindings, discourse_controls=discourse,
             delivery_profile=delivery, constraints=constraints, provenance=provenance,
+            conversation_context=RealizationConversationContext(messages=tuple(
+                RealizationConversationTurn(speaker=speaker, text=text) for speaker, text in conversation_context
+            )) if conversation_context else None,
         )
         # 10-12. Build atomically, hash canonically, reparse and require equality.
         try:
@@ -358,7 +368,7 @@ class RealizationCompilerV0:
                     add("preserve_numeric_value", subject, ConstraintOrigin.CONTENT)
             elif isinstance(item, KnowledgeGap):
                 add("no_gap_answer", subject, ConstraintOrigin.CONTENT)
-                if item.gap_kind == GapKind.NO_RECORD:
+                if item.gap_kind in (GapKind.NO_RECORD, GapKind.NOT_MENTIONED):
                     add("absence_is_not_negation", subject, ConstraintOrigin.CONTENT)
             elif isinstance(item, AuthorizedQuote):
                 add("preserve_quote_verbatim", subject, ConstraintOrigin.CONTENT)

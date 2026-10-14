@@ -26,7 +26,10 @@ from .v1_contracts import (
     SELECTION_FACTOR_KEYS, SELECTION_FACTOR_REGISTRY_VERSION, SPAN_ADDRESSING_VERSION, SUPPORT_POLICY_VERSION,
     UNDERSTANDING_INPUT_VERSION, UNKNOWN_KEYS, UNKNOWN_REGISTRY_VERSION, ActionPolicyProposalV1, CompiledPolicy,
     UnderstandingProposalV1, parse_span_ref, ref_kind,
+    CONTINUITY_REGISTRIES, CONVERSATION_REGISTRIES, EXPLORATION_REGISTRIES, INTERPRETED_DIALOGUE_REGISTRIES,
+    WRITTEN_RECALL_REGISTRIES, FOLLOWUP_REGISTRIES, SCOPED_SOURCE_REGISTRIES,
 )
+from ..action_selection_v0.construction import OPTIONAL_EXPLORATION_RULE_IDS
 
 # ---------------------------------------------------------------------------
 # Focus tokens (span addressing, ``focus-token-span-v1``)
@@ -93,6 +96,13 @@ ARGUMENT_KINDS: dict[str, dict[str, tuple[str, ...]]] = {
                           'experiencer': _ENUM, 'embedding': _OPT_ENUM},
     # v1.2: wanting to talk rather than receive produced content.
     'conversation_request': {'topic': _REF, 'mode': _ENUM, 'embedding': _OPT_ENUM},
+    'dialogue_recall_request': {'referent_phrase': _REF, 'answer_ref': ('dialogue_span', 'null'),
+                               'candidate_refs': ('dialogue_span_set', 'null'),
+                               'knowledge_status': _ENUM, 'embedding': _OPT_ENUM},
+    'opinion_request': {'topic': _REF, 'embedding': _OPT_ENUM},
+    'contextual_perspective_request': {'first_basis_ref': ('dialogue_span',),
+                                       'second_basis_ref': ('dialogue_span',),
+                                       'relation': _ENUM, 'embedding': _OPT_ENUM},
     # An unregistered meaning has no free-text label in v1.
     'unknown': {'surface_action': _OPT_SPAN, 'object_reference': _OPT_SPAN, 'predicate': ('null',)},
 }
@@ -134,6 +144,12 @@ ARGUMENT_DESCRIPTIONS_V1: dict[tuple[str, str], str] = {
     ('experience_report', 'feeling'): "Optional span of the exact feeling words, e.g. 'scattered'.",
     ('experience_report', 'concern'): 'Optional span of what worries or burdens the speaker, as stated.',
     ('conversation_request', 'topic'): 'Span or resolved entity_ref of what they want to talk about.' + _REFERENT,
+    ('opinion_request', 'topic'): 'Span, resolved entity_ref or earlier user passage naming what she is asked to judge.' + _REFERENT,
+    ('dialogue_recall_request', 'referent_phrase'): 'Span naming what the current question asks to recall; null for unresolved ambiguity.',
+    ('dialogue_recall_request', 'answer_ref'): 'Exact user passage supporting the answer; null unless knowledge_status is known.',
+    ('dialogue_recall_request', 'candidate_refs'): 'Distinct possible referents, as exact user spans, only when the question is ambiguous.',
+    ('contextual_perspective_request', 'first_basis_ref'): 'First exact user passage to connect, preserving its negation and qualification.',
+    ('contextual_perspective_request', 'second_basis_ref'): 'Second distinct exact user passage to connect, preserving its negation and qualification.',
 }
 
 
@@ -192,6 +208,12 @@ def _canonical_digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
+def _interpreted_view(owner, request, table) -> dict:
+    from .v1_dialogue import interpreted_links_view
+    dialogue = request.dialogue_context
+    return interpreted_links_view(dialogue.interpreted if dialogue is not None else None, table)
+
+
 def build_understanding_input(owner, semantic) -> dict:
     """Bounded, versioned Call 1 input.  Canonical refs live only in the table."""
     from ..perception_v0.evidence import resolve_json_pointer
@@ -206,9 +228,19 @@ def build_understanding_input(owner, semantic) -> dict:
 
     messages = []
     for index, message in enumerate(request.messages):
-        handle = table.bind(f'message:{index}', message.message_id, 'message')
+        metadata = dict(text=message.content, speaker=message.role.value) if owner.understanding_registry in CONTINUITY_REGISTRIES else {}
+        # v1.8: her own earlier replies can be cited too ("what did you say?", "why that one?").
+        own_words = owner.understanding_registry in WRITTEN_RECALL_REGISTRIES and message.role.value == 'assistant'
+        if own_words:
+            metadata['citable'] = True
+        handle = table.bind(f'message:{index}', message.message_id, 'message', **metadata)
         messages.append(dict(ref=handle, speaker=message.role.value, text=message.content,
                              authority='current_user_task' if message.message_id == request.focus_message_id else 'context_only'))
+        if metadata and (message.role.value == 'user' or own_words):
+            messages[-1]['indexed_tokens'] = ' '.join(f'[{i}]{t}' for i, (_, _, t) in enumerate(focus_tokens(message.content)))
+            if owner.understanding_registry in SCOPED_SOURCE_REGISTRIES:
+                from .source_passages import passages
+                messages[-1]['citation_passages'] = passages(message.content)
     focus_ref = table.reverse[focus.message_id]
 
     # Authorized spans: the code-owned evidence regions, as token ranges.
@@ -301,12 +333,22 @@ def build_understanding_input(owner, semantic) -> dict:
         kinds = ARGUMENT_KINDS[spec.predicate]
         arguments = []
         for argument in spec.arguments:
-            allowed = tuple(kind for kind in kinds[argument.name]
+            offered = kinds[argument.name]
+            if (owner.understanding_registry in CONTINUITY_REGISTRIES
+                    and 'entity_ref' in offered):
+                offered = (*offered, 'dialogue_span')
+            allowed = tuple(kind for kind in offered
                             if not (kind == 'entity_ref' and not entities) and not (kind == 'object_ref' and not open_questions))
             arguments.append(dict(argument_key=argument.name, value_kinds=list(allowed),
                                   enum_values=list(argument_enum_values(spec.predicate, argument.name, open_questions)),
                                   description=ARGUMENT_DESCRIPTIONS_V1.get((spec.predicate, argument.name), argument.description)))
         predicates.append(dict(predicate_key=spec.predicate, description=spec.description, arguments=arguments))
+        if owner.understanding_registry in SCOPED_SOURCE_REGISTRIES:
+            from .scope import predicate_description
+            predicates[-1]['description'] = predicate_description(spec.predicate, spec.description)
+            for argument in arguments:
+                if argument['argument_key'] == 'embedding':
+                    argument['description'] = 'Scope of the speech act only; mirror act_scope. An imagined subject does not make the current request imagined.'
 
     return plain_json(dict(
         schema_version=UNDERSTANDING_INPUT_VERSION, protocol=PROTOCOL_V1,
@@ -314,7 +356,9 @@ def build_understanding_input(owner, semantic) -> dict:
                    indexed_tokens=' '.join(f'[{i}]{t}' for i, (_, _, t) in enumerate(tokens)),
                    token_count=len(tokens), authorized_span_refs=authorized),
         dialogue_context=dict(messages=messages, message_refs=[m['ref'] for m in messages], entity_refs=entities,
-                              open_question_refs=open_questions, active_topic_refs=topics, omission_flags=omissions),
+                              open_question_refs=open_questions, active_topic_refs=topics, omission_flags=omissions,
+                              **(_interpreted_view(owner, request, table)
+                                 if owner.understanding_registry in INTERPRETED_DIALOGUE_REGISTRIES else {})),
         perception=dict(cue_activations=[dict(cue_key=c.cue_key, state=c.state.value)
                                          for c in interpretation_request.perception.cue_activations]),
         context=dict(persona_traits=traits, interpretation_biases=bias_views,
@@ -403,6 +447,12 @@ def _compiled_value(value, *, tokens, text, entries):
         return tuple(out)
     if kind == 'entity_ref':
         return entries[value.ref]['anchor']
+    if kind == 'dialogue_span':
+        from .continuity import dialogue_span
+        return dialogue_span(value, entries)[2]
+    if kind == 'dialogue_span_set':
+        from .continuity import dialogue_pointer
+        return tuple(dialogue_pointer(span, entries) for span in value.spans)
     if kind == 'object_ref':
         return entries[value.ref]['canonical_ref']
     if kind in {'integer', 'decimal', 'boolean'}:
@@ -422,9 +472,35 @@ def compiled_arguments(event, *, tokens, text, entries) -> list[SemanticArgument
     keep_null = set(definition.required_arguments) | set(definition.referent_arguments)
     out = []
     for name, value in sorted(event.arguments.items()):
+        if name == 'embedding' and event.act_scope is not None:
+            from .scope import embedding_for
+            out.append(SemanticArgumentCandidate(name=name, value=embedding_for(event.act_scope)))
+            continue
+        if (event.predicate_key == 'dialogue_recall_request' and name == 'answer_ref'
+                and event.arguments['knowledge_status'].value != 'known'):
+            # An uncertainty declaration wins over a simultaneously supplied
+            # candidate answer. Keep the raw proposal for audit, but never
+            # compile that candidate as answer content or a new missing slot.
+            continue
         if value.kind == 'null' and name not in keep_null:
             continue
-        out.append(SemanticArgumentCandidate(name=name, value=_compiled_value(value, tokens=tokens, text=text, entries=entries)))
+        if value.kind == 'dialogue_span' and name in {'answer_ref', 'first_basis_ref', 'second_basis_ref'}:
+            from .continuity import dialogue_pointer
+            compiled = dialogue_pointer(value, entries)
+        else:
+            compiled = _compiled_value(value, tokens=tokens, text=text, entries=entries)
+        if (event.predicate_key == 'dialogue_recall_request' and name == 'referent_phrase'
+                and event.arguments['knowledge_status'].value == 'ambiguous_reference'):
+            # A surface question is not a resolved semantic referent. Preserve
+            # the explicit ambiguity as the existing canonical argument unknown.
+            compiled = None
+        out.append(SemanticArgumentCandidate(name=name, value=compiled))
+    if event.followup is not None:
+        # The same resolved question feeds semantic compilation AND accepted
+        # observations. It is interpretation, never an authorized answer.
+        key = 'topic' if event.predicate_key == 'opinion_request' else 'referent_phrase'
+        out = [SemanticArgumentCandidate(name=a.name, value=event.followup.resolved_question)
+               if a.name == key else a for a in out]
     return out
 
 
@@ -450,6 +526,12 @@ def _region_evidence(refs, tokens, entries) -> tuple[str, ...]:
 def validate_understanding(raw, payload, entries):
     """Hard gates for Call 1.  Returns the validated proposal and focus tokens."""
     proposal = UnderstandingProposalV1.model_validate(raw)
+    interpreted = payload['ontology']['predicate_registry_version'] in INTERPRETED_DIALOGUE_REGISTRIES
+    if proposal.dialogue_updates is not None and not interpreted:
+        raise ValueError('dialogue_updates exist only in registry v1.7+')
+    if (proposal.recall_answer is not None
+            and payload['ontology']['predicate_registry_version'] not in WRITTEN_RECALL_REGISTRIES):
+        raise ValueError('recall_answer exists only in registry v1.8+')
     text = payload['focus']['text']
     tokens = focus_tokens(text)
     if len(tokens) != payload['focus']['token_count']:
@@ -459,7 +541,40 @@ def validate_understanding(raw, payload, entries):
     hypotheses = set(payload['ontology']['hypothesis_keys'])
     unknown_keys = {item['key'] for item in payload['ontology']['unknown_keys']}
     conflict_keys = {item['key'] for item in payload['ontology']['conflict_keys']}
+    def check_dialogue_span(span):
+        from .continuity import dialogue_span
+        messages = payload['dialogue_context']['messages']
+        focus_index = next(i for i, m in enumerate(messages) if m['ref'] == payload['focus']['message_ref'])
+        source = next((m for m in messages[:focus_index + 1] if m['ref'] == span.message_ref), None)
+        entry = entries.get(span.message_ref, {})
+        if source is None or not (source['speaker'] == 'user' or entry.get('citable')) or any(
+                entry.get(key) != source[key] for key in ('speaker', 'text')):
+            raise ValueError('dialogue citation differs from supplied source')
+        return dialogue_span(span, entries)
+
     for event in proposal.events:
+        if (event.act_scope is not None or event.subject_mode is not None) and payload['ontology']['predicate_registry_version'] not in SCOPED_SOURCE_REGISTRIES:
+            raise ValueError('speech act scope requires registry v1.10')
+        if event.followup is not None:
+            if payload['ontology']['predicate_registry_version'] not in FOLLOWUP_REGISTRIES:
+                raise ValueError('followup context requires registry v1.9')
+            if event.predicate_key not in ('opinion_request', 'elaboration_request'):
+                raise ValueError('followup context requires conversational predicate')
+            if not event.followup.resolved_question.strip():
+                raise ValueError('empty resolved followup question')
+            if not event.followup.sources and payload['ontology']['predicate_registry_version'] not in SCOPED_SOURCE_REGISTRIES:
+                raise ValueError('empty followup sources require registry v1.10')
+            seen = set()
+            for source in event.followup.sources:
+                check_dialogue_span(source.citation)
+                signature = (source.role, source.citation.message_ref, source.citation.span_ref)
+                if signature in seen:
+                    raise ValueError('duplicate followup source')
+                seen.add(signature)
+                if source.role in ('earlier_position', 'recent_position'):
+                    entry = entries[source.citation.message_ref]
+                    if entry['speaker'] != 'assistant' or source.citation.message_ref == payload['focus']['message_ref']:
+                        raise ValueError('followup position must cite earlier assistant speech')
         spec = predicates.get(event.predicate_key)
         if spec is None:
             raise ValueError('foreign predicate')
@@ -481,6 +596,22 @@ def validate_understanding(raw, payload, entries):
                     raise ValueError('duplicate span-set members')
             elif value.kind in {'entity_ref', 'object_ref', 'runtime_ref', 'memory_ref'}:
                 _check_ref(value.ref, {value.kind.removesuffix('_ref')}, supplied, tokens)
+            elif value.kind == 'dialogue_span':
+                check_dialogue_span(value)
+            elif value.kind == 'dialogue_span_set':
+                passages = [check_dialogue_span(span)[2] for span in value.spans]
+                if len(set(passages)) != len(passages):
+                    raise ValueError('duplicate dialogue candidates')
+        if event.predicate_key == 'dialogue_recall_request':
+            known = event.arguments['knowledge_status'].value == 'known'
+            if known and event.arguments['answer_ref'].kind != 'dialogue_span':
+                raise ValueError('recall answer and knowledge status disagree')
+            ambiguous = event.arguments['knowledge_status'].value == 'ambiguous_reference'
+            if not ambiguous and event.arguments['candidate_refs'].kind != 'null':
+                raise ValueError('unambiguous recall must not carry competing candidates')
+        if event.predicate_key == 'contextual_perspective_request':
+            if event.arguments['first_basis_ref'] == event.arguments['second_basis_ref']:
+                raise ValueError('perspective needs distinct supporting passages')
         if event.predicate_key == 'inquiry_answer':
             inquiry = event.arguments['inquiry_ref']
             option = event.arguments['answer_option']
@@ -532,11 +663,31 @@ def compile_understanding(raw, payload, entries) -> CallOneOutput:
     """Canonical semantic candidates for the existing interpretation compiler."""
     proposal, tokens = validate_understanding(raw, payload, entries)
     text = payload['focus']['text']
+    registry = payload['ontology']['predicate_registry_version']
+    written = None
+    if registry in WRITTEN_RECALL_REGISTRIES:
+        from .v1_dialogue import written_recall_pointer
+        written = written_recall_pointer(proposal.recall_answer, payload, entries)
+    known_recall = False
     frames = []
     for event in proposal.events:
         arguments = compiled_arguments(event, tokens=tokens, text=text, entries=entries)
+        if event.predicate_key == 'dialogue_recall_request' and event.arguments['knowledge_status'].value == 'known':
+            known_recall = True
+            if written is not None:
+                # v1.8: the written answer, found in the user's own words, replaces the cited passage.
+                arguments = [SemanticArgumentCandidate(name=a.name, value=written) if a.name == 'answer_ref' else a
+                             for a in arguments]
         frames.append(SemanticFrameCandidate(predicate=event.predicate_key, polarity=event.polarity, arguments=arguments,
                                              evidence_refs=_region_evidence(event.evidence_span_refs, tokens, entries)))
+    if registry in INTERPRETED_DIALOGUE_REGISTRIES:
+        from .v1_dialogue import compile_dialogue_updates
+        updates, dropped = compile_dialogue_updates(proposal, payload, entries)
+        source = {}
+        if registry in WRITTEN_RECALL_REGISTRIES and known_recall:
+            source = dict(recall_answer_source='written' if written is not None else 'cited')
+        return CallOneOutput(interpretation=SemanticModelOutput(frames=frames), appraisal=(),
+                             dialogue_updates=updates, dialogue_updates_dropped=dropped, **source)
     return CallOneOutput(interpretation=SemanticModelOutput(frames=frames), appraisal=())
 
 
@@ -554,6 +705,8 @@ def derived_epistemic_status(event) -> str:
     """``epistemic-status-derivation-v1`` (views and training projection only)."""
     embedding = event.arguments.get('embedding')
     embedded = embedding is not None and embedding.kind == 'enum' and embedding.value != 'direct'
+    if event.act_scope is not None:
+        embedded = event.act_scope != 'current'
     if event.predicate_key == 'unknown' or event.polarity == 'unknown' or embedded:
         return 'uncertain'
     return 'user_claim' if event.predicate_key in _ASSERTIVE else 'expressed'
@@ -719,6 +872,12 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
         frames.append(dict(ref=f'frame:{i}', predicate=frame.predicate, polarity=frame.polarity,
                            arguments={k: v for k, v in sorted(frame.arguments.items())},
                            unresolved_arguments=list(frame.unresolved_arguments)))
+        if getattr(owner, 'understanding_registry', None) in CONTINUITY_REGISTRIES:
+            from .continuity import resolve_pointer
+            sources = {m.message_id: dict(speaker=m.role.value, text=m.content) for m in owner.request.messages}
+            frames[-1]['source_excerpts'] = {
+                k: resolve_pointer(v, sources)[1] for k, v in frame.arguments.items()
+                if k in {'answer_ref', 'first_basis_ref', 'second_basis_ref'} and v is not None}
     hypotheses = []
     for i, item in enumerate(interpretation.hypotheses):
         table.bind(f'hypothesis:{i}', item.hypothesis_id, 'hypothesis')
@@ -809,6 +968,13 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
                                              if addresses(candidate, c, engine.registry, index)}),
             cost_band=_band(features.get(FeatureKey.RESPONSE_COST)),
             risk_band=_band(features.get(FeatureKey.SOFT_RISK_COST))))
+        if owner.understanding_registry == 'argument-kind-registry-v1.13':
+            targets = {target.ref for target in candidate.target_refs}
+            targets.update(ref for obj in action_request.grounded_objects if obj.object_id in targets
+                           for ref in obj.answer_content_refs)
+            views[-1]['answer_content'] = [item.model_dump(mode='json')
+                for item in requirement.realization_content
+                if targets.intersection({item.content_id, *item.represents_refs})]
     # Grounded objects candidates target, so targets are meaningful without IDs.
     objects = []
     by_id = {o.object_id: o for o in action_request.grounded_objects}
@@ -838,6 +1004,17 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
 
     mode = route_policy_mode(interpretation, conditions, collaboration.outcomes)
     safety = runtime.safety_basis
+    registry = getattr(owner, 'understanding_registry', None)
+    new_exploration = registry in EXPLORATION_REGISTRIES
+    dialogue = []
+    if new_exploration:
+        # Reuse the exposure-authorized Call 1 dialogue; don't add retrieval or
+        # repeat an unbounded transcript. Always retain the current utterance.
+        for message in owner.request.messages:
+            current = message.message_id == owner.request.focus_message_id
+            if not current and (message not in owner.request.messages[-8:] or len(message.content) > 2000):
+                continue
+            dialogue.append(dict(speaker=message.role.value, text=message.content, current_turn=current))
     return plain_json(dict(
         schema_version=POLICY_INPUT_VERSION, protocol=PROTOCOL_V1,
         accepted_understanding=dict(frame_refs=frames, hypothesis_refs=hypotheses, unknown_refs=unknowns,
@@ -855,7 +1032,13 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
         planning_conditions=planning, grounded_objects=objects, eligible_candidates=views,
         policy_mode=mode, policy_mode_router=POLICY_MODE_ROUTER_VERSION, max_moves=MAX_MOVES_BY_MODE[mode],
         iterative_planning=False,
-        **({'policy_guidance': 'policy-guidance-v1.2'}
+        **({'primary_selection_policy': dict(rule='model_choice', direct_focal_coverage='diagnostic_only')}
+           if owner.behavior_policy == 'model_policy_selection-v1.1' else {}),
+        **({'policy_guidance': 'policy-guidance-v1.6' if registry == 'argument-kind-registry-v1.13' else 'policy-guidance-v1.5' if registry in CONVERSATION_REGISTRIES else 'policy-guidance-v1.3',
+            'conversation_window': dialogue,
+            'optional_exploration_candidate_refs': [v['candidate_ref'] for v, c in zip(views, eligible)
+                if set(OPTIONAL_EXPLORATION_RULE_IDS) & set(c.proposal_rule_ids)]}
+           if new_exploration else {'policy_guidance': 'policy-guidance-v1.2'}
            if getattr(owner, 'understanding_registry', None) == 'argument-kind-registry-v1.2' else {}),
         selection_factor_registry=dict(version=SELECTION_FACTOR_REGISTRY_VERSION,
                                        keys=[dict(key=k, description=v) for k, v in SELECTION_FACTOR_KEYS.items()]),

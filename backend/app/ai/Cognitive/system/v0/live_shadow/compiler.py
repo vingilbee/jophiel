@@ -38,7 +38,7 @@ from ..interpretation_v0.ontology import PREDICATES, PREDICATE_REGISTRY_VERSION
 from ..perception_v0.models import AttachmentFact, PerceptionMessage
 from .models import (
     CAPABILITY_MAP_VERSION,
-    CAPTURE_SCHEMA_VERSION_V03,
+    DIALOGUE_CAPTURE_SCHEMAS,
     COMPILER_VERSION,
     CognitiveShadowCapture,
     SegmentResetReason,
@@ -104,7 +104,7 @@ class CompileSkip:
 def pipeline_schema_for(capture: CognitiveShadowCapture) -> int:
     """The canonical pipeline schema a capture compiles to (v0.3 captures carry dialogue memory)."""
 
-    return 3 if capture.schema_version == CAPTURE_SCHEMA_VERSION_V03 else 2
+    return 3 if capture.schema_version in DIALOGUE_CAPTURE_SCHEMAS else 2
 
 
 def runtime_snapshot_id_for(turn_id: str) -> str:
@@ -363,6 +363,7 @@ def compile_request(
             action_personality=personality.action_personality,
             requirement_inputs=requirement_inputs_for(capture),
             workspace_inputs=workspace_inputs_for(lineage),
+            character=capture.character,
             **dialogue,
         )
     except ValueError as exc:
@@ -407,7 +408,7 @@ def _dialogue_inputs(capture: CognitiveShadowCapture) -> dict:
     hard, typed failure for this observation.
     """
 
-    if capture.schema_version != CAPTURE_SCHEMA_VERSION_V03:
+    if capture.schema_version not in DIALOGUE_CAPTURE_SCHEMAS:
         return {"perception_working_context": None}
     dialogue = capture.dialogue
     if dialogue is None or dialogue.turn_context is None:
@@ -437,8 +438,19 @@ def _dialogue_inputs(capture: CognitiveShadowCapture) -> dict:
             action_object_refs=tuple(sorted(item.object_id for item in action.grounded_objects)),
             action_descriptor_refs=tuple(sorted(item.ref for item in action.target_descriptors)),
             outside_window_refs=action.outside_window_refs,
+            interpreted=_interpreted(capture, context.focus_conversation_sequence),
         ),
     }
+
+
+def _interpreted(capture: CognitiveShadowCapture, focus_sequence: int):
+    """Capture v0.4: the fold of the captured interpretation records, recomputed on every compile."""
+
+    if capture.interpreted_dialogue is None:
+        return None
+    from ..dialogue_memory_v0.interpreted import fold
+    captured = capture.interpreted_dialogue
+    return fold(captured.records, before_sequence=focus_sequence, pending_message_refs=captured.pending_message_refs)
 
 
 __all__ = [

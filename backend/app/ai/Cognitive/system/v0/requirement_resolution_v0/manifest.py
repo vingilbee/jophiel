@@ -270,6 +270,8 @@ def compile_content_query(
         # Open questions have no reviewed producer: the query is explicit and
         # unsupported, and the answer is an explicit knowledge gap.
         return CompiledQuery("reviewed_knowledge.open_question", {}, GENERIC_ANCHOR)
+    if predicate == "dialogue_recall_request":
+        return CompiledQuery("captured_dialogue.recall", {}, text("referent_phrase") or GENERIC_ANCHOR)
     return CompiledQuery(f"reviewed_knowledge.{predicate}", {}, GENERIC_ANCHOR)
 
 

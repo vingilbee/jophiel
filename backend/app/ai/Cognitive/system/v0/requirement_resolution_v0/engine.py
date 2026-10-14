@@ -251,12 +251,16 @@ class RequirementResolutionEngine:
     version = ENGINE_VERSION
 
     def __init__(self, *, producer_factory: ProducerFactory = default_producers,
-                 allow_review_classes: bool = False) -> None:
+                 allow_review_classes: bool = False, preserve_accepted_uncertainty: bool = False) -> None:
         # ``allow_review_classes`` exists only for offline evaluation of
         # producer classes that still require privacy and authorization review;
         # the live-shadow pipeline never sets it.
         self.producer_factory = producer_factory
         self.allow_review_classes = allow_review_classes
+        # Enabled by the versioned two-call adapter. Historical captures keep
+        # their cue fallback; a new accepted null is not overturned by that
+        # fallback after the model has already considered the dialogue.
+        self.preserve_accepted_uncertainty = preserve_accepted_uncertainty
 
     # -- entry point -----------------------------------------------------------
     def resolve(self, request: RequirementResolutionRequest) -> RequirementResolutionOutcome:
@@ -443,7 +447,8 @@ class RequirementResolutionEngine:
         dialogue_unknowns = tuple(
             f"dialogue:{cue.cue_ref}" for cue in cues if f"dialogue:{cue.cue_ref}" in set(request.dialogue_action_refs)
         )
-        if len(cues) == 1 and cues[0].resolution == "resolved":
+        if (not self.preserve_accepted_uncertainty
+                and len(cues) == 1 and cues[0].resolution == "resolved"):
             cue = cues[0]
             return self._record(request, goal, frame, declaration, S.SATISFIED, R.REFERENT_RESOLVED_FROM_DIALOGUE,
                                 argument=name, subject=(frame.frame_id, argument_ref, *unknowns, cue.cue_ref),
@@ -510,7 +515,7 @@ class RequirementResolutionEngine:
             query_kind=compiled.query_kind, subject_ref=frame.frame_id, subject_anchor=compiled.subject_anchor,
             arguments=dict(compiled.arguments), evidence_refs=frame.evidence_refs,
         )
-        result = registry.resolve(query)
+        result = self._content_result(request, registry, frame, query)
         gap = knowledge_gap_for(query, result)
         status = CONTENT_STATUS_BY_PRODUCER[ContentProducerStatus(result.status.value)]
         reason = R.PRODUCER_KNOWN if result.reason is None else _PRODUCER_REASONS[result.reason]
@@ -519,6 +524,9 @@ class RequirementResolutionEngine:
         resolution = self._record(request, goal, frame, declaration, status, reason, subject=(frame.frame_id,),
                                   values=referent_items, evidence=evidence)
         return resolution, ContentRecord(resolution.resolution_id, query, result, gap)
+
+    def _content_result(self, request, registry, frame, query):
+        return registry.resolve(query)
 
 
 # ---------------------------------------------------------------------------

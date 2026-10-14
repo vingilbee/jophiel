@@ -1,0 +1,21 @@
+{
+  "runs": 92,
+  "attempts": 120,
+  "accepted": 104,
+  "closed_runs": 8,
+  "closed_attempts": 36,
+  "closed_accepted": 29,
+  "closed_complete": 1,
+  "provider_requests": {
+    "call_one": 120,
+    "contribution": 59,
+    "call_two": 105,
+    "realization_candidate": 104
+  },
+  "failures": {
+    "pipeline.interpretation.semantic_grounding.two_call.call_one.understanding_compilation.followup_position_must_cite_earlier_assistant_speech.proposal_rejected": 8,
+    "pipeline.interpretation.semantic_grounding.two_call.call_one.understanding_compilation.span_outside_focus_tokens.proposal_rejected": 7,
+    "pipeline.cognitive_turn.action_selection.two_call.call_two.behavior_proposal_ineligible.skips_blocking_condition.step_0.proposal_rejected": 1
+  },
+  "median_seconds": 8.530000000000001
+}

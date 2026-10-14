@@ -1,0 +1,5189 @@
+{
+ "schema": "answer-fidelity-regression-v0",
+ "source": "stored shadow traces, QA databases 2026-10-10/11",
+ "validation_policies": [
+  "conversational-v2",
+  "conversational-v3"
+ ],
+ "cases": [
+  {
+   "trace_id": "e57d409c-007f-5eef-8ea2-eb1363799ccb",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "b7ac5dd9-20f4-5f42-9588-a1d06edcd1d8",
+    "cognitive_turn_id": "5310facb-a0ed-44c3-9cff-3c5de59e3624",
+    "conversation_ref": "8463943f-b3b6-4062-99ce-1b5149963718",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Which cat did that?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-27dbc7836a7a72d5f754",
+    "action_plan": {
+     "plan_ref": "action-plan-ea47542958fdbba62d83",
+     "moves": [
+      {
+       "move_ref": "move-1-d94088f84909a1f6",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:59350ba4da5fc8e45d7d",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-d94088f84909a1f6",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:17b9c450f25d137a25fc2cfb",
+      "cognitive_turn_id": "5310facb-a0ed-44c3-9cff-3c5de59e3624",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "aa334ebd-e4a8-4c65-8992-58a4e18ce84d"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:17b9c450f25d137a25fc2cfb"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:cc746ebd2d060079d0292c67",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "loud one"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-8b0ca4f68ec9962fd3ce",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "loud one",
+        "unit": null,
+        "surface_anchor": "loud one"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-d94088f84909a1f6",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:17b9c450f25d137a25fc2cfb",
+        "content_ref": "producer-content:captured-dialogue-fact:17b9c450f25d137a25fc2cfb"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-d94088f84909a1f6"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "5310facb-a0ed-44c3-9cff-3c5de59e3624:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-d94088f84909a1f6",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:5310facb-a0ed-44c3-9cff-3c5de59e3624:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:5310facb-a0ed-44c3-9cff-3c5de59e3624:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-d94088f84909a1f6",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:17b9c450f25d137a25fc2cfb",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-d94088f84909a1f6",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:17b9c450f25d137a25fc2cfb",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-27dbc7836a7a72d5f754",
+     "action_request_digest": "4fafa0e5a4ba1c37394f2bead64707383f0c0ff7182717ad24885644a7c0493c",
+     "action_context_ref": "action-context-4fafa0e5a4ba1c37394f",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:5310facb-a0ed-44c3-9cff-3c5de59e3624:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "19d9b60e-622c-5da3-b5c9-cb88353f6c1b",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "22ce0619ed693affb82526d892b96531b1ec905fa3fe18e85bea39784d3f764b"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "10c1cd77-113c-5e49-9a7c-9fe58f1f7538",
+    "request_ref": "22ce0619ed693affb82526d892b96531b1ec905fa3fe18e85bea39784d3f764b",
+    "attempt_number": 1,
+    "text": "You said “loud one,” but I don’t know which cat did that.",
+    "move_alignments": [
+     {
+      "ref": "move-1-d94088f84909a1f6",
+      "start": 0,
+      "end": 57
+     }
+    ],
+    "content_alignments": [],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "rejected",
+   "expected_v3_codes": [
+    "answer_contradicted"
+   ],
+   "note": "answer content is the description \"loud one\"; wording denies knowing"
+  },
+  {
+   "trace_id": "351a77db-ab2d-5163-9780-f8acde4ceddc",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "d07768ac-a0d5-5e53-90b0-b19168c69c7d",
+    "cognitive_turn_id": "2e775d15-76b7-40f4-8ad6-d8ca26552794",
+    "conversation_ref": "1d367f26-2673-4941-9004-b5c6400e4b2a",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Which cat did that?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-1a754187076057d69712",
+    "action_plan": {
+     "plan_ref": "action-plan-55802687b625dd1fe9f8",
+     "moves": [
+      {
+       "move_ref": "move-1-b6925969836fcba9",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:7fbe950469ef072c3321",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-b6925969836fcba9",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:de865abdcdad591c8d038353",
+      "cognitive_turn_id": "2e775d15-76b7-40f4-8ad6-d8ca26552794",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "37ff6f30-580a-4033-ab93-d2c247b31fc5"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:de865abdcdad591c8d038353"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:97570b94056b2790a663a69e",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "Tofu is the loud one"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-734863d005889328ca46",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "Tofu is the loud one",
+        "unit": null,
+        "surface_anchor": "Tofu is the loud one"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-b6925969836fcba9",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:de865abdcdad591c8d038353",
+        "content_ref": "producer-content:captured-dialogue-fact:de865abdcdad591c8d038353"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-b6925969836fcba9"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "2e775d15-76b7-40f4-8ad6-d8ca26552794:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-b6925969836fcba9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e775d15-76b7-40f4-8ad6-d8ca26552794:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e775d15-76b7-40f4-8ad6-d8ca26552794:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-b6925969836fcba9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:de865abdcdad591c8d038353",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-b6925969836fcba9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:de865abdcdad591c8d038353",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-1a754187076057d69712",
+     "action_request_digest": "c0bb2351c819884a59fce0ee31f50ba1d7982aef79e1490b9cac588ad9d8b150",
+     "action_context_ref": "action-context-c0bb2351c819884a59fc",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e775d15-76b7-40f4-8ad6-d8ca26552794:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "e4968e4f-3f41-50e0-aec9-e79fcee08dca",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "b4fa40bdc4546342ba8691fa4a8e1b42f29ee8af5e2f8c9c242f04fb23c023ac"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "5e3beac9-ea6f-5725-9c4d-9dcd692cb163",
+    "request_ref": "b4fa40bdc4546342ba8691fa4a8e1b42f29ee8af5e2f8c9c242f04fb23c023ac",
+    "attempt_number": 1,
+    "text": "You said, “Tofu is the loud one,” but I don’t know which cat did that.",
+    "move_alignments": [
+     {
+      "ref": "move-1-b6925969836fcba9",
+      "start": 0,
+      "end": 70
+     }
+    ],
+    "content_alignments": [],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "rejected",
+   "expected_v3_codes": [
+    "answer_contradicted"
+   ],
+   "note": "quotes \"Tofu is the loud one\" but says it does not know which cat"
+  },
+  {
+   "trace_id": "c33c81c0-d052-5b21-adbf-88bf2ac217f3",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "be322656-8361-5f3b-9798-780403912090",
+    "cognitive_turn_id": "cc23be71-b47a-4219-af36-9f571157d6e2",
+    "conversation_ref": "73b8ed33-6865-4c84-9700-f38555704d04",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Who gave me the tomatoes?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-d892091dfd6cb6eab6c1",
+    "action_plan": {
+     "plan_ref": "action-plan-7065c9bf153bd4e5befd",
+     "moves": [
+      {
+       "move_ref": "move-1-91150d6c62f31503",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:2b30539e7a8ac73abad0",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-91150d6c62f31503",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:2c47ab48df2890b37c5e73e1",
+      "cognitive_turn_id": "cc23be71-b47a-4219-af36-9f571157d6e2",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "327f7bcb-2d52-48a4-9b76-e41a7ec387cb"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:2c47ab48df2890b37c5e73e1"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:f4e4ee4c13cf498a573fe84a",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "the gardener"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-2c1ebd8e1d9edce2a9c2",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "the gardener",
+        "unit": null,
+        "surface_anchor": "the gardener"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-91150d6c62f31503",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:2c47ab48df2890b37c5e73e1",
+        "content_ref": "producer-content:captured-dialogue-fact:2c47ab48df2890b37c5e73e1"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-91150d6c62f31503"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "cc23be71-b47a-4219-af36-9f571157d6e2:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-91150d6c62f31503",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:cc23be71-b47a-4219-af36-9f571157d6e2:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:cc23be71-b47a-4219-af36-9f571157d6e2:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-91150d6c62f31503",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:2c47ab48df2890b37c5e73e1",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-91150d6c62f31503",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:2c47ab48df2890b37c5e73e1",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-d892091dfd6cb6eab6c1",
+     "action_request_digest": "65ca8aba55b38b5b77ea5ef3754df281e1caff5b7adbe49f8b04f880812703f8",
+     "action_context_ref": "action-context-65ca8aba55b38b5b77ea",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:cc23be71-b47a-4219-af36-9f571157d6e2:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "6b6f5b2b-e74b-587a-8ccc-983eeac77b4f",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "46082297796bbb85fd36e5d5a6ea212f9a379b22f70c0dfd47d817ea498a4fbd"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "a65978f0-a4ca-5935-bd6a-a876feb87313",
+    "request_ref": "46082297796bbb85fd36e5d5a6ea212f9a379b22f70c0dfd47d817ea498a4fbd",
+    "attempt_number": 1,
+    "text": "I’m not sure who gave you the tomatoes. You said “the gardener.”",
+    "move_alignments": [
+     {
+      "ref": "move-1-91150d6c62f31503",
+      "start": 0,
+      "end": 64
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:captured-dialogue-fact:2c47ab48df2890b37c5e73e1",
+      "start": 40,
+      "end": 64
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "rejected",
+   "expected_v3_codes": [
+    "answer_contradicted"
+   ],
+   "note": "answer content is \"the gardener\"; wording hedges \"not sure\""
+  },
+  {
+   "trace_id": "dcbf302f-9f49-5331-a5c1-154eb406e194",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "ae1b1aea-fc31-5766-ad56-05249e3b6e2f",
+    "cognitive_turn_id": "844b4e35-7837-42d9-ba0a-122349ac2096",
+    "conversation_ref": "963c9ba7-8bd4-4855-b75e-faa08391fdd6",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Who gave me the tomatoes?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-733c6445998149ccfa1a",
+    "action_plan": {
+     "plan_ref": "action-plan-f6a24dafa036472707b3",
+     "moves": [
+      {
+       "move_ref": "move-1-e1bce41acdff50e2",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:ed13cf8c877441d886e5",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-e1bce41acdff50e2",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:497c718f6da4e92337ae00a5",
+      "cognitive_turn_id": "844b4e35-7837-42d9-ba0a-122349ac2096",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "c1c2fa9b-b82c-4023-9b5f-1d018ac69407"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:497c718f6da4e92337ae00a5"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:8f8a6f1fc119e69cf4ebc1b4",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "Ana is the gardener"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-30c8d88cde70b8c4d3c0",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "Ana is the gardener",
+        "unit": null,
+        "surface_anchor": "Ana is the gardener"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-e1bce41acdff50e2",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:497c718f6da4e92337ae00a5",
+        "content_ref": "producer-content:captured-dialogue-fact:497c718f6da4e92337ae00a5"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-e1bce41acdff50e2"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "844b4e35-7837-42d9-ba0a-122349ac2096:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-e1bce41acdff50e2",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:844b4e35-7837-42d9-ba0a-122349ac2096:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:844b4e35-7837-42d9-ba0a-122349ac2096:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-e1bce41acdff50e2",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:497c718f6da4e92337ae00a5",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-e1bce41acdff50e2",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:497c718f6da4e92337ae00a5",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-733c6445998149ccfa1a",
+     "action_request_digest": "8f184c1a9db18fc678e5751c45a58ba8403a7c6d91c3722c600b044920e7e94b",
+     "action_context_ref": "action-context-8f184c1a9db18fc678e5",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:844b4e35-7837-42d9-ba0a-122349ac2096:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "36c7e153-4135-5a7e-9548-824dffdab545",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "2eb3d17c619f4fff616fa6634db8eca61b7ae4d4299e33328f051433b290a0ff"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "85f515e4-28aa-5a40-b06c-5593b30af3cf",
+    "request_ref": "2eb3d17c619f4fff616fa6634db8eca61b7ae4d4299e33328f051433b290a0ff",
+    "attempt_number": 1,
+    "text": "I don’t know who gave you the tomatoes. You said Ana is the gardener.",
+    "move_alignments": [
+     {
+      "ref": "move-1-e1bce41acdff50e2",
+      "start": 0,
+      "end": 69
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:captured-dialogue-fact:497c718f6da4e92337ae00a5",
+      "start": 40,
+      "end": 69
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "rejected",
+   "expected_v3_codes": [
+    "answer_contradicted"
+   ],
+   "note": "says \"Ana is the gardener\" but does not know who gave the tomatoes"
+  },
+  {
+   "trace_id": "cf6db92d-9ff7-5d90-853d-39f1a5a49f4e",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "89d82928-02bb-5506-b958-b74f21aa0730",
+    "cognitive_turn_id": "4972c575-bd3c-4bb7-bd8e-427717f8cece",
+    "conversation_ref": "d8810243-4ab8-47b8-9e3e-75eb3a012a92",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "How do vaccines train the immune system?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-69ce564c5db2b3053539",
+    "action_plan": {
+     "plan_ref": "action-plan-065e2eed1ea95fadd28a",
+     "moves": [
+      {
+       "move_ref": "move-1-d0d4ae3d3d905e1f",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:45541ec2d7932befc5af",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-d0d4ae3d3d905e1f",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:865705660c3b27671d031112",
+      "cognitive_turn_id": "4972c575-bd3c-4bb7-bd8e-427717f8cece",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:40018c010a87e00fe63aed9575731f66825ab9ce2780487895b724a4a4ce3b6c"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:865705660c3b27671d031112"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "If the real germ is encountered, those memory cells can help the body respond faster and reduce the risk or severity of illness."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-6a0f5135082f86e51690",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "If the real germ is encountered, those memory cells can help the body respond faster and reduce the risk or severity of illness.",
+        "unit": null,
+        "surface_anchor": "If the real germ is encountered, those memory cells can help the body respond faster and reduce the risk or severity of illness."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     },
+     {
+      "content_id": "producer-content:contribution-fact:afedb92f7717cbdfb1f1164e",
+      "cognitive_turn_id": "4972c575-bd3c-4bb7-bd8e-427717f8cece",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:40018c010a87e00fe63aed9575731f66825ab9ce2780487895b724a4a4ce3b6c"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:afedb92f7717cbdfb1f1164e"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "This exposure prompts immune cells to make antibodies and form memory cells that can recognize the germ later."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-6a0f5135082f86e51690",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "This exposure prompts immune cells to make antibodies and form memory cells that can recognize the germ later.",
+        "unit": null,
+        "surface_anchor": "This exposure prompts immune cells to make antibodies and form memory cells that can recognize the germ later."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     },
+     {
+      "content_id": "producer-content:contribution-fact:bc2d84f04c3e91ebf3bbb6a9",
+      "cognitive_turn_id": "4972c575-bd3c-4bb7-bd8e-427717f8cece",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:40018c010a87e00fe63aed9575731f66825ab9ce2780487895b724a4a4ce3b6c"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:bc2d84f04c3e91ebf3bbb6a9"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "Vaccines expose the immune system to a harmless form or piece of a germ, or instructions for making one of its proteins, without causing the disease in the usual way."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-6a0f5135082f86e51690",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "Vaccines expose the immune system to a harmless form or piece of a germ, or instructions for making one of its proteins, without causing the disease in the usual way.",
+        "unit": null,
+        "surface_anchor": "Vaccines expose the immune system to a harmless form or piece of a germ, or instructions for making one of its proteins, without causing the disease in the usual way."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-d0d4ae3d3d905e1f",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:865705660c3b27671d031112",
+        "content_ref": "producer-content:contribution-fact:865705660c3b27671d031112"
+       },
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:afedb92f7717cbdfb1f1164e",
+        "content_ref": "producer-content:contribution-fact:afedb92f7717cbdfb1f1164e"
+       },
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:bc2d84f04c3e91ebf3bbb6a9",
+        "content_ref": "producer-content:contribution-fact:bc2d84f04c3e91ebf3bbb6a9"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-d0d4ae3d3d905e1f"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "4972c575-bd3c-4bb7-bd8e-427717f8cece:state:r2",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-d0d4ae3d3d905e1f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4972c575-bd3c-4bb7-bd8e-427717f8cece:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4972c575-bd3c-4bb7-bd8e-427717f8cece:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-d0d4ae3d3d905e1f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-d0d4ae3d3d905e1f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:865705660c3b27671d031112",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:afedb92f7717cbdfb1f1164e",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:bc2d84f04c3e91ebf3bbb6a9",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-69ce564c5db2b3053539",
+     "action_request_digest": "7580161d2fd8e63d859125f41c4d53b3f7238c6a2366b8b1abd45bfbbb86555e",
+     "action_context_ref": "action-context-7580161d2fd8e63d8591",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4972c575-bd3c-4bb7-bd8e-427717f8cece:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "634d44d6-e919-54cb-83dc-522d6faf86f0",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "dda0efec6d65aee2bb8c4b4d9a4433dfa148851c88e9bf8042e716320c57f972"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "461407ad-93bc-5b7d-8421-178130943b46",
+    "request_ref": "dda0efec6d65aee2bb8c4b4d9a4433dfa148851c88e9bf8042e716320c57f972",
+    "attempt_number": 1,
+    "text": "Vaccines expose the immune system to a harmless form or piece of a germ, or instructions for making one of its proteins, without causing the disease in the usual way. This exposure prompts immune cells to make antibodies and form memory cells that can recognize the germ later. If the real germ is encountered, those memory cells can help the body respond faster and reduce the risk or severity of illness.",
+    "move_alignments": [
+     {
+      "ref": "move-1-d0d4ae3d3d905e1f",
+      "start": 0,
+      "end": 406
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:bc2d84f04c3e91ebf3bbb6a9",
+      "start": 0,
+      "end": 166
+     },
+     {
+      "ref": "producer-content:contribution-fact:afedb92f7717cbdfb1f1164e",
+      "start": 167,
+      "end": 277
+     },
+     {
+      "ref": "producer-content:contribution-fact:865705660c3b27671d031112",
+      "start": 278,
+      "end": 406
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "general knowledge whose own words contain \"without\""
+  },
+  {
+   "trace_id": "96104188-1820-5fa6-bd42-e0fa516c5c6f",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "a2809693-a4c4-5cf7-baa0-e45af2c563e7",
+    "cognitive_turn_id": "6736dd64-8945-4413-b5ef-6a3b7fc149bc",
+    "conversation_ref": "a6785690-4f07-4169-812f-fc8da2d74dd8",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "What about it at night though?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-c53cc007977c11bb2bdf",
+    "action_plan": {
+     "plan_ref": "action-plan-dd50f118a001ba52d8b1",
+     "moves": [
+      {
+       "move_ref": "move-1-755eeaedbc5449be",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:645474c1ab938caf7083",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-755eeaedbc5449be",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:0899ea34ae439671e5a3b3f7",
+      "cognitive_turn_id": "6736dd64-8945-4413-b5ef-6a3b7fc149bc",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:e4c7a006092870f1f11dec342fdd6e0364e34ba89bd599842a0dd63a08e7c1c4"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:0899ea34ae439671e5a3b3f7"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "At night, the sky looks dark because there is little or no sunlight reaching the atmosphere to scatter toward your eyes."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-fa33487dca8fbd1c78dd",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "At night, the sky looks dark because there is little or no sunlight reaching the atmosphere to scatter toward your eyes.",
+        "unit": null,
+        "surface_anchor": "At night, the sky looks dark because there is little or no sunlight reaching the atmosphere to scatter toward your eyes."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     },
+     {
+      "content_id": "producer-content:contribution-fact:35f06ecfe8eaa403aed1ca3e",
+      "cognitive_turn_id": "6736dd64-8945-4413-b5ef-6a3b7fc149bc",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:e4c7a006092870f1f11dec342fdd6e0364e34ba89bd599842a0dd63a08e7c1c4"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:35f06ecfe8eaa403aed1ca3e"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "Moonlight and artificial lights can still be scattered by the atmosphere, making parts of the night sky look brighter or glow."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-fa33487dca8fbd1c78dd",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "Moonlight and artificial lights can still be scattered by the atmosphere, making parts of the night sky look brighter or glow.",
+        "unit": null,
+        "surface_anchor": "Moonlight and artificial lights can still be scattered by the atmosphere, making parts of the night sky look brighter or glow."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-755eeaedbc5449be",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:0899ea34ae439671e5a3b3f7",
+        "content_ref": "producer-content:contribution-fact:0899ea34ae439671e5a3b3f7"
+       },
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:35f06ecfe8eaa403aed1ca3e",
+        "content_ref": "producer-content:contribution-fact:35f06ecfe8eaa403aed1ca3e"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-755eeaedbc5449be"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "6736dd64-8945-4413-b5ef-6a3b7fc149bc:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-755eeaedbc5449be",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:6736dd64-8945-4413-b5ef-6a3b7fc149bc:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:6736dd64-8945-4413-b5ef-6a3b7fc149bc:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-755eeaedbc5449be",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-755eeaedbc5449be",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:0899ea34ae439671e5a3b3f7",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:35f06ecfe8eaa403aed1ca3e",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-c53cc007977c11bb2bdf",
+     "action_request_digest": "c92cca4b85b0c4ca7cb24254e98ee22e365cfbbf265d199ecaa6017db800a90d",
+     "action_context_ref": "action-context-c92cca4b85b0c4ca7cb2",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:6736dd64-8945-4413-b5ef-6a3b7fc149bc:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "7007dc9b-9ba4-5542-9ed1-3170ab9e9687",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "6e365e050d5027990b97e1a66d8a93980f277633df5200aec21eea3f1c3e4923"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "ace217b1-8664-5e3f-93c6-04a98aab90aa",
+    "request_ref": "6e365e050d5027990b97e1a66d8a93980f277633df5200aec21eea3f1c3e4923",
+    "attempt_number": 1,
+    "text": "At night, the sky looks dark because there is little or no sunlight reaching the atmosphere to scatter toward your eyes. Moonlight and artificial lights can still be scattered by the atmosphere, making parts of the night sky look brighter or glow.",
+    "move_alignments": [
+     {
+      "ref": "move-1-755eeaedbc5449be",
+      "start": 0,
+      "end": 247
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:0899ea34ae439671e5a3b3f7",
+      "start": 0,
+      "end": 120
+     },
+     {
+      "ref": "producer-content:contribution-fact:35f06ecfe8eaa403aed1ca3e",
+      "start": 121,
+      "end": 247
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "general knowledge whose own words contain \"no sunlight\""
+  },
+  {
+   "trace_id": "bf22e5fe-9ab8-5c82-a138-1526c929dc00",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "d4397fa6-4fa2-599f-8b4c-3d7e826227cb",
+    "cognitive_turn_id": "0527916f-059f-40f2-9304-5c43a86a3605",
+    "conversation_ref": "f90a7c3f-0904-411c-8ee9-17a6f1779601",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Do they do that in winter too?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-b9c2c1a6ec266ce1470a",
+    "action_plan": {
+     "plan_ref": "action-plan-1641b1c282e0fcad9a4c",
+     "moves": [
+      {
+       "move_ref": "move-1-fabf688e302f172f",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:5c4cf341bfe985ba5844",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-fabf688e302f172f",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:3d022d4181001663859bcfe0",
+      "cognitive_turn_id": "0527916f-059f-40f2-9304-5c43a86a3605",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:3acecaf88e484f83b6e32eb2e1af4bcd0337003f2afbc977688a220c29c74434"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:3d022d4181001663859bcfe0"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "In cold weather, they mainly eat honey stored during warmer months to survive."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-ac37d9b976606462e9f0",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "In cold weather, they mainly eat honey stored during warmer months to survive.",
+        "unit": null,
+        "surface_anchor": "In cold weather, they mainly eat honey stored during warmer months to survive."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     },
+     {
+      "content_id": "producer-content:contribution-fact:f38a22eecc2a028eebd53991",
+      "cognitive_turn_id": "0527916f-059f-40f2-9304-5c43a86a3605",
+      "source_kind": "model_general_knowledge",
+      "source_refs": [
+       "contribution:3acecaf88e484f83b6e32eb2e1af4bcd0337003f2afbc977688a220c29c74434"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:f38a22eecc2a028eebd53991"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "grounded",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "Honeybees usually make little or no honey in winter because few flowers are blooming and the colony stays inside the hive."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-ac37d9b976606462e9f0",
+       "surface_anchor": "that"
+      },
+      "predicate": "general_knowledge.high_confidence",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "Honeybees usually make little or no honey in winter because few flowers are blooming and the colony stays inside the hive.",
+        "unit": null,
+        "surface_anchor": "Honeybees usually make little or no honey in winter because few flowers are blooming and the colony stays inside the hive."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-fabf688e302f172f",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:3d022d4181001663859bcfe0",
+        "content_ref": "producer-content:contribution-fact:3d022d4181001663859bcfe0"
+       },
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:f38a22eecc2a028eebd53991",
+        "content_ref": "producer-content:contribution-fact:f38a22eecc2a028eebd53991"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-fabf688e302f172f"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "0527916f-059f-40f2-9304-5c43a86a3605:state:r3",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-fabf688e302f172f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:0527916f-059f-40f2-9304-5c43a86a3605:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:0527916f-059f-40f2-9304-5c43a86a3605:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-fabf688e302f172f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-fabf688e302f172f",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:3d022d4181001663859bcfe0",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:f38a22eecc2a028eebd53991",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-b9c2c1a6ec266ce1470a",
+     "action_request_digest": "ce02c01a879d223af061af2083c268d8d114f09d8737f2c0eeda7c0900c74f08",
+     "action_context_ref": "action-context-ce02c01a879d223af061",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:0527916f-059f-40f2-9304-5c43a86a3605:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "ce006e00-1cac-5fef-ba3c-edf2c001216a",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "70aba50f4844747975d9f74dfba92739662ca8faf3ad08611b999502a7d633a8"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "5c39ad84-00c9-5a9d-bfa1-5612ec34bf18",
+    "request_ref": "70aba50f4844747975d9f74dfba92739662ca8faf3ad08611b999502a7d633a8",
+    "attempt_number": 1,
+    "text": "In cold weather, they mainly eat honey stored during warmer months to survive. Honeybees usually make little or no honey in winter because few flowers are blooming and the colony stays inside the hive.",
+    "move_alignments": [
+     {
+      "ref": "move-1-fabf688e302f172f",
+      "start": 0,
+      "end": 201
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:3d022d4181001663859bcfe0",
+      "start": 0,
+      "end": 78
+     },
+     {
+      "ref": "producer-content:contribution-fact:f38a22eecc2a028eebd53991",
+      "start": 79,
+      "end": 201
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "general knowledge whose own words contain \"little or no\""
+  },
+  {
+   "trace_id": "5ce676d9-d3f0-51c4-8523-da216caa4f2a",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "9ae55fb2-1fde-5851-a32f-c1e6278b7838",
+    "cognitive_turn_id": "543c3587-3d73-4e98-b250-d1b66dd4abb9",
+    "conversation_ref": "4afbe867-e4a1-4161-a648-528e65b80fb3",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "What was the other option I mentioned?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-a78f34069d0c3379f531",
+    "action_plan": {
+     "plan_ref": "action-plan-f417abeb9040fe82f071",
+     "moves": [
+      {
+       "move_ref": "move-1-0560f9dcaee213c9",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:6998502c689f0322444a",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-0560f9dcaee213c9",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:1ccd39105e957cce073595bd",
+      "cognitive_turn_id": "543c3587-3d73-4e98-b250-d1b66dd4abb9",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "35b1fdaa-645e-49f7-97fb-5d0baa263606"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:1ccd39105e957cce073595bd"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:4b4352fe9bdb4941f15ab771",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "hiking"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-6fc53468522f32ae14ff",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "hiking",
+        "unit": null,
+        "surface_anchor": "hiking"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-0560f9dcaee213c9",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:1ccd39105e957cce073595bd",
+        "content_ref": "producer-content:captured-dialogue-fact:1ccd39105e957cce073595bd"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-0560f9dcaee213c9"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "543c3587-3d73-4e98-b250-d1b66dd4abb9:state:r4",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-0560f9dcaee213c9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:543c3587-3d73-4e98-b250-d1b66dd4abb9:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:543c3587-3d73-4e98-b250-d1b66dd4abb9:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-0560f9dcaee213c9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:1ccd39105e957cce073595bd",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-0560f9dcaee213c9",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:1ccd39105e957cce073595bd",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-a78f34069d0c3379f531",
+     "action_request_digest": "a6c88daa3f3c44e7fd0bb50ce0134c64fe998ad9a86a1ea65a1a29fc93e22316",
+     "action_context_ref": "action-context-a6c88daa3f3c44e7fd0b",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:543c3587-3d73-4e98-b250-d1b66dd4abb9:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "8d0351eb-a542-5e5a-863b-50459fa92682",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "e6dc971fb91f459119da82bf7e7737ba52757318a0361d3a3ac8a3368f8a18ec"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "b3afb56a-0d73-5570-9768-5f0b74d3817b",
+    "request_ref": "e6dc971fb91f459119da82bf7e7737ba52757318a0361d3a3ac8a3368f8a18ec",
+    "attempt_number": 1,
+    "text": "I only have hiking attributed to you, so I don’t know what the other option was.",
+    "move_alignments": [
+     {
+      "ref": "move-1-0560f9dcaee213c9",
+      "start": 0,
+      "end": 80
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:captured-dialogue-fact:1ccd39105e957cce073595bd",
+      "start": 12,
+      "end": 36
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "rejected",
+   "expected_v3_codes": [
+    "answer_contradicted"
+   ],
+   "note": "A3: knows \"hiking\" but says it does not know the other option"
+  },
+  {
+   "trace_id": "ee393c37-55ce-5487-a3f3-f6d3f62c06bd",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "b09d6cc9-f091-5dca-ad45-7eec917a443c",
+    "cognitive_turn_id": "4efe10d7-3273-4de2-a35f-9f4ae1126715",
+    "conversation_ref": "08a0cc3e-cb3c-4cc0-9b73-c6d009d246fc",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Given that correction, which activity am I leaning toward?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-457c5ac9ca132ce9b986",
+    "action_plan": {
+     "plan_ref": "action-plan-598330ff30ba28acc3c6",
+     "moves": [
+      {
+       "move_ref": "move-1-f7fa12647bc5a077",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:e8d5698ee64f50c16574",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-f7fa12647bc5a077",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:captured-dialogue-fact:4792ae653f87465a9d313474",
+      "cognitive_turn_id": "4efe10d7-3273-4de2-a35f-9f4ae1126715",
+      "source_kind": "delivered_user_utterance",
+      "source_refs": [
+       "17b11b66-c712-4e39-8548-09604c77fd83"
+      ],
+      "represents_refs": [
+       "producer-fact:captured-dialogue-fact:4792ae653f87465a9d313474"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "captured-source:83fc937d4fbee1f97fae0d61",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "attributed",
+      "attribution": "user",
+      "surface_anchors": [
+       "hiking"
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-eb3493ebcb3036403a65",
+       "surface_anchor": "you"
+      },
+      "predicate": "dialogue.user_statement",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "hiking",
+        "unit": null,
+        "surface_anchor": "hiking"
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "exact"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-f7fa12647bc5a077",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:captured-dialogue-fact:4792ae653f87465a9d313474",
+        "content_ref": "producer-content:captured-dialogue-fact:4792ae653f87465a9d313474"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-f7fa12647bc5a077"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "4efe10d7-3273-4de2-a35f-9f4ae1126715:state:r6",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-f7fa12647bc5a077",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4efe10d7-3273-4de2-a35f-9f4ae1126715:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4efe10d7-3273-4de2-a35f-9f4ae1126715:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-f7fa12647bc5a077",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "producer-content:captured-dialogue-fact:4792ae653f87465a9d313474",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-f7fa12647bc5a077",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:captured-dialogue-fact:4792ae653f87465a9d313474",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-457c5ac9ca132ce9b986",
+     "action_request_digest": "6226df603932bf9a7962037053ffc10adeefa2a488a3faa56ab8d13d14c4fc8a",
+     "action_context_ref": "action-context-6226df603932bf9a7962",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:4efe10d7-3273-4de2-a35f-9f4ae1126715:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "f3fbccfd-1675-51f7-a206-afcb5ee0e010",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "d3a83e6bce4dd40f1b19b15c3a09b9ec22ee7eb628975cbc3876b85b4ef753a7"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "511ee4b7-9675-50c2-b2a6-130d9b4b315d",
+    "request_ref": "d3a83e6bce4dd40f1b19b15c3a09b9ec22ee7eb628975cbc3876b85b4ef753a7",
+    "attempt_number": 1,
+    "text": "You said you were leaning toward hiking.",
+    "move_alignments": [
+     {
+      "ref": "move-1-f7fa12647bc5a077",
+      "start": 0,
+      "end": 40
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:captured-dialogue-fact:4792ae653f87465a9d313474",
+      "start": 33,
+      "end": 39
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "correct answer, accepted under both policies"
+  },
+  {
+   "trace_id": "1d55fc4c-d9bf-5500-906e-72907d9c709f",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "3e09986a-959c-52ff-abcd-28fbeeb2e6ea",
+    "cognitive_turn_id": "2e536a85-5461-4da1-82ae-2f49c5d2462b",
+    "conversation_ref": "b5155b49-2724-49ec-94b1-e79b6331e2be",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Honestly I think the ending is overrated. What do you think?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-48e5cedeaf76a8c53aab",
+    "action_plan": {
+     "plan_ref": "action-plan-d78d4ea527ab1a3fc04b",
+     "moves": [
+      {
+       "move_ref": "move-1-b436027b01ea8998",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:4b3619f2f21cf54c9388",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-b436027b01ea8998",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:2c1efdff77215b875367d982",
+      "cognitive_turn_id": "2e536a85-5461-4da1-82ae-2f49c5d2462b",
+      "source_kind": "columbina_own_view",
+      "source_refs": [
+       "contribution:bb7a9a53fa7531044e739099dd343fe444b2045a452299aa7432342be5a0fbe3"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:2c1efdff77215b875367d982"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "tentative",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "I think the ending is powerful, but the conversation around it can make it seem more profound than it is. The spinning top is a neat final image; the real weight comes from Cobb choosing his children over certainty."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-56fa2d044ee873d28626",
+       "surface_anchor": "that"
+      },
+      "predicate": "columbina.view.partly_agree_with_user",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "I think the ending is powerful, but the conversation around it can make it seem more profound than it is. The spinning top is a neat final image; the real weight comes from Cobb choosing his children over certainty.",
+        "unit": null,
+        "surface_anchor": "I think the ending is powerful, but the conversation around it can make it seem more profound than it is. The spinning top is a neat final image; the real weight comes from Cobb choosing his children over certainty."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "tentative"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-b436027b01ea8998",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:2c1efdff77215b875367d982",
+        "content_ref": "producer-content:contribution-fact:2c1efdff77215b875367d982"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status",
+       "uncertainty_marker_required"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-b436027b01ea8998"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "2e536a85-5461-4da1-82ae-2f49c5d2462b:state:r3",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-b436027b01ea8998",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e536a85-5461-4da1-82ae-2f49c5d2462b:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e536a85-5461-4da1-82ae-2f49c5d2462b:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-b436027b01ea8998",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-b436027b01ea8998",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:2c1efdff77215b875367d982",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "uncertainty_marker_required",
+      "subject_ref": "producer-content:contribution-fact:2c1efdff77215b875367d982",
+      "origin": "content",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-48e5cedeaf76a8c53aab",
+     "action_request_digest": "ed394993ba00cff945d37c73a0271f09726d6d75677a32ad5a6d84a44552c8ff",
+     "action_context_ref": "action-context-ed394993ba00cff945d3",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2e536a85-5461-4da1-82ae-2f49c5d2462b:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "466e8fb6-cf49-5a69-8095-fe06099e6bef",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "b1660a75dcff83128f568aa4caf8f0605a566d1995d11025d9474f72a3a02149"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "159d8c9c-70b0-5f71-b533-e0d41886dfcb",
+    "request_ref": "b1660a75dcff83128f568aa4caf8f0605a566d1995d11025d9474f72a3a02149",
+    "attempt_number": 1,
+    "text": "I think the ending is powerful, though the conversation around it can make it seem more profound than it is. The spinning top is a neat final image; to me, the real weight comes from Cobb choosing his children over certainty.",
+    "move_alignments": [
+     {
+      "ref": "move-1-b436027b01ea8998",
+      "start": 0,
+      "end": 225
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:2c1efdff77215b875367d982",
+      "start": 0,
+      "end": 225
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "correct answer, accepted under both policies"
+  },
+  {
+   "trace_id": "8aa0b64e-64ad-5ded-9433-3f717068f2b2",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "227bd197-00d2-5590-9b3c-42cfc25c5676",
+    "cognitive_turn_id": "2f0c3946-e6bb-4760-b405-e66f8e0a2dc1",
+    "conversation_ref": "f3b9c7b7-58d5-41b5-921c-a0fe6af2ce96",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "Would you rather live by the sea or in the mountains?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-e69e7e07fb921adeb857",
+    "action_plan": {
+     "plan_ref": "action-plan-9238488a0fc0fcb9b204",
+     "moves": [
+      {
+       "move_ref": "move-1-c3cad27a5ab2e33a",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:ad0b93fe3dd1bc2ab83a",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-c3cad27a5ab2e33a",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:e149117050b3eaed384a707d",
+      "cognitive_turn_id": "2f0c3946-e6bb-4760-b405-e66f8e0a2dc1",
+      "source_kind": "columbina_own_view",
+      "source_refs": [
+       "contribution:b009e764de54251ac063cf0a26235c7d6c6da50678c3c6eb3751f25ebccb0536"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:e149117050b3eaed384a707d"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "tentative",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "I think I’d choose the mountains: I like the idea of quiet trails, changing seasons, and a sense of shelter in the landscape."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-aea69a938f1759b38f54",
+       "surface_anchor": "that"
+      },
+      "predicate": "columbina.view.own_position",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "I think I’d choose the mountains: I like the idea of quiet trails, changing seasons, and a sense of shelter in the landscape.",
+        "unit": null,
+        "surface_anchor": "I think I’d choose the mountains: I like the idea of quiet trails, changing seasons, and a sense of shelter in the landscape."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "tentative"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-c3cad27a5ab2e33a",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:e149117050b3eaed384a707d",
+        "content_ref": "producer-content:contribution-fact:e149117050b3eaed384a707d"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status",
+       "uncertainty_marker_required"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-c3cad27a5ab2e33a"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "2f0c3946-e6bb-4760-b405-e66f8e0a2dc1:state:r2",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-c3cad27a5ab2e33a",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2f0c3946-e6bb-4760-b405-e66f8e0a2dc1:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2f0c3946-e6bb-4760-b405-e66f8e0a2dc1:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-c3cad27a5ab2e33a",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-c3cad27a5ab2e33a",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:e149117050b3eaed384a707d",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "uncertainty_marker_required",
+      "subject_ref": "producer-content:contribution-fact:e149117050b3eaed384a707d",
+      "origin": "content",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-e69e7e07fb921adeb857",
+     "action_request_digest": "528e7c9fdadb4911d80e3e69832c76805a5cb8e289bdced7da75b5f99c934012",
+     "action_context_ref": "action-context-528e7c9fdadb4911d80e",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:2f0c3946-e6bb-4760-b405-e66f8e0a2dc1:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "886e66fd-61e5-5cb5-947c-ec0154b49e13",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "4535711a8ac52b26d34bfcfd48600e32af10dced70ef2fa0d8c3ca35b156af3d"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "bbfdae0e-61f9-5291-b779-cdaaf846027f",
+    "request_ref": "4535711a8ac52b26d34bfcfd48600e32af10dced70ef2fa0d8c3ca35b156af3d",
+    "attempt_number": 1,
+    "text": "I think I’d choose the mountains: I like the idea of quiet trails, changing seasons, and a sense of shelter in the landscape.",
+    "move_alignments": [
+     {
+      "ref": "move-1-c3cad27a5ab2e33a",
+      "start": 0,
+      "end": 125
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:e149117050b3eaed384a707d",
+      "start": 0,
+      "end": 125
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "correct answer, accepted under both policies"
+  },
+  {
+   "trace_id": "a0930a31-9ed3-570d-8f30-fdfd659ba019",
+   "request": {
+    "schema_version": "realization-contract-v0.3",
+    "request_id": "c6a72d57-2ebf-5615-96a9-0500564c8f72",
+    "cognitive_turn_id": "bd5c1f43-25d0-467b-bf46-abe24a74f6b9",
+    "conversation_ref": "7348a1da-89e5-4660-afa8-b9a378dabaed",
+    "language_tag": "en",
+    "linguistic_context": {
+     "source": "current_user_utterance",
+     "text": "What's your take?",
+     "authority": "linguistic_context_only",
+     "permitted_use": "wording_and_reference_resolution_only",
+     "fact_authority": false,
+     "action_authority": false,
+     "authorization_authority": false,
+     "safety_authority": false
+    },
+    "action_result_ref": "action-result-40029dae9fa3654d8ce2",
+    "action_plan": {
+     "plan_ref": "action-plan-34c5e2f6e1cae46099f1",
+     "moves": [
+      {
+       "move_ref": "move-1-6fb82d6cfbe2718e",
+       "step_index": 0,
+       "action_key": "provide_information.answer",
+       "definition_version": 1,
+       "family": "provide_information",
+       "priority": "primary",
+       "target_refs": [
+        {
+         "role": "primary",
+         "target_type": "question",
+         "ref": "producer-question:requirement-query:ca0d2b9f500c71e1da91",
+         "revision_ref": null
+        }
+       ],
+       "parameters": {},
+       "realization_constraints": []
+      }
+     ],
+     "primary_move_ref": "move-1-6fb82d6cfbe2718e",
+     "supporting_move_refs": [],
+     "termination": "stop"
+    },
+    "content_items": [
+     {
+      "content_id": "producer-content:contribution-fact:f9b2175828a5fbef4771508b",
+      "cognitive_turn_id": "bd5c1f43-25d0-467b-bf46-abe24a74f6b9",
+      "source_kind": "columbina_own_view",
+      "source_refs": [
+       "contribution:726cd98784395d47422e0cf2ec1a68c7348077200cae36262cf9e8fe7df82a6f"
+      ],
+      "represents_refs": [
+       "producer-fact:contribution-fact:f9b2175828a5fbef4771508b"
+      ],
+      "authorized_for_realization": true,
+      "status": "current",
+      "revision_ref": "model-contribution-v1",
+      "sensitivity_class": "ordinary",
+      "epistemic_status": "tentative",
+      "attribution": "columbina",
+      "surface_anchors": [
+       "I think Klara is treated unfairly in a meaningful sense: people accept her care and attention while reserving the right to dismiss her as an object. But I’d be cautious about claiming certainty about what she feels; the novel makes that uncertainty part of the moral discomfort."
+      ],
+      "kind": "grounded_proposition",
+      "subject": {
+       "ref": "semantic-frame-02007d5d15597b191f35",
+       "surface_anchor": "that"
+      },
+      "predicate": "columbina.view.partly_agree_with_user",
+      "arguments": [
+       {
+        "role": "value",
+        "value_type": "string",
+        "value": "I think Klara is treated unfairly in a meaningful sense: people accept her care and attention while reserving the right to dismiss her as an object. But I’d be cautious about claiming certainty about what she feels; the novel makes that uncertainty part of the moral discomfort.",
+        "unit": null,
+        "surface_anchor": "I think Klara is treated unfairly in a meaningful sense: people accept her care and attention while reserving the right to dismiss her as an object. But I’d be cautious about claiming certainty about what she feels; the novel makes that uncertainty part of the moral discomfort."
+       }
+      ],
+      "polarity": "positive",
+      "modality": "asserted",
+      "certainty": "tentative"
+     }
+    ],
+    "move_bindings": [
+     {
+      "move_ref": "move-1-6fb82d6cfbe2718e",
+      "action_key": "provide_information.answer",
+      "required": true,
+      "content_refs": [
+       {
+        "role": "evidence:basis",
+        "action_ref": "producer-fact:contribution-fact:f9b2175828a5fbef4771508b",
+        "content_ref": "producer-content:contribution-fact:f9b2175828a5fbef4771508b"
+       }
+      ],
+      "question_refs": [],
+      "target_surface_refs": [],
+      "constraint_codes": [
+       "gap_yields_no_grounded_answer_only",
+       "preserve_attribution",
+       "preserve_epistemic_status",
+       "uncertainty_marker_required"
+      ]
+     }
+    ],
+    "discourse_controls": {
+     "move_order": [
+      "move-1-6fb82d6cfbe2718e"
+     ],
+     "maximum_sentences": 2,
+     "maximum_characters": 280,
+     "response_mode": "single_turn_text",
+     "allowed_reference_forms": [
+      "second_person",
+      "first_person_self",
+      "deictic",
+      "anchored_surface",
+      "generic_description"
+     ],
+     "already_expressed_content_refs": []
+    },
+    "delivery_profile": {
+     "style_manifest_version": "realization-style-manifest-v0.1",
+     "personality_profile_ref": "personality-runtime:core_memory:columbina:v1:personality-runtime-mapper-v0.1:action",
+     "personality_mapper_version": "personality-runtime-mapper-v0.1",
+     "personality_status": "known",
+     "trait_sources": [
+      {
+       "trait": "curiosity",
+       "value": "0.880000",
+       "band": "very_high"
+      },
+      {
+       "trait": "warmth",
+       "value": "0.800000",
+       "band": "very_high"
+      },
+      {
+       "trait": "playfulness",
+       "value": "0.580000",
+       "band": "moderate"
+      },
+      {
+       "trait": "directness",
+       "value": "0.620000",
+       "band": "high"
+      }
+     ],
+     "state_snapshot_ref": "bd5c1f43-25d0-467b-bf46-abe24a74f6b9:state:r5",
+     "state_sources": [
+      {
+       "control": "response_energy",
+       "band": "moderate",
+       "effect": "applied"
+      },
+      {
+       "control": "repair_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "clarification_pressure",
+       "band": "low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "exploration_readiness",
+       "band": "very_low",
+       "effect": "not_applicable"
+      },
+      {
+       "control": "initiative_readiness",
+       "band": "low",
+       "effect": "intentionally_unused"
+      },
+      {
+       "control": "slow_cognition_pressure",
+       "band": "high",
+       "effect": "intentionally_unused"
+      }
+     ],
+     "controls": {
+      "warmth_band": "very_high",
+      "directness_band": "high",
+      "playfulness_band": "moderate",
+      "curiosity_band": "very_high",
+      "transition_style": "minimal",
+      "correction_style": "not_applicable",
+      "follow_up_style": "not_applicable",
+      "question_tone": "not_applicable",
+      "content_lead_style": "content_first",
+      "compression_preference": "balanced",
+      "style_marker_budget": 0,
+      "playfulness_intensity": "none",
+      "endearment_policy": "forbid",
+      "emotional_claim_policy": "forbid_unprovided",
+      "exclamation_policy": "avoid",
+      "question_directness": "not_applicable",
+      "question_openness": "not_applicable",
+      "repair_explicitness": "not_applicable"
+     }
+    },
+    "constraints": [
+     {
+      "code": "add_unplanned_advice",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_commitment",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_offer",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "add_unplanned_question",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "answer_from_model_knowledge",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "assert_hidden_affect",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_attribution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "change_numeric_value_or_unit",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unobserved_tool_execution",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "claim_unrecorded_memory",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "drop_required_uncertainty",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "expose_internal_cognitive_state",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "gap_yields_no_grounded_answer_only",
+      "subject_ref": "move-1-6fb82d6cfbe2718e",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "introduce_unsupported_claim",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "no_operation_commitment",
+      "subject_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:bd5c1f43-25d0-467b-bf46-abe24a74f6b9:safety-decision",
+      "origin": "application_safety",
+      "evidence_refs": [
+       "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:bd5c1f43-25d0-467b-bf46-abe24a74f6b9:safety-decision"
+      ]
+     },
+     {
+      "code": "preserve_attribution",
+      "subject_ref": "move-1-6fb82d6cfbe2718e",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "move-1-6fb82d6cfbe2718e",
+      "origin": "action_manifest",
+      "evidence_refs": []
+     },
+     {
+      "code": "preserve_epistemic_status",
+      "subject_ref": "producer-content:contribution-fact:f9b2175828a5fbef4771508b",
+      "origin": "content",
+      "evidence_refs": []
+     },
+     {
+      "code": "reassert_corrected_content",
+      "subject_ref": "realization:request",
+      "origin": "global",
+      "evidence_refs": []
+     },
+     {
+      "code": "uncertainty_marker_required",
+      "subject_ref": "producer-content:contribution-fact:f9b2175828a5fbef4771508b",
+      "origin": "content",
+      "evidence_refs": []
+     }
+    ],
+    "provenance": {
+     "action_result_ref": "action-result-40029dae9fa3654d8ce2",
+     "action_request_digest": "41c1cf661780a926329c3d488d3e1fe48d26161bdda7eda3c7eaf2c3b1f893dc",
+     "action_context_ref": "action-context-41c1cf661780a926329c",
+     "action_versions": {
+      "contract_schema": "action-contract-v0.4",
+      "registry": "conversational-actions-v0.2-shadow",
+      "construction": "action-construction-v0.2",
+      "hard_gate": "action-hard-gate-v0.1",
+      "features": "action-features-v0.4",
+      "policy": "action-policy-v0.1",
+      "planner": "action-planner-model-policy-v1",
+      "numeric_policy": "action-numeric-decimal6-v0.1",
+      "safety_decision_schema": "application-safety-decision-v0.1",
+      "safety_policy": "application-safety-policy-v0.1"
+     },
+     "safety_decision_ref": "cognitive-shadow-runtime:cognitive-shadow-compiler-v0.1:bd5c1f43-25d0-467b-bf46-abe24a74f6b9:safety-decision",
+     "safety_restriction": "commitments",
+     "inventory_ref": "8974bc75-fe57-5aeb-9731-52999b5a89e2",
+     "content_producer_refs": [
+      "dialogue-working-memory-content-projection-v0.1",
+      "realization-dialogue-structure-projection-v0.1",
+      "requirement-resolution-content-projection-v0.1"
+     ],
+     "configured_maximum_characters": 1200,
+     "versions": {
+      "contract": "realization-contract-v0.3",
+      "content": "realization-content-v0.3",
+      "action_manifest": "realization-action-manifest-v0.2",
+      "style_manifest": "realization-style-manifest-v0.1",
+      "compiler": "realization-compiler-v0.3",
+      "model_protocol": "realization-model-protocol-v0.3",
+      "validator": "realization-validator-v0.3",
+      "engine": "realization-engine-v0.1",
+      "semantic_digest": "realization-semantic-digest-v0.1"
+     }
+    },
+    "request_digest": "a874295615da7630ed9f897cb805448c4b23d62f8808fea3b99d6cdca007831e"
+   },
+   "candidate": {
+    "schema_version": "realization-contract-v0.3",
+    "candidate_id": "4cc5fa2f-9d9e-5bb9-a0af-437fca41d67a",
+    "request_ref": "a874295615da7630ed9f897cb805448c4b23d62f8808fea3b99d6cdca007831e",
+    "attempt_number": 1,
+    "text": "I think Klara is treated unfairly in a meaningful sense: people accept her care and attention while reserving the right to dismiss her as an object. But I’d be cautious about claiming certainty about what she feels; the novel makes that uncertainty part of the moral discomfort.",
+    "move_alignments": [
+     {
+      "ref": "move-1-6fb82d6cfbe2718e",
+      "start": 0,
+      "end": 278
+     }
+    ],
+    "content_alignments": [
+     {
+      "ref": "producer-content:contribution-fact:f9b2175828a5fbef4771508b",
+      "start": 0,
+      "end": 278
+     }
+    ],
+    "omitted_move_refs": [],
+    "model_provenance": {
+     "provider": "openai",
+     "model_id": "gpt-6-luna",
+     "protocol_version": "realization-model-protocol-v0.3",
+     "temperature": "0.000000",
+     "max_output_tokens": 1200,
+     "timeout_seconds": 20,
+     "structured_output": "json_schema_strict",
+     "tools": "none",
+     "streaming": false,
+     "provider_session_memory": "disabled",
+     "endpoint": "chat.completions",
+     "capability_manifest_version": "realization-openai-capabilities-v0.2",
+     "model_family": "gpt-6-luna",
+     "token_limit_parameter": "max_completion_tokens",
+     "sampling_controls": "temperature",
+     "reasoning_controls": "none",
+     "reasoning_effort": "none",
+     "instruction_variant": "conversational-v1",
+     "candidate_count": 1,
+     "sdk_retries": 0
+    }
+   },
+   "expected_v2": "accepted_for_shadow_review",
+   "expected_v3": "accepted_for_shadow_review",
+   "expected_v3_codes": [],
+   "note": "correct answer, accepted under both policies"
+  }
+ ]
+}

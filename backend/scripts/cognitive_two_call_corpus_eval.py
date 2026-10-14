@@ -49,7 +49,7 @@ CORPUS = {
 PLACEHOLDER_REPLY = 'Okay.'
 
 
-def run_conversation(key, turns, settings, protocol):
+def run_conversation(key, turns, settings, protocol, *, capture_details=False):
     from app.services.cognitive_shadow import collaboration_engine, realization_engine
     user, conversation = str(uuid.uuid4()), str(uuid.uuid4())
     history, ids, previous, rows = [], [], None, []
@@ -91,6 +91,9 @@ def run_conversation(key, turns, settings, protocol):
             components={f'{s.stage}.{s.component}': round(s.elapsed_ms, 1) for s in spans if s.component != 'provider_attempt'},
             # Local diagnosis only: raw proposals of failed turns.
             proposals=[c.model_dump(mode='json')['proposal'] for c in pipeline.two_call.captures] if record.failure else None))
+        if capture_details:
+            rows[-1]['calls'] = [c.model_dump(mode='json') for c in pipeline.two_call.captures]
+            rows[-1]['realization_trace'] = realized.realization_trace.model_dump(mode='json') if realized.realization_trace else None
         if record.status.value == 'completed':
             previous = (record, capture)
         history.append(('assistant', final or PLACEHOLDER_REPLY)); ids.append(str(uuid.uuid4()))
