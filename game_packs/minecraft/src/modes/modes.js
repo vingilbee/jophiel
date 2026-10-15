@@ -6,6 +6,7 @@
 //   guard:  a hostile close to her, or to the player she's with -> fight it
 //   gather: a block on her list close by (iron_ore, coal_ore...) -> mine it, then catch up
 //   pickup: items on the ground right by her -> pick them up
+// One more has no setting and comes first: breathing (the runner checks it, see breathePick).
 // Settings outlive a reconnect (one object per pack process). Checks are rules, never a model.
 import { ParamError } from '../skills/contract.js'
 import { bestToolFor, blockIds, findPlayer, hostilesAround, requireBlock } from '../skills/common.js'
@@ -26,8 +27,8 @@ const PICKUP_RADIUS = 4
 const MAX_GATHER = 8 // names on the list
 // Gather in short stops: the leash is checked before each, and a 30 s stop on ore she
 // couldn't reach left her standing while the user walked off (seen live).
-const ACTION_SECONDS = { guard: 30, gather: 15, pickup: 10 }
-const COOLDOWN_MS = { guard: 2000, gather: 2000, pickup: 4000 }
+const ACTION_SECONDS = { guard: 30, gather: 15, pickup: 10, breathe: 20 }
+const COOLDOWN_MS = { guard: 2000, gather: 2000, pickup: 4000, breathe: 0 }
 const SKIP_MS = 60000 // a target that didn't work out is left alone this long
 
 export class ModeSettings {
@@ -206,11 +207,23 @@ function pickupPick (bot, memory, run) {
   }
 }
 
+// Out of air: swim up, then carry on with the skill on hold. The runner decides when (water.needsAir).
+export function breathePick (bot) {
+  return {
+    mode: 'breathe',
+    skill: 'surface',
+    params: { time_limit: ACTION_SECONDS.breathe },
+    seconds: ACTION_SECONDS.breathe,
+    why: `air ${bot.oxygenLevel}/20 under water`,
+    keys: []
+  }
+}
+
 // Whether a mode's action is worth a line to the user (Columbina is woken for it): ore
 // gathered, a mob killed near the player she's with, or a mode that didn't work. Pickups, and
 // fights only she was in, are just recorded.
 export function worthSaying (result) {
-  if (result.mode === 'pickup') return false
+  if (result.mode === 'pickup' || (result.mode === 'breathe' && result.status === 'done')) return false
   if (result.status !== 'done') return true
   return result.mode === 'gather' || Boolean(result.near)
 }
@@ -222,6 +235,8 @@ export function describeAction (result) {
   if (result.mode === 'guard') {
     what = data.killed ? `killed ${data.killed} ${result.params.target}` : `fought a ${result.params.target} (${result.reason ?? result.status})`
     if (result.near) what += ` near ${result.near}`
+  } else if (result.mode === 'breathe') {
+    what = result.status === 'done' ? `swam up for air (air ${data.air}/20)` : `couldn't get to air (${result.reason ?? result.status})`
   } else if (result.mode === 'gather') {
     what = data.collected ? `mined ${data.collected} ${result.params.block} on the way` : `couldn't mine the ${result.params.block} (${result.reason ?? result.status})`
   } else {

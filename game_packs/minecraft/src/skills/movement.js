@@ -8,11 +8,13 @@ import {
 } from './common.js'
 import { seenBlock } from '../sight.js'
 import { lastSeen } from '../sightings.js'
+import { lookedAtBlock } from '../watching.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
 
-// Targets: "x y z" or "x z" (commas fine), "player:<name>", "mob:<type>", "block:<type>".
+// Targets: "x y z" or "x z" (commas fine), "player:<name>", "mob:<type>", "block:<type>",
+// "looking:<player>" (the block that player is looking at).
 export function parseTarget (text) {
   const numbers = text.split(/[\s,]+/).filter(Boolean)
   if (numbers.length && numbers.every((n) => /^-?\d+(\.\d+)?$/.test(n))) {
@@ -20,8 +22,10 @@ export function parseTarget (text) {
     if (numbers.length === 2) return { kind: 'place', x: +numbers[0], z: +numbers[1] }
     throw new ParamError('a place is "x y z" or "x z"')
   }
-  const match = /^(player|mob|block):([A-Za-z0-9_]{1,40})$/.exec(text)
-  if (!match) throw new ParamError('target must be "x y z", "x z", "player:<name>", "mob:<type>" or "block:<type>"')
+  const match = /^(player|mob|block|looking):([A-Za-z0-9_]{1,40})$/.exec(text)
+  if (!match) {
+    throw new ParamError('target must be "x y z", "x z", "player:<name>", "mob:<type>", "block:<type>" or "looking:<player>"')
+  }
   return { kind: match[1], name: match[2] }
 }
 
@@ -47,12 +51,25 @@ function watchForAttack (ctx) {
 
 export const goTo = {
   name: 'go_to',
-  description: 'Walk to a place, a player, a mob, or the nearest block of a type. A player out of sight: first to where she last saw them.',
-  doneWhen: 'she is within range of the target (for a player: also at their level, within 1 block up or down)',
+  description: 'Walk to a place, a player, a mob, the nearest block of a type, or the spot a player is looking at. ' +
+    'A player out of sight: first to where she last saw them. "Come here" / "next to me": player:<name> with range 1. ' +
+    '"Go there" / "stand here" while they point their view at a spot: looking:<name> with range 0.',
+  doneWhen: 'she is within range of the target (for a player: also at their level, within 1 block up or down; ' +
+    'range 0: standing on that exact block)',
   stopsWhen: 'no path, target not found or gone, attacked, time limit',
   params: {
-    target: { type: 'string', required: true, description: '"x y z", "x z", "player:<name>", "mob:<type>" or "block:<type>"' },
-    range: { type: 'number', min: 1, max: 32, default: 2, description: 'how close counts as arrived, in blocks' },
+    target: {
+      type: 'string',
+      required: true,
+      description: '"x y z", "x z", "player:<name>", "mob:<type>", "block:<type>" or "looking:<player>" (where they look)'
+    },
+    range: {
+      type: 'number',
+      min: 0,
+      max: 32,
+      default: 2,
+      description: 'how close counts as arrived, in blocks (0: on that exact block; for a player at least 1)'
+    },
     dig: {
       type: 'enum',
       values: ['yes', 'no'],
@@ -65,7 +82,7 @@ export const goTo = {
     const target = parseTarget(params.target)
     if (target.kind === 'mob') requireEntityType(bot, target.name)
     if (target.kind === 'block') requireBlock(bot, target.name)
-    if (target.kind === 'player') requireOtherPlayer(bot, target.name)
+    if (target.kind === 'player' || target.kind === 'looking') requireOtherPlayer(bot, target.name)
   },
   async run (ctx, params) {
     const { bot } = ctx
@@ -79,13 +96,14 @@ export const goTo = {
         if (!blockPos) return failed(`no ${target.name} in sight within 64 blocks`)
         return await goToPlace(ctx, blockPos, params.range, attack)
       }
+      if (target.kind === 'looking') return await goToLookedAt(ctx, target.name, params.range, attack)
       if (target.kind === 'player') {
         const entity = findPlayer(bot, target.name) ?? await toLastSeen(ctx, target.name, attack)
-        return await goToEntity(ctx, entity, params.range, attack, { level: true, dig })
+        return await goToEntity(ctx, entity, Math.max(1, params.range), attack, { level: true, dig })
       }
       const entity = findEntity(bot, target.name)
       if (!entity) return failed(`can't see a ${target.name} nearby`)
-      return await goToEntity(ctx, entity, params.range, attack, { dig })
+      return await goToEntity(ctx, entity, Math.max(1, params.range), attack, { dig })
     } finally {
       attack.off()
     }
@@ -108,6 +126,31 @@ async function goToPlace (ctx, place, range, attack) {
     await ctx.sleep(200)
   }
   return failed('no path', { remaining: Math.round(distanceToPlace(bot, place)) })
+}
+
+const LOOK_REACH = 32 // how far along a player's view she looks for the spot they mean
+
+// The spot a player is looking at, taken once at the start (they may look away after). A floor
+// block with room above: stand on it (range 0: exactly there). Anything else (a wall, a bed, a
+// table): stand next to it.
+async function goToLookedAt (ctx, name, range, attack) {
+  const { bot } = ctx
+  const player = findPlayer(bot, name)
+  if (!player) return failed(`can't see ${name}, so can't tell where they're looking`)
+  const block = lookedAtBlock(bot, player, LOOK_REACH)
+  if (!block) return failed(`${name} isn't looking at a block within ${LOOK_REACH} blocks`)
+  const above = bot.blockAt(block.position.offset(0, 1, 0))
+  const head = bot.blockAt(block.position.offset(0, 2, 0))
+  const floor = block.boundingBox === 'block' && above?.boundingBox === 'empty' && head?.boundingBox === 'empty'
+  if (!floor) {
+    const arrived = await walkTo(ctx, new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z))
+    attack.check()
+    return arrived ? done({ ...position(bot), next_to: block.name }) : failed(`no path to the ${block.name}`)
+  }
+  const spot = block.position.offset(0, 1, 0)
+  const end = await goToPlace(ctx, { x: spot.x, y: spot.y, z: spot.z }, range, attack)
+  if (end.status === 'done') end.data = { ...end.data, on: block.name }
+  return end
 }
 
 // A player out of sight (online, beyond entity range): walk to where she last saw them and

@@ -3,7 +3,7 @@
 Stage G of `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`. A small Node.js service on the Mac that joins a
 Minecraft world as her own player, reads her state, lets you watch, and runs **skills** (go_to,
 mine, fight, explore, eat, sleep, craft, follow_player, place, collect_items, give, look_at, store,
-take, smelt) one at a time when asked through its API, and keeps a list of what she **notices**.
+take, smelt, wear, surface) one at a time when asked through its API, and keeps a list of what she **notices**.
 Phases 0-3 are built: she joins, reads her state, runs skills, moves through a natural-motion
 layer, notices things, and **her hands (the driver model) pick skills** in a game session that
 Columbina starts and steers from the chat or voice.
@@ -110,7 +110,7 @@ count only blocks with a face in her line of sight, or that she has seen before 
 
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|
-| `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`; `range` | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
+| `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
 | `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
 | `fight` | `target`: `nearest_hostile` or a hostile type | Target type dead / no hostiles left | Outnumbered (flees), none found. Hostile mobs only |
 | `explore` | `goal`: `block:<type>` / `mob:<type>` (optional), `radius` | Goal found (says where), or area covered | Night, danger within 8 blocks |
@@ -125,6 +125,8 @@ count only blocks with a face in her line of sight, or that she has seen before 
 | `store` | `item` (or `all`: keeps tools, weapons, armour, food, torches), `count` | In the nearest chest/barrel | No chest within 16, chest full |
 | `take` | `item`, `count` | Taken | No chest, chest has none, inventory full |
 | `smelt` | `item`, `count` | Smelted items taken out | No furnace within 16, no fuel, can't be smelted |
+| `wear` | `item` (optional) | The armor is on (named piece, or her best for every slot with nothing better on) | No armor, nothing better than what she wears |
+| `surface` | | Head out of the water, breath back | Nothing reachable within 12 blocks of water, stuck |
 
 All take `time_limit` (seconds, capped per skill). **Doors:** routes go through wooden doors and
 gates; she opens closed ones just before reaching them and closes doors she opened once she's
@@ -132,7 +134,12 @@ through (unless a player is in the doorway). Iron doors stay walls. Walking skil
 blocks; only `mine` digs. Shared safety the runner applies to every skill:
 `stop` ends it at once; health at 6/20 or lower ends it as `hurt`, then she backs away from the
 nearest hostile and eats; death and disconnects end it. Pathfinding never places her blocks
-(she'd quietly use up what she mined) and avoids lava.
+(she'd quietly use up what she mined) and avoids lava. **Breathing** comes before everything:
+head under water with air at 10/20 or less, a resumable skill goes on hold while she runs
+`surface` (straight up through open water, or swimming through connected water to the nearest air
+under a ceiling), any other skill ends as `hurt`, and with nothing running she starts it herself
+(`source: "reflex"`; `stop` leaves it be, it ends by itself). The pathfinder plans no routes
+through water, so walking along the bottom of deep water fails; she never drowns trying.
 
 `fight`: creepers first, then skeletons, then zombies, nearest first; best weapon in hand, shield
 in the off hand and raised while the swing recharges; hits only at full charge; steps back after a

@@ -381,7 +381,7 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
       const skills = await call('GET', '/skills')
       assert.deepEqual(skills.body.map((s) => s.name), [
         'go_to', 'mine', 'fight', 'explore', 'eat', 'sleep', 'craft', 'follow_player',
-        'place', 'collect_items', 'give', 'look_at', 'store', 'take', 'smelt'
+        'place', 'collect_items', 'give', 'look_at', 'store', 'take', 'smelt', 'wear', 'surface'
       ])
       assert.equal((await call('POST', '/skills/run', { skill: 'go_to', params: { target: 'block:nope' } })).status, 400)
       assert.equal((await call('POST', '/skills/run', { skill: 'dance' })).status, 400)

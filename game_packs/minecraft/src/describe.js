@@ -14,7 +14,10 @@ export function describeState (state) {
     `${state.username} at (${p.x}, ${p.y}, ${p.z}) in the ${state.dimension.replace('minecraft:', '')}, ` +
       `facing ${state.facing.compass}, looking ${describePitch(state.facing.pitch_down_deg)}, ` +
       `standing on ${state.standing_on ?? 'nothing'}${state.in_water ? ', in water' : ''}.`,
-    `Health ${hearts(state.health)} of 10 hearts (${state.health}/20), food ${state.food}/20. Holding ${state.held ? `${state.held.name} x${state.held.count}` : 'nothing'}.`,
+    `Health ${hearts(state.health)} of 10 hearts (${state.health}/20), food ${state.food}/20` +
+      `${typeof state.oxygen === 'number' && state.oxygen < 20 && state.oxygen >= -20 ? `, air ${state.oxygen}/20` : ''}. ` +
+      `Holding ${state.held ? `${state.held.name} x${state.held.count}` : 'nothing'}. ` +
+      `Wearing ${Object.values(state.armor ?? {}).length ? Object.values(state.armor).join(', ') : 'no armor'}.`,
     `Day ${state.time.day}, ${state.time.phase} (time ${state.time.time_of_day}), weather ${state.weather}.`,
     `Inventory: ${state.inventory.length ? state.inventory.map((i) => `${i.name} x${i.count}`).join(', ') : 'empty'}.`,
     `Nearby: ${state.nearby.length ? state.nearby.map((e) => `${e.label} ${where(e)}`).join('; ') : 'nothing within range'}.`,

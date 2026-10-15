@@ -36,14 +36,21 @@ function itemName (item) {
   return item ? item.name : null
 }
 
-// The block a player is looking at (head yaw/pitch), or null.
-export function lookingAt (bot, entity, range = LOOK_RANGE) {
+// The block a player is looking at (head yaw/pitch), or null: the block itself, with its position.
+export function lookedAtBlock (bot, entity, range = LOOK_RANGE) {
   const yaw = entity.headYaw ?? entity.yaw
   const pitch = entity.pitch ?? 0
   const dir = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }
   const eye = entity.position.offset(0, entity.eyeHeight ?? 1.62, 0)
   const hit = bot.world.raycast(eye, eye.offset(dir.x, dir.y, dir.z).minus(eye), range)
-  if (!hit || hit.name === 'air') return null
+  return hit && hit.name !== 'air' ? hit : null
+}
+
+// What a player is looking at, for her state: { name, distance }, or null.
+export function lookingAt (bot, entity, range = LOOK_RANGE) {
+  const hit = lookedAtBlock(bot, entity, range)
+  if (!hit) return null
+  const eye = entity.position.offset(0, entity.eyeHeight ?? 1.62, 0)
   return { name: hit.name, distance: Math.round(hit.position.offset(0.5, 0.5, 0.5).distanceTo(eye)) }
 }
 
