@@ -1161,7 +1161,17 @@ A game without a pack keeps the stage C-D3 path: screen and keys, reflexes, `pur
 - **H2. The skill library:** storage, embeddings and retrieval, `trial` -> `approved`, the review page, and approved skills in the hands' manifest.
 - **H3. Curriculum mode for Columbina:** "explore and learn" as a session option; learned-skill moments become her game events ("I figured out how to make a furnace!").
 
-**Not decided yet:** where the library lives (pack folder vs Postgres), whether approval can be automatic after N clean test runs, and whether the library is per world or shared across worlds.
+**Decided 2026-10-15 (with the user):**
+- **What she learns:** steps her hands reported as "no skill for: …", and things the user asks her to learn. No self-made curriculum yet (H3 later).
+- **What her code may call:** whole skills and read-only state only (rule 1). A raw-controls skill (`act`: hold keys for a moment) only if her programs keep getting stuck on movement.
+- **Did it work:** a critic call comparing the world before and after, together with facts counted by code (e.g. "gained 1 furnace"), so the check isn't only the model's opinion.
+- **Approval:** the user reviews every learned skill at first; automatic approval may come once her code is trusted.
+- **Library:** Postgres, next to the lessons, shared across worlds; a learned skill that fails repeatedly drops back to `trial`.
+- **Code model:** gpt-6-luna.
+- **Telling the user:** a learned skill is news for her mind (the gate decides whether to think about it), and the mouth sometimes mentions it.
+- **Where and when:** the user starts a server only to play or test, and wants to watch her learn; learning happens only in a session the user started. Watching through the pack's viewer or by joining is still open.
+
+**Sandbox built 2026-10-15 (rule 2):** `game_packs/minecraft/src/sandbox.js`, `runProgram(runner, code)`. Her code runs in a separate V8 isolate (`isolated-vm`, needs Node >= 24) with exactly `skills.*` (through the runner), `state()` and `log()`; no require, files, network, process or timers. `runner.stop()` ends the program and its skill; hurt/stopped outcomes, low health, death and disconnects end it; limits are 300 s wall clock, 2 s of her code's own CPU (an endless loop dies; the pack's thread never waits), 32 MB and 40 skill calls. While it runs, only it (and her breathing reflex) can start skills. Tests: `test/sandbox.test.js`, `test/integration/sandbox.itest.js`. Nothing calls it yet (H1).
 
 **Groundwork built (2026-10-10, game learning):** skill outcomes and notices are now recorded per session (`game_experiences`), and each ended session is reflected on into lessons (level 1, applied to the hands automatically), code proposals (level 3, Learning page, never applied by the app) and an episode. H's curriculum can read past failures from that log, and H2's `trial` -> `approved` lifecycle should follow the lessons' evidence rules. See CLAUDE.md "Game learning".
 

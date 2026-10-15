@@ -26,6 +26,7 @@ For Minecraft this replaces the VM key-pressing. You play in the VM as usual and
 | `src/noticing.js` | The noticing layer: villages, mobs, ores, lava, night, players, damage, noticed once each |
 | `src/world_memory.js` | Her memory of each world: explored ground and noted places (`var/explore/`) |
 | `src/skills/doors.js` | Routes through doors/gates, opens them on the way, closes them behind her |
+| `src/sandbox.js` | The sealed box her own code runs in (stage H): skills, state and log only |
 | `src/pack.js` | Wires pathfinding + skills + runner into a bot (the service and the tests use the same wiring) |
 | `scripts/smoke.js` | End-to-end check against a throwaway flying-squid server (no Minecraft needed) |
 | `test/integration/` | Every skill against a real vanilla server (flat test world, set up by console commands) |
@@ -51,6 +52,9 @@ your names. (Without `--online` accounts are off and a whitelist by *name* is th
 only useful if she has no account.)
 
 ## Set up (once)
+
+Needs **Node 24 or newer** (`isolated-vm`, the box her own code runs in, ships builds only for
+those; Node 23 can't load it). `brew upgrade node`.
 
 ```bash
 cd game_packs/minecraft
@@ -140,6 +144,29 @@ head under water with air at 10/20 or less, a resumable skill goes on hold while
 under a ceiling), any other skill ends as `hurt`, and with nothing running she starts it herself
 (`source: "reflex"`; `stop` leaves it be, it ends by itself). The pathfinder plans no routes
 through water, so walking along the bottom of deep water fails; she never drowns trying.
+
+### Her own code (stage H, groundwork)
+
+`runProgram(runner, code)` in `src/sandbox.js` runs code she wrote: the body of an async function
+that may use `await skills.<name>(params)` (each one goes through the runner like any other skill,
+with stop, time limits, low health, modes and breathing; it returns `{ status, reason, data }`, or
+status `invalid` for bad params), `state()` (what she sees, as plain data) and `log(...)`. Nothing
+else: it runs in a separate V8 isolate (`isolated-vm`) with no `require`, files, network,
+`process` or timers. `runner.stop()` ends the program as well as its skill; a skill ending `hurt`
+or `stopped`, low health, death or a disconnect end it; a time limit (300 s), a CPU budget (2 s of
+her code's own work, so an endless loop dies; waiting on skills costs none), 32 MB and 40 skill
+calls cap it. The pack's own thread never waits on her code. While a program runs, no one else
+can start a skill (her breathing reflex still can). Her code-writing hands (H1) aren't built yet;
+to try a program by hand, with the server and the pack running:
+
+```bash
+bun run program my_program.js            # the file is the body of an async function
+bun run program -e "await skills.eat({})"
+bun run skill stop                       # stops the program and the skill it's running
+```
+
+It prints each skill call with its outcome, the `log` lines and what the program returned. The API
+behind it is `POST /programs {code}` and `GET /programs/<id>?wait=<s>`.
 
 `fight`: creepers first, then skeletons, then zombies, nearest first; best weapon in hand, shield
 in the off hand and raised while the swing recharges; hits only at full charge; steps back after a

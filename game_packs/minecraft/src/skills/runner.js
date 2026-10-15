@@ -10,6 +10,8 @@
 // Breathing is always on and comes before everything: with her head under water and her air low,
 // a resumable skill goes on hold while she swims up (skills/water.js), any other skill ends, and
 // with no skill running she starts `surface` herself (source "reflex").
+// A program she wrote (src/sandbox.js) runs its skills through here too: while one runs, only it
+// (and her breathing) may start skills, and stop() ends the program as well as its skill.
 // LAN-only joining is enforced before she is ever in a world (config.assertPrivateHost).
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
@@ -49,6 +51,7 @@ export class SkillRunner extends EventEmitter {
     this.keep = keep
     this.runs = [] // newest last; finished and current
     this.active = null // { record, controller }
+    this.program = null // { stop(reason) } while a program of hers runs (src/sandbox.js)
 
     this._onHealth = () => {
       const run = this.active
@@ -82,6 +85,7 @@ export class SkillRunner extends EventEmitter {
   // stops only what its driver started.
   start (name, input = {}, { source = 'user' } = {}) {
     if (this.active) throw new BusyError(`already running ${this.active.record.skill}`)
+    if (this.program && source !== 'program' && source !== 'reflex') throw new BusyError('running a program of hers')
     const skill = this.skills.get(name)
     if (!skill) throw new UnknownSkillError(`no skill named ${name}`)
     const params = validateParams(skill.params, input)
@@ -115,6 +119,7 @@ export class SkillRunner extends EventEmitter {
   }
 
   stop (reason = 'stopped by request') {
+    this.program?.stop(reason)
     const run = this.active
     // Swimming up for air (the breathing reflex) isn't stopped: it ends by itself within seconds,
     // and stopping it would only drown her. Her hands, finding it running, simply try again later.
@@ -284,6 +289,7 @@ export class SkillRunner extends EventEmitter {
 
   detach () {
     clearInterval(this._breath)
+    this.program?.stop('shutting down')
     this._abort(new SkillEnd('stopped', 'shutting down'))
     this.bot.off('health', this._onHealth)
     this.bot.off('death', this._onDeath)
