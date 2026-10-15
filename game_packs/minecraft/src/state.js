@@ -5,10 +5,15 @@
 // she faces, positive to her right, and pitch positive looking down to match the desktop
 // driver's convention.
 
+import { createRequire } from 'node:module'
+
 import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
 import { watchedPlayers } from './watching.js'
 import { wearing } from './skills/armor.js'
+
+const require = createRequire(import.meta.url)
+const { Vec3 } = require('vec3')
 
 const DEG = 180 / Math.PI
 
@@ -77,7 +82,9 @@ export function nearbyEntities (bot, radius, limit = 20) {
       distance: round1(distance),
       bearing: Math.round(bearing),
       side: bearingWord(bearing),
-      dy: round1(dy)
+      dy: round1(dy),
+      // Where it is, for code of hers that needs coordinates (stage H1).
+      position: { x: round1(entity.position.x), y: round1(entity.position.y), z: round1(entity.position.z) }
     })
   }
   out.sort((a, b) => a.distance - b.distance)
@@ -116,6 +123,30 @@ export function notableBlocks (bot, radius = 24) {
     })
   }
   return out.sort((a, b) => a.distance - b.distance)
+}
+
+// How many of each block there are within `radius` of `center` (a cube), air left out: counted
+// before and after a program of hers, it shows what she built or broke (stage H1).
+const AIRS = new Set(['air', 'cave_air', 'void_air'])
+export const CENSUS_MAX_RADIUS = 16
+export function blockCensus (bot, center, radius = 10) {
+  const r = Math.max(1, Math.min(CENSUS_MAX_RADIUS, Math.floor(radius)))
+  const c = { x: Math.floor(center.x), y: Math.floor(center.y), z: Math.floor(center.z) }
+  const counts = {}
+  let unloaded = 0
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dz = -r; dz <= r; dz++) {
+        const block = bot.blockAt(new Vec3(c.x + dx, c.y + dy, c.z + dz))
+        if (!block) {
+          unloaded++
+          continue
+        }
+        if (!AIRS.has(block.name)) counts[block.name] = (counts[block.name] ?? 0) + 1
+      }
+    }
+  }
+  return { center: c, radius: r, counts, unloaded }
 }
 
 function mergedInventory (bot) {

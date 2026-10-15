@@ -150,14 +150,18 @@ through water, so walking along the bottom of deep water fails; she never drowns
 `runProgram(runner, code)` in `src/sandbox.js` runs code she wrote: the body of an async function
 that may use `await skills.<name>(params)` (each one goes through the runner like any other skill,
 with stop, time limits, low health, modes and breathing; it returns `{ status, reason, data }`, or
-status `invalid` for bad params), `state()` (what she sees, as plain data) and `log(...)`. Nothing
+status `invalid` for bad params), `state()` (what she sees, as plain data), `log(...)`, `wait(ms)`
+(up to 30 s; there are no timers), and two read-only looks at the world: `blockAt(x, y, z)`
+(`{ name, solid, x, y, z }`) and `findBlocks(name, { radius, count })` (nearest first; a name
+like `_log` matches every kind). Nothing
 else: it runs in a separate V8 isolate (`isolated-vm`) with no `require`, files, network,
 `process` or timers. `runner.stop()` ends the program as well as its skill; a skill ending `hurt`
 or `stopped`, low health, death or a disconnect end it; a time limit (300 s), a CPU budget (2 s of
 her code's own work, so an endless loop dies; waiting on skills costs none), 32 MB and 40 skill
 calls cap it. The pack's own thread never waits on her code. While a program runs, no one else
-can start a skill (her breathing reflex still can). Her code-writing hands (H1) aren't built yet;
-to try a program by hand, with the server and the pack running:
+can start a skill (her breathing reflex still can). Her learner (stage H1, in the backend:
+`app/ai/desktop/practice.py`) writes these programs when she teaches herself a move; to try one by
+hand, with the server and the pack running:
 
 ```bash
 bun run program my_program.js            # the file is the body of an async function
@@ -166,7 +170,8 @@ bun run skill stop                       # stops the program and the skill it's 
 ```
 
 It prints each skill call with its outcome, the `log` lines and what the program returned. The API
-behind it is `POST /programs {code}` and `GET /programs/<id>?wait=<s>`.
+behind it is `POST /programs {code}` and `GET /programs/<id>?wait=<s>`; `GET /blocks?x=&y=&z=&r=`
+counts blocks around a spot (the learner compares it before and after a try).
 
 `fight`: creepers first, then skeletons, then zombies, nearest first; best weapon in hand, shield
 in the off hand and raised while the swing recharges; hits only at full charge; steps back after a

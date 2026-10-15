@@ -88,6 +88,22 @@ test('the box has no require, process, files, network or timers', async () => {
   assert.match(tried.reason, /require is not defined \(line 2\)/)
 })
 
+test('wait pauses her program (capped, no timers otherwise), and stop cuts it short', async () => {
+  const { runner, state } = setup()
+  const started = Date.now()
+  const waited = await runProgram(runner, 'await wait(150); return "ok"', { state })
+  assert.equal(waited.value, 'ok')
+  assert.ok(Date.now() - started >= 140)
+  const pending = runProgram(runner, 'await wait(20000); return "too late"', { state })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  const stopAt = Date.now()
+  runner.stop('paused')
+  const stopped = await pending
+  runner.detach()
+  assert.equal(stopped.status, 'stopped')
+  assert.ok(Date.now() - stopAt < 1000)
+})
+
 test('bad params come back to her code as "invalid", and her program goes on', async () => {
   const { runner, state } = setup()
   const result = await runProgram(runner, `

@@ -55,6 +55,9 @@ class TickInput:
     # thought still running, if any: a problem she's already on isn't new every second.
     thoughts: list[dict] = field(default_factory=list)
     thinking: str | None = None
+    # What she's teaching herself (services/game_practice.tick_line): "learning X: try 2 of 4",
+    # or how it just ended. Each new try is news.
+    learning: str | None = None
 
 
 def is_hostile(entity: dict) -> bool:
@@ -188,6 +191,8 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
         out.append((f"next step: {_active_step(tick.plan) or 'none'}", True))
     if previous.session_state != tick.session_state:
         out.append((f"session {previous.session_state} -> {tick.session_state}", True))
+    if tick.learning and tick.learning != previous.learning:
+        out.append((f"learning: {tick.learning}", True))
 
     for n in tick.notices:
         out.append((f"noticed: {n.get('text', '')}", True))
@@ -222,6 +227,8 @@ def render(tick: TickInput, previous: TickInput | None) -> tuple[str, str, list[
             lines.append(f"  [{t.get('level')}] {t.get('text', '')}{said} ({ago} s ago)")
     if tick.thinking:
         lines.append(f"Still thinking hard about: {tick.thinking}")
+    if tick.learning:
+        lines.append(f"Teaching yourself a move: {tick.learning}")
     if tick.talk:
         lines.append("Recent talk (oldest first):")
         for m in tick.talk[-TALK_KEPT:]:

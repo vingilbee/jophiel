@@ -51,6 +51,21 @@ describe('her code on a real server', { skip: !eulaAccepted() && 'accept the Min
     assert.equal(result.value.sticks, 'done', JSON.stringify(result))
     assert.ok(bot.inventory.items().some((i) => i.name === 'stick'))
     assert.deepEqual(result.calls.map((c) => c.skill), ['craft', 'craft'])
+    assert.deepEqual(result.body, { in_water_seconds: 0, lowest_health: 20 })
+  })
+
+  test('her code can look at the world: blockAt and findBlocks', async () => {
+    await mc(`setblock ${origin.x + 3} ${origin.y} ${origin.z} minecraft:crafting_table`)
+    await sleep(300)
+    const result = await runProgram(runner, `
+      const p = state().position
+      const ground = blockAt(p.x, p.y - 1, p.z)
+      const tables = findBlocks('crafting_table', { radius: 8 })
+      return { ground: ground.name, solid: ground.solid, table: tables[0] }
+    `)
+    assert.equal(result.status, 'done', JSON.stringify(result))
+    assert.equal(result.value.solid, true)
+    assert.deepEqual([result.value.table.x, result.value.table.y, result.value.table.z], [origin.x + 3, origin.y, origin.z])
   })
 
   test('stop ends her program mid-walk, and she stands still', async () => {

@@ -4,7 +4,9 @@
 //     limits, low health, breathing and modes all apply) and returns its outcome
 //     { status, reason, data }; bad params come back as status "invalid";
 //   - state(): what she sees right now (readState), as plain data;
-//   - log(...): lines kept with the result.
+//   - log(...): lines kept with the result;
+//   - wait(ms): pause up to 30 s (there are no timers in the box), ended early by stop;
+//   - blockAt(x, y, z) and findBlocks(name, { radius, count }): read-only looks at the world.
 // Her code is the body of an async function; whatever it returns is the program's value.
 //
 // Safety for the whole program, not just each skill: stop() on the runner stops the program too,
@@ -21,6 +23,7 @@ import { readState } from './state.js'
 
 const require = createRequire(import.meta.url)
 const ivm = require('isolated-vm')
+const { Vec3 } = require('vec3')
 
 export const PROGRAM_SECONDS = 300
 const MEMORY_MB = 32
@@ -29,6 +32,10 @@ const CPU_CHECK_MS = 250
 const MAX_CALLS = 40
 const LOG_LINES = 50
 const REFLEX_WAIT_MS = 25000
+const MAX_WAIT_MS = 30000
+const BODY_CHECK_MS = 250
+const FIND_RADIUS = 32
+const FIND_COUNT = 64
 
 // Outcomes after which the program doesn't go on: she's hurt, someone stopped her, or she died.
 const ENDS_PROGRAM = new Set(['hurt', 'stopped'])
@@ -51,12 +58,18 @@ const skills = new Proxy({}, {
   }
 });
 const state = () => JSON.parse(_state.applySync(undefined, [], { result: { copy: true } }));
+const blockAt = (x, y, z) => JSON.parse(_blockAt.applySync(undefined, [Number(x), Number(y), Number(z)],
+  { arguments: { copy: true }, result: { copy: true } }));
+const findBlocks = (name, options = {}) => JSON.parse(_findBlocks.applySync(undefined, [String(name), JSON.stringify(options)],
+  { arguments: { copy: true }, result: { copy: true } }));
+const wait = (ms) => _wait.apply(undefined, [Number(ms) || 0], { arguments: { copy: true }, result: { promise: true } });
 const log = (...args) => _log.applySync(undefined,
   [args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')], { arguments: { copy: true } });
 `
 
 // code: the body of an async function (her program). Resolves with
-// { status, reason, value, calls, log, seconds }; never rejects for anything her code does.
+// { status, reason, value, calls, log, seconds, body }; never rejects for anything her code does.
+// body is counted while it runs: { in_water_seconds, lowest_health }.
 export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, state = null, cpuMs = CPU_MS } = {}) {
   assertFree(runner)
   const { bot } = runner
@@ -84,6 +97,11 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
   bot.on('death', onDeath)
   bot.on('end', onEnd)
   const timer = setTimeout(() => stopProgram('timeout', `no result after ${seconds} s`), seconds * 1000)
+  const body = { in_water_seconds: 0, lowest_health: bot.health }
+  const watch = setInterval(() => {
+    if (bot.entity?.isInWater) body.in_water_seconds += BODY_CHECK_MS / 1000
+    if (typeof bot.health === 'number') body.lowest_health = Math.min(body.lowest_health ?? bot.health, bot.health)
+  }, BODY_CHECK_MS)
   const cpu = setInterval(() => {
     if (!isolate.isDisposed && Number(isolate.cpuTime) / 1e6 > cpuMs) stopProgram('failed', `her code ran too long without a skill (over ${cpuMs} ms of thinking)`)
   }, CPU_CHECK_MS)
@@ -126,6 +144,13 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     const global = context.global
     await global.set('_skill', new ivm.Reference((name, paramsText) => callSkill(name, paramsText)))
     await global.set('_state', new ivm.Reference(() => JSON.stringify(readNow())))
+    await global.set('_blockAt', new ivm.Reference((x, y, z) => JSON.stringify(lookAt(bot, x, y, z))))
+    await global.set('_findBlocks', new ivm.Reference((name, optionsText) => JSON.stringify(find(bot, name, safeParse(optionsText)))))
+    await global.set('_wait', new ivm.Reference((ms) => {
+      if (end) return Promise.reject(end)
+      return Promise.race([new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(ms, MAX_WAIT_MS)))), ended])
+        .then(() => { if (end) throw end })
+    }))
     await global.set('_log', new ivm.Reference((line) => {
       if (lines.length < LOG_LINES) lines.push(String(line).slice(0, 300))
     }))
@@ -150,6 +175,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
   } finally {
     clearTimeout(timer)
     clearInterval(cpu)
+    clearInterval(watch)
     bot.off('death', onDeath)
     bot.off('end', onEnd)
     if (!isolate.isDisposed) isolate.dispose()
@@ -164,7 +190,8 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     value: end.value,
     calls: calls.map((c) => ({ skill: c.skill, params: c.params, status: c.status, reason: c.reason, data: c.data, seconds: c.seconds })),
     log: lines,
-    seconds: Math.round((Date.now() - started) / 100) / 10
+    seconds: Math.round((Date.now() - started) / 100) / 10,
+    body: { ...body, in_water_seconds: Math.round(body.in_water_seconds * 10) / 10 }
   }
 }
 
@@ -197,6 +224,27 @@ export async function getProgram (id, waitMs = 0) {
   const deadline = Date.now() + waitMs
   while (record?.status === 'running' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100))
   return record ? { ...record } : null
+}
+
+// { name, solid, x, y, z } for the block there, or null where the world isn't loaded.
+function lookAt (bot, x, y, z) {
+  if (![x, y, z].every(Number.isFinite)) return null
+  const p = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
+  const block = bot.blockAt(p)
+  return block ? { name: block.name, solid: block.boundingBox === 'block', x: p.x, y: p.y, z: p.z } : null
+}
+
+// The nearest blocks of a kind (exact name, or a suffix like "_log"): [{ x, y, z, distance }].
+function find (bot, name, options) {
+  if (typeof name !== 'string' || !name || !bot.entity) return []
+  const radius = Math.min(Math.max(Number(options?.radius) || 16, 1), FIND_RADIUS)
+  const count = Math.min(Math.max(Math.floor(Number(options?.count) || 10), 1), FIND_COUNT)
+  const ids = bot.registry.blocksArray.filter((b) => b.name === name || (name.startsWith('_') && b.name.endsWith(name))).map((b) => b.id)
+  if (!ids.length) return []
+  const here = bot.entity.position
+  return bot.findBlocks({ matching: ids, maxDistance: radius, count })
+    .map((p) => ({ x: p.x, y: p.y, z: p.z, distance: Math.round(p.offset(0.5, 0.5, 0.5).distanceTo(here) * 10) / 10 }))
+    .sort((a, b) => a.distance - b.distance)
 }
 
 function safeParse (text) {

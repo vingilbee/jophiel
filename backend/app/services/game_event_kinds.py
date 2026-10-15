@@ -52,10 +52,12 @@ KINDS: dict[str, Kind] = {
     "react": Kind(said=NOT_QUIET, urgent=True),
     "light": Kind(said=NOT_QUIET),
     "thought": Kind(said=NOT_QUIET),
+    # How teaching herself a move ended (services/game_practice.py): learned it, or couldn't.
+    "learning": Kind(said=NOT_QUIET),
 }
 # What her mind replaces while it's on: notices she'd be woken to comment on (it sees
 # the same notices every tick). Plan progress, stuck and pauses still wake her.
-COMMENTARY_KINDS = frozenset({"danger", "warning", "discovery", "notable"})
+COMMENTARY_KINDS = frozenset({"danger", "warning", "discovery", "notable", "learning"})
 # Between two urgent lines (a fight is many danger notices).
 URGENT_GAP_SECONDS = 8.0
 UNKNOWN = Kind(wakes=frozenset())  # never wakes her by itself

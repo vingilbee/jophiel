@@ -16,14 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AgentEventJob, Conversation, EpisodicMemory, GameExperience, GameLesson, GameProposal, GameReflectionJob,
-    LearningMemory, MemoryJob, SemanticMemory,
+    GameSkillAttempt, LearningMemory, MemoryJob, SemanticMemory,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
 SCOPES: dict[str, tuple[type, ...]] = {
     "conversations": (Conversation,),
     "memory": (SemanticMemory, EpisodicMemory, LearningMemory, MemoryJob),
-    "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal),
+    "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameSkillAttempt),
 }
 
 

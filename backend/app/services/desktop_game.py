@@ -455,6 +455,9 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
     lines += _mind_lines(db, session, now)
+    from app.services import game_practice
+
+    lines += game_practice.summary_lines(db, session, now)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately

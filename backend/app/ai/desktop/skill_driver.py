@@ -24,6 +24,10 @@ Each ``step``:
 Every outcome and notice is also recorded as an experience (game learning),
 and the lessons she learned in earlier sessions are part of the system prompt.
 
+While she teaches herself a move (stage H1, ``practice``) her hands hold: they
+decide nothing and start nothing until it's over (the learner stops a skill of
+theirs that is still running), so her body does one thing at a time.
+
 Notices from the pack become Columbina's game events (urgent ones as danger,
 discoveries like a village and warnings like the sun setting unless she's been
 told to be quiet, the rest only in commentary mode). Like the
@@ -320,6 +324,8 @@ class SkillDriverDeps:
     # Game learning: (session, kind, payload) appends an experience; lessons(session) loads her lessons.
     experience: Callable[[uuid.UUID, str, dict], None] | None = None
     lessons: Callable[[uuid.UUID], list[dict]] | None = None
+    # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
+    learning: Callable[[uuid.UUID], bool] | None = None
     now: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
 
@@ -362,6 +368,12 @@ class SkillDriverRun:
             self._stop_running("session stopped playing")
             self._save()
             return False
+        if self._learning():
+            # The learner has her body: it stops a skill of ours still running, and we start nothing.
+            self.running = None
+            self.waiting_until = None
+            deps.sleep(1.0)
+            return True
         try:
             self._pull_notices()
             if self.manifest is None:
@@ -427,6 +439,9 @@ class SkillDriverRun:
         if deps.messages and [m["id"] for m in deps.messages(self.session_id)] != [m["id"] for m in messages]:
             deps.metric({"session": str(self.session_id), "event": "discarded", "why": "message_arrived"})
             return True
+        if self._learning():
+            deps.metric({"session": str(self.session_id), "event": "discarded", "why": "learning"})
+            return True
 
         self.decisions += 1
         self.note = str(reply.output.get("note", ""))[:200]
@@ -470,6 +485,14 @@ class SkillDriverRun:
             return False
         self._save()
         return True
+
+    def _learning(self) -> bool:
+        if self.deps.learning is None:
+            return False
+        try:
+            return bool(self.deps.learning(self.session_id))
+        except Exception:  # noqa: BLE001 - a failed check never stops play
+            return False
 
     # -- running a skill --------------------------------------------------------
 

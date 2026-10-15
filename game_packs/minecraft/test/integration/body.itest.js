@@ -103,6 +103,22 @@ describe('her body on a real server', { skip: !eulaAccepted() && 'accept the Min
     assert.equal(r.data.on, 'crafting_table') // above it there's room: standing on top is fine too
   })
 
+  test('place: a full block goes into water next to the bank (a bridge), a torch doesn\'t', async () => {
+    await reset()
+    await mc(`fill ${at(2, -3, -1)} ${at(4, -1, 1)} minecraft:water`) // a pool in the ground ahead
+    await mc(`give ${NAME} minecraft:dirt 2`)
+    await mc(`give ${NAME} minecraft:torch 1`)
+    await until(() => bot.inventory.items().some((i) => i.name === 'dirt'))
+    let r = await run('place', { block: 'torch', where: at(2, -1, 0) })
+    assert.equal(r.status, 'failed')
+    assert.match(r.reason, /taken \(water\)/)
+    r = await run('place', { block: 'dirt', where: at(2, -1, 0) }) // resting against the bank at x+1
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    assert.equal(bot.blockAt(origin.offset(2, -1, 0)).name, 'dirt')
+    await mc(`fill ${at(2, -3, -1)} ${at(4, -2, 1)} minecraft:dirt`) // the ground back as it was
+    await mc(`fill ${at(2, -1, -1)} ${at(4, -1, 1)} minecraft:grass_block`)
+  })
+
   test('wear: her best armor goes on, a worse piece stays in her bag', async () => {
     await reset()
     await mc(`give ${NAME} minecraft:iron_chestplate`)

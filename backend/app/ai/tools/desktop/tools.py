@@ -1,5 +1,7 @@
 """The game tools: start, re-plan, extend, tell her hands, careful mode, pause, resume, end,
-look up a recipe, keep track of her promises, and save which player is the user.
+look up a recipe, keep track of her promises, save which player is the user, and teach
+herself a move (stage H1): a background turn may only offer to learn; starting needs a
+turn where the user spoke, so only the user ever says go.
 
 Each one calls ``app.services.desktop_game`` for this user only; the model
 never names a machine or a session. Refusals come back as plain text the
@@ -18,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.context import GameEvent
 from app.db.session import SessionLocal
-from app.services import agent_say, desktop_game
+from app.services import agent_say, desktop_game, game_practice
 from app.services.desktop_sessions import DesktopError
 
 
@@ -178,7 +180,7 @@ def build_desktop_tools(
         message with replace_previous=true just clears them. To change WHAT you're doing,
         use set_game_plan instead. With your own Minecraft player your hands only choose
         among their skills: a tip asking for a move no skill does (e.g. pillaring up) won't
-        happen, so tell the user you can't do that yet instead.
+        happen, so tell the user you can't do that yet instead (you can offer to learn it).
         """
         return await _run(desktop_game.tell_hands, user_id, message=message, replace_previous=replace_previous)
 
@@ -271,8 +273,51 @@ def build_desktop_tools(
         said = result.startswith("Said")
         return result
 
+    @tool
+    async def offer_to_learn(task: str, question: str) -> str:
+        """Offer the user to teach yourself a move you don't have yet (your own Minecraft player),
+        e.g. when your hands said "no skill for: crossing the river". You'd write a program out of
+        your skills, try it and fix it, while your hands wait. Only the user can say go: this asks
+        them. task: the move, in a few words ("cross a river by placing blocks"). question: what you
+        say to them, in your own voice ("I can't cross water yet. Want me to try to figure it out?").
+        Counts as your one thing to say this time."""
+        nonlocal said
+        if said:
+            return "Already said something this time; offer it next time."
+        assert event is not None
+
+        def call() -> str:
+            with SessionLocal() as db:
+                try:
+                    task_ = game_practice.offer(db, user_id, task=task)
+                except DesktopError as exc:
+                    return f"Not offered: {exc.message}."
+                result = agent_say.deliver(db, user_id=user_id, text=question, reasons=list(event.reasons),
+                                           commentary_mode=event.commentary_mode)
+                return result + (f' Offered to learn "{task_}"; if they say yes, it starts from their turn.'
+                                 if result.startswith("Said") else "")
+        result = await asyncio.to_thread(call)
+        said = result.startswith("Said")
+        return result
+
+    @tool
+    async def learn_skill(task: str) -> str:
+        """Teach yourself a move you don't have yet (your own Minecraft player): you write a program
+        out of your skills, run it, check what it did and fix it, up to a few tries, while your hands
+        wait. Use it when the user says yes to your offer, or asks you to learn something ("learn how
+        to make a furnace"). task: the move, in a few words. It runs in the background: tell the user
+        you're on it; you'll see how each try went in your game summary."""
+        return await _run(game_practice.start, user_id, task=task)
+
+    @tool
+    async def stop_learning() -> str:
+        """Stop teaching yourself a move (when the user wants you to stop, or to do something else).
+        Your hands carry on."""
+        return await _run(game_practice.stop, user_id)
+
     if event is not None:
         return [look_at_my_game, how_to_make, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
-                play_carefully, pause_game, resume_game, end_game, drop_promise, say]
+                play_carefully, pause_game, resume_game, end_game, drop_promise, say, offer_to_learn]
     return [look_at_my_game, how_to_make, start_game, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
-            play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me, note_promise, drop_promise]
+            play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me, note_promise, drop_promise,
+            learn_skill, stop_learning]

@@ -435,6 +435,18 @@ class Settings(BaseSettings):
     game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
     game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
     game_learning_queue_name: str = "macrovision:game-learning:wakeups"
+    # Teaching herself a move (stage H1, services/game_practice.py): she writes a
+    # program over her skills, the pack's sandbox runs it, a critic checks the
+    # counted result, and she fixes it, up to MAX_TRIES times. Started only from a
+    # turn where the user spoke. Each try is a writer call and a critic call.
+    game_practice_enabled: bool = True
+    game_practice_model: str = "gpt-6-luna"
+    # Writing a program benefits from thinking; it isn't on the moment-to-moment path.
+    game_practice_reasoning_effort: str | None = "low"
+    game_practice_max_tries: int = Field(default=4, ge=1, le=10)
+    game_practice_program_seconds: int = Field(default=180, ge=10, le=600)
+    game_practice_max_tokens: int = Field(default=6000, ge=500, le=32000)
+    game_practice_queue_name: str = "macrovision:game-practice:wakeups"
     # Mind tick recording (app/ai/mind): while a pack session is live, write what
     # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
     # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.

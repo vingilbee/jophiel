@@ -96,11 +96,14 @@ def next_notices(pack: PackClient, cursors: dict, session_id: uuid.UUID) -> list
 
 def build_tick(db: Session, session: DesktopSession, state: dict, notices: list[dict], at: float, *,
                thoughts: list[dict] | None = None, thinking: str | None = None) -> TickInput:
+    from app.services import game_practice
+
     driver = desktop_commands.load_driver_state(session.id) or {}
     return TickInput(
         at=at, state=state, notices=notices, plan=session.plan, session_state=session.state,
         talk=recent_talk(db, session.owner_user_id, datetime.fromtimestamp(at, timezone.utc)),
         hands_note=driver.get("notes") or None, thoughts=thoughts or [], thinking=thinking,
+        learning=game_practice.tick_line(db, session.id),
     )
 
 
@@ -117,7 +120,7 @@ def append_tick(session_id: uuid.UUID, number: int, tick: TickInput, text: str, 
         "text": text,
         "input": {"state": tick.state, "notices": tick.notices, "plan": tick.plan,
                   "session_state": tick.session_state, "talk": tick.talk, "hands_note": tick.hands_note,
-                  "thoughts": tick.thoughts, "thinking": tick.thinking},
+                  "thoughts": tick.thoughts, "thinking": tick.thinking, "learning": tick.learning},
         **(extra or {}),
     }
     path = tick_path()

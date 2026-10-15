@@ -1658,6 +1658,49 @@ class GameProposal(Base):
     )
 
 
+class GameSkillAttempt(Base):
+    """One time she tried to teach herself a move (stage H1, services/game_practice.py):
+    the task, every program she wrote for it with what it did and the critic's
+    verdict, and how it ended. Started only from a turn where the user spoke
+    (she may offer; only the user says go). Kept until the user wipes game data;
+    the programs that worked are what the skill library (H2) will build on."""
+
+    __tablename__ = "game_skill_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    # "offer": she offered and the user said yes; "user": the user asked for it.
+    origin: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="queued", server_default="queued")
+    # [{"n", "approach", "code", "program": {status, reason, value, calls, log, seconds},
+    #   "facts": {inventory, moved_m, ...}, "verdict": {"success", "reason"}}]
+    tries: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code: Mapped[str | None] = mapped_column(Text, nullable=True)  # the program that worked
+    stop_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('queued', 'running', 'learned', 'failed', 'stopped')",
+                        name="ck_game_skill_attempts_status"),
+        CheckConstraint("origin IN ('offer', 'user')", name="ck_game_skill_attempts_origin"),
+        # One attempt at a time per session: her body can only learn one thing at once.
+        Index("uq_game_skill_attempts_active_session", "session_id", unique=True,
+              postgresql_where=text("status IN ('queued', 'running')")),
+        Index("ix_game_skill_attempts_user_created", "user_id", "created_at"),
+    )
+
+
 class GameReflectionJob(Base):
     """One reflection per stretch of play: the experiences after
     ``from_experience_id`` up to ``up_to_experience_id``. Queued in the

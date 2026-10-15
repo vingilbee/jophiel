@@ -9,9 +9,10 @@ the desktop worker's poll:
 - the environment is ``online`` while her player is in the world (pack health);
 - a session waiting in ``starting`` becomes ``running`` once she's in the world;
 - going offline disconnects live sessions (nothing resumes on its own);
-- a skill her hands started keeps running only while its session plays: any
-  stop (pause, takeover, end, disconnect) stops it. Skills someone ran by
-  hand (``source: "user"``) are never touched.
+- a skill her hands started, or a program she's learning with (stage H1),
+  keeps running only while its session plays: any stop (pause, takeover, end,
+  disconnect) stops it. Skills someone ran by hand (``source: "user"``) are
+  never touched.
 
 The pack is one Minecraft account on this machine, so it belongs to one user:
 ``MINECRAFT_PACK_OWNER_EMAIL``.
@@ -144,13 +145,14 @@ def sync(db: Session, client) -> None:
 
 
 def stop_driver_skill(client=None) -> bool:
-    """Stop the running skill if her hands started it. Best effort; True if one was stopped."""
+    """Stop the running skill if her hands or her learning program started it (stopping a
+    program's skill ends the program too). Best effort; True if one was stopped."""
     from app.ai.desktop.pack_client import PackClient, PackError
 
     client = client or PackClient.from_settings()
     try:
         current = client.current()
-        if current and current.get("source") == "driver":
+        if current and current.get("source") in ("driver", "program"):
             client.stop()
             return True
     except PackError:

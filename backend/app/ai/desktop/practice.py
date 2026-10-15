@@ -1,0 +1,444 @@
+"""Her learner in a game pack (stage H1): she writes a program for a move she
+doesn't have, runs it, checks it, and fixes it.
+
+Her hands (``skill_driver``) choose one skill at a time; when the move she
+needs isn't a skill ("no skill for: crossing the river") she can learn one,
+only after the user said yes (``services/game_practice``). One attempt here:
+
+1. waits until her body is free (her hands hold while she learns; a skill of
+   theirs still running is stopped; her breathing reflex is left to finish);
+2. asks the model for a program: the body of an async function over the pack's
+   skills (``await skills.mine({...})``), ``state()``, ``log()`` and ``wait()``,
+   run in the pack's sandbox (game_packs/minecraft/src/sandbox.js), which can
+   reach nothing else;
+3. runs it in the world and waits for it, checking every few seconds that the
+   session still plays and nobody asked her to stop;
+4. counts what changed, by code (inventory, blocks around where the try began,
+   how far she moved, health, and what each skill itself reported), and asks
+   a critic whether that did the task: the facts are counted, the verdict is the
+   model's;
+5. on a miss, the program's errors, each skill's outcome and the critic's reason
+   go into the next try, up to ``max_tries``.
+
+Getting hurt or being stopped ends the attempt; a program that errors or misses
+is just a failed try. Every try is reported (``save``) as it ends, so the user
+can read what she wrote even if the attempt is cut short.
+"""
+from __future__ import annotations
+
+import math
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+from app.ai.desktop.driver import DriverModel, DriverModelError
+from app.ai.desktop.pack_client import PackError
+from app.ai.desktop.skill_driver import _limits, inventory_change, inventory_counts
+
+MAX_TRIES = 4
+MAX_MODEL_ERRORS = 2  # the writer failing this many times in a row ends the attempt (a config error repeats)
+PROGRAM_SECONDS = 180
+MAX_CODE_CHARS = 8000
+POLL_SECONDS = 5.0
+IDLE_WAIT_SECONDS = 20.0
+# What a try keeps of a program's result, for the next try's prompt and the record.
+CALLS_SHOWN = 12
+LOG_SHOWN = 12
+CENSUS_RADIUS = 10  # blocks counted around where a try began, before and after: what she built or broke
+
+
+WRITER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "approach": {"type": "string", "description": "one or two sentences: how the program does the task"},
+        "code": {"type": "string", "description": "the body of an async function (JavaScript)"},
+    },
+    "required": ["approach", "code"],
+    "additionalProperties": False,
+}
+
+CRITIC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "reason": {"type": "string", "description": "one or two sentences, citing the counted facts"},
+    },
+    "required": ["success", "reason"],
+    "additionalProperties": False,
+}
+
+
+def skill_manual(manifest: list[dict]) -> str:
+    """Her skills as functions her code can call."""
+    lines = []
+    for skill in manifest:
+        params = ", ".join(
+            f"{name}{'' if rule.get('required') else '?'}: {rule.get('description', rule['type'])}{_limits(rule)}"
+            + (f" [one of {', '.join(map(str, rule['values']))}]" if rule.get("values") else "")
+            for name, rule in skill["params"].items()
+        )
+        lines.append(f"- skills.{skill['name']}({{ {params} }}): {skill['description']} "
+                     f"Done when {skill['done_when']}. Stops when {skill['stops_when']}.")
+    return "\n".join(lines)
+
+
+def writer_prompt(manifest: list[dict], game: str = "Minecraft") -> str:
+    return f"""You are Columbina, playing {game} as your own player. You can't do something yet with the \
+skills you have, so you are teaching yourself: write a short program that does the task, out of your skills.
+
+The program is the body of an async JavaScript function. It runs in a sealed sandbox that has exactly these:
+- await skills.<name>({{...params}}): runs one of your skills and resolves with its outcome \
+{{ status, reason, data }} when it ends. status is one of done, failed, lost, blocked, timeout \
+(the skill gave up; you may try something else), or invalid (bad params: reason says why; nothing ran). \
+If a skill ends hurt or stopped, the whole program ends at once.
+- state(): what you see right now, as an object: position {{x, y, z}} (your feet), facing {{compass}}, \
+standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, inventory \
+[{{name, count}}], armor, nearby [{{label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs; \
+the user is a nearby entry with kind "player"), blocks [{{kind, name, distance, side, dy}}] (the nearest log, ore, \
+water, lava, crafting table, furnace, bed, chest), players [{{name, holding, health, moving, pose}}], time {{phase}}, \
+weather.
+- blockAt(x, y, z): the block at a spot, {{ name, solid, x, y, z }} (null where the world isn't loaded). \
+Blocks sit at whole-number coordinates: the block your feet are in is (Math.floor(x), Math.floor(y), \
+Math.floor(z)) of your position, and the ground under you is one lower.
+- findBlocks(name, {{ radius, count }}): the nearest blocks of that kind, [{{ x, y, z, distance }}], nearest \
+first (radius up to 32, count up to 64; a name like "_log" matches every kind of log).
+- log(...values): a note kept with the result (use it to see what happened).
+- wait(ms): pause, at most 30000.
+Nothing else exists: no require, import, fetch, timers, process or files. Skills run one at a time; await each.
+
+Your skills:
+{skill_manual(manifest)}
+
+Rules:
+- Check every outcome's status and handle failure (try another way, or stop with a clear return value). Never \
+assume a skill worked.
+- Look before you act: read state(), and use blockAt/findBlocks to find out where things are (water, a gap, \
+the ground) instead of guessing coordinates. Use the real positions and names they give.
+- Keep it short: under 60 lines, at most 40 skill calls, no endless loops (bound every loop).
+- Return a small object that says what you did and whether it worked, e.g. {{ done: true, crossed: 12 }}.
+- Write only the function body: no function declaration, no markdown fences.
+- The user is playing next to you. Never attack players, and don't break blocks you didn't place unless the task \
+needs it.
+"""
+
+
+CRITIC_PROMPT = """You check whether a program Columbina wrote did its task in a game. You get the task, what \
+the program returned, each skill it called with its outcome and what the skill itself reported, its log, and \
+facts counted by code from the game before and after (inventory changes, blocks around where the try began, \
+distance moved, health, how long she was in water while it ran). Judge from the counted facts and the skills' own reports: the program's return value \
+and log are its claims, not proof. A block placed shows as +1 of it in the blocks counted. Success means the \
+task is actually done in the world. If it isn't, say in one or two sentences what went wrong, so the next try \
+can fix it."""
+
+
+@dataclass
+class PracticeDeps:
+    pack: object  # PackClient
+    model: DriverModel  # writes the program
+    critic: DriverModel  # judges it
+    # A reason to stop now (the session stopped playing, the user said stop), or None.
+    should_stop: Callable[[], str | None]
+    # Every try so far, after each one ends, so the record is never behind.
+    save: Callable[[list[dict]], None]
+    metric: Callable[[dict], None] = lambda record: None
+    now: Callable[[], float] = time.time
+    sleep: Callable[[float], None] = time.sleep
+
+
+@dataclass
+class PracticeResult:
+    status: str  # learned | failed | stopped
+    reason: str
+    code: str | None = None
+    tries: list[dict] = field(default_factory=list)
+
+
+class _Stopped(Exception):
+    pass
+
+
+@dataclass
+class PracticeRun:
+    task: str
+    deps: PracticeDeps
+    max_tries: int = MAX_TRIES
+    program_seconds: float = PROGRAM_SECONDS
+    game: str = "Minecraft"
+    tries: list[dict] = field(default_factory=list)
+    model_errors: int = 0
+    first_state: dict | None = None  # when the attempt began: tries can add up ("1 log, then 2 more")
+
+    def run(self) -> PracticeResult:
+        deps = self.deps
+        try:
+            manifest = deps.pack.manifest()
+        except PackError as exc:
+            return PracticeResult("failed", f"the game isn't reachable: {exc}", tries=self.tries)
+        system = writer_prompt(manifest, self.game)
+        try:
+            for number in range(1, self.max_tries + 1):
+                self._check()
+                self._wait_until_free()
+                result = self._try(number, system)
+                if result is not None:
+                    return result
+                if self.model_errors >= MAX_MODEL_ERRORS:
+                    return PracticeResult("failed", f"couldn't think it through: {self.tries[-1]['verdict']['reason']}",
+                                          tries=self.tries)
+        except _Stopped as exc:
+            return PracticeResult("stopped", str(exc), tries=self.tries)
+        except PackError as exc:
+            return PracticeResult("failed", f"the game stopped answering: {exc}", tries=self.tries)
+        last = self.tries[-1]["verdict"]["reason"] if self.tries else "no try ran"
+        return PracticeResult("failed", f"didn't work after {len(self.tries)} tries; last: {last}", tries=self.tries)
+
+    # -- one try ---------------------------------------------------------------
+
+    def _try(self, number: int, system: str) -> PracticeResult | None:
+        deps = self.deps
+        before = deps.pack.state()
+        if self.first_state is None:
+            self.first_state = before
+        census_before = self._census(before)
+        try:
+            reply = deps.model.step(system, self._writer_text(number, before), [], WRITER_SCHEMA)
+        except DriverModelError as exc:
+            self.model_errors += 1
+            self._record({"n": number, "approach": None, "code": None, "program": None, "facts": None,
+                          "verdict": {"success": False, "reason": f"couldn't write a program: {exc}"}})
+            return None
+        self.model_errors = 0
+        code = str(reply.output.get("code", "")).strip()[:MAX_CODE_CHARS]
+        approach = str(reply.output.get("approach", ""))[:400]
+        deps.metric({"event": "practice_written", "task": self.task, "try": number, "model_ms": reply.latency_ms,
+                     "chars": len(code)})
+        entry = {"n": number, "approach": approach, "code": code, "program": None, "facts": None, "verdict": None}
+        if not code:
+            entry["verdict"] = {"success": False, "reason": "the program was empty"}
+            self._record(entry)
+            return None
+
+        program = self._run_program(code)
+        entry["program"] = _short_program(program)
+        after = deps.pack.state()
+        entry["facts"] = counted_facts(before, after, first=self.first_state)
+        if isinstance(program.get("body"), dict):  # counted by the pack while the program ran
+            entry["facts"]["in_water_seconds"] = program["body"].get("in_water_seconds")
+            entry["facts"]["lowest_health"] = program["body"].get("lowest_health")
+        if census_before is not None:
+            census_after = self._census(before)  # the same spot: where this try began
+            if census_after is not None:
+                entry["facts"]["blocks_around_start"] = census_change(census_before, census_after)
+        status = program.get("status")
+        if status == "stopped":
+            entry["verdict"] = {"success": False, "reason": f"stopped: {program.get('reason')}"}
+            self._record(entry)
+            raise _Stopped(program.get("reason") or "stopped")
+        if status == "hurt":
+            entry["verdict"] = {"success": False, "reason": f"got hurt: {program.get('reason')}"}
+            self._record(entry)
+            return PracticeResult("failed", f"got hurt trying ({program.get('reason')})", tries=self.tries)
+        if status == "error":
+            entry["verdict"] = {"success": False, "reason": f"the program broke: {program.get('reason')}"}
+            self._record(entry)
+            return None
+        try:
+            judged = deps.critic.step(CRITIC_PROMPT, self._critic_text(entry), [], CRITIC_SCHEMA).output
+            verdict = {"success": bool(judged.get("success")), "reason": str(judged.get("reason", ""))[:400]}
+        except DriverModelError as exc:
+            verdict = {"success": False, "reason": f"couldn't check it: {exc}"}
+        entry["verdict"] = verdict
+        self._record(entry)
+        if verdict["success"]:
+            return PracticeResult("learned", verdict["reason"], code=code, tries=self.tries)
+        return None
+
+    def _run_program(self, code: str) -> dict:
+        deps = self.deps
+        try:
+            started = deps.pack.start_program(code, seconds=self.program_seconds)
+        except PackError as exc:
+            if exc.status == 409:  # something took her body in the meantime: one more wait
+                self._wait_until_free()
+                started = deps.pack.start_program(code, seconds=self.program_seconds)
+            else:
+                return {"status": "error", "reason": str(exc)}
+        program = started
+        deadline = deps.now() + self.program_seconds + 30
+        while program.get("status") == "running":
+            reason = deps.should_stop()
+            if reason:
+                deps.pack.stop()  # ends the program and the skill it's running
+                program = deps.pack.get_program(started["id"], wait=10)
+                if program.get("status") == "running":
+                    program = {**program, "status": "stopped", "reason": reason}
+                break
+            if deps.now() > deadline:
+                deps.pack.stop()
+                program = {**deps.pack.get_program(started["id"], wait=10), "status": "timeout",
+                           "reason": "the program didn't end"}
+                break
+            program = deps.pack.get_program(started["id"], wait=POLL_SECONDS)
+        if program.get("status") == "stopped" and not program.get("reason"):
+            program["reason"] = "stopped"
+        return program
+
+    def _wait_until_free(self) -> None:
+        """Her hands hold while she learns; a skill of theirs still running is stopped.
+        Her breathing reflex finishes by itself."""
+        deps = self.deps
+        deadline = deps.now() + IDLE_WAIT_SECONDS
+        while True:
+            self._check()
+            current = deps.pack.current()
+            if current is None:
+                return
+            if current.get("source") == "driver":
+                deps.pack.stop()
+            if deps.now() > deadline:
+                raise _Stopped(f"her body stayed busy ({current.get('skill')})")
+            deps.sleep(0.5)
+
+    def _census(self, state: dict) -> dict | None:
+        p = state.get("position")
+        if not isinstance(p, dict):
+            return None
+        try:
+            return self.deps.pack.block_census(p["x"], p["y"], p["z"], CENSUS_RADIUS)
+        except (PackError, KeyError, AttributeError):
+            return None  # an older pack: inventory and movement only
+
+    def _check(self) -> None:
+        reason = self.deps.should_stop()
+        if reason:
+            raise _Stopped(reason)
+
+    def _record(self, entry: dict) -> None:
+        self.tries.append(entry)
+        self.deps.save(self.tries)
+        self.deps.metric({"event": "practice_try", "task": self.task, "try": entry["n"],
+                          "success": (entry.get("verdict") or {}).get("success"),
+                          "status": (entry.get("program") or {}).get("status")})
+
+    # -- prompts ---------------------------------------------------------------
+
+    def _writer_text(self, number: int, state: dict) -> str:
+        lines = [f"Task: {self.task}", "", f"Try {number} of {self.max_tries}.", "",
+                 "You right now (from the game):", state.get("text", "").strip()]
+        for t in self.tries:
+            lines += ["", f"--- Try {t['n']} ---"]
+            if t.get("approach"):
+                lines.append(f"Approach: {t['approach']}")
+            if t.get("code"):
+                lines += ["Code:", t["code"]]
+            if t.get("program"):
+                lines.append(program_text(t["program"]))
+            if t.get("facts"):
+                lines.append(f"Counted: {facts_text(t['facts'])}")
+            lines.append(f"Verdict: {t['verdict']['reason']}")
+        if self.tries:
+            lines += ["", "Write a better program: fix what went wrong, or try another way."]
+        return "\n".join(lines)
+
+    def _critic_text(self, entry: dict) -> str:
+        return "\n".join([
+            f"Task: {self.task}", "", "Program:", entry["code"], "",
+            program_text(entry["program"]), "", f"Counted by code: {facts_text(entry['facts'])}",
+        ])
+
+
+# --------------------------------------------------------------------------- #
+# Counted facts and text
+# --------------------------------------------------------------------------- #
+
+
+def counted_facts(before: dict, after: dict, *, first: dict | None = None) -> dict:
+    """What changed in the game during this try, counted by code (never a model), and her
+    inventory's change since the attempt began (``first``), when that's a different picture."""
+    facts: dict = {"inventory": inventory_change(inventory_counts(before), inventory_counts(after))}
+    if first is not None and first is not before:
+        facts["inventory_since_start"] = inventory_change(inventory_counts(first), inventory_counts(after))
+    a, b = before.get("position"), after.get("position")
+    if isinstance(a, dict) and isinstance(b, dict):
+        try:
+            facts["moved_m"] = round(math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"])), 1)
+            facts["from"] = [round(a["x"]), round(a["y"]), round(a["z"])]
+            facts["to"] = [round(b["x"]), round(b["y"]), round(b["z"])]
+        except (KeyError, TypeError):
+            pass
+    for key in ("health", "food"):
+        if before.get(key) is not None and after.get(key) is not None:
+            facts[key] = [before[key], after[key]]
+    return facts
+
+
+def census_change(before: dict, after: dict) -> str:
+    """'crafting_table 0 -> 1 (+1); dirt 4410 -> 4409 (-1)', or 'none'."""
+    a, b = before.get("counts") or {}, after.get("counts") or {}
+    changes = [f"{name} {a.get(name, 0)} -> {b.get(name, 0)} ({b.get(name, 0) - a.get(name, 0):+d})"
+               for name in sorted(set(a) | set(b)) if a.get(name, 0) != b.get(name, 0)]
+    return "; ".join(changes) if changes else "none"
+
+
+def facts_text(facts: dict) -> str:
+    parts = [f"inventory this try: {facts.get('inventory', 'unknown')}"]
+    if "inventory_since_start" in facts:
+        parts.append(f"inventory since you started learning this: {facts['inventory_since_start']}")
+    if "blocks_around_start" in facts:
+        parts.append(f"blocks within {CENSUS_RADIUS} of where the try began: {facts['blocks_around_start']}")
+    if "moved_m" in facts:
+        parts.append(f"moved {facts['moved_m']} m from {facts['from']} to {facts['to']}")
+    for key in ("health", "food"):
+        if key in facts:
+            parts.append(f"{key} {facts[key][0]:g} -> {facts[key][1]:g}")
+    if facts.get("in_water_seconds") is not None:
+        parts.append(f"in water for {facts['in_water_seconds']:g} s while it ran")
+    if facts.get("lowest_health") is not None:
+        parts.append(f"lowest health while it ran {facts['lowest_health']:g}")
+    return "; ".join(parts)
+
+
+def _short_program(program: dict) -> dict:
+    return {
+        "status": program.get("status"), "reason": program.get("reason"), "value": program.get("value"),
+        "calls": [{**{k: c.get(k) for k in ("skill", "params", "status", "reason")}, "data": _short_data(c.get("data"))}
+                  for c in
+                  (program.get("calls") or [])[-CALLS_SHOWN:]],
+        "calls_total": len(program.get("calls") or []),
+        "log": (program.get("log") or [])[-LOG_SHOWN:],
+        "seconds": program.get("seconds"),
+    }
+
+
+def _short_data(data) -> dict | None:
+    """What a skill reported about its run (from the pack's runner, not her code), kept short."""
+    if not isinstance(data, dict) or not data:
+        return None
+    out = {}
+    for key, value in data.items():
+        if key == "interruptions":
+            continue
+        text = value if isinstance(value, (int, float, bool)) or value is None else str(value)[:80]
+        out[key] = text
+        if len(out) >= 8:
+            break
+    return out or None
+
+
+def program_text(program: dict) -> str:
+    lines = [f"Program ended: {program.get('status')}"
+             + (f" ({program['reason']})" if program.get("reason") else "")
+             + (f" after {program['seconds']} s" if program.get("seconds") is not None else "")]
+    if program.get("value") is not None:
+        lines.append(f"It returned: {program['value']}")
+    calls = program.get("calls") or []
+    if calls:
+        shown = f" (last {len(calls)} of {program.get('calls_total')})" if program.get("calls_total", 0) > len(calls) else ""
+        lines.append(f"Skill calls{shown}:")
+        lines += [f"  {c['skill']}({c.get('params')}) -> {c['status']}" + (f": {c['reason']}" if c.get("reason") else "")
+                  + (f" [the skill reported: {c['data']}]" if c.get("data") else "") for c in calls]
+    else:
+        lines.append("No skill calls.")
+    if program.get("log"):
+        lines.append("Log: " + " | ".join(program["log"]))
+    return "\n".join(lines)
