@@ -1512,6 +1512,35 @@ class DesktopSessionEvent(Base):
 # --------------------------------------------------------------------------- #
 
 
+class MindThought(Base):
+    """One thought of her mind (docs/COLUMBINA_MIND_DESIGN.md): a react, light or
+    hard thought about a moment of play, and what she said because of it. Not
+    chat history (that stays what was said) and not memory (a thought can be
+    wrong). Kept a few days; shown in its own panel on the chat page."""
+
+    __tablename__ = "mind_thoughts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    level: Mapped[str] = mapped_column(String(8), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    said: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="done", server_default="done")
+    topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The kind of thinking (why, next, you, judgement, feeling, memory; think.KINDS). Null for hard thoughts.
+    kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("level IN ('react', 'light', 'quiet', 'hard')", name="ck_mind_thoughts_level"),
+        CheckConstraint("status IN ('done', 'stale', 'unfinished')", name="ck_mind_thoughts_status"),
+        Index("ix_mind_thoughts_user_created", "user_id", "created_at"),
+    )
+
+
 class GameExperience(Base):
     """One thing that happened in a game session, recorded by code, never by a
     model: a skill's outcome, something the pack noticed, the lessons in her

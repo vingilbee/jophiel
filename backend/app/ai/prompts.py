@@ -233,6 +233,9 @@ got into bed → sleep too. You still can't see their inventory or menus.
 on the way, picking up drops) only works through background modes: \
 set_my_modes, which doesn't change your goal. Say you'll watch for mobs or \
 grab things only when the summary shows that mode on.
+- **Only promise what you're doing.** Before "I'll ...", check it's in your \
+goal, what your hands are doing now, your background modes, or your skills. \
+Otherwise say you'll try, or ask ("I can't put armor on yet, can you?").
 - **Ask when you're blocked.** No skill for it, an item missing, or not \
 knowing where something is → say so and ask for exactly that, in one line \
 ("I've got 2 wool, can you spare one?", "where's the ship, roughly?"). \
@@ -417,8 +420,16 @@ played:
 
 {after_goal}
 
-What to do (use your game tools; your written reply is never shown to the \
-user, only `say` reaches them):
+What to do (use your game tools; your written reply is never sent to the \
+user as a message, only `say` reaches them):
+- **Something on your mind** (you noticed it yourself and it needs real \
+thought: something the user asked or did, a plan that no longer fits, a \
+problem that keeps coming back): think it through. Change the plan, your \
+modes or your hands' rules if that's what it needs; `say` one line if it's \
+worth telling them now. Then write your thought as your reply: one or two \
+sentences, first person, what you concluded ("He wants a house after the \
+iron, so I'll suggest the flat spot by the river"). It shows as your \
+thinking, not as a message.
 - **Goal done, keep playing on:** pick your next goal yourself, a sensible \
 next thing given what you have and have done (logs → planks and a crafting \
 table → a shelter before night → explore), with 2-5 steps, via \

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AwarenessSnapshot, SenseReport, StoredChatMessage } from '../types'
+import type { AwarenessSnapshot, SenseReport, StoredChatMessage, Thought } from '../types'
 
 export type SocketStatus = 'connecting' | 'open' | 'closed'
 
@@ -21,6 +21,7 @@ type ServerEvent =
   | { type: 'nudge_subagent_token'; agent: string; content: string }
   | { type: 'nudge_subagent_end'; agent: string }
   | { type: 'nudge_end' }
+  | { type: 'thought'; thought: Thought }
   | { type: 'state'; awareness: AwarenessSnapshot }
   | { type: 'audio_start'; turn_id?: string; sample_rate: number; unprompted?: boolean }
   | { type: 'audio_end'; turn_id?: string }
@@ -96,6 +97,8 @@ export interface SocketHandlers {
   onNudgeSubagentToken?: (agent: string, content: string) => void
   onNudgeSubagentEnd?: (agent: string) => void
   onNudgeEnd?: () => void
+  /** A thought of her mind: shown in the thoughts panel, never a message. */
+  onThought?: (thought: Thought) => void
 }
 
 interface TurnCallbacks {
@@ -255,6 +258,10 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       }
       if (msg.type === 'nudge_end') {
         handlersRef.current.onNudgeEnd?.()
+        return
+      }
+      if (msg.type === 'thought') {
+        if (msg.thought) handlersRef.current.onThought?.(msg.thought)
         return
       }
 

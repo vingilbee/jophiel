@@ -435,6 +435,37 @@ class Settings(BaseSettings):
     game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
     game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
     game_learning_queue_name: str = "macrovision:game-learning:wakeups"
+    # Mind tick recording (app/ai/mind): while a pack session is live, write what
+    # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
+    # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.
+    # Observation only: nothing reads it back into play.
+    mind_tick_recording_enabled: bool = False
+    # Her mind (docs/COLUMBINA_MIND_DESIGN.md): every tick a gate decides how hard
+    # she should think (none/react/light/hard); quick thoughts use a fast model,
+    # hard ones are a background Luna game turn. Replaces game-event wakeups for
+    # commentary (danger, warnings, discoveries) while on. Needs DESKTOP_AGENT_ENABLED.
+    mind_enabled: bool = False
+    mind_gate: str = Field(default="jev", pattern="^(jev|decisions)$")
+    # How sure the gate must be that a moment needs thought (light and hard together).
+    mind_think_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    # Light thoughts need reasoning (why, what next, what the user wants): Luna. React ones
+    # need speed: a small model.
+    mind_quick_model: str = "gpt-6-luna"
+    mind_react_model: str = "gpt-4.1-mini"
+    # Quiet thinking: after this long with no thought, and nothing urgent, she thinks ahead,
+    # about the user or about herself (never describing the moment). 0 turns it off.
+    mind_quiet_seconds: float = Field(default=25.0, ge=0, le=3600)
+    mind_quick_gap_seconds: float = Field(default=4.0, ge=0, le=600)
+    mind_hard_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
+    mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
+    mind_log_path: str = "var/mind.jsonl"
+    mind_tick_path: str = "var/mind_ticks.jsonl"
+    # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
+    # Strands Decider served locally.
+    typesafe_api_key: str = ""
+    typesafe_base_url: str = "https://api.typesafe.ai/v1"
+    openrouter_api_key: str = ""
+    strands_decider_url: str = "http://127.0.0.1:8765"
 
 
 @lru_cache

@@ -1,0 +1,95 @@
+{
+  "about": "Hand-written moments outside games, for scripts/mind_think_eval.py: does the general thinking prompt think, or narrate, when it isn't Minecraft? Same text layout as a tick. No live source produces these yet.",
+  "moments": [
+    {
+      "id": "chat-long-day",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"ugh. long day\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  you (3 h ago): Good luck with the presentation!\n  user (2 s ago): ugh. long day\nSituation:\nIt is 21:40 on a Thursday for the user. This morning they said they had a presentation at 14:00. Nothing else since."
+    },
+    {
+      "id": "chat-good-news",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"I GOT IT. they called me back\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (2 days ago): final interview friday, kind of terrified\n  you (2 days ago): You'll do great. Tell me how it goes?\n  user (3 s ago): I GOT IT. they called me back\nSituation:\nIt is 11:05 on a Monday for the user."
+    },
+    {
+      "id": "chat-question-then-silence",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- 2 minutes of silence since your answer\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (3 min ago): do you think I should tell my sister I can't come to her wedding\n  you (2 min ago): That sounds hard. What's making you think you can't go?\nSituation:\nIt is 23:12 for the user. They have been typing and deleting for a while (the app showed 'typing' three times)."
+    },
+    {
+      "id": "chat-nevermind",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"nvm forget it\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (40 s ago): can I ask you something kind of weird\n  you (38 s ago): Of course, go ahead.\n  user (2 s ago): nvm forget it\nSituation:\nIt is 19:30 for the user."
+    },
+    {
+      "id": "chat-correction",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"no, I said I hate jazz, not that I love it\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (1 min ago): my roommate plays jazz all night\n  you (50 s ago): Oh nice, any favourite records?\n  user (3 s ago): no, I said I hate jazz, not that I love it\nSituation:\nIt is 00:20 for the user."
+    },
+    {
+      "id": "chat-returns-after-hours",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user came back after 5 hours away\n- the user said: \"ok I'm back\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (5 h ago): going to the dentist, wish me luck, wisdom tooth\n  you (5 h ago): Good luck! Hope it's quick.\n  user (1 s ago): ok I'm back\nSituation:\nIt is 17:10 for the user."
+    },
+    {
+      "id": "chat-late-night",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"what's the capital of mongolia lol\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (1 h ago): I have my exam at 8am, going to bed soon\n  you (1 h ago): Sleep well, you've got this.\n  user (2 s ago): what's the capital of mongolia lol\nSituation:\nIt is 02:47 for the user."
+    },
+    {
+      "id": "chat-disagreement",
+      "doing": "talking with {user} in the chat app",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"honestly pineapple on pizza is the best, fight me\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  you (1 min ago): I think sweet and savoury rarely work on the same slice.\n  user (2 s ago): honestly pineapple on pizza is the best, fight me\nSituation:\nIt is 13:00 for the user. They are eating lunch (they said so 5 min ago)."
+    },
+    {
+      "id": "screen-same-error",
+      "doing": "keeping {user} company while they work at their computer (she can see their screen)",
+      "level": "light",
+      "text": "Changed since last tick:\n- the screen: the same red error in the terminal, for the 4th time in 10 minutes: \"TypeError: Cannot read properties of undefined (reading 'map')\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (25 min ago): ok time to fix this bug\nSituation:\nThe screen shows a code editor with a React component and a terminal. It is 16:30 for the user. They haven't said anything for 25 minutes."
+    },
+    {
+      "id": "screen-tab-switching",
+      "doing": "keeping {user} company while they work at their computer (she can see their screen)",
+      "level": "light",
+      "text": "Changed since last tick:\n- the screen: switched from the essay document to a video site, the 6th switch in 15 minutes\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (40 min ago): need to finish this essay tonight, 1500 words\n  you (40 min ago): You can do it. Want me to keep you honest?\n  user (40 min ago): yes please\nSituation:\nThe essay document shows about 400 words. It is 22:15 for the user."
+    },
+    {
+      "id": "screen-finished",
+      "doing": "keeping {user} company while they work at their computer (she can see their screen)",
+      "level": "light",
+      "text": "Changed since last tick:\n- the screen: the test run turned green, \"42 passed\"\n- the user said: \"FINALLY\"\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (2 h ago): this flaky test is going to end me\n  user (1 s ago): FINALLY\nSituation:\nIt is 18:50 for the user."
+    },
+    {
+      "id": "idle-quiet-evening",
+      "doing": "idle, with {user} not talking to her right now",
+      "level": "light",
+      "text": "Changed since last tick:\n- 30 minutes with nothing from the user\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (35 min ago): gonna cook something, brb\n  you (35 min ago): Enjoy! What are you making?\nSituation:\nIt is 20:05 for the user. Earlier today they said they wanted to try a new curry recipe."
+    },
+    {
+      "id": "idle-morning",
+      "doing": "idle, with {user} not talking to her right now",
+      "level": "light",
+      "text": "Changed since last tick:\n- it is now morning for the user (08:00)\nPressure: calm (nothing running)\nRecent talk (oldest first):\n  user (10 h ago): big day tomorrow, moving apartments\n  you (10 h ago): Exciting! Hope the move goes smoothly.\nSituation:\nThe user hasn't opened the app yet today."
+    },
+    {
+      "id": "task-email-draft",
+      "doing": "helping {user} with a task they asked for",
+      "level": "light",
+      "text": "Changed since last tick:\n- the user said: \"make it shorter, he won't read all that\"\nPressure: busy (writing the email draft)\nRecent talk (oldest first):\n  user (2 min ago): help me write an email to my landlord about the broken heater\n  you (1 min ago): Here's a draft: (8 sentences, polite, mentions it broke 2 weeks ago)\n  user (2 s ago): make it shorter, he won't read all that\nSituation:\nIt is 09:40 for the user."
+    },
+    {
+      "id": "voice-ouch",
+      "doing": "talking with {user} by voice while they cook",
+      "level": "react",
+      "text": "Changed since last tick:\n- the user said: \"ow ow ow, hot\"\nPressure: urgent (the user may be hurt)\nRecent talk (oldest first):\n  user (1 min ago): ok draining the pasta now\n  user (1 s ago): ow ow ow, hot\nSituation:\nIt is 19:20 for the user. Voice is on."
+    }
+  ]
+}

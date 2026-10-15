@@ -454,6 +454,7 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
 
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
+    lines += _mind_lines(db, session, now)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately
@@ -478,6 +479,26 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
                          + " (Your hands switch to the best tool by themselves each time they mine or fight.)")
         except PackError:
             pass
+    return lines
+
+
+def _mind_lines(db: Session, session: DesktopSession, now: float) -> list[str]:
+    """Her own recent thoughts during play (services/mind.py), so a reply fits what
+    she's been noticing. Empty when her mind is off."""
+    from app.services import mind
+
+    if not mind.enabled():
+        return []
+    at = datetime.fromtimestamp(now, timezone.utc)
+    thoughts = [t for t in mind.recent_thoughts(db, session.id, at) if t["status"] != "unfinished"]
+    lines = []
+    if thoughts:
+        lines.append("On your mind (your own thoughts while playing, newest last): " + "; ".join(
+            f'"{t["text"]}"' + (f' (you said "{t["said"]}")' if t.get("said") else "")
+            + f" ({_ago(now - t['at'])})" for t in thoughts) + ".")
+    thinking = mind.thinking_about(session.id)
+    if thinking:
+        lines.append(f"You're still thinking this through: {thinking}.")
     return lines
 
 

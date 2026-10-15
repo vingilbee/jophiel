@@ -35,6 +35,9 @@ USER_TURN_WAIT_SECONDS = 30
 
 def describe_reason(reason: str) -> str:
     kind, _, detail = reason.partition(":")
+    if kind == "thought":
+        return ("Something on your mind needs real thought (you noticed it yourself; what changed: "
+                f"{detail.strip()}).")
     if kind == "goal_done":
         return "You finished every step of your goal."
     if kind == "plan_low":
@@ -100,7 +103,28 @@ def _prepare(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], news
 async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
               plan_revision: int | None = None) -> str | None:
     """Run one background turn. Returns her (unshown) reply, for logs and tests.
-    ``plan_revision``: the plan when the newest of these events happened."""
+    ``plan_revision``: the plan when the newest of these events happened.
+    A ``thought:`` reason is a hard thought of her mind: the reply becomes the thought."""
+    topic = next((r.partition(":")[2].strip() for r in reasons if r.startswith("thought:")), None)
+    try:
+        reply = await _run(user_id, session_id, reasons, plan_revision)
+    except BaseException:
+        if topic is not None:
+            await asyncio.to_thread(_thought_done, user_id, session_id, topic, None)
+        raise
+    if topic is not None:
+        await asyncio.to_thread(_thought_done, user_id, session_id, topic, reply)
+    return reply
+
+
+def _thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str, reply: str | None) -> None:
+    from app.services import mind
+
+    mind.hard_thought_done(user_id, session_id, topic, reply)
+
+
+async def _run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
+               plan_revision: int | None) -> str | None:
     from app.ai import prompts
     from app.ai.chat import complete_chat
 

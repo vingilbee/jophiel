@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.ai.context import GameEvent
 from app.ai.tools.desktop import build_desktop_tools
+from app.core.config import get_settings
 from app.db.models import AgentEventJob, ChatMessage, Conversation, DesktopSession
 from app.services import agent_events, agent_say, desktop_game
 from app.services import desktop_sessions as svc
@@ -109,6 +110,18 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     assert _jobs(db) == []
     svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
     assert agent_events.reasons_of(_jobs(db)[-1]) == ["danger: creeper behind you"]
+
+
+def test_with_her_mind_on_commentary_wakeups_are_left_to_it_but_control_still_wakes(db, alice, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "mind_enabled", True)
+    monkeypatch.setattr(settings, "desktop_agent_enabled", True)
+    session = _playing(db, alice)
+    svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
+    svc.driver_noticed(db, session.id, kind="warning", text="the sun is setting")
+    assert _jobs(db) == []  # her mind sees these notices every tick
+    svc.driver_noticed(db, session.id, kind="struggling", text="mine failed 4 times")
+    assert agent_events.reasons_of(_jobs(db)[-1]) == ["struggling: mine failed 4 times"]
 
 
 # --- when she may speak ---------------------------------------------------------------

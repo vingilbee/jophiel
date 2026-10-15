@@ -20,8 +20,10 @@ import { useVoiceSession, type VoiceSession } from '../hooks/useVoiceSession'
 import { useScreenSense } from '../hooks/useScreenSense'
 import { api } from '../api/client'
 import { ChatSessionTools } from '../components/ChatSessionTools'
+import { ThoughtStream } from '../components/ThoughtStream'
+import { mindApi } from '../api/mind'
 import { VoiceOrb } from '../components/VoiceOrb'
-import type { ChatMessage, MessagePart } from '../types'
+import type { ChatMessage, MessagePart, Thought } from '../types'
 
 const SUGGESTIONS = [
   'How much protein is in two eggs?',
@@ -98,6 +100,13 @@ export function ChatPage() {
   // assistant reply before the injected message starts against that history.
   const turnQueueRef = useRef<Promise<void>>(Promise.resolve())
   const nudgeMessageRef = useRef<string | null>(null)
+  // Her mind's thoughts while playing: their own panel, never messages.
+  const [thoughts, setThoughts] = useState<Thought[]>([])
+  useEffect(() => {
+    let cancelled = false
+    mindApi.listThoughts().then((loaded) => { if (!cancelled) setThoughts(loaded) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   /** Append orchestrator text to the last text part of the assistant bubble
    * being written, starting a new text part if the last part was a subagent
@@ -217,6 +226,8 @@ export function ChatPage() {
         { role: 'assistant', parts: [], unprompted: true, clientId },
       ])
     },
+    onThought: (thought) => setThoughts((prev) =>
+      prev.some((t) => t.id === thought.id) ? prev : [...prev, thought].slice(-200)),
     onNudgeToken: (chunk) => appendToken(chunk, nudgeMessageRef.current ?? undefined),
     onNudgeSticker: (name) => appendSticker(name, nudgeMessageRef.current ?? undefined),
     onNudgeSubagentStart: (agent) => startSubagent(agent, nudgeMessageRef.current ?? undefined),
@@ -619,6 +630,7 @@ export function ChatPage() {
       {/* composer */}
       <div className="bg-[#F8FAFF] px-5 pb-5 pt-3 sm:px-8 sm:pb-7 lg:px-12">
         <div className="mx-auto max-w-4xl">
+          <ThoughtStream thoughts={thoughts} />
           <ChatSessionTools eye={eye} voice={voice} awareness={awareness} onPanelChange={setSessionPanelOpen} inputBlocked={streaming} />
         <form onSubmit={handleSubmit}>
           {voiceEnabled && (
