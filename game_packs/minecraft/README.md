@@ -110,8 +110,19 @@ Every skill follows the same contract: one goal, one fast loop, no AI inside, ne
 skill (her hands chain them). It always ends with exactly one outcome: `done`, `failed` (with why),
 `lost`, `blocked`, `hurt`, `timeout` or `stopped`, plus a few numbers.
 
-No skill sees through walls: `mine`, gather, `go_to block:`, `explore`'s goal and her surroundings
+No skill sees through walls: `mine`, gather, `go_to block:`, `explore`'s goal and her notable blocks
 count only blocks with a face in her line of sight, or that she has seen before (`src/sight.js`).
+
+**The shape of the place** (`src/surroundings.js`, in the state as `surroundings` and in the text as
+"Around you / Ways / Openings"): what's over her head (open sky, trees, a roof, or underground); for
+each of the 8 compass directions how far she can walk along the ground (one block up, at most three
+down, like walking) and what stops her there (a wall and how high, a drop and how deep, water, lava),
+with the spot each walk ends so `go_to` can take her there; and, from outdoors, cave or tunnel mouths:
+walkable ground that goes in under rock for 3+ blocks, seen along 16 directions. A walk reads the
+ground in front of her and stops at the first wall, so it doesn't see through hills. Other players'
+lines say which way they face ("facing east (your right)"), so "this way" from the user means
+something. Her air is read only from her own player (`src/air.js`): mineflayer 4.39 took any
+entity's air as hers, so a fish on land nearby had her crying out for air on dry ground.
 
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|

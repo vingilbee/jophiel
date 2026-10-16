@@ -64,6 +64,16 @@ def is_hostile(entity: dict) -> bool:
     return entity.get("kind") == "hostile" or entity.get("label") in HOSTILES
 
 
+def _air_at_risk(state: dict) -> float | None:
+    """Her air, when it can run out: only in water. Out of water a low reading is
+    either her air coming back after she surfaced or a bad reading (the pack used
+    to report other creatures' air as hers), and neither is danger."""
+    oxygen = state.get("oxygen")
+    if not state.get("in_water") or not isinstance(oxygen, (int, float)):
+        return None
+    return oxygen
+
+
 def pressure(tick: TickInput, previous: TickInput | None) -> tuple[str, str]:
     """(level, why): urgent when danger needs a reaction now, busy while her
     hands run a skill, calm otherwise."""
@@ -74,8 +84,8 @@ def pressure(tick: TickInput, previous: TickInput | None) -> tuple[str, str]:
         return "urgent", f"{_name(e['label'])} {e['distance']:g} m from you"
     if previous is not None and _num(state.get("health")) < _num(previous.state.get("health")):
         return "urgent", f"you took damage ({_hearts(previous.state.get('health'))} -> {_hearts(state.get('health'))} hearts)"
-    oxygen = state.get("oxygen")
-    if isinstance(oxygen, (int, float)) and oxygen < LOW_AIR:
+    oxygen = _air_at_risk(state)
+    if oxygen is not None and oxygen < LOW_AIR:
         return "urgent", f"running out of air ({oxygen}/20)"
     skill = (state.get("skill") or {}).get("name")
     if skill == "fight":
@@ -108,7 +118,7 @@ def danger(state: dict) -> dict:
     """The danger she is in, to tell whether it got worse since she last reacted."""
     near = {e.get("label"): e.get("distance", 99) for e in state.get("nearby") or []
             if is_hostile(e) and e.get("distance", 99) <= COMBAT_RADIUS}
-    return {"hostiles": near, "health": _num(state.get("health")), "oxygen": state.get("oxygen")}
+    return {"hostiles": near, "health": _num(state.get("health")), "oxygen": _air_at_risk(state)}
 
 
 def worse(now: dict, before: dict) -> bool:
@@ -137,7 +147,7 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
             out.append((f"your {label} {a:g} -> {b:g}/20", True))
     a, b = old.get("oxygen"), cur.get("oxygen")
     if isinstance(b, (int, float)) and a != b and b < 20:
-        out.append((f"your air {a} -> {b}/20", b < LOW_AIR))
+        out.append((f"your air {a} -> {b}/20", b < LOW_AIR and _air_at_risk(cur) is not None))
     if old.get("position") and cur.get("position"):
         moved = math.dist(_xyz(old["position"]), _xyz(cur["position"]))
         if moved >= MOVED:
@@ -180,6 +190,7 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
             out.append((f"{label} {b}", True))
     if old.get("weather") != cur.get("weather"):
         out.append((f"weather: {cur.get('weather')}", True))
+    out.extend(_place_changes(old.get("surroundings"), cur.get("surroundings")))
 
     a, b = (old.get("skill") or {}).get("name"), (cur.get("skill") or {}).get("name")
     if a != b:
@@ -201,6 +212,30 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
         if (m.get("role"), m.get("content")) not in seen_talk:
             user = m.get("role") == "user"
             out.append((f"{'the user said' if user else 'you said'}: \"{m.get('content', '')}\"", user))
+    return out
+
+
+OUTDOORS = {"sky", "trees"}
+PLACE_WORDS = {"underground": "you went underground", "roof": "you went under a roof"}
+
+
+def _place_changes(old: dict | None, cur: dict | None) -> list[tuple[str, bool]]:
+    """Going underground or back out, and a cave mouth coming into view (the pack's
+    surroundings). A mouth counts as new when none was within 4 blocks of it last tick."""
+    if not old or not cur:
+        return []
+    out: list[tuple[str, bool]] = []
+    a, b = (old.get("overhead") or {}).get("kind"), (cur.get("overhead") or {}).get("kind")
+    if a and b and a != b and not (a in OUTDOORS and b in OUTDOORS):
+        out.append((PLACE_WORDS.get(b, "you're outdoors again"), True))
+    if b in OUTDOORS:
+        before = [o.get("position") or {} for o in old.get("openings") or []]
+        for o in cur.get("openings") or []:
+            p = o.get("position") or {}
+            if any(math.dist((p.get("x", 0), p.get("z", 0)), (q.get("x", 0), q.get("z", 0))) < 4 for q in before):
+                continue
+            out.append((f"a cave or tunnel mouth came into view {o.get('distance', '?')} m {o.get('side', '')}".rstrip(),
+                        _num(o.get("distance", 99)) <= NEWS_RADIUS))
     return out
 
 

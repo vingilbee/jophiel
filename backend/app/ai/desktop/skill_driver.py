@@ -219,6 +219,15 @@ them. Never call someone offline unless they're missing from "Other players onli
 - "Come to me" when the user is below or above you (in a hole, a tunnel, on a ledge): go_to player:<name>, \
 which only counts as arrived at their level. If it fails saying they're below or above, go_to again with \
 dig="yes" to dig down (or through) to them.
+- "Around you", "Ways" and "Openings" in your state are the shape of the place, counted by the game: \
+whether you're outdoors or underground, how far you can walk each way, what stops you there (a wall, a drop, \
+water), and the exact spot each walk ends. Directions are about these. "Forward" is your ahead way. "This \
+way", "that direction", "go this way" from the user means the way THEY face (their line says "facing <dir> \
+(your <side>)"): walk your way on that side (go_to its end spot, or a spot a few blocks along it for "a few \
+blocks"). "The other way" is the opposite side of where you were going. When they point at a spot ("go there", \
+"stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
+- A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways are the passages; \
+pick the longest one you haven't walked). explore is for new ground on the surface: never use it for a cave.
 - An action that ends instantly with nothing changed (you were already there) did nothing: don't choose it \
 again. Move somewhere else, look for the user, or wait.
 - Background modes (the "Background modes" line in your state) run by themselves while you follow, walk, \

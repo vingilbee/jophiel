@@ -31,8 +31,10 @@ def test_pressure_urgent_busy_calm():
     assert pressure(far, None)[0] == "busy"
     hurt = tick(at=101, state=state(health=14))
     assert pressure(hurt, tick())[0] == "urgent"
-    drowning = tick(state=state(oxygen=6))
+    drowning = tick(state=state(oxygen=6, in_water=True))
     assert pressure(drowning, None)[0] == "urgent"
+    # Low air out of water is air coming back, or a bad reading (once another creature's air).
+    assert pressure(tick(state=state(oxygen=6, in_water=False)), None)[0] == "busy"
     user_hit = tick(notices=[{"kind": "player_hurt", "urgency": "heads_up", "text": "Vincent got hit by a zombie"}])
     assert pressure(user_hit, None) == ("urgent", "Vincent got hit by a zombie")
 
@@ -79,7 +81,8 @@ def test_news_leaves_out_background():
         "salmon is gone", "skeleton is gone", "Vincent: standing still -> running north", 'you said: "coming!"',
     ]
     assert news(after, before) == ["skeleton is gone"]  # a threat leaving is news; the rest is background
-    assert news(tick(at=102, state=state(oxygen=8)), after)[0] == "your air 16 -> 8/20"  # now it matters
+    assert news(tick(at=102, state=state(oxygen=8, in_water=True)), after)[0] == "your air 16 -> 8/20"  # now it matters
+    assert news(tick(at=102, state=state(oxygen=8)), after) == []  # not in water: no danger
     assert news(tick(), None) == ["(first tick: everything below is new)"]
 
 
@@ -92,7 +95,9 @@ def test_worse_danger():
     assert worse(at(4, health=15), at(4))
     assert worse(danger(state(nearby=[{"label": "zombie", "kind": "hostile", "distance": 4},
                                       {"label": "spider", "kind": "hostile", "distance": 7}])), at(4))
-    assert worse(at(4, oxygen=2), at(4, oxygen=6)) and not worse(at(4, oxygen=6), at(4, oxygen=9))
+    assert worse(at(4, oxygen=2, in_water=True), at(4, oxygen=6, in_water=True))
+    assert not worse(at(4, oxygen=6, in_water=True), at(4, oxygen=9, in_water=True))
+    assert not worse(at(4, oxygen=2), at(4, oxygen=6))  # out of water
 
 
 def test_render_puts_changes_first_then_pressure_goal_talk_state():
@@ -203,3 +208,20 @@ def test_recorder_writes_one_line_per_tick_with_its_own_notice_cursor(tmp_path, 
     assert second["changed"] == ["your health 20 -> 18/20"]
     assert second["pressure"] == "urgent" and second["input"]["hands_note"] == "near the ore"
     assert third["changed"] == ["(first tick: everything below is new)"]
+
+
+def test_going_underground_and_a_cave_mouth_are_news():
+    def place(kind, openings=()):
+        return {"overhead": {"kind": kind}, "ways": [], "openings": list(openings)}
+
+    mouth = {"position": {"x": 0, "y": 64, "z": -6}, "distance": 6, "side": "ahead"}
+    outside = tick(at=100, state=state(surroundings=place("sky")))
+    sees_cave = tick(at=101, state=state(surroundings=place("sky", [mouth])))
+    assert news(sees_cave, outside) == ["a cave or tunnel mouth came into view 6 m ahead"]
+    moved = {**mouth, "position": {"x": 1, "y": 64, "z": -5}, "distance": 5}
+    assert news(tick(at=102, state=state(surroundings=place("sky", [moved]))), sees_cave) == []  # the same mouth
+    inside = tick(at=103, state=state(surroundings=place("underground")))
+    assert news(inside, sees_cave) == ["you went underground"]
+    assert news(tick(at=104, state=state(surroundings=place("trees"))), inside) == ["you're outdoors again"]
+    assert news(tick(at=104, state=state(surroundings=place("trees"))), outside) == []  # under trees is still outdoors
+    assert news(outside, tick(at=99)) == []  # an older pack without surroundings: nothing

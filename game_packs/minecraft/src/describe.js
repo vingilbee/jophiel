@@ -1,4 +1,5 @@
 // State JSON -> the few lines of text her hands will read (stage G phase 3). Pure.
+import { describeSurroundings } from './surroundings.js'
 
 function where (entity) {
   const vertical = Math.abs(entity.dy) >= 2
@@ -23,6 +24,7 @@ export function describeState (state) {
     `Nearby: ${state.nearby.length ? state.nearby.map((e) => `${e.label} ${where(e)}`).join('; ') : 'nothing within range'}.`,
     `Blocks: ${state.blocks?.length ? state.blocks.map((b) => `${b.name} ${where(b)}`).join('; ') : 'nothing notable close by'}.`
   ]
+  lines.push(...describeSurroundings(state.surroundings))
   for (const p of state.players ?? []) lines.push(describePlayer(p, state.nearby))
   for (const p of state.players_out_of_sight ?? []) {
     lines.push(p.last_seen
@@ -39,6 +41,7 @@ export function describeState (state) {
 export function describePlayer (p, nearby = []) {
   const seen = nearby.find((e) => e.label === p.name)
   const parts = [p.pose === 'sleeping' ? 'in bed' : p.moving + (p.pose === 'sneaking' ? ', sneaking' : p.pose === 'swimming' ? ', swimming' : '')]
+  if (p.facing) parts.push(`facing ${p.facing.compass} (your ${p.facing.side})`)
   parts.push(`holding ${p.holding ? p.holding.replace(/_/g, ' ') : 'nothing'}`)
   if (p.armor?.length) parts.push(`wearing ${p.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`)
   if (p.health !== null && p.health !== undefined) parts.push(`${hearts(p.health)} of 10 hearts`)

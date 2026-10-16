@@ -2,6 +2,7 @@
 // service (index.js) and the integration tests, so tests exercise exactly what she runs.
 import { createRequire } from 'node:module'
 
+import { attachOwnAir } from './air.js'
 import { attachMotion } from './motion/motion.js'
 import { attachNoticing } from './noticing.js'
 import { attachSightings } from './sightings.js'
@@ -19,6 +20,7 @@ const { pathfinder } = require('mineflayer-pathfinder')
 // memoryPath(): where this world's memory lives (explored ground, noted places).
 // modes: the process's ModeSettings, so background modes stay on across a reconnect.
 export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true, random, modes = null } = {}) {
+  attachOwnAir(bot) // before anything reads bot.oxygenLevel
   bot.loadPlugin(pathfinder)
   // After the pathfinder, so each tick the motion layer adjusts what the pathfinder just asked for.
   const motionLayer = motion ? attachMotion(bot, { random }) : null

@@ -475,3 +475,10 @@ def test_a_new_step_starts_a_fresh_count():
 
 def test_hands_are_told_to_say_no_skill_at_once():
     assert '"no skill for:"' in system_prompt(MANIFEST)
+
+
+def test_directions_and_caves_are_read_from_the_surroundings():
+    prompt = system_prompt(MANIFEST)
+    assert '"This way", "that direction"' in prompt and "the way THEY face" in prompt
+    assert "go_to looking:<name>" in prompt
+    assert "never use it for a cave" in prompt

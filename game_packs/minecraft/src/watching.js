@@ -298,6 +298,14 @@ export function attachWatching (bot, { report = () => {}, now = Date.now } = {})
   }
 }
 
+// Which way a player faces, on the compass and from her side: "this way" from the user means
+// that way (seen live: "this direction is the cave", four times, and she couldn't tell which).
+export function facingOf (bot, entity) {
+  const yaw = entity.headYaw ?? entity.yaw
+  if (typeof yaw !== 'number' || !bot.entity) return null
+  return { compass: compass(yaw), side: bearingWord(relativeBearing(bot.entity.yaw, -Math.sin(yaw), -Math.cos(yaw))) }
+}
+
 // The players she can see and what they're doing, for the state: holding, wearing, moving,
 // pose, looking at, and the last minute. [] when watching isn't attached.
 export function watchedPlayers (bot) {
@@ -329,6 +337,7 @@ export function watchedPlayers (bot) {
       health: typeof health === 'number' && health > 0 ? Math.round(health * 10) / 10 : null,
       moving,
       pose: poseOf(bot, entity) ?? 'standing',
+      facing: facingOf(bot, entity),
       looking_at: looking,
       recent: (watch?.recent ?? []).filter((r) => at - r.at <= RECENT_MS)
         .map((r) => ({ text: r.count > 1 ? `${r.text} (x${r.count})` : r.text, seconds_ago: Math.round((at - r.at) / 1000) }))

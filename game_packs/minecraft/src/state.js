@@ -11,6 +11,7 @@ import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
 import { watchedPlayers } from './watching.js'
 import { wearing } from './skills/armor.js'
+import { readSurroundings } from './surroundings.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
@@ -194,6 +195,16 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     time: { time_of_day: timeOfDay, day: bot.time.day, phase: dayPhase(timeOfDay) },
     weather: bot.thunderState > 0 ? 'thunder' : bot.isRaining ? 'rain' : 'clear',
     nearby: nearbyEntities(bot, radius),
-    blocks: notableBlocks(bot)
+    blocks: notableBlocks(bot),
+    // The shape of the place: sky or rock overhead, how far each way she can walk, cave mouths.
+    surroundings: safeSurroundings(bot)
+  }
+}
+
+function safeSurroundings (bot) {
+  try {
+    return readSurroundings(bot)
+  } catch {
+    return null // a half-loaded world
   }
 }

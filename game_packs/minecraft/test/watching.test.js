@@ -140,6 +140,6 @@ test('moving, getting into bed, holding, wearing and looking at', () => {
   assert.deepEqual(p.looking_at, { name: 'oak_log', distance: 2 })
   assert.deepEqual(notices.map((n) => n.text), ['tearDrop12 got into bed'])
   assert.equal(describePlayer(p),
-    'tearDrop12: in bed; holding stone pickaxe; wearing iron chestplate; looking at oak log 2 m away. ' +
+    'tearDrop12: in bed; facing west (your left); holding stone pickaxe; wearing iron chestplate; looking at oak log 2 m away. ' +
     'Last minute: got into bed 0 s ago.')
 })
