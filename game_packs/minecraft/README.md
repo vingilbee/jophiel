@@ -124,9 +124,24 @@ lines say which way they face ("facing east (your right)"), so "this way" from t
 something. Her air is read only from her own player (`src/air.js`): mineflayer 4.39 took any
 entity's air as hers, so a fish on land nearby had her crying out for air on dry ground.
 
+**The lie of the land** (`src/terrain.js`, in the state as `terrain` and in the text as "Land / Highest
+ground (peak) / Surface / Way out"): the ground height every 4 blocks out to 64 m (trees aren't
+ground), so she knows which way the land rises or falls, where the water is, where the highest ground
+is and how steep the straight way up gets (the biggest step from one block to the next). Underground:
+how far the surface is straight up, and the way out, found by searching open space (air and water,
+ledges and shafts too) for the nearest spot with sky above, then judged: walkable, or the biggest
+climb on it (height gained between two spots she can stand). Each column's ground is scanned once and
+forgotten when a block in it changes; the whole thing is recomputed after she moves 2 blocks or every
+5 s. `go_to` targets `peak` and `surface` go there (`dig=yes` digs steps up a slope too steep to walk,
+or digs up when there's no way out). Both walk there in short legs (a stop every 6 blocks, walking
+first and digging only where walking can't): one long search through diggable ground gave up, or
+tunnelled beside the open way and got stuck. When digging is allowed and she makes no progress for 4 s
+(a jump bumping a low cave ceiling), she breaks the block over her head and tries again. A player in
+spectator mode is said to be invisible and isn't chased.
+
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|
-| `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
+| `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `peak`, `surface`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
 | `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
 | `fight` | `target`: `nearest_hostile` or a hostile type | Target type dead / no hostiles left | Outnumbered (flees), none found. Hostile mobs only |
 | `explore` | `goal`: `block:<type>` / `mob:<type>` (optional), `radius` | Goal found (says where), or area covered | Night, danger within 8 blocks |

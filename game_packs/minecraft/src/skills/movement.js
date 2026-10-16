@@ -9,13 +9,17 @@ import {
 import { seenBlock } from '../sight.js'
 import { lastSeen } from '../sightings.js'
 import { lookedAtBlock } from '../watching.js'
+import { peakSpot, surfaceSpot } from '../terrain.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
 
 // Targets: "x y z" or "x z" (commas fine), "player:<name>", "mob:<type>", "block:<type>",
-// "looking:<player>" (the block that player is looking at).
+// "looking:<player>" (the block that player is looking at), "peak" (the highest ground near,
+// src/terrain.js) and "surface" (underground: the way out to the sky).
+const TARGETS = '"x y z", "x z", "player:<name>", "mob:<type>", "block:<type>", "looking:<player>", "peak" or "surface"'
 export function parseTarget (text) {
+  if (text === 'peak' || text === 'surface') return { kind: text }
   const numbers = text.split(/[\s,]+/).filter(Boolean)
   if (numbers.length && numbers.every((n) => /^-?\d+(\.\d+)?$/.test(n))) {
     if (numbers.length === 3) return { kind: 'place', x: +numbers[0], y: +numbers[1], z: +numbers[2] }
@@ -24,7 +28,7 @@ export function parseTarget (text) {
   }
   const match = /^(player|mob|block|looking):([A-Za-z0-9_]{1,40})$/.exec(text)
   if (!match) {
-    throw new ParamError('target must be "x y z", "x z", "player:<name>", "mob:<type>", "block:<type>" or "looking:<player>"')
+    throw new ParamError(`target must be ${TARGETS}`)
   }
   return { kind: match[1], name: match[2] }
 }
@@ -53,7 +57,9 @@ export const goTo = {
   name: 'go_to',
   description: 'Walk to a place, a player, a mob, the nearest block of a type, or the spot a player is looking at. ' +
     'A player out of sight: first to where she last saw them. "Come here" / "next to me": player:<name> with range 1. ' +
-    '"Go there" / "stand here" while they point their view at a spot: looking:<name> with range 0.',
+    '"Go there" / "stand here" while they point their view at a spot: looking:<name> with range 0. ' +
+    '"Climb the mountain" / "get to the top": peak (the highest ground near, see your state). ' +
+    '"Get out" / "go up" underground: surface (the way out to the sky; with dig=yes it digs up when there is none).',
   doneWhen: 'she is within range of the target (for a player: also at their level, within 1 block up or down; ' +
     'range 0: standing on that exact block)',
   stopsWhen: 'no path, target not found or gone, attacked, time limit',
@@ -61,7 +67,7 @@ export const goTo = {
     target: {
       type: 'string',
       required: true,
-      description: '"x y z", "x z", "player:<name>", "mob:<type>", "block:<type>" or "looking:<player>" (where they look)'
+      description: `${TARGETS} (looking: where they look)`
     },
     range: {
       type: 'number',
@@ -74,7 +80,7 @@ export const goTo = {
       type: 'enum',
       values: ['yes', 'no'],
       default: 'no',
-      description: 'yes: she may break blocks to get there, e.g. dig down into a hole or a tunnel to a player'
+      description: 'yes: she may break blocks to get there: dig down into a hole, a tunnel to a player, steps up a slope too steep to walk'
     },
     time_limit: timeLimitParam(60, 300)
   },
@@ -90,14 +96,19 @@ export const goTo = {
     const dig = params.dig === 'yes'
     const attack = watchForAttack(ctx)
     try {
-      if (target.kind === 'place') return await goToPlace(ctx, target, params.range, attack)
+      if (target.kind === 'place') return await goToPlace(ctx, target, params.range, attack, { dig })
       if (target.kind === 'block') {
         const blockPos = seenBlock(bot, { matching: blockIds(bot, target.name), maxDistance: 64 })?.position
         if (!blockPos) return failed(`no ${target.name} in sight within 64 blocks`)
-        return await goToPlace(ctx, blockPos, params.range, attack)
+        return await goToPlace(ctx, blockPos, params.range, attack, { dig })
       }
+      if (target.kind === 'peak') return await goToPeak(ctx, params.range, attack, dig)
+      if (target.kind === 'surface') return await goToSurface(ctx, params.range, attack, dig)
       if (target.kind === 'looking') return await goToLookedAt(ctx, target.name, params.range, attack)
       if (target.kind === 'player') {
+        if (bot.players[target.name]?.gamemode === 3) {
+          return failed(`${target.name} is in spectator mode: invisible and passing through walls, so you can't reach them`)
+        }
         const entity = findPlayer(bot, target.name) ?? await toLastSeen(ctx, target.name, attack)
         return await goToEntity(ctx, entity, Math.max(1, params.range), attack, { level: true, dig })
       }
@@ -110,14 +121,16 @@ export const goTo = {
   }
 }
 
-async function goToPlace (ctx, place, range, attack) {
+// dig: she may break blocks on the way (it used to be dropped here, so "x y z" with dig=yes never
+// dug: live, a 3-block dirt step on a mountain was "no path" every time).
+async function goToPlace (ctx, place, range, attack, { dig = false, attempts = 4 } = {}) {
   const { bot } = ctx
   const goal = place.y === undefined
     ? new goals.GoalNearXZ(place.x, place.z, range)
     : new goals.GoalNear(place.x, place.y, place.z, range)
   // Re-plan up to a few times: long walks leave loaded terrain and paths get interrupted.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const arrived = await walkTo(ctx, goal)
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const arrived = await walkTo(ctx, goal, { canDig: dig })
     attack.check()
     if (arrived || goal.isEnd(bot.entity.position.floored())) {
       return done(position(bot))
@@ -126,6 +139,62 @@ async function goToPlace (ctx, place, range, attack) {
     await ctx.sleep(200)
   }
   return failed('no path', { remaining: Math.round(distanceToPlace(bot, place)) })
+}
+
+// The highest ground near (src/terrain.js), worked out now. Already on it: done, nothing to do.
+async function goToPeak (ctx, range, attack, dig) {
+  const peak = peakSpot(ctx.bot)
+  if (!peak) return done({ ...position(ctx.bot), note: 'already on the highest ground near' })
+  const leg = await walkStops(ctx, peak.waypoints, attack, dig)
+  if (leg) {
+    if (!dig) leg.reason += ' (steps too steep to walk: dig=yes digs steps)'
+    leg.data = { ...leg.data, peak: { x: peak.x, y: peak.y, z: peak.z } }
+    return leg
+  }
+  const end = await goToPlace(ctx, { x: peak.x, y: peak.y, z: peak.z }, Math.max(1, range), attack, { dig })
+  if (end.status === 'failed' && !dig) end.reason += ' (steps too steep to walk: dig=yes digs steps)'
+  end.data = { ...end.data, peak: { x: peak.x, y: peak.y, z: peak.z } }
+  return end
+}
+
+// A long way, stop by stop: each a short search (one long search through diggable ground gave up,
+// seen in tests). Walk first, dig only where walking can't: allowed to dig everywhere, the
+// pathfinder sometimes tunnelled its own way beside the open one and got stuck in it.
+// null when every stop was reached, else the failed leg's outcome.
+async function walkStops (ctx, stops, attack, dig) {
+  for (const stop of stops ?? []) {
+    let leg = await goToPlace(ctx, stop, 1, attack, { dig: false, attempts: dig ? 1 : 4 })
+    if (leg.status !== 'done' && dig) leg = await goToPlace(ctx, stop, 1, attack, { dig: true })
+    if (leg.status !== 'done') {
+      leg.data = { ...leg.data, stuck_at: stop }
+      return leg
+    }
+  }
+  return null
+}
+
+// Underground, to the sky: the way out found through open space; with none, straight up by digging.
+async function goToSurface (ctx, range, attack, dig) {
+  const { bot } = ctx
+  const { way, above } = surfaceSpot(bot)
+  if (!above) return done({ ...position(bot), note: 'already under open sky' })
+  if (way) {
+    const leg = await walkStops(ctx, way.waypoints, attack, dig)
+    if (leg) {
+      if (way.climb && !dig) leg.reason += ` (a ${way.climb.height} m climb on the way: dig=yes digs steps)`
+      leg.data = { ...leg.data, exit: way.exit }
+      return leg
+    }
+    const end = await goToPlace(ctx, way.exit, Math.max(1, range), attack, { dig })
+    if (end.status === 'failed' && way.climb && !dig) end.reason += ` (a ${way.climb.height} m climb on the way: dig=yes digs steps)`
+    end.data = { ...end.data, exit: way.exit }
+    return end
+  }
+  if (!dig) return failed('no way out to the sky through open space nearby; dig=yes digs up to it')
+  const p = bot.entity.position.floored()
+  const end = await goToPlace(ctx, { x: p.x, y: above.y, z: p.z }, Math.max(1, range), attack, { dig: true })
+  end.data = { ...end.data, dug_up_to: above.y }
+  return end
 }
 
 const LOOK_REACH = 32 // how far along a player's view she looks for the spot they mean

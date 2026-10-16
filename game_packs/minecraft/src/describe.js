@@ -1,5 +1,6 @@
 // State JSON -> the few lines of text her hands will read (stage G phase 3). Pure.
 import { describeSurroundings } from './surroundings.js'
+import { describeTerrain } from './terrain.js'
 
 function where (entity) {
   const vertical = Math.abs(entity.dy) >= 2
@@ -25,8 +26,17 @@ export function describeState (state) {
     `Blocks: ${state.blocks?.length ? state.blocks.map((b) => `${b.name} ${where(b)}`).join('; ') : 'nothing notable close by'}.`
   ]
   lines.push(...describeSurroundings(state.surroundings))
-  for (const p of state.players ?? []) lines.push(describePlayer(p, state.nearby))
+  lines.push(...describeTerrain(state.terrain))
+  const spectating = new Set(state.players_spectating ?? [])
+  for (const p of state.players ?? []) {
+    if (!spectating.has(p.name)) lines.push(describePlayer(p, state.nearby))
+  }
+  for (const name of spectating) {
+    lines.push(`${name} is in spectator mode: invisible to you and flying through walls, so you can't see, follow ` +
+      'or reach them, and where you last saw them means nothing. Don\'t go looking; they can see you.')
+  }
   for (const p of state.players_out_of_sight ?? []) {
+    if (spectating.has(p.name)) continue
     lines.push(p.last_seen
       ? `${p.name} is online but out of sight: last seen at (${p.last_seen.x}, ${p.last_seen.y}, ${p.last_seen.z}), ` +
         `${p.distance} m from you, ${p.seconds_ago} s ago.`

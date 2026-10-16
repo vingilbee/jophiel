@@ -314,7 +314,9 @@ def build_desktop_tools(
         wait. Use it when the user says yes to your offer, or asks you to learn something ("learn how
         to make a furnace"). Only for a move none of your hands' skills does: if you can name the
         skill that does it, with its parameters (finding a mob: explore with goal mob:<type>), say so
-        and put it in the plan instead, unless the user still wants you to learn it. task: the move, in a few words. It runs in the background: tell the user
+        and put it in the plan instead, unless the user still wants you to learn it. When the user
+        tells you to do a move you don't have ("place blocks to climb up"), don't just say you can't:
+        say you haven't learned it yet and ask if you should; if they say yes, call this. task: the move, in a few words. It runs in the background: tell the user
         you're on it; you'll see how each try went in your game summary."""
         return await _run(game_practice.start, user_id, task=task)
 

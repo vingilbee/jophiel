@@ -482,3 +482,10 @@ def test_directions_and_caves_are_read_from_the_surroundings():
     assert '"This way", "that direction"' in prompt and "the way THEY face" in prompt
     assert "go_to looking:<name>" in prompt
     assert "never use it for a cave" in prompt
+
+
+def test_peak_surface_and_spectators_are_in_the_rules():
+    prompt = " ".join(system_prompt(MANIFEST).split())
+    assert 'go_to target "peak"' in prompt and 'go_to target "surface"' in prompt
+    assert "Don't guess coordinates around a slope" in prompt
+    assert "spectator mode can't be seen, followed or reached" in prompt

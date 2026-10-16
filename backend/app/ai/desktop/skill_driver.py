@@ -228,6 +228,13 @@ blocks"). "The other way" is the opposite side of where you were going. When the
 "stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
 - A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways are the passages; \
 pick the longest one you haven't walked). explore is for new ground on the surface: never use it for a cave.
+- "Land", "Highest ground (peak)", "Way out" and "Surface" are the bigger picture: where the land rises and \
+falls, the highest ground near and how steep the way up is, and underground the way to the sky. "Climb the \
+mountain" / "go to the top": go_to target "peak"; steps higher than 1 block need dig="yes" (it digs steps). \
+"Get out" / "go up to the surface": go_to target "surface" (dig="yes" when the way out has a climb, or there's \
+none: it digs up). Don't guess coordinates around a slope.
+- A player in spectator mode can't be seen, followed or reached: never go to where you last saw them. Carry on \
+with the step, or wait.
 - An action that ends instantly with nothing changed (you were already there) did nothing: don't choose it \
 again. Move somewhere else, look for the user, or wait.
 - Background modes (the "Background modes" line in your state) run by themselves while you follow, walk, \

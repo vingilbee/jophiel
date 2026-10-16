@@ -12,6 +12,7 @@ import { outOfSight } from './sightings.js'
 import { watchedPlayers } from './watching.js'
 import { wearing } from './skills/armor.js'
 import { readSurroundings } from './surroundings.js'
+import { readTerrain } from './terrain.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
@@ -164,6 +165,7 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
   const below = bot.blockAt(self.position.offset(0, -0.5, 0))
   const timeOfDay = bot.time.timeOfDay
   const held = bot.heldItem
+  const surroundings = safeSurroundings(bot)
   return {
     at: now.toISOString(),
     username: bot.username,
@@ -171,6 +173,9 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     players_online: Object.keys(bot.players).filter((name) => name !== bot.username),
     // Online but beyond entity range, with where she last saw them (null: not since she joined).
     players_out_of_sight: outOfSight(bot, now.getTime()),
+    // In spectator mode: invisible to her and passing through walls, so not to be looked for.
+    players_spectating: Object.values(bot.players)
+      .filter((p) => p.username !== bot.username && p.gamemode === 3).map((p) => p.username),
     // The players she can see, and what they're doing (src/watching.js).
     players: watchedPlayers(bot),
     version: bot.version,
@@ -197,7 +202,9 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     nearby: nearbyEntities(bot, radius),
     blocks: notableBlocks(bot),
     // The shape of the place: sky or rock overhead, how far each way she can walk, cave mouths.
-    surroundings: safeSurroundings(bot)
+    surroundings,
+    // The lie of the land: the high ground, which way it rises or falls, and underground the way out.
+    terrain: safeTerrain(bot, surroundings)
   }
 }
 
@@ -206,5 +213,14 @@ function safeSurroundings (bot) {
     return readSurroundings(bot)
   } catch {
     return null // a half-loaded world
+  }
+}
+
+function safeTerrain (bot, surroundings) {
+  const over = surroundings?.overhead?.kind
+  try {
+    return readTerrain(bot, { underground: over === 'underground' || over === 'roof' })
+  } catch {
+    return null
   }
 }

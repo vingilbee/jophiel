@@ -48,10 +48,29 @@ export function movements (bot, { canDig = false } = {}) {
 
 // pathfinder's goto() resolves even when it found no path, and can keep re-planning a "partial"
 // path forever, so every walk has its own time limit and every caller checks arrival itself.
+//
+// Stuck in place (canDig only): the pathfinder can keep "moving" against a step it can't jump,
+// e.g. a cave staircase with a ceiling just over the jump (seen in tests: 100 s without a block of
+// progress). After STUCK_MS without moving, the walk ends and she clears the block over her head,
+// so the next try (callers retry) has room to jump.
+const STUCK_MS = 4000
 export async function walkTo (ctx, goal, { canDig = false, timeoutMs = 20000 } = {}) {
   const { bot } = ctx
   bot.pathfinder.setMovements(movements(bot, { canDig }))
   let timer
+  let stuck = false
+  let still = { at: Date.now(), position: bot.entity.position.clone() }
+  const watch = canDig
+    ? setInterval(() => {
+      const p = bot.entity.position
+      if (p.distanceTo(still.position) > 0.3 || bot.pathfinder.isMining?.()) {
+        still = { at: Date.now(), position: p.clone() }
+      } else if (Date.now() - still.at > STUCK_MS && bot.pathfinder.isMoving()) {
+        stuck = true
+        bot.pathfinder.setGoal(null)
+      }
+    }, 250)
+    : null
   const gaveUp = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), timeoutMs) })
   try {
     const outcome = await ctx.race(Promise.race([bot.pathfinder.goto(goal).then(() => 'ok'), gaveUp]))
@@ -59,11 +78,26 @@ export async function walkTo (ctx, goal, { canDig = false, timeoutMs = 20000 } =
   } catch (err) {
     if (err?.status) throw err // a SkillEnd from stop/timeout/hurt
     ctx.check()
+    if (stuck) await clearHeadroom(ctx)
     return false // NoPath, Timeout, GoalChanged, PathStopped
   } finally {
     clearTimeout(timer)
+    if (watch) clearInterval(watch)
   }
   return goal.isEnd(bot.entity.position.floored())
+}
+
+// The block just over her head, broken if it's solid and breakable: room to jump.
+async function clearHeadroom (ctx) {
+  const { bot } = ctx
+  const above = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))
+  if (!above || above.boundingBox !== 'block' || !bot.canDigBlock(above)) return
+  try {
+    await bot.tool?.equipForBlock?.(above)
+    await ctx.race(bot.dig(above))
+  } catch (err) {
+    if (err?.status) throw err
+  }
 }
 
 // ---- names and lookups -------------------------------------------------------------------
