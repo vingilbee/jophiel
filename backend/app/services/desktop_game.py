@@ -226,6 +226,9 @@ def _skill_manual(env: DesktopEnvironment) -> list[str]:
                      "guard (fight hostiles close to you or the player you're with), gather (mine listed blocks "
                      "close by on the way, e.g. iron_ore), pickup (grab drops close by). They're the only way "
                      "to do two things at once; which are on is in \"Background modes\" below.")
+        lines.append("Before offering to learn a move: if you can name the skill above that does it, with its "
+                     "parameters, plan that skill instead. If you can't, offer: a step no skill does just gets "
+                     "stuck again.")
         _manual_cache.update(at=now, lines=lines)
     return list(_manual_cache["lines"])
 

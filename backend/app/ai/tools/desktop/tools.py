@@ -282,7 +282,10 @@ def build_desktop_tools(
         """Offer the user to teach yourself a move you don't have yet (your own Minecraft player),
         e.g. when your hands said "no skill for: crossing the river". You'd write a program out of
         your skills, try it and fix it, while your hands wait. Only the user can say go: this asks
-        them. task: the move, in a few words ("cross a river by placing blocks"). question: what you
+        them. First check your hands' skills in your game summary: if you can name the skill that
+        does it, with its parameters (finding a mob: explore with goal mob:<type>), don't offer: put
+        that skill in the plan instead. If you can't name one, offer: a plan step no skill does just
+        gets stuck again. task: the move, in a few words ("cross a river by placing blocks"). question: what you
         say to them, in your own voice ("I can't cross water yet. Want me to try to figure it out?").
         Counts as your one thing to say this time."""
         nonlocal said
@@ -309,7 +312,9 @@ def build_desktop_tools(
         """Teach yourself a move you don't have yet (your own Minecraft player): you write a program
         out of your skills, run it, check what it did and fix it, up to a few tries, while your hands
         wait. Use it when the user says yes to your offer, or asks you to learn something ("learn how
-        to make a furnace"). task: the move, in a few words. It runs in the background: tell the user
+        to make a furnace"). Only for a move none of your hands' skills does: if you can name the
+        skill that does it, with its parameters (finding a mob: explore with goal mob:<type>), say so
+        and put it in the plan instead, unless the user still wants you to learn it. task: the move, in a few words. It runs in the background: tell the user
         you're on it; you'll see how each try went in your game summary."""
         return await _run(game_practice.start, user_id, task=task)
 

@@ -327,6 +327,7 @@ def test_she_sees_her_skills_her_failed_tries_and_her_promises(db, alice, pack):
     desktop_game.note_promise(db, alice.id, promise="tell them when the bed is ready")
     summary = desktop_game.describe(db, alice.id).summary
     assert "Your hands' skills (all they can do, one at a time):" in summary
+    assert "Before offering to learn a move: if you can name the skill above that does it" in summary
     assert "- craft(item, count): Craft an item. Stops when: missing ingredients." in summary
     assert ("This step so far (counted): 2 min, 5 tries, 4 failed: craft(item=white_bed) -> missing ingredients x3; "
             "craft(item=bed) -> no item is called bed.") in summary

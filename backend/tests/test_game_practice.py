@@ -258,6 +258,15 @@ def test_a_background_turn_may_only_offer_and_a_user_turn_may_start():
     assert {"learn_skill", "stop_learning"} <= user_turn and "offer_to_learn" not in user_turn
 
 
+def test_learning_is_only_for_what_no_skill_does():
+    # Live: she offered to learn "find a rabbit", which explore with goal mob:rabbit already does.
+    offer = next(t for t in build_desktop_tools(uuid.uuid4(), GameEvent(("stuck",))) if t.name == "offer_to_learn")
+    learn = next(t for t in build_desktop_tools(uuid.uuid4()) if t.name == "learn_skill")
+    for tool in (offer, learn):
+        text = " ".join(tool.description.split())
+        assert "if you can name the skill that does it" in text and "explore with goal mob:<type>" in text
+
+
 def test_each_try_is_news_in_her_mind():
     state = {"text": "Columbina at (0, 64, 0).", "health": 20}
     before = TickInput(at=0, state=state, learning='learning "cross water": try 1 of 4')
