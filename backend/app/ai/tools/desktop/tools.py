@@ -207,13 +207,17 @@ def build_desktop_tools(
         return await _run(desktop_game.set_careful, user_id, on=on)
 
     @tool
-    async def pause_game() -> str:
-        """Pause playing: let go of every key at once."""
-        return await _run(desktop_game.pause, user_id)
+    async def pause_game(user_asked: bool) -> str:
+        """Pause playing: let go of every key at once. Set user_asked when the user told you to
+        pause; then only they lift it. Otherwise the pause is yours, and you resume it yourself.
+        Being stuck or unsure is not a reason to pause: try another way and ask the user while
+        you keep playing."""
+        return await _run(desktop_game.pause, user_id, user_asked=user_asked and event is None)
 
     @tool
     async def resume_game() -> str:
-        """Continue playing after a pause. Only when the user wants you to continue."""
+        """Continue playing after a pause: one you made yourself (when you know what to do next),
+        or any pause when the user wants you to continue."""
         return await _run(desktop_game.resume, user_id, only_own_pauses=event is not None)
 
     @tool

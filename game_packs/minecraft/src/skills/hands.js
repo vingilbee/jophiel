@@ -12,11 +12,11 @@ const { Vec3 } = require('vec3')
 const REACH = 4
 
 const LIQUIDS = ['water', 'lava']
-const isAir = (block) => block && (block.boundingBox === 'empty') && !LIQUIDS.includes(block.name)
-const isSolid = (block) => block?.boundingBox === 'block'
+export const isAir = (block) => block && (block.boundingBox === 'empty') && !LIQUIDS.includes(block.name)
+export const isSolid = (block) => block?.boundingBox === 'block'
 // A full block (dirt, cobblestone) goes into water or lava like into air, as in the game: how she
 // bridges a river or covers lava. A torch or a flower can't (it would wash away).
-const canGoIn = (there, placing) => isAir(there) || (LIQUIDS.includes(there?.name) && placing?.boundingBox === 'block')
+export const canGoIn = (there, placing) => isAir(there) || (LIQUIDS.includes(there?.name) && placing?.boundingBox === 'block')
 
 // "x y z": the block at that point (decimals are fine: 1.5 is in block 1).
 function parsePlace (text) {
@@ -26,7 +26,7 @@ function parsePlace (text) {
 }
 
 // Is anyone (her included) standing in this block?
-function occupied (bot, position) {
+export function occupied (bot, position) {
   const box = { min: position, max: position.offset(1, 1, 1) }
   return Object.values(bot.entities).some((e) => {
     if (!e.position || e.name === 'item' || e.type === 'projectile' || e.type === 'other') return false

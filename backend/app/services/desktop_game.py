@@ -62,7 +62,7 @@ PACK_SKILLS = ("go somewhere, mine, fight, explore, craft, place a block, eat, s
 # Written to Columbina: she is the one playing. The fast model that presses the
 # keys is her hands, never someone she talks about.
 REASONS = {
-    "user_pause": "the user paused it", "user_takeover": "the user took over the controls",
+    "user_pause": "the user paused it", "columbina_pause": "you paused it yourself", "user_takeover": "the user took over the controls",
     "user_end": "the user ended it", "plan_complete": "you finished everything you set out to do",
     "driver_stuck": "you got stuck", "needs_human": "you need the user (something only they can give or do)",
     "driver_error": "your game controls kept failing", "driver_unavailable": "your game controls are not available (model not configured)",
@@ -844,15 +844,18 @@ def _unpause(db: Session, user_id: uuid.UUID, source: str) -> str:
     """A new goal doesn't move a paused session. After sleeping finished her
     plan she set "gather logs" twice, was told "Done; you're now on: ...", and
     said she'd started while standing still. On the user's turn her own pause
-    (plan done, stuck) resumes with the new goal; any other pause is said plainly."""
+    (plan done, stuck, paused herself) resumes with the new goal. On her own turn
+    only a pause she made or got stuck in does: a finished plan with keep playing
+    off stays stopped. The user's pause is said plainly."""
     session = _live(db, user_id)
     if session.state not in ("paused", "manual", "disconnected"):
         return ""
-    if source == "columbina_user_turn" and session.state == "paused" and session.reason_code in SELF_RESUMABLE:
+    own = SELF_RESUMABLE if source == "columbina_user_turn" else ("columbina_pause", "driver_stuck")
+    if session.state == "paused" and session.reason_code in own:
         try:
             sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
                                     reason="columbina_resume")
-            return " You'd paused after your last goal; you're playing again."
+            return " You'd paused yourself; you're playing again."
         except DesktopError:
             db.rollback()
             session = _live(db, user_id)
@@ -1067,13 +1070,19 @@ def set_careful(db: Session, user_id: uuid.UUID, *, on: bool) -> str:
             if on else "Careful mode off: normal moves again.")
 
 
-def pause(db: Session, user_id: uuid.UUID) -> str:
-    sessions.pause_session(db, user_id, _live(db, user_id).id, reason="user_pause")
-    return "Paused; you've let go of the controls."
+def pause(db: Session, user_id: uuid.UUID, *, user_asked: bool) -> str:
+    """``user_asked``: the user wants the pause, and only they lift it. Otherwise
+    it's hers. Before this (2026-10-15) every pause she made was stamped as the user's, so
+    she couldn't undo them and asked the user to say "go ahead" four times."""
+    reason = "user_pause" if user_asked else "columbina_pause"
+    sessions.pause_session(db, user_id, _live(db, user_id).id, reason=reason)
+    if user_asked:
+        return "Paused; you've let go of the controls. Only the user can lift this pause."
+    return "Paused; you've let go of the controls. It's your pause: resume_game when you know what to do next."
 
 
 # Pauses Columbina may undo on her own: ones she caused. Never the user's.
-SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete")
+SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete", "columbina_pause")
 
 
 def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) -> str:

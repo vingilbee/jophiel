@@ -8,9 +8,10 @@ only after the user said yes (``services/game_practice``). One attempt here:
 1. waits until her body is free (her hands hold while she learns; a skill of
    theirs still running is stopped; her breathing reflex is left to finish);
 2. asks the model for a program: the body of an async function over the pack's
-   skills (``await skills.mine({...})``), ``state()``, ``log()`` and ``wait()``,
-   run in the pack's sandbox (game_packs/minecraft/src/sandbox.js), which can
-   reach nothing else;
+   skills (``await skills.mine({...})``), single actions (``await act.attack(id)``,
+   ``act.dig``/``place``/``look``/``equip``/``jump``: what a move no skill has is
+   built from), ``state()``, ``log()`` and ``wait()``, run in the pack's sandbox
+   (game_packs/minecraft/src/sandbox.js), which can reach nothing else;
 3. runs it in the world and waits for it, checking every few seconds that the
    session still plays and nobody asked her to stop;
 4. counts what changed, by code (inventory, blocks around where the try began,
@@ -21,7 +22,12 @@ only after the user said yes (``services/game_practice``). One attempt here:
    go into the next try, up to ``max_tries``.
 
 Getting hurt or being stopped ends the attempt; a program that errors or misses
-is just a failed try. Every try is reported (``save``) as it ends, so the user
+is just a failed try. A program that finds the task can't be done even with
+single actions says so (``impossible``, ``missing``); said by two tries in a row
+it ends the attempt, instead of spending the rest of the tries saying it again
+(seen live: "attack a rabbit", tries 3 and 4). Once isn't enough: in a trial she
+called climbing out of a stone shaft impossible ("no blocks") on try 1, though
+digging the stone gives her the blocks. Every try is reported (``save``) as it ends, so the user
 can read what she wrote even if the attempt is cut short.
 """
 from __future__ import annotations
@@ -93,18 +99,37 @@ The program is the body of an async JavaScript function. It runs in a sealed san
 If a skill ends hurt or stopped, the whole program ends at once.
 - state(): what you see right now, as an object: position {{x, y, z}} (your feet), facing {{compass}}, \
 standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, inventory \
-[{{name, count}}], armor, nearby [{{label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs; \
-the user is a nearby entry with kind "player"), blocks [{{kind, name, distance, side, dy}}] (the nearest log, ore, \
+[{{name, count}}], armor, nearby [{{id, label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs: \
+label is the mob ("rabbit", "zombie") or the player's name; kind is the game's type: "player", "hostile", \
+"animal", "passive", "water_creature", "ambient", "projectile" or "other", so find a mob by its label), blocks [{{kind, name, distance, side, dy}}] (the nearest log, ore, \
 water, lava, crafting table, furnace, bed, chest), players [{{name, holding, health, moving, pose}}], time {{phase}}, \
 weather.
 - blockAt(x, y, z): the block at a spot, {{ name, solid, x, y, z }} (null where the world isn't loaded). \
 Blocks sit at whole-number coordinates: the block your feet are in is (Math.floor(x), Math.floor(y), \
-Math.floor(z)) of your position, and the ground under you is one lower.
+Math.floor(z)) of your position, and the ground under you is one lower. You are 2 blocks tall: your feet's \
+block and your head's (y + 1); the first block over your head is y + 2.
 - findBlocks(name, {{ radius, count }}): the nearest blocks of that kind, [{{ x, y, z, distance }}], nearest \
 first (radius up to 32, count up to 64; a name like "_log" matches every kind of log).
+- act.<name>(...): single actions, what any move is made of. Each does one thing at once and resolves with \
+{{ status: "done" | "failed" | "busy", reason, data }}:
+  - act.attack(id): one swing at the entity with that id (from state().nearby), if it's within 3 m of your eyes; \
+data.cooldown_ms is how long to wait before the next swing hits fully. A fight is a loop: get close, swing, wait, \
+check it's still there.
+  - act.dig(x, y, z): break that one block (within 4.5 m) with the best tool you carry. What you break drops \
+and you pick it up when it's close (stone gives cobblestone): dig waits a moment for it (data.picked_up), so what \
+you dig you can place.
+  - act.place(x, y, z, item?): put the held block (or item, equipped first) there, against a solid block beside it.
+  - act.look(x, y, z): face that point (a block's middle is +0.5 on each axis).
+  - act.equip(item, slot?): hold an item, or wear it (slot hand, off-hand, head, torso, legs, feet).
+  - act.jump(): one jump from the ground; it resolves at the top of the jump (data.rose: how high), and you fall \
+back right after. To climb a block: note your feet's block (x, y, z), act.look at the block under it, act.jump(), \
+then at once act.place(x, y, z, "<a block you carry>"): you land on it, one block higher. A full jump needs the \
+2 blocks over your head (y + 2 and y + 3) clear: dig them first.
+  Up to 400 actions per program; never while a skill is still running (await it first).
 - log(...values): a note kept with the result (use it to see what happened).
 - wait(ms): pause, at most 30000.
-Nothing else exists: no require, import, fetch, timers, process or files. Skills run one at a time; await each.
+Nothing else exists: no require, import, fetch, timers, process or files. Skills and actions run one at a time; \
+await each.
 
 Your skills:
 {skill_manual(manifest)}
@@ -114,18 +139,24 @@ Rules:
 assume a skill worked.
 - Look before you act: read state(), and use blockAt/findBlocks to find out where things are (water, a gap, \
 the ground) instead of guessing coordinates. Use the real positions and names they give.
-- Keep it short: under 60 lines, at most 40 skill calls, no endless loops (bound every loop).
+- When no skill does it, build it from single actions: that's what they're for. A skill refusing (e.g. fight \
+only takes hostile mobs) is not the end.
+- Keep it short: under 80 lines, at most 40 skill calls, no endless loops (bound every loop).
 - Return a small object that says what you did and whether it worked, e.g. {{ done: true, crossed: 12 }}.
+- If the task can't be done at all with your skills and single actions (not "not now": a mob that wandered off \
+or an item you lack is just a miss), return {{ done: false, impossible: true, missing: "<the action or ability \
+you'd need>" }}. Said twice in a row, that ends the learning, so be sure.
 - Write only the function body: no function declaration, no markdown fences.
-- The user is playing next to you. Never attack players, and don't break blocks you didn't place unless the task \
-needs it.
+- The user is playing next to you. Hit only what the task is about, and don't break blocks you didn't place unless \
+the task needs it.
 """
 
 
 CRITIC_PROMPT = """You check whether a program Columbina wrote did its task in a game. You get the task, what \
-the program returned, each skill it called with its outcome and what the skill itself reported, its log, and \
-facts counted by code from the game before and after (inventory changes, blocks around where the try began, \
-distance moved, health, how long she was in water while it ran). Judge from the counted facts and the skills' own reports: the program's return value \
+the program returned, each skill it called with its outcome and what the skill itself reported, the single \
+actions it took (swings, blocks dug or placed) with their outcomes, its log, and facts counted by code from the game \
+before and after (inventory changes, blocks around where the try began, who and what was nearby, distance moved, \
+health, how long she was in water while it ran). Judge from the counted facts and the skills' own reports: the program's return value \
 and log are its claims, not proof. A block placed shows as +1 of it in the blocks counted. Success means the \
 task is actually done in the world. If it isn't, say in one or two sentences what went wrong, so the next try \
 can fix it."""
@@ -240,6 +271,22 @@ class PracticeRun:
             return PracticeResult("failed", f"got hurt trying ({program.get('reason')})", tries=self.tries)
         if status == "error":
             entry["verdict"] = {"success": False, "reason": f"the program broke: {program.get('reason')}"}
+            self._record(entry)
+            return None
+        value = program.get("value")
+        if status == "done" and isinstance(value, dict) and value.get("impossible") is True:
+            missing = str(value.get("missing") or "something no skill or action does")[:200]
+            again = bool(self.tries) and bool(self.tries[-1].get("impossible"))
+            entry["impossible"] = True
+            if again:
+                entry["verdict"] = {"success": False, "reason": f"can't be done with what I have: missing {missing}"}
+                self._record(entry)
+                return PracticeResult("failed", f"can't be done with my skills and single actions (missing {missing})",
+                                      tries=self.tries)
+            entry["verdict"] = {"success": False, "reason": (
+                f"you said it can't be done (missing {missing}). Be sure: think again about what your skills and "
+                "single actions can do together, and what you carry or could get on the way. If it truly can't be "
+                "done, say so again.")}
             self._record(entry)
             return None
         try:
@@ -369,7 +416,19 @@ def counted_facts(before: dict, after: dict, *, first: dict | None = None) -> di
     for key in ("health", "food"):
         if before.get(key) is not None and after.get(key) is not None:
             facts[key] = [before[key], after[key]]
+    if isinstance(before.get("nearby"), list) and isinstance(after.get("nearby"), list):
+        facts["nearby"] = census_change({"counts": _nearby_counts(before)}, {"counts": _nearby_counts(after)})
     return facts
+
+
+def _nearby_counts(state: dict) -> dict[str, int]:
+    """Who and what she sees around her, by label ("rabbit": 2), dropped items left out."""
+    counts: dict[str, int] = {}
+    for entity in state.get("nearby") or []:
+        label = entity.get("label") if isinstance(entity, dict) else None
+        if isinstance(label, str) and not label.endswith("(dropped)"):
+            counts[label] = counts.get(label, 0) + 1
+    return counts
 
 
 def census_change(before: dict, after: dict) -> str:
@@ -386,6 +445,8 @@ def facts_text(facts: dict) -> str:
         parts.append(f"inventory since you started learning this: {facts['inventory_since_start']}")
     if "blocks_around_start" in facts:
         parts.append(f"blocks within {CENSUS_RADIUS} of where the try began: {facts['blocks_around_start']}")
+    if "nearby" in facts:
+        parts.append(f"around you (players and mobs in sight): {facts['nearby']}")
     if "moved_m" in facts:
         parts.append(f"moved {facts['moved_m']} m from {facts['from']} to {facts['to']}")
     for key in ("health", "food"):
@@ -405,9 +466,18 @@ def _short_program(program: dict) -> dict:
                   for c in
                   (program.get("calls") or [])[-CALLS_SHOWN:]],
         "calls_total": len(program.get("calls") or []),
+        "actions": _short_actions(program.get("actions")),
         "log": (program.get("log") or [])[-LOG_SHOWN:],
         "seconds": program.get("seconds"),
     }
+
+
+def _short_actions(actions) -> dict | None:
+    """Her single actions, counted by the pack: how many of each, and the last few."""
+    if not isinstance(actions, dict) or not actions.get("total"):
+        return None
+    return {"total": actions.get("total"), "by": actions.get("by") or {},
+            "last": [{k: a.get(k) for k in ("action", "args", "status", "reason")} for a in (actions.get("last") or [])][-8:]}
 
 
 def _short_data(data) -> dict | None:
@@ -439,6 +509,12 @@ def program_text(program: dict) -> str:
                   + (f" [the skill reported: {c['data']}]" if c.get("data") else "") for c in calls]
     else:
         lines.append("No skill calls.")
+    actions = program.get("actions")
+    if actions:
+        counts = ", ".join(f"{name} x{n}" for name, n in actions.get("by", {}).items())
+        lines.append(f"Single actions: {actions.get('total')} ({counts}); the last:")
+        lines += [f"  act.{a['action']}({', '.join(map(str, a.get('args') or []))}) -> {a['status']}"
+                  + (f": {a['reason']}" if a.get("reason") else "") for a in actions.get("last") or []]
     if program.get("log"):
         lines.append("Log: " + " | ".join(program["log"]))
     return "\n".join(lines)

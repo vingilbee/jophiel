@@ -87,6 +87,60 @@ describe('her code on a real server', { skip: !eulaAccepted() && 'accept the Min
     assert.ok(bot.entity.position.distanceTo(at) < 0.5, 'still moving after stop')
   })
 
+  test('a move no skill has, out of single actions: she hits a rabbit until it is gone', async () => {
+    await mc(`tp ${NAME} ${origin.x} ${origin.y} ${origin.z}`)
+    await mc(`kill @e[type=rabbit]`)
+    await mc(`summon minecraft:rabbit ${origin.x + 3} ${origin.y} ${origin.z} {NoAI:1b}`)
+    await until(() => Object.values(bot.entities).some((e) => e.name === 'rabbit'), 5000)
+    const result = await runProgram(runner, `
+      const rabbit = state().nearby.find((e) => e.label === 'rabbit')
+      if (!rabbit) return { done: false, reason: 'no rabbit' }
+      const near = await skills.go_to({ target: 'mob:rabbit', range: 1 })
+      if (near.status !== 'done') return { done: false, reason: near.reason }
+      let swings = 0
+      while (swings < 30 && state().nearby.some((e) => e.id === rabbit.id)) {
+        const hit = await act.attack(rabbit.id)
+        swings++
+        if (hit.status !== 'done') log(hit.reason)
+        await wait(hit.data.cooldown_ms ?? 300)
+      }
+      return { done: !state().nearby.some((e) => e.id === rabbit.id), swings }
+    `)
+    assert.equal(result.status, 'done', JSON.stringify(result))
+    assert.equal(result.value.done, true, JSON.stringify(result))
+    assert.ok(result.actions.by.attack >= 1)
+  })
+
+  test('climbing out by single actions: jump, put dirt under her feet, three times', async () => {
+    await mc(`tp ${NAME} ${origin.x} ${origin.y} ${origin.z}`)
+    await mc(`clear ${NAME}`)
+    await mc(`give ${NAME} minecraft:dirt 8`)
+    await until(() => bot.inventory.items().some((i) => i.name === 'dirt'))
+    await until(() => bot.entity.onGround, 5000)
+    const startY = bot.entity.position.y
+    const result = await runProgram(runner, `
+      for (let i = 0; i < 3; i++) {
+        const p = state().position
+        const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+        await act.look(x + 0.5, y - 1, z + 0.5)
+        await act.jump() // resolves at the top
+        const placed = await act.place(x, y, z, 'dirt')
+        log(placed.status, placed.reason)
+        await wait(500)
+      }
+      return state().position.y
+    `)
+    assert.equal(result.status, 'done', JSON.stringify(result))
+    assert.ok(bot.entity.position.y >= startY + 2, JSON.stringify(result))
+    // and back down: dig the block she stands on
+    const down = await runProgram(runner, `
+      const p = state().position
+      return await act.dig(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z))
+    `)
+    assert.equal(down.value.status, 'done', JSON.stringify(down))
+    await mc(`fill ${origin.x} ${origin.y} ${origin.z} ${origin.x} ${origin.y + 3} ${origin.z} minecraft:air`) // no pillar to land in
+  })
+
   test('through the API: start a program, busy while it runs, stop it, read its result', async () => {
     await mc(`tp ${NAME} ${origin.x} ${origin.y} ${origin.z}`)
     await sleep(500)

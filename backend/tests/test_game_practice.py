@@ -383,3 +383,56 @@ def test_reset_game_scope_wipes_attempts(db, user):
     memory_reset.reset(db, user_ids=[user.id], scopes=["game"])
     assert db.query(GameSkillAttempt).count() == 0
     assert db.get(DesktopSession, session.id) is not None
+
+
+def test_cant_be_done_said_twice_in_a_row_ends_learning_without_the_critic():
+    """Seen live: "attack a rabbit", tries 3 and 4 only said again that no skill could. Once isn't
+    enough: climbing out of stone was called impossible on try 1, though digging gives the blocks."""
+    impossible = {"done": False, "impossible": True, "missing": "a way to fly"}
+    pack = FakePack([(_program(calls=[], value=impossible), _state()), (_program(calls=[], value=impossible), _state())])
+    code = "return { done: false, impossible: true, missing: 'a way to fly' }"
+    writer = Recording(_written(code=code), _written(code=code))
+    critic = Recording()
+    result, saved = _learner(pack, writer, critic)
+    result = result.run()
+    assert result.status == "failed" and "missing a way to fly" in result.reason
+    assert len(result.tries) == 2 and critic.prompts == []
+    assert "Be sure: think again" in writer.prompts[1]
+    assert saved[-1][1]["verdict"]["reason"] == "can't be done with what I have: missing a way to fly"
+
+
+def test_cant_be_done_once_then_a_try_that_works_is_learned():
+    impossible = {"done": False, "impossible": True, "missing": "blocks"}
+    pack = FakePack([(_program(calls=[], value=impossible), _state()), (_program(), _state(logs=3))])
+    writer = Recording(_written(), _written())
+    critic = Recording({"success": True, "reason": "oak_log 0 -> 3"})
+    result = _learner(pack, writer, critic)[0].run()
+    assert result.status == "learned" and len(result.tries) == 2
+
+
+def test_single_actions_and_who_is_around_reach_the_next_try_and_the_critic():
+    before = {**_state(), "nearby": [{"id": 7, "label": "rabbit", "kind": "animal"},
+                                     {"id": 3, "label": "tearDrop12", "kind": "player"}]}
+    after = {**_state(), "nearby": [{"id": 3, "label": "tearDrop12", "kind": "player"},
+                                    {"id": 9, "label": "rabbit_hide (dropped)", "kind": "other"}]}
+    actions = {"total": 4, "by": {"attack": 4}, "last": [
+        {"action": "attack", "args": [7], "status": "done", "reason": None},
+        {"action": "attack", "args": [7], "status": "failed", "reason": "out of reach: rabbit is 4.1 m away"}]}
+    pack = FakePack([({**_program(calls=[]), "actions": actions}, after), (_program(calls=[]), after)])
+    pack.state_now = before
+    writer = Recording(_written(code="await act.attack(7)"), _written(code="await act.attack(7)"))
+    critic = Recording({"success": False, "reason": "no"}, {"success": True, "reason": "rabbit 1 -> 0"})
+    _learner(pack, writer, critic)[0].run()
+    assert "Single actions: 4 (attack x4)" in critic.prompts[0]
+    assert "act.attack(7) -> failed: out of reach: rabbit is 4.1 m away" in critic.prompts[0]
+    assert "rabbit 1 -> 0 (-1)" in critic.prompts[0]  # dropped items aren't counted as who's around
+    assert "Single actions: 4 (attack x4)" in writer.prompts[1]
+
+
+def test_the_writer_is_told_about_single_actions_and_how_to_find_a_mob():
+    prompt = writer_prompt(MANIFEST)
+    for name in ("act.attack(id)", "act.dig(x, y, z)", "act.place(x, y, z, item?)", "act.look(x, y, z)",
+                 "act.equip(item, slot?)", "act.jump()"):
+        assert name in prompt
+    assert '"animal"' in prompt and "find a mob by its label" in prompt
+    assert "impossible: true" in prompt

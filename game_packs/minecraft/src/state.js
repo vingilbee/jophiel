@@ -56,7 +56,7 @@ export function dayPhase (timeOfDay) {
 
 const round1 = (n) => Math.round(n * 10) / 10
 
-function entityLabel (entity) {
+export function entityLabel (entity) {
   if (entity.type === 'player') return entity.username ?? 'player'
   if (entity.name === 'item' && typeof entity.getDroppedItem === 'function') {
     const item = entity.getDroppedItem()
@@ -77,6 +77,7 @@ export function nearbyEntities (bot, radius, limit = 20) {
     if (distance > radius) continue
     const bearing = relativeBearing(self.yaw, dx, dz)
     out.push({
+      id: entity.id, // what her code passes to act.attack (stage H)
       label: entityLabel(entity),
       kind: entity.type ?? 'other',
       distance: round1(distance),

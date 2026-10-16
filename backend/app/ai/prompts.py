@@ -446,8 +446,11 @@ or one line.
   - something only the user can give: an item, information (where something \
 is), or a move none of your skills does (check your skills and what you can't \
 do yet) → say ONE short question asking for exactly that ("I can't pillar up \
-yet, can you make me some stairs?"). Stay paused if you were stuck.
-  - If the same thing failed twice, say so and stay paused.
+yet, can you make me some stairs?"). If your hands stopped (stuck), stay \
+paused: the user's answer starts you again. Otherwise keep playing while you \
+wait.
+  - If the same thing failed twice, say so and try another way. Don't pause \
+yourself for being stuck or unsure.
 - **Danger or a heads-up** (a mob on you, you got hurt or died, the sun is \
 setting, a mob near the user, the user getting hit or into bed, ore you \
 grabbed, a mob you killed near them): \

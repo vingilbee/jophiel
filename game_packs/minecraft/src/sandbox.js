@@ -6,7 +6,9 @@
 //   - state(): what she sees right now (readState), as plain data;
 //   - log(...): lines kept with the result;
 //   - wait(ms): pause up to 30 s (there are no timers in the box), ended early by stop;
-//   - blockAt(x, y, z) and findBlocks(name, { radius, count }): read-only looks at the world.
+//   - blockAt(x, y, z) and findBlocks(name, { radius, count }): read-only looks at the world;
+//   - act.<name>(...): single actions (src/actions.js: attack, dig, place, look, equip, jump), what
+//     a move no skill has is built from. One at a time, never while a skill of hers runs.
 // Her code is the body of an async function; whatever it returns is the program's value.
 //
 // Safety for the whole program, not just each skill: stop() on the runner stops the program too,
@@ -20,6 +22,8 @@ import { randomUUID } from 'node:crypto'
 import { BusyError, UnknownSkillError } from './skills/runner.js'
 import { ParamError } from './skills/contract.js'
 import { readState } from './state.js'
+import { ACTION_NAMES, createActions } from './actions.js'
+import { stopEverything } from './skills/common.js'
 
 const require = createRequire(import.meta.url)
 const ivm = require('isolated-vm')
@@ -30,6 +34,8 @@ const MEMORY_MB = 32
 const CPU_MS = 2000 // her code's own thinking time; waiting on skills costs none
 const CPU_CHECK_MS = 250
 const MAX_CALLS = 40
+const MAX_ACTIONS = 400 // single actions are small: a fight is dozens of swings
+const ACTIONS_SHOWN = 12
 const LOG_LINES = 50
 const REFLEX_WAIT_MS = 25000
 const MAX_WAIT_MS = 30000
@@ -43,6 +49,7 @@ const ENDS_PROGRAM = new Set(['hurt', 'stopped'])
 class ProgramEnd extends Error {
   constructor (status, reason) {
     super(reason)
+    this.name = 'ProgramEnd'
     this.status = status
     this.reason = reason
   }
@@ -63,6 +70,9 @@ const blockAt = (x, y, z) => JSON.parse(_blockAt.applySync(undefined, [Number(x)
 const findBlocks = (name, options = {}) => JSON.parse(_findBlocks.applySync(undefined, [String(name), JSON.stringify(options)],
   { arguments: { copy: true }, result: { copy: true } }));
 const wait = (ms) => _wait.apply(undefined, [Number(ms) || 0], { arguments: { copy: true }, result: { promise: true } });
+const act = Object.freeze(Object.fromEntries(${JSON.stringify(ACTION_NAMES)}.map((name) => [name,
+  (...args) => _act.apply(undefined, [name, JSON.stringify(args)],
+    { arguments: { copy: true }, result: { promise: true } }).then((text) => JSON.parse(text))])));
 const log = (...args) => _log.applySync(undefined,
   [args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')], { arguments: { copy: true } });
 `
@@ -76,6 +86,8 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
   const readNow = state ?? (() => readState(bot))
   const started = Date.now()
   const calls = []
+  const actions = { total: 0, by: {}, last: [] } // single actions: counted, the last few kept
+  let acting = false
   const lines = []
   let end = null
   let finish
@@ -86,6 +98,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     if (end) return
     end = new ProgramEnd(status, reason)
     finish(end)
+    if (acting) stopEverything(bot) // a dig or a turn in progress settles now
     if (runner.current?.source === 'program') runner.stop(reason)
     if (!isolate.isDisposed) isolate.dispose()
   }
@@ -101,6 +114,8 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
   const watch = setInterval(() => {
     if (bot.entity?.isInWater) body.in_water_seconds += BODY_CHECK_MS / 1000
     if (typeof bot.health === 'number') body.lowest_health = Math.min(body.lowest_health ?? bot.health, bot.health)
+    // A skill of hers ends hurt by itself (the runner); between skills, low health ends the program.
+    if (!runner.current && bot.health <= runner.lowHealth) stopProgram('hurt', `health low (${Math.round(bot.health)}/20)`)
   }, BODY_CHECK_MS)
   const cpu = setInterval(() => {
     if (!isolate.isDisposed && Number(isolate.cpuTime) / 1e6 > cpuMs) stopProgram('failed', `her code ran too long without a skill (over ${cpuMs} ms of thinking)`)
@@ -139,10 +154,59 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     return JSON.stringify(outcome)
   }
 
+  const endedError = ended.then((e) => { throw e })
+  endedError.catch(() => {}) // only ever read through race
+  const race = (promise) => Promise.race([promise, endedError])
+  const act = createActions(bot, { race })
+
+  async function callAction (name, argsText) {
+    if (end) throw end
+    if (actions.total >= MAX_ACTIONS) {
+      stopProgram('failed', `more than ${MAX_ACTIONS} single actions`)
+      throw end
+    }
+    if (bot.health <= runner.lowHealth) {
+      stopProgram('hurt', `health low (${Math.round(bot.health)}/20)`)
+      throw end
+    }
+    if (runner.current?.source === 'reflex') await runner.wait(runner.current.id, REFLEX_WAIT_MS)
+    if (end) throw end
+    const args = safeParse(argsText)
+    let outcome
+    if (acting) outcome = { status: 'busy', reason: 'another action is still going: await each one', data: {} }
+    else if (runner.current) outcome = { status: 'busy', reason: `${runner.current.skill} is still running: await it first`, data: {} }
+    else {
+      acting = true
+      try {
+        outcome = await act[name](...(Array.isArray(args) ? args : []))
+      } catch (err) {
+        if (end) throw end
+        outcome = { status: 'failed', reason: err?.message ?? String(err), data: {} }
+      } finally {
+        acting = false
+      }
+    }
+    actions.total++
+    actions.by[name] = (actions.by[name] ?? 0) + 1
+    actions.last.push({ action: name, args, status: outcome.status, reason: outcome.reason })
+    if (actions.last.length > ACTIONS_SHOWN) actions.last.shift()
+    if (end) throw end
+    return JSON.stringify(outcome)
+  }
+
   try {
     const context = await isolate.createContext()
     const global = context.global
-    await global.set('_skill', new ivm.Reference((name, paramsText) => callSkill(name, paramsText)))
+    // A call refused as the program ends rejects after the box is gone: nobody is left to read it.
+    const handled = (promise) => {
+      promise.catch(() => {})
+      return promise
+    }
+    await global.set('_skill', new ivm.Reference((name, paramsText) => handled(callSkill(name, paramsText))))
+    await global.set('_act', new ivm.Reference((name, argsText) => {
+      if (!ACTION_NAMES.includes(name)) return Promise.resolve(JSON.stringify({ status: 'invalid', reason: `no action named ${name}`, data: {} }))
+      return handled(callAction(name, argsText))
+    }))
     await global.set('_state', new ivm.Reference(() => JSON.stringify(readNow())))
     await global.set('_blockAt', new ivm.Reference((x, y, z) => JSON.stringify(lookAt(bot, x, y, z))))
     await global.set('_findBlocks', new ivm.Reference((name, optionsText) => JSON.stringify(find(bot, name, safeParse(optionsText)))))
@@ -189,6 +253,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     reason: end.reason,
     value: end.value,
     calls: calls.map((c) => ({ skill: c.skill, params: c.params, status: c.status, reason: c.reason, data: c.data, seconds: c.seconds })),
+    actions,
     log: lines,
     seconds: Math.round((Date.now() - started) / 100) / 10,
     body: { ...body, in_water_seconds: Math.round(body.in_water_seconds * 10) / 10 }

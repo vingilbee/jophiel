@@ -136,7 +136,7 @@ def test_pausing_stops_the_skill_her_hands_started_but_not_one_run_by_hand(db, a
     desktop_game.start(db, alice.id, goal="Mine stone")
     game_pack.sync(db, pack)
     pack.running = {"id": "r1", "skill": "mine", "source": "driver"}
-    desktop_game.pause(db, alice.id)
+    desktop_game.pause(db, alice.id, user_asked=True)
     assert pack.stops == 1 and pack.running is None
     pack.running = {"id": "r2", "skill": "follow_player", "source": "user"}
     game_pack.sync(db, pack)

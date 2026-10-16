@@ -26,7 +26,8 @@ For Minecraft this replaces the VM key-pressing. You play in the VM as usual and
 | `src/noticing.js` | The noticing layer: villages, mobs, ores, lava, night, players, damage, noticed once each |
 | `src/world_memory.js` | Her memory of each world: explored ground and noted places (`var/explore/`) |
 | `src/skills/doors.js` | Routes through doors/gates, opens them on the way, closes them behind her |
-| `src/sandbox.js` | The sealed box her own code runs in (stage H): skills, state and log only |
+| `src/sandbox.js` | The sealed box her own code runs in (stage H): skills, single actions, state and log only |
+| `src/actions.js` | Single actions for her code (`act.attack/dig/place/look/equip/jump`): what a move no skill has is built from |
 | `src/pack.js` | Wires pathfinding + skills + runner into a bot (the service and the tests use the same wiring) |
 | `scripts/smoke.js` | End-to-end check against a throwaway flying-squid server (no Minecraft needed) |
 | `test/integration/` | Every skill against a real vanilla server (flat test world, set up by console commands) |
@@ -153,7 +154,13 @@ with stop, time limits, low health, modes and breathing; it returns `{ status, r
 status `invalid` for bad params), `state()` (what she sees, as plain data), `log(...)`, `wait(ms)`
 (up to 30 s; there are no timers), and two read-only looks at the world: `blockAt(x, y, z)`
 (`{ name, solid, x, y, z }`) and `findBlocks(name, { radius, count })` (nearest first; a name
-like `_log` matches every kind). Nothing
+like `_log` matches every kind). It also has single actions, `act.<name>(...)` (`src/actions.js`),
+what a move no skill has is built from: `attack(id)` (one swing at `state().nearby[i].id` within 3 m;
+no target is off limits, players included), `dig(x, y, z)` (one block within 4.5 m, best tool
+equipped; waits a moment for the drop), `place(x, y, z, item?)`, `look(x, y, z)`, `equip(item,
+slot?)` and `jump()` (resolves at the top of the jump, so placing under her feet right after
+climbs). Each returns `{ status: 'done' | 'failed' | 'busy', reason, data }`; one at a time, never
+while a skill of hers runs, up to 400 per program, and stop cuts one short. Nothing
 else: it runs in a separate V8 isolate (`isolated-vm`) with no `require`, files, network,
 `process` or timers. `runner.stop()` ends the program as well as its skill; a skill ending `hurt`
 or `stopped`, low health, death or a disconnect end it; a time limit (300 s), a CPU budget (2 s of

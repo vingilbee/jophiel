@@ -49,6 +49,13 @@ def _full(attempt: GameSkillAttempt) -> str:
             for c in program.get("calls") or []:
                 out.append(f"    {c.get('skill')}({c.get('params')}) -> {c.get('status')}"
                            + (f": {c['reason']}" if c.get("reason") else ""))
+            actions = program.get("actions")
+            if actions:
+                counts = ", ".join(f"{name} x{n}" for name, n in (actions.get("by") or {}).items())
+                out.append(f"    single actions: {actions.get('total')} ({counts}); the last:")
+                for a in actions.get("last") or []:
+                    out.append(f"      act.{a.get('action')}({', '.join(map(str, a.get('args') or []))}) -> {a.get('status')}"
+                               + (f": {a['reason']}" if a.get("reason") else ""))
             if program.get("log"):
                 out.append("log: " + " | ".join(program["log"]))
             if program.get("value") is not None:
