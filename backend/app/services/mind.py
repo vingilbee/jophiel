@@ -42,6 +42,11 @@ log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 THOUGHTS_IN_TICK = 5
 THOUGHT_WINDOW = timedelta(minutes=10)
+# An unfinished hard thought is handed to the next one once, if it's this recent. It used to be carried
+# whole, its own carried part included, so they nested: live, a user message from 17:49 still rode
+# along at 18:01, and "learning: try 2 of 4" made her say "still practising" after the move worked.
+UNFINISHED_FOR = timedelta(seconds=90)
+CARRIED = " (unfinished from before"
 HARD_TTL_SECONDS = 180  # a hard thought still "running" after this long is presumed lost
 STALE_AFTER = {"react": 4.0, "light": 12.0, "quiet": 20.0}  # a quick thought landing later than this isn't said
 SAME_DANGER_SECONDS = 8.0  # no new reaction to the same danger this soon, unless it got worse
@@ -126,12 +131,22 @@ def recent_thoughts(db: Session, session_id: uuid.UUID, now: datetime, limit: in
              "at": r.created_at.timestamp()} for r in reversed(rows)]
 
 
-def _unfinished(db: Session, session_id: uuid.UUID, now: datetime) -> str | None:
+def base_topic(topic: str | None) -> str | None:
+    """A hard thought's own topic, without what it carried from an unfinished one."""
+    return topic.split(CARRIED, 1)[0].strip() if topic else topic
+
+
+def _unfinished(db: Session, session_id: uuid.UUID, now: datetime) -> tuple[str, float] | None:
+    """The latest unfinished hard thought, if recent, as (topic, seconds ago); handed on only once
+    (marked stale here: the next thought has it now)."""
     row = db.scalar(
         select(MindThought).where(MindThought.session_id == session_id, MindThought.status == "unfinished",
-                                  MindThought.created_at >= now - THOUGHT_WINDOW)
+                                  MindThought.created_at >= now - UNFINISHED_FOR)
         .order_by(MindThought.created_at.desc()).limit(1))
-    return row.topic if row is not None else None
+    if row is None or not row.topic:
+        return None
+    row.status = "stale"
+    return base_topic(row.topic), max(0.0, (now - row.created_at).total_seconds())
 
 
 def save_thought(db: Session, *, user_id: uuid.UUID, session_id: uuid.UUID | None, level: str, text: str,
@@ -375,8 +390,12 @@ def _think_quick(session_id: uuid.UUID, user_id: uuid.UUID, level: str, text: st
 
 def _think_hard(db: Session, session: DesktopSession, topic: str, at: float) -> None:
     """Hand the moment to Luna as a background game turn; its reply becomes the thought."""
+    topic = base_topic(topic) or topic
     unfinished = _unfinished(db, session.id, datetime.fromtimestamp(at, timezone.utc))
-    detail = topic + (f" (unfinished from before: {unfinished})" if unfinished and unfinished != topic else "")
+    detail = topic
+    if unfinished and unfinished[0] != topic:
+        detail += (f"{CARRIED}, {round(unfinished[1])} s ago, so check it still holds before acting on it: "
+                   f"{unfinished[0]})")
     agent_events.enqueue(
         db, user_id=session.owner_user_id, source="desktop", dedupe_key=str(session.id),
         reason=f"thought: {detail}"[:400],
@@ -389,6 +408,7 @@ def _think_hard(db: Session, session: DesktopSession, topic: str, at: float) -> 
 
 def hard_thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str | None, reply: str | None) -> None:
     """Called by the background turn: store what she thought (or that it couldn't run)."""
+    topic = base_topic(topic)
     with SessionLocal() as db:
         text = " ".join((reply or "").split())
         if text:

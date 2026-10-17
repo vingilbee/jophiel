@@ -136,8 +136,12 @@ forgotten when a block in it changes; the whole thing is recomputed after she mo
 or digs up when there's no way out). Both walk there in short legs (a stop every 6 blocks, walking
 first and digging only where walking can't): one long search through diggable ground gave up, or
 tunnelled beside the open way and got stuck. When digging is allowed and she makes no progress for 4 s
-(a jump bumping a low cave ceiling), she breaks the block over her head and tries again. A player in
-spectator mode is said to be invisible and isn't chased.
+(a jump bumping a low cave ceiling), she breaks the block over her head and tries again; still for 12 s
+without even "moving" (wedged on a block's edge), she steps back to the middle of her block first. A
+block she's digging is never given up half dug: by hand terracotta takes 6.25 s, and the route search's
+time running out (5 s) used to start the walk over and the same block with it, forever. A dig walk now
+waits for the real arrival, finishes the block before ending, and its 20 s limit counts from the last
+block broken or block gained. A player in spectator mode is said to be invisible and isn't chased.
 
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|
@@ -184,8 +188,8 @@ like `_log` matches every kind). It also has single actions, `act.<name>(...)` (
 what a move no skill has is built from: `attack(id)` (one swing at `state().nearby[i].id` within 3 m;
 no target is off limits, players included), `dig(x, y, z)` (one block within 4.5 m, best tool
 equipped; waits a moment for the drop), `place(x, y, z, item?)`, `look(x, y, z)`, `equip(item,
-slot?)` and `jump()` (resolves at the top of the jump, so placing under her feet right after
-climbs). Each returns `{ status: 'done' | 'failed' | 'busy', reason, data }`; one at a time, never
+slot?)` and `jump()` (resolves once her feet are a block up, still rising, so placing under her feet right
+after climbs; a block under her own feet mid-jump goes in at once, wherever she's looking). Each returns `{ status: 'done' | 'failed' | 'busy', reason, data }`; one at a time, never
 while a skill of hers runs, up to 400 per program, and stop cuts one short. Nothing
 else: it runs in a separate V8 isolate (`isolated-vm`) with no `require`, files, network,
 `process` or timers. `runner.stop()` ends the program as well as its skill; a skill ending `hurt`
@@ -193,7 +197,9 @@ or `stopped`, low health, death or a disconnect end it; a time limit (300 s), a 
 her code's own work, so an endless loop dies; waiting on skills costs none), 32 MB and 40 skill
 calls cap it. The pack's own thread never waits on her code. While a program runs, no one else
 can start a skill (her breathing reflex still can). Her learner (stage H1, in the backend:
-`app/ai/desktop/practice.py`) writes these programs when she teaches herself a move; to try one by
+`app/ai/desktop/practice.py`) writes these programs when she teaches herself a move, and one that
+worked becomes one of her moves (stage H2, `app/services/game_skills.py`): her hands pick it like a
+skill, `learned_<words>(times)`, and it runs here as a program, `times` times in a row. To try one by
 hand, with the server and the pack running:
 
 ```bash

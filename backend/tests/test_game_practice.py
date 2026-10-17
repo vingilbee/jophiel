@@ -283,8 +283,8 @@ def test_each_try_is_news_in_her_mind():
 # The record, offers, start/stop and the worker (real PostgreSQL)
 # --------------------------------------------------------------------------- #
 
-from app.db.models import DesktopEnvironment, DesktopSession, GameSkillAttempt, User  # noqa: E402
-from app.services import desktop_sessions, game_practice, memory_reset  # noqa: E402
+from app.db.models import DesktopEnvironment, DesktopSession, GameLearnedSkill, GameSkillAttempt, User  # noqa: E402
+from app.services import desktop_sessions, game_practice, game_skills, memory_reset  # noqa: E402
 from app.services.desktop_sessions import DesktopError  # noqa: E402
 from tests.cognitive_shadow_support import database  # noqa: E402,F401  (fixture)
 
@@ -358,7 +358,14 @@ def test_the_worker_runs_an_attempt_saves_every_try_and_tells_her(db, user, monk
     attempt = db.query(GameSkillAttempt).one()
     assert attempt.status == "learned" and attempt.code == "// better"
     assert [t["n"] for t in attempt.tries] == [1, 2] and attempt.tries[0]["code"].startswith("await skills.mine")
-    assert noticed == [(session.id, "learning", 'learned how to "get 3 oak logs" (2 tries)')]
+    assert noticed == [(session.id, "learning", 'learned how to "get 3 oak logs" (2 tries); your hands have it '
+                                                'now as the skill learned_get_3_oak_logs')]
+    # H2: it's one of her moves now, for her hands and in her summary, in any session
+    move = db.query(GameLearnedSkill).one()
+    assert (move.name, move.code, move.enabled, move.attempt_id) == ("learned_get_3_oak_logs", "// better", True,
+                                                                     attempt.id)
+    assert game_skills.for_session(db, session.id)[0]["name"] == "learned_get_3_oak_logs"
+    assert game_skills.summary_lines(db, user.id, "minecraft")[1] == '- learned_get_3_oak_logs: "get 3 oak logs"'
     assert game_practice.holding(db, session.id) is False
     assert 'You learned how to "get 3 oak logs"' in game_practice.summary_lines(db, session, 0)[0]
     assert game_practice.run_once(pack=pack, model=model) is False  # nothing queued
@@ -388,11 +395,57 @@ def test_a_running_attempt_cut_off_by_a_restart_is_closed(db, user):
     assert db.query(GameSkillAttempt).one().status == "failed"
 
 
+def _learned(db, user, session, task, code, status="learned") -> GameSkillAttempt:
+    attempt = GameSkillAttempt(user_id=user.id, session_id=session.id, game="minecraft", task=task, origin="user",
+                               status=status, code=code)
+    db.add(attempt)
+    db.flush()
+    game_skills.save_learned(db, attempt)
+    db.commit()
+    return attempt
+
+
+def test_learning_a_move_again_replaces_it_and_switches_it_back_on(db, user):
+    session = _pack_session(db, user)
+    _learned(db, user, session, "pillar up by placing blocks", "// one")
+    move = db.query(GameLearnedSkill).one()
+    assert game_skills.set_enabled(db, user.id, move.id, False)
+    assert game_skills.for_session(db, session.id) == []  # off: her hands don't have it
+    assert game_skills.summary_lines(db, user.id, "minecraft") == []
+    second = _learned(db, user, session, "Pillar up, by placing blocks!", "// two")
+    db.expire_all()
+    move = db.query(GameLearnedSkill).one()
+    assert (move.code, move.enabled, move.attempt_id) == ("// two", True, second.id)
+    _learned(db, user, session, "cross water", "// failed", status="failed")  # only what worked is kept
+    assert db.query(GameLearnedSkill).count() == 1
+
+
+def test_a_use_is_counted_and_only_the_owner_can_change_a_move(db, user):
+    session = _pack_session(db, user)
+    _learned(db, user, session, "pillar up", "// p")
+    game_skills.record_use(db, session.id, "learned_pillar", True)
+    game_skills.record_use(db, session.id, "learned_pillar", False)
+    move = db.query(GameLearnedSkill).one()
+    db.refresh(move)
+    assert (move.uses, move.successes) == (2, 1) and move.last_used_at is not None
+    assert "(used 2, worked 1)" in game_skills.summary_lines(db, user.id, "minecraft")[1]
+    other = User(name="other", email=f"o-{uuid.uuid4().hex[:8]}@example.com", hashed_password="x")
+    db.add(other)
+    db.commit()
+    assert not game_skills.set_enabled(db, other.id, move.id, False)
+    assert not game_skills.delete(db, other.id, move.id)
+    assert game_skills.listing(db, other.id) == []
+    assert game_skills.delete(db, user.id, move.id)
+    assert db.query(GameLearnedSkill).count() == 0
+
+
 def test_reset_game_scope_wipes_attempts(db, user):
     session = _pack_session(db, user)
     game_practice.start(db, user.id, task="cross water")
+    _learned(db, user, session, "pillar up", "// p")
     memory_reset.reset(db, user_ids=[user.id], scopes=["game"])
     assert db.query(GameSkillAttempt).count() == 0
+    assert db.query(GameLearnedSkill).count() == 0
     assert db.get(DesktopSession, session.id) is not None
 
 

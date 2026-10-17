@@ -70,3 +70,19 @@ export interface Reflection {
   created_at: string
   processed_at: string | null
 }
+
+/** A move she taught herself (stage H2): her hands have it as a skill while enabled. */
+export interface LearnedSkill {
+  id: string
+  game: string
+  /** the skill name her hands pick, learned_<words> */
+  name: string
+  task: string
+  code: string
+  enabled: boolean
+  uses: number
+  successes: number
+  last_used_at: string | null
+  created_at: string
+  updated_at: string
+}

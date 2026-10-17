@@ -230,7 +230,10 @@ def _recent(db: Session, session_id: uuid.UUID, within: float) -> GameSkillAttem
 def _ended_text(attempt: GameSkillAttempt) -> str:
     tries = len(attempt.tries or [])
     if attempt.status == "learned":
-        return f'learned how to "{attempt.task}" ({tries} {"try" if tries == 1 else "tries"})'
+        from app.services.game_skills import name_for
+
+        return (f'learned how to "{attempt.task}" ({tries} {"try" if tries == 1 else "tries"}); your hands have it '
+                f'now as the skill {name_for(attempt.task)}')
     if attempt.status == "stopped":
         return f'stopped learning "{attempt.task}" ({attempt.result})'
     return f'couldn\'t work out how to "{attempt.task}": {attempt.result}'
@@ -403,6 +406,10 @@ def _finish(attempt_id: uuid.UUID, session_id: uuid.UUID, result) -> None:
         if result.tries:
             row.tries = json.loads(json.dumps(result.tries, default=str))
         row.ended_at = _now()
+        if row.status == "learned":
+            from app.services import game_skills
+
+            game_skills.save_learned(db, row)  # one of her moves now, in any session (H2)
         db.commit()
         text = _ended_text(row)
         db.commit()

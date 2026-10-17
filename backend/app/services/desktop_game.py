@@ -290,6 +290,9 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             if who:
                 lines.append(who)
             lines.extend(_skill_manual(each))
+            from app.services import game_skills
+
+            lines.extend(game_skills.summary_lines(db, user_id, PACK_GAME))
             games.append(f"Minecraft [{game_pack.PACK_PROFILE_ID}]")
         else:
             line, vm_games = _vm_line(each, retired=retired)

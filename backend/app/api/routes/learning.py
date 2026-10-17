@@ -6,6 +6,9 @@
     GET    /api/learning/proposals             code changes she suggests
     PATCH  /api/learning/proposals/{id}        status (open/accepted/implemented/rejected), note
     GET    /api/learning/reflections           recent session reflections and what they did
+    GET    /api/learning/skills                moves she taught herself (H2)
+    PATCH  /api/learning/skills/{id}           switch one on or off for her hands
+    DELETE /api/learning/skills/{id}
 """
 from __future__ import annotations
 
@@ -19,8 +22,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, validate_origin
 from app.db.models import User
 from app.db.session import get_db
-from app.schemas.game_learning import LessonOut, LessonUpdate, ProposalOut, ProposalUpdate, ReflectionOut
-from app.services import game_learning
+from app.schemas.game_learning import (
+    LearnedSkillOut,
+    LearnedSkillUpdate,
+    LessonOut,
+    LessonUpdate,
+    ProposalOut,
+    ProposalUpdate,
+    ReflectionOut,
+)
+from app.services import game_learning, game_skills
 from app.services.game_learning import LearningError
 
 router = APIRouter(prefix="/learning", tags=["learning"])
@@ -69,3 +80,22 @@ def update_proposal(proposal_id: uuid.UUID, data: ProposalUpdate, user: User = D
 @router.get("/reflections", response_model=list[ReflectionOut])
 def list_reflections(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return game_learning.recent_reflections(db, user.id)
+
+
+@router.get("/skills", response_model=list[LearnedSkillOut])
+def list_skills(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return game_skills.listing(db, user.id)
+
+
+@router.patch("/skills/{skill_id}", response_model=LearnedSkillOut, dependencies=mutation)
+def update_skill(skill_id: uuid.UUID, data: LearnedSkillUpdate, user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    if not game_skills.set_enabled(db, user.id, skill_id, data.enabled):
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "no such move"})
+    return next(s for s in game_skills.listing(db, user.id) if s["id"] == str(skill_id))
+
+
+@router.delete("/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=mutation)
+def delete_skill(skill_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not game_skills.delete(db, user.id, skill_id):
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "no such move"})

@@ -1701,6 +1701,34 @@ class GameSkillAttempt(Base):
     )
 
 
+class GameLearnedSkill(Base):
+    """A move she taught herself (stage H2): the program from an attempt that worked,
+    kept per user so her hands can use it in any later session (services/game_skills.py).
+    Usable as soon as it's learned; the user can switch it off or delete it on the
+    Learning page. Learning the same move again replaces the program."""
+
+    __tablename__ = "game_learned_skills"
+    __table_args__ = (UniqueConstraint("user_id", "game", "name", name="uq_game_learned_skills_user_game_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)  # the skill her hands pick: learned_<words>
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_skill_attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    successes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class GameReflectionJob(Base):
     """One reflection per stretch of play: the experiences after
     ``from_experience_id`` up to ``up_to_experience_id``. Queued in the

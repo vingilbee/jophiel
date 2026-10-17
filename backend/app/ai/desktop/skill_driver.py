@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 
 from app.ai.desktop.driver import DriverModel, DriverModelError
 from app.ai.desktop.pack_client import PackError
+from app.services import game_skills
 from app.services.desktop_sessions import DriverView
 
 SCHEMA_NAME = "skill_decision"
@@ -242,8 +243,10 @@ explore or mine: guard fights hostiles close to you or the player you're with, g
 close by, pickup grabs drops. Don't spend decisions on what a mode that's on already does; an outcome's \
 "interruptions" say what they did along the way.
 - Columbina's messages to you are how to play: follow them.
+- Skills named learned_... are moves Columbina taught herself: use them like any skill for what they do \
+(times: how many in a row, e.g. one block up per time). Read their outcome as for any skill.
 - If you truly can't make progress (tried several different ways), answer status "stuck" with a note saying \
-why. If no skill of yours can do this step at all (e.g. pillar up, build a whole house), don't try things: \
+why. If no skill of yours (learned ones included) can do this step at all (e.g. build a whole house), don't try things: \
 answer "stuck" now with a note starting "no skill for:" and the move that's missing. If you need the user \
 (e.g. they must give you something you can't get, or open the world), answer "needs_human" saying exactly what.
 - note: a few plain words about what you're doing, e.g. "chopping the oak to my left for planks".
@@ -342,6 +345,10 @@ class SkillDriverDeps:
     lessons: Callable[[uuid.UUID], list[dict]] | None = None
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
+    # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
+    # successes}], each one more skill; learned_used(session, name, worked) counts a use.
+    learned: Callable[[uuid.UUID], list[dict]] | None = None
+    learned_used: Callable[[uuid.UUID, str, bool], None] | None = None
     now: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
 
@@ -374,6 +381,7 @@ class SkillDriverRun:
     # What her background modes did lately: [{"text", "at"}], newest last.
     modes_did: list[dict] = field(default_factory=list)
     manifest: list[dict] | None = None
+    learned: dict[str, dict] = field(default_factory=dict)  # name -> her learned move (H2)
     _schema: dict | None = None
     _system: str | None = None
 
@@ -388,12 +396,14 @@ class SkillDriverRun:
             # The learner has her body: it stops a skill of ours still running, and we start nothing.
             self.running = None
             self.waiting_until = None
+            self.manifest = None  # what she learns is one more skill afterwards
             deps.sleep(1.0)
             return True
         try:
             self._pull_notices()
             if self.manifest is None:
-                self.manifest = deps.pack.manifest()
+                self.learned = {m["name"]: m for m in self._load_learned()}
+                self.manifest = deps.pack.manifest() + [game_skills.manifest_entry(m) for m in self.learned.values()]
                 self._schema = skill_schema(self.manifest)
                 self._system = system_prompt(self.manifest, lessons=self._load_lessons())
             self.pack_down_since = None
@@ -520,6 +530,8 @@ class SkillDriverRun:
             self._outcome({"skill": WAIT_SKILL, "params": {"seconds": seconds}, "status": "done", "reason": None})
             return
         try:
+            if game_skills.is_learned(skill):
+                return self._start_learned(view, current, skill, params)
             record = deps.pack.run(skill, params, source="driver")
         except PackError as exc:
             if exc.status == 409:
@@ -539,6 +551,21 @@ class SkillDriverRun:
                         "plan_revision": view.plan_revision, "generation": view.execution_generation,
                         "started": deps.now(), "step_id": current["id"]}
 
+    def _start_learned(self, view: DriverView, current: dict, skill: str, params: dict) -> None:
+        """A move she taught herself: its program, ``times`` times, in the pack's sandbox."""
+        move = self.learned.get(skill)
+        if move is None:
+            self._outcome({"skill": skill, "params": params, "status": "refused", "reason": "no such move"},
+                          step_id=current["id"])
+            return
+        params = {"times": 1, **params}
+        record = self.deps.pack.start_program(game_skills.program(move["code"], params["times"]),
+                                              seconds=params.get("time_limit") or game_skills.DEFAULT_SECONDS)
+        self.refused = 0
+        self.running = {"id": record["id"], "skill": skill, "params": params, "program": True,
+                        "plan_revision": view.plan_revision, "generation": view.execution_generation,
+                        "started": self.deps.now(), "step_id": current["id"]}
+
     def _watch_running(self, view: DriverView) -> bool | None:
         """True/False as ``step`` returns; None: the plan changed, so decide under the new one
         while the skill keeps running (carried), and stop it only if something else is chosen."""
@@ -551,12 +578,22 @@ class SkillDriverRun:
             self._stop_running("something urgent was noticed")
             return True
         try:
-            record = deps.pack.get_run(running["id"], wait=POLL_SECONDS)
+            if running.get("program"):
+                record = deps.pack.get_program(running["id"], wait=POLL_SECONDS)
+            else:
+                record = deps.pack.get_run(running["id"], wait=POLL_SECONDS)
         except PackError as exc:
             return self._pack_down(exc)
         if record.get("status") == "running":
             return True
         self.running = None
+        if running.get("program"):
+            record = game_skills.outcome(record, running["skill"], running["params"])
+            if deps.learned_used:
+                try:
+                    deps.learned_used(self.session_id, running["skill"], record["status"] == "done")
+                except Exception:  # noqa: BLE001 - counting never stops play
+                    pass
         self._outcome(record, step_id=running.get("step_id"))
         if self.deps.notice and record.get("status") == "done" and running["skill"] == "fight" \
                 and (record.get("data") or {}).get("killed"):
@@ -569,7 +606,10 @@ class SkillDriverRun:
             return
         try:
             record = self.deps.pack.stop() or {}
-            if record.get("id") == self.running["id"]:
+            if self.running.get("program"):  # stop ends her program too
+                self._outcome({"skill": self.running["skill"], "params": self.running["params"],
+                               "status": "stopped", "reason": why}, step_id=self.running.get("step_id"))
+            elif record.get("id") == self.running["id"]:
                 self._outcome({**record, "status": "stopped", "reason": why}, step_id=self.running.get("step_id"))
         except PackError:
             pass
@@ -729,6 +769,14 @@ class SkillDriverRun:
             self.deps.experience(self.session_id, kind, payload)
         except Exception as exc:  # noqa: BLE001
             self.deps.metric({"session": str(self.session_id), "event": "experience_error", "error": str(exc)[:200]})
+
+    def _load_learned(self) -> list[dict]:
+        if self.deps.learned is None:
+            return []
+        try:
+            return list(self.deps.learned(self.session_id))
+        except Exception:  # noqa: BLE001 - her own moves are extra, never a reason to stop
+            return []
 
     def _load_lessons(self) -> list[dict]:
         if self.deps.lessons is None:

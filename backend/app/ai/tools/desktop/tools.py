@@ -284,8 +284,9 @@ def build_desktop_tools(
         your skills, try it and fix it, while your hands wait. Only the user can say go: this asks
         them. First check your hands' skills in your game summary: if you can name the skill that
         does it, with its parameters (finding a mob: explore with goal mob:<type>), don't offer: put
-        that skill in the plan instead. If you can't name one, offer: a plan step no skill does just
-        gets stuck again. task: the move, in a few words ("cross a river by placing blocks"). question: what you
+        that skill in the plan instead. Moves you taught yourself (learned_..., in your game summary)
+        are skills too: never offer to learn one of those again. If you can't name one, offer: a plan
+        step no skill does just gets stuck again. task: the move, in a few words ("cross a river by placing blocks"). question: what you
         say to them, in your own voice ("I can't cross water yet. Want me to try to figure it out?").
         Counts as your one thing to say this time."""
         nonlocal said
@@ -314,7 +315,9 @@ def build_desktop_tools(
         wait. Use it when the user says yes to your offer, or asks you to learn something ("learn how
         to make a furnace"). Only for a move none of your hands' skills does: if you can name the
         skill that does it, with its parameters (finding a mob: explore with goal mob:<type>), say so
-        and put it in the plan instead, unless the user still wants you to learn it. When the user
+        and put it in the plan instead, unless the user still wants you to learn it. Moves you taught
+        yourself (learned_..., in your game summary) are skills you have: use them; learning one again
+        (only when the user asks) replaces it with the new program if that works. When the user
         tells you to do a move you don't have ("place blocks to climb up"), don't just say you can't:
         say you haven't learned it yet and ask if you should; if they say yes, call this. task: the move, in a few words. It runs in the background: tell the user
         you're on it; you'll see how each try went in your game summary."""
