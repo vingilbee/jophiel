@@ -53,10 +53,78 @@ export function movements (bot, { canDig = false } = {}) {
 // e.g. a cave staircase with a ceiling just over the jump (seen in tests: 100 s without a block of
 // progress). After STUCK_MS without moving, the walk ends and she clears the block over her head,
 // so the next try (callers retry) has room to jump.
+//
+// A dig is never thrown away half done. Through diggable ground (a terracotta mesa) the route search
+// often runs out of time; the pathfinder then walks the best part-route it has, digging, and starts
+// a new search when that runs out. Ending the walk there, or setting the same movements again (which
+// resets the path), stopped the dig in progress: by hand terracotta takes 6.25 s, the search gave up
+// after 5, so the same block was started over and over and never broke (live, 2026-10-16).
 const STUCK_MS = 4000
+// Not even "moving": the pathfinder re-plans every few seconds and gets nowhere (seen: wedged on a
+// block's edge in a dug staircase, hovering, 30 s). Longer than a search may take.
+const STUCK_IDLE_MS = 12000
+const WALK_THINK_MS = 5000 // pathfinder's own default
+const DIG_THINK_MS = 10000 // more ways to weigh when she may dig
+const walkMoves = new WeakMap() // bot -> { walk, dig }: the same Movements each time, so no needless reset
+
+function movesFor (bot, canDig) {
+  if (!walkMoves.has(bot)) walkMoves.set(bot, {})
+  const cached = walkMoves.get(bot)
+  const key = canDig ? 'dig' : 'walk'
+  cached[key] ??= movements(bot, { canDig })
+  return cached[key]
+}
+
+// Resolves when the goal is reached. Walking: pathfinder's goto(). A walk that may dig waits for
+// the real arrival itself: through diggable ground the search often runs out of time, and goto()
+// then gives up although the pathfinder carries on with its part-route; and goto() takes the empty
+// draft route a search starts with as "arrived" (seen on a terracotta mesa: three "arrivals" a
+// second, at the foot of the cliff).
+function arrive (bot, goal, canDig) {
+  if (!canDig) return bot.pathfinder.goto(goal)
+  return new Promise((resolve, reject) => {
+    const end = (err) => {
+      clearInterval(poll)
+      bot.removeListener('goal_reached', onReached)
+      bot.removeListener('path_update', onUpdate)
+      bot.removeListener('goal_updated', onGoal)
+      bot.removeListener('path_stop', onStop)
+      setTimeout(() => (err ? reject(err) : resolve()), 0) // as goto(): let pathfinder settle first
+    }
+    const error = (name, message) => Object.assign(new Error(message), { name })
+    const onReached = () => end()
+    const onUpdate = (r) => { if (r.status === 'noPath' && r.path.length === 0) end(error('NoPath', 'No path to the goal!')) }
+    const onGoal = (g) => { if (g !== goal) end(error('GoalChanged', 'The goal was changed')) }
+    const onStop = () => end(error('PathStopped', 'Path was stopped'))
+    const poll = setInterval(() => { if (goal.isEnd(bot.entity.position.floored())) end() }, 250)
+    bot.on('goal_reached', onReached)
+    bot.on('path_update', onUpdate)
+    bot.on('goal_updated', onGoal)
+    bot.on('path_stop', onStop)
+    bot.pathfinder.setGoal(goal)
+  })
+}
+
+// A block she's breaking is finished before the walk ends (stopping the walk would stop the dig).
+async function finishDig (ctx) {
+  const { bot } = ctx
+  const block = bot.targetDigBlock
+  if (!block || !bot.pathfinder.isMining?.()) return
+  const until = Date.now() + Math.min(bot.digTime(block) + 1000, 15000)
+  while (bot.targetDigBlock && Date.now() < until) await ctx.sleep(100)
+}
+
+// How far from the goal, by the goal's own estimate (Infinity if it has none).
+function closeness (goal, bot) {
+  const p = bot.entity.position.floored()
+  try { return goal.heuristic?.({ x: p.x, y: p.y, z: p.z }) ?? Infinity } catch { return Infinity }
+}
+
 export async function walkTo (ctx, goal, { canDig = false, timeoutMs = 20000 } = {}) {
   const { bot } = ctx
-  bot.pathfinder.setMovements(movements(bot, { canDig }))
+  const moves = movesFor(bot, canDig)
+  if (bot.pathfinder.movements !== moves) bot.pathfinder.setMovements(moves)
+  bot.pathfinder.thinkTimeout = canDig ? DIG_THINK_MS : WALK_THINK_MS
   let timer
   let stuck = false
   let still = { at: Date.now(), position: bot.entity.position.clone() }
@@ -65,26 +133,68 @@ export async function walkTo (ctx, goal, { canDig = false, timeoutMs = 20000 } =
       const p = bot.entity.position
       if (p.distanceTo(still.position) > 0.3 || bot.pathfinder.isMining?.()) {
         still = { at: Date.now(), position: p.clone() }
-      } else if (Date.now() - still.at > STUCK_MS && bot.pathfinder.isMoving()) {
+      } else if (Date.now() - still.at > (bot.pathfinder.isMoving() ? STUCK_MS : STUCK_IDLE_MS)) {
         stuck = true
         bot.pathfinder.setGoal(null)
       }
     }, 250)
     : null
-  const gaveUp = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), timeoutMs) })
+  // Walking: timeoutMs in all. Digging: timeoutMs without progress (a block broken, or a block
+  // closer to the goal): by hand a terracotta step is 7 s a block, and a climb is many blocks.
+  let deadline = Date.now() + timeoutMs
+  let best = closeness(goal, bot)
+  // (Not 'diggingCompleted': pathfinder removes every listener of it after its own digs.)
+  const onDug = (before, after) => {
+    if (before?.boundingBox === 'block' && after?.boundingBox === 'empty' &&
+      before.position.distanceTo(bot.entity.position) < 6) deadline = Date.now() + timeoutMs
+  }
+  if (canDig) bot.on('blockUpdate', onDug)
+  const gaveUp = new Promise((resolve) => {
+    timer = setInterval(() => {
+      const now = closeness(goal, bot)
+      if (canDig && now < best - 1) { best = now; deadline = Date.now() + timeoutMs }
+      if (Date.now() > deadline) resolve('timeout')
+    }, 250)
+  })
   try {
-    const outcome = await ctx.race(Promise.race([bot.pathfinder.goto(goal).then(() => 'ok'), gaveUp]))
-    if (outcome === 'timeout') bot.pathfinder.setGoal(null)
+    const outcome = await ctx.race(Promise.race([arrive(bot, goal, canDig).then(() => 'ok'), gaveUp]))
+    if (outcome === 'timeout') {
+      await finishDig(ctx)
+      bot.pathfinder.setGoal(null)
+    }
   } catch (err) {
     if (err?.status) throw err // a SkillEnd from stop/timeout/hurt
     ctx.check()
-    if (stuck) await clearHeadroom(ctx)
+    await finishDig(ctx)
+    if (bot.pathfinder.goal === goal) bot.pathfinder.setGoal(null) // a failed search leaves it walking
+    if (stuck) {
+      await recenter(ctx)
+      await clearHeadroom(ctx)
+    }
     return false // NoPath, Timeout, GoalChanged, PathStopped
   } finally {
-    clearTimeout(timer)
+    clearInterval(timer)
     if (watch) clearInterval(watch)
+    bot.removeListener('blockUpdate', onDug)
+    bot.pathfinder.thinkTimeout = WALK_THINK_MS
   }
   return goal.isEnd(bot.entity.position.floored())
+}
+
+// A step back to the middle of her block: off an edge or out of a corner she's wedged in.
+async function recenter (ctx) {
+  const { bot } = ctx
+  const p = bot.entity.position
+  const middle = p.floored().offset(0.5, 0, 0.5)
+  if (Math.hypot(middle.x - p.x, middle.z - p.z) < 0.2) return
+  try {
+    await bot.lookAt(middle.offset(0, bot.entity.height * 0.9, 0), true)
+    bot.setControlState('forward', true)
+    const until = Date.now() + 600
+    while (Date.now() < until && Math.hypot(middle.x - bot.entity.position.x, middle.z - bot.entity.position.z) > 0.2) await ctx.sleep(50)
+  } finally {
+    bot.setControlState('forward', false)
+  }
 }
 
 // The block just over her head, broken if it's solid and breakable: room to jump.

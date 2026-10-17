@@ -121,8 +121,8 @@ you dig you can place.
   - act.place(x, y, z, item?): put the held block (or item, equipped first) there, against a solid block beside it.
   - act.look(x, y, z): face that point (a block's middle is +0.5 on each axis).
   - act.equip(item, slot?): hold an item, or wear it (slot hand, off-hand, head, torso, legs, feet).
-  - act.jump(): one jump from the ground; it resolves at the top of the jump (data.rose: how high), and you fall \
-back right after. To climb a block: note your feet's block (x, y, z), act.look at the block under it, act.jump(), \
+  - act.jump(): one jump from the ground; it resolves once your feet are a block up (data.rose: how high), and you \
+fall back right after. To climb a block: note your feet's block (x, y, z), act.look at the block under it, act.jump(), \
 then at once act.place(x, y, z, "<a block you carry>"): you land on it, one block higher. A full jump needs the \
 2 blocks over your head (y + 2 and y + 3) clear: dig them first.
   Up to 400 actions per program; never while a skill is still running (await it first).

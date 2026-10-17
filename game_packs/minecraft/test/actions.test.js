@@ -96,21 +96,21 @@ test('place puts the held block against a solid one; with nothing to rest on it 
   assert.match((await act.place(-2, 70, 0)).reason, /out of reach|nothing solid/)
 })
 
-test('jump resolves at the top of the jump, only from the ground', async () => {
+test('jump resolves once her feet are a block up (still rising), only from the ground', async () => {
   const bot = fakeBot()
   bot.entity.velocity = { y: 0 }
   let ticks = 0
-  // In the air from the first tick, rising for two, then falling.
+  // In the air from the first tick, rising for three, then falling: a block up after two.
   const sleep = async () => {
     ticks++
     bot.entity.onGround = false
-    bot.entity.velocity.y = ticks <= 2 ? 0.3 : -0.1
-    bot.entity.position = bot.entity.position.offset(0, ticks <= 2 ? 0.6 : 0, 0)
+    bot.entity.velocity.y = ticks <= 3 ? 0.3 : -0.1
+    bot.entity.position = bot.entity.position.offset(0, ticks <= 3 ? 0.6 : 0, 0)
   }
   const act = createActions(bot, { sleep })
   const jumped = await act.jump()
   assert.equal(jumped.status, 'done', jumped.reason)
-  assert.equal(ticks, 3)
+  assert.equal(ticks, 2)
   assert.equal(jumped.data.rose, 1.2)
   assert.equal(bot.controls.jump, false)
   assert.equal((await act.jump()).status, 'failed') // still in the air

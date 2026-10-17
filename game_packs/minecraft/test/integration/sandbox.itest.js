@@ -123,7 +123,7 @@ describe('her code on a real server', { skip: !eulaAccepted() && 'accept the Min
         const p = state().position
         const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
         await act.look(x + 0.5, y - 1, z + 0.5)
-        await act.jump() // resolves at the top
+        await act.jump() // resolves once she's a block up
         const placed = await act.place(x, y, z, 'dirt')
         log(placed.status, placed.reason)
         await wait(500)
@@ -139,6 +139,36 @@ describe('her code on a real server', { skip: !eulaAccepted() && 'accept the Min
     `)
     assert.equal(down.value.status, 'done', JSON.stringify(down))
     await mc(`fill ${origin.x} ${origin.y} ${origin.z} ${origin.x} ${origin.y + 3} ${origin.z} minecraft:air`) // no pillar to land in
+  })
+
+  // Live (2026-10-16): her code looked at the corner of the block under her, (x, y - 1, z), so place
+  // turned her head first and she had landed back in the spot: "the game didn't accept it", 4 tries.
+  test('a block under her own feet mid-jump goes in wherever she looks', async () => {
+    await mc(`tp ${NAME} ${origin.x} ${origin.y} ${origin.z}`)
+    await mc(`clear ${NAME}`)
+    await mc(`give ${NAME} minecraft:dirt 8`)
+    await until(() => bot.inventory.items().some((i) => i.name === 'dirt'))
+    await until(() => bot.entity.onGround, 5000)
+    const startY = bot.entity.position.y
+    const result = await runProgram(runner, `
+      const looks = [[0, -1, 0], [0, 1.6, 6], [0, -1, 0], [6, 1.6, 0]] // the corner below, ahead, the corner, aside
+      const results = []
+      for (const [dx, dy, dz] of looks) {
+        const p = state().position
+        const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+        await act.look(x + dx, y + dy, z + dz)
+        await act.jump()
+        const placed = await act.place(x, y, z, 'dirt')
+        results.push(placed.status + (placed.reason ? ': ' + placed.reason : ''))
+        await wait(400)
+      }
+      return results
+    `)
+    assert.equal(result.status, 'done', JSON.stringify(result))
+    assert.deepEqual(result.value, ['done', 'done', 'done', 'done'], JSON.stringify(result.value))
+    assert.ok(bot.entity.position.y >= startY + 4, `rose only ${bot.entity.position.y - startY}`)
+    await mc(`fill ${origin.x} ${origin.y} ${origin.z} ${origin.x} ${origin.y + 5} ${origin.z} minecraft:air`)
+    await mc(`tp ${NAME} ${origin.x} ${origin.y} ${origin.z}`)
   })
 
   test('through the API: start a program, busy while it runs, stop it, read its result', async () => {

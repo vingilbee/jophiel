@@ -108,6 +108,34 @@ describe('terrain on a real server', { skip: !eulaAccepted() && 'accept the Mine
     assert.ok(readState(bot).surroundings.overhead.kind !== 'underground', 'still underground')
   })
 
+  // Live (2026-10-16): by hand a terracotta block takes 6.25 s, the route search gave up after 5 and
+  // the walk started over, stopping the dig: the same block, over and over, then "no path".
+  test('bare hands: she digs steps up a terracotta cliff, and no block is given up half dug', async () => {
+    await mc(`fill ${at(-6, -3, 45)} ${at(6, 4, 57)} minecraft:terracotta`) // down into the ground, as a real mesa: no cheap dirt to tunnel under
+    await mc(`clear ${NAME}`)
+    await mc(`tp ${NAME} ${at(0, 0, 41)} facing ${at(0, 0, 50)}`)
+    await sleep(1500)
+    // The same block dug twice in a row: a dig given up and started over.
+    let digs = 0
+    let restarted = 0
+    let last = null
+    const dig = bot.dig
+    bot.dig = (block, ...rest) => {
+      digs++
+      if (block.position.toString() === last) restarted++
+      last = block.position.toString()
+      return dig.call(bot, block, ...rest)
+    }
+    try {
+      const r = await run('go_to', { target: at(0, 5, 51), range: 0, dig: 'yes', time_limit: 280 }, 300000)
+      assert.equal(r.status, 'done', JSON.stringify(r))
+      assert.ok(bot.entity.position.y >= origin.y + 5, `only got to ${bot.entity.position.y}`)
+      assert.ok(restarted <= 1, `${restarted} of ${digs} digs were the same block started over`)
+    } finally {
+      bot.dig = dig
+    }
+  })
+
   test('a player in spectator mode is not looked for', async () => {
     await mc(`tp ${NAME} ${at(0, 0, 0)}`)
     await mc(`gamemode spectator ${FRIEND}`)

@@ -146,10 +146,13 @@ export function createActions (bot, { race = (promise) => promise, sleep = (ms) 
         return failed('someone (maybe her) is standing in that spot')
       }
       const reference = bot.blockAt(p.minus(face))
-      // Looking at it already (she looked down, then jumped): place at once, or turning first lets
-      // her fall back into the spot she's filling.
-      const looking = bot._placeBlockWithOptions &&
-        facing(bot, reference.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5))
+      // Looking at it already, or it's right under her feet while she's in the air (mid-jump):
+      // place at once. Turning first lets her fall back into the spot she's filling (live: her code
+      // looked at the corner of the block under her, and every place was refused).
+      const feet = bot.entity.position.floored()
+      const underHer = !bot.entity.onGround && p.x === feet.x && p.z === feet.z && p.y < feet.y
+      const looking = bot._placeBlockWithOptions && (underHer ||
+        facing(bot, reference.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5)))
       try {
         await race(looking
           ? bot._placeBlockWithOptions(reference, face, { swingArm: 'right', forceLook: 'ignore' })
@@ -181,9 +184,11 @@ export function createActions (bot, { race = (promise) => promise, sleep = (ms) 
       return done({ item: carried.name, slot })
     },
 
-    // One jump from the ground, resolving at its top: placing a block under her feet right after
-    // is how she climbs. Timing that from her code missed: the top lasts about 200 ms (a trial,
-    // 2026-10-15: she polled her height, and by the time she placed she was falling back into it).
+    // One jump from the ground, resolving as soon as her feet are a block up (still rising), or at
+    // its top: placing a block under her feet right after is how she climbs. Timing that from her
+    // code missed (a trial, 2026-10-15: she polled her height, and by the time she placed she was
+    // falling back into it); waiting for the very top left about 200 ms, and a place now and then
+    // came too late (tests, 2026-10-17).
     async jump () {
       if (!bot.entity.onGround) return failed('not on the ground (still in the air: wait until state().on_ground)')
       const from = bot.entity.position.y
@@ -198,7 +203,7 @@ export function createActions (bot, { race = (promise) => promise, sleep = (ms) 
             left = true
             bot.setControlState('jump', false) // held, she'd jump again on landing
           }
-          if (left && (bot.entity.velocity?.y ?? 0) <= 0) break
+          if (left && (bot.entity.position.y >= from + 1 || (bot.entity.velocity?.y ?? 0) <= 0)) break
         }
       } finally {
         bot.setControlState('jump', false)
