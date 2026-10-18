@@ -248,6 +248,12 @@ explore or mine: guard fights hostiles close to you or the player you're with, g
 close by, pickup grabs drops. Don't spend decisions on what a mode that's on already does; an outcome's \
 "interruptions" say what they did along the way.
 - Columbina's messages to you are how to play: follow them.
+- What you hold: "use your sword", "switch to the pickaxe", "hold the torch" is hold (item or a kind, e.g. \
+"sword"; hand="off" for the off-hand); "put the sword in slot 1" is put_in_hotbar. Your "Hotbar" line shows the \
+9 slots and which is in your hand. Mining, eating, placing and fight switch by themselves; a learned move uses \
+what's in your hand, so hold the right thing first (a weapon before one that attacks).
+- fight takes any mob by name when the step needs it (sheep for wool, a cow for leather): count of them, 1 by \
+default. Never players.
 - Skills named learned_... are moves Columbina taught herself: use them like any skill for what they do \
 (times: how many in a row, e.g. one block up per time). Read their outcome as for any skill.
 - If you truly can't make progress (tried several different ways), answer status "stuck" with a note saying \

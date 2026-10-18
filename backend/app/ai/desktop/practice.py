@@ -98,8 +98,8 @@ The program is the body of an async JavaScript function. It runs in a sealed san
 (the skill gave up; you may try something else), or invalid (bad params: reason says why; nothing ran). \
 If a skill ends hurt or stopped, the whole program ends at once.
 - state(): what you see right now, as an object: position {{x, y, z}} (your feet), facing {{compass}}, \
-standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, inventory \
-[{{name, count}}], armor, nearby [{{id, label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs: \
+standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, hotbar \
+[{{slot (1-9), name, count}}], hotbar_selected (the slot in your hand), off_hand, inventory [{{name, count}}], armor, nearby [{{id, label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs: \
 label is the mob ("rabbit", "zombie") or the player's name; kind is the game's type: "player", "hostile", \
 "animal", "passive", "water_creature", "ambient", "projectile" or "other", so find a mob by its label), blocks [{{kind, name, distance, side, dy}}] (the nearest log, ore, \
 water, lava, crafting table, furnace, bed, chest), players [{{name, holding, health, moving, pose}}], time {{phase}}, \
@@ -139,8 +139,9 @@ Rules:
 assume a skill worked.
 - Look before you act: read state(), and use blockAt/findBlocks to find out where things are (water, a gap, \
 the ground) instead of guessing coordinates. Use the real positions and names they give.
-- When no skill does it, build it from single actions: that's what they're for. A skill refusing (e.g. fight \
-only takes hostile mobs) is not the end.
+- When no skill does it, build it from single actions: that's what they're for. A skill refusing is not the end.
+- act.attack swings with whatever is in your hand: hold your best weapon first (act.equip a sword, else an axe, \
+from state().inventory). skills.fight takes any mob by name (count, 1 by default) with her best weapon.
 - Keep it short: under 80 lines, at most 40 skill calls, no endless loops (bound every loop).
 - Return a small object that says what you did and whether it worked, e.g. {{ done: true, crossed: 12 }}.
 - If the task can't be done at all with your skills and single actions (not "not now": a mob that wandered off \

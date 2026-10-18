@@ -11,6 +11,7 @@ import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
 import { watchedPlayers } from './watching.js'
 import { wearing } from './skills/armor.js'
+import { hotbar, offHand, selectedSlot } from './skills/inventory.js'
 import { readSurroundings } from './surroundings.js'
 import { readTerrain } from './terrain.js'
 
@@ -195,6 +196,10 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     oxygen: bot.oxygenLevel ?? null,
     xp_level: bot.experience?.level ?? 0,
     held: held ? { name: held.name, count: held.count } : null,
+    // Her 9 hotbar slots (1-9, as the player sees them), which one is in her hand, and her off-hand.
+    hotbar: hotbar(bot),
+    hotbar_selected: selectedSlot(bot),
+    off_hand: offHand(bot),
     armor: wearing(bot),
     inventory: mergedInventory(bot),
     // Mobs she killed since she joined, counted (src/kills.js): {label: count}.

@@ -505,7 +505,8 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
 
             state = PackClient.from_settings().state()
             lines.append("Your player right now (from the game): " + " ".join(state.get("text", "").split("\n"))
-                         + " (Your hands switch to the best tool by themselves each time they mine or fight.)")
+                         + " (Your hands switch to the best tool by themselves each time they mine or fight; "
+                         "to hold something else, or arrange the hotbar, your hands have hold and put_in_hotbar.)")
         except PackError:
             state = None
     return lines, state
