@@ -94,10 +94,16 @@ def _harness(model, learned=(PILLAR,)):
     h = Harness(model)
     h.pack = ProgramPack(h.pack)
     h.used: list[tuple[str, bool]] = []
+    h.changed = None  # what the counter says changed about the move
     deps = h.run.deps
     deps.pack = h.pack
     deps.learned = lambda sid: list(learned)
-    deps.learned_used = lambda sid, name, worked: h.used.append((name, worked))
+
+    def used(sid, name, status, reason):
+        h.used.append((name, status == "done"))
+        return h.changed
+
+    deps.learned_used = used
     h.run = SkillDriverRun(SESSION, deps)
     return h
 
@@ -156,3 +162,144 @@ def test_columbinas_tools_say_learned_moves_are_skills():
     text = " ".join(open(tools.__file__).read().split())
     assert "Moves you taught yourself (learned_..., in your game summary) are skills too" in text
     assert "learning one again (only when the user asks) replaces it" in text
+
+
+def test_a_move_that_changes_while_used_is_reported_and_her_skills_are_read_again():
+    model = ScriptedModel(_decide(PILLAR["name"], {"times": 2}), _decide(status="stuck", note="no"))
+    h = _harness(model)
+    h.pack.value = {"done": False, "times_done": 0, "reason": "nothing to stand on"}
+    h.changed = "that's 3 misses in a row, so this move is switched off"
+    h.steps(4)
+    assert "nothing to stand on (that's 3 misses in a row, so this move is switched off)" in model.prompts[1]
+
+
+# --------------------------------------------------------------------------- #
+# Counting uses: misses switch a move off, a tidied copy that misses goes back
+# --------------------------------------------------------------------------- #
+
+import uuid  # noqa: E402
+
+from app.ai.desktop.driver import ModelReply  # noqa: E402
+from app.ai.desktop.practice import tidy  # noqa: E402
+from app.db.models import DesktopSession, GameLearnedSkill  # noqa: E402
+
+OWNER = uuid.uuid4()
+
+
+class FakeDb:
+    """Just enough of a Session for one move."""
+
+    def __init__(self, row):
+        self.row = row
+        self.session = DesktopSession(id=SESSION, owner_user_id=OWNER, profile_id="minecraft-pack")
+        self.commits = 0
+
+    def get(self, model, key):
+        return self.session if model is DesktopSession else None
+
+    def scalar(self, query):
+        return self.row
+
+    def scalars(self, query):
+        return [self.row] if self.row is not None else []
+
+    def flush(self):
+        pass
+
+    def commit(self):
+        self.commits += 1
+
+
+def _move(**fields):
+    base = {"code": "LEARNED", "enabled": True, "uses": 0, "successes": 0, "misses_in_row": 0, "tidy_proven": False}
+    return GameLearnedSkill(user_id=OWNER, game="minecraft", name=PILLAR["name"], task=PILLAR["task"],
+                            **{**base, **fields})
+
+
+def test_three_misses_in_a_row_switch_a_move_off():
+    row = _move()
+    db = FakeDb(row)
+    assert game_skills.record_use(db, SESSION, row.name, "failed", "no blocks") is None
+    assert game_skills.record_use(db, SESSION, row.name, "done") is None  # a success starts the count over
+    assert row.misses_in_row == 0 and row.successes == 1
+    for _ in range(game_skills.MISS_LIMIT - 1):
+        assert game_skills.record_use(db, SESSION, row.name, "failed", "no blocks") is None
+    assert row.enabled
+    note = game_skills.record_use(db, SESSION, row.name, "timeout", "no result after 120 s")
+    assert note and "switched off" in note
+    assert not row.enabled and row.off_reason == "didn't work 3 times in a row (last: no result after 120 s)"
+    assert row.uses == 5
+
+
+def test_being_hurt_stopped_or_killed_is_not_the_moves_fault():
+    row = _move()
+    db = FakeDb(row)
+    for status, reason in (("hurt", "health low"), ("stopped", "the plan changed"), ("failed", "died")):
+        assert game_skills.record_use(db, SESSION, row.name, status, reason) is None
+    assert row.uses == 0 and row.misses_in_row == 0 and row.enabled
+
+
+def test_switching_a_move_back_on_or_learning_it_again_starts_over():
+    row = _move(misses_in_row=3, off_reason="didn't work 3 times in a row")
+    row.enabled = False
+    row.id = uuid.uuid4()
+    db = FakeDb(row)
+    db.get = lambda model, key: row
+    assert game_skills.set_enabled(db, OWNER, row.id, True)
+    assert row.enabled and row.misses_in_row == 0 and row.off_reason is None
+
+
+def test_a_tidied_copy_is_kept_beside_the_original_and_goes_back_if_it_misses_first():
+    row = _move()
+    row.attempt_id = uuid.uuid4()
+    db = FakeDb(row)
+    assert game_skills.save_tidied(db, row.attempt_id, "TIDY", "looks up the block under her")
+    assert (row.code, row.original_code, row.tidy_proven) == ("TIDY", "LEARNED", False)
+    assert not game_skills.save_tidied(db, row.attempt_id, "TIDY2", "again")  # tidied once only
+    note = game_skills.record_use(db, SESSION, row.name, "failed", "x is not defined")
+    assert note and "back to the program you learned" in note
+    assert row.code == "LEARNED" and row.original_code is None and row.misses_in_row == 0  # not counted against it
+    assert "x is not defined" in row.tidy_note
+
+
+def test_a_tidied_copy_that_worked_stays_and_then_misses_count():
+    row = _move(code="TIDY", original_code="LEARNED")
+    db = FakeDb(row)
+    game_skills.record_use(db, SESSION, row.name, "done")
+    assert row.tidy_proven
+    assert game_skills.record_use(db, SESSION, row.name, "failed", "no blocks") is None
+    assert row.code == "TIDY" and row.misses_in_row == 1
+
+
+def test_her_summary_says_which_moves_switched_themselves_off():
+    row = _move(off_reason="didn't work 3 times in a row (last: no blocks)")
+    row.enabled = False
+    db = FakeDb(row)
+    db.scalars = lambda query: [row] if "enabled IS true" not in str(query.compile()) else []
+    lines = game_skills.summary_lines(db, OWNER, "minecraft")
+    assert lines[0].startswith("Moves of yours that stopped working and switched themselves off")
+    assert lines[1] == f'- "{PILLAR["task"]}": didn\'t work 3 times in a row (last: no blocks)'
+
+
+class TidyModel:
+    def __init__(self, output):
+        self.output = output
+        self.calls = []
+
+    def step(self, system, text, jpeg, schema):
+        self.calls.append((system, text, schema))
+        return ModelReply(self.output, 10)
+
+
+def test_tidying_a_move_gives_a_cleaner_copy_or_nothing():
+    last = {"facts": {"inventory": "-1 dirt"}, "verdict": {"reason": "she rose 1 block"}}
+    model = TidyModel({"changed": True, "code": "const me = state().position;\nreturn { done: true }",
+                       "changes": "looks up her position instead of (12, 64, -3)"})
+    tidied = tidy(model, MANIFEST, PILLAR["task"], "await act.look(12, 64, -3)", last)
+    assert tidied.code.startswith("const me = state().position;") and "(12, 64, -3)" in tidied.changes
+    system, text, _ = model.calls[0]
+    assert "Replace anything copied from that moment" in system and "{ done: false, reason" in system
+    assert "await act.look(12, 64, -3)" in text and "she rose 1 block" in text and "-1 dirt" in text
+    assert tidy(TidyModel({"changed": False, "code": "", "changes": ""}), MANIFEST, "t", "x") is None
+    assert tidy(TidyModel({"changed": True, "code": "x", "changes": "same"}), MANIFEST, "t", "x") is None
+

@@ -447,6 +447,9 @@ class Settings(BaseSettings):
     game_practice_program_seconds: int = Field(default=180, ge=10, le=600)
     game_practice_max_tokens: int = Field(default=6000, ge=500, le=32000)
     game_practice_queue_name: str = "macrovision:game-practice:wakeups"
+    # A move that worked is tidied once (one more call on the same model): fixed positions
+    # and ids looked up instead, leftovers gone. The original is kept until the tidy works.
+    game_practice_tidy_enabled: bool = True
     # Mind tick recording (app/ai/mind): while a pack session is live, write what
     # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
     # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.

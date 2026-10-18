@@ -162,6 +162,29 @@ task is actually done in the world. If it isn't, say in one or two sentences wha
 can fix it."""
 
 
+TIDY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "changed": {"type": "boolean", "description": "false if it's already tidy: then code is ignored"},
+        "code": {"type": "string", "description": "the tidied function body (JavaScript)"},
+        "changes": {"type": "string", "description": "one sentence: what you changed"},
+    },
+    "required": ["changed", "code", "changes"],
+    "additionalProperties": False,
+}
+
+TIDY_RULES = """
+
+You have just taught yourself this task, and the program below worked. It's being kept as one of your moves, used again later in other places, sometimes several times in a row (each run should do the task once). It was written for that one moment, over several tries. Tidy it so it works anywhere, doing the same thing in the world:
+- Replace anything copied from that moment (fixed coordinates, entity ids, a player's or mob's position) with look-ups: state(), findBlocks, blockAt, positions relative to where you stand. The same for items you \
+happened to carry then: a block to place or a tool picked by name ("birch_planks") becomes one chosen from your \
+inventory when it runs (any placeable block, the best tool you have). Names the task itself gives stay.
+- Remove leftover debugging, dead branches and steps that did nothing. Keep the log() lines that say what happened.
+- Keep every check of an outcome and every bound on a loop. Don't add new ideas or new ways of doing it.
+- It must end with { done: true, ... } when it worked and { done: false, reason: "..." } when it didn't: a run that returns done: false stops the repeats.
+- If it's already like that, say changed: false. Write only the function body: no declaration, no fences."""
+
+
 @dataclass
 class PracticeDeps:
     pack: object  # PackClient
@@ -518,3 +541,32 @@ def program_text(program: dict) -> str:
     if program.get("log"):
         lines.append("Log: " + " | ".join(program["log"]))
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Tidying a move that worked
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class Tidied:
+    code: str
+    changes: str
+
+
+def tidy(model: DriverModel, manifest: list[dict], task: str, code: str, last_try: dict | None = None,
+         game: str = "Minecraft") -> Tidied | None:
+    """A cleaner copy of a program that worked (fixed positions and ids looked up instead,
+    leftovers gone), or None when it's already tidy or the model can't. Not run here:
+    ``game_skills`` keeps the original until the tidied copy has worked once."""
+    text = f"Task: {task}\n\nThe program that worked:\n{code}"
+    if last_try:
+        if last_try.get("facts"):
+            text += f"\n\nWhat it did, counted by the game: {facts_text(last_try['facts'])}"
+        if (last_try.get("verdict") or {}).get("reason"):
+            text += f"\nWhy it counted as done: {last_try['verdict']['reason']}"
+    reply = model.step(writer_prompt(manifest, game) + TIDY_RULES, text, [], TIDY_SCHEMA)
+    tidied = str(reply.output.get("code", "")).strip()[:MAX_CODE_CHARS]
+    if not reply.output.get("changed") or not tidied or tidied == code.strip():
+        return None
+    return Tidied(tidied, str(reply.output.get("changes", ""))[:400])

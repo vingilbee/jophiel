@@ -113,6 +113,11 @@ class LearnedSkillOut(BaseModel):
     enabled: bool
     uses: int
     successes: int
+    misses_in_row: int
+    off_reason: str | None  # set when it switched itself off
+    original_code: str | None  # the program as learned, while ``code`` is a tidied copy
+    tidy_note: str | None
+    tidy_proven: bool
     last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime

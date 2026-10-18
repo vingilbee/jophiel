@@ -336,11 +336,27 @@ function SkillCard({
         {s.game} · learned {day(s.created_at)}
         {s.updated_at !== s.created_at && ` · relearned ${day(s.updated_at)}`} ·{' '}
         {s.uses ? `used ${s.uses}×, worked ${s.successes}` : 'not used yet'}
+        {s.enabled && s.misses_in_row > 0 && ` · missed the last ${s.misses_in_row}`}
       </p>
+      {!s.enabled && s.off_reason && (
+        <p className="mt-2 text-xs text-[#40506F]">Switched itself off: {s.off_reason}</p>
+      )}
+      {s.tidy_note && (
+        <p className="mt-2 text-xs text-[#40506F]">
+          {s.original_code ? (s.tidy_proven ? 'Tidied (has worked since): ' : 'Tidied, not tried yet: ') : ''}
+          {s.tidy_note}
+        </p>
+      )}
       <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Her program</summary>
+        <summary className="cursor-pointer text-xs text-[#7183A3]">{s.original_code ? 'Her program (tidied)' : 'Her program'}</summary>
         <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.code}</pre>
       </details>
+      {s.original_code && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-[#7183A3]">As she learned it</summary>
+          <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.original_code}</pre>
+        </details>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={() => onEnabled(!s.enabled)} className={SMALL_BUTTON}>{s.enabled ? 'Switch off' : 'Switch on'}</button>
         <button onClick={onDelete} className={SMALL_BUTTON}>Delete</button>

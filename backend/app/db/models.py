@@ -1714,7 +1714,9 @@ class GameLearnedSkill(Base):
     """A move she taught herself (stage H2): the program from an attempt that worked,
     kept per user so her hands can use it in any later session (services/game_skills.py).
     Usable as soon as it's learned; the user can switch it off or delete it on the
-    Learning page. Learning the same move again replaces the program."""
+    Learning page. Learning the same move again replaces the program. Three misses in
+    a row switch it off by themselves; a learned program is tidied once, and the tidied
+    copy goes back to ``original_code`` if it misses before it ever worked."""
 
     __tablename__ = "game_learned_skills"
     __table_args__ = (UniqueConstraint("user_id", "game", "name", name="uq_game_learned_skills_user_game_name"),)
@@ -1731,6 +1733,11 @@ class GameLearnedSkill(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     successes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    misses_in_row: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    off_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # why it switched itself off
+    original_code: Mapped[str | None] = mapped_column(Text, nullable=True)  # as learned, when ``code`` is tidied
+    tidy_note: Mapped[str | None] = mapped_column(Text, nullable=True)  # what the tidy changed, or why it was undone
+    tidy_proven: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

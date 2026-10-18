@@ -351,9 +351,10 @@ class SkillDriverDeps:
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
     # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
-    # successes}], each one more skill; learned_used(session, name, worked) counts a use.
+    # successes}], each one more skill; learned_used(session, name, status, reason) counts a use and says
+    # what changed about the move (switched off, back to its original program), or None.
     learned: Callable[[uuid.UUID], list[dict]] | None = None
-    learned_used: Callable[[uuid.UUID, str, bool], None] | None = None
+    learned_used: Callable[[uuid.UUID, str, str, str | None], str | None] | None = None
     # How the lesson that last held her hands ended: {task, status, result}, or None.
     lesson_result: Callable[[uuid.UUID], dict | None] | None = None
     now: Callable[[], float] = time.time
@@ -641,12 +642,14 @@ class SkillDriverRun:
         counted = self._counted(self.run_before)
         if counted:
             record = {**record, "data": {**(record.get("data") or {}), "counted": counted}}
-        if running.get("program"):
-            if deps.learned_used:
-                try:
-                    deps.learned_used(self.session_id, running["skill"], record["status"] == "done")
-                except Exception:  # noqa: BLE001 - counting never stops play
-                    pass
+        if running.get("program") and deps.learned_used:
+            try:
+                changed = deps.learned_used(self.session_id, running["skill"], record["status"], record.get("reason"))
+            except Exception:  # noqa: BLE001 - counting never stops play
+                changed = None
+            if changed:  # switched off, or a different program: her skill list is read again
+                record = {**record, "reason": f"{record.get('reason') or record['status']} ({changed})"}
+                self.manifest = None
         self._outcome(record, step_id=running.get("step_id"))
         if self.deps.notice and record.get("status") == "done" and running["skill"] == "fight" \
                 and (record.get("data") or {}).get("killed"):

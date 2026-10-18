@@ -82,6 +82,15 @@ export interface LearnedSkill {
   enabled: boolean
   uses: number
   successes: number
+  misses_in_row: number
+  /** why it switched itself off (misses in a row), or null */
+  off_reason: string | null
+  /** the program as she learned it, while `code` is a tidied copy */
+  original_code: string | null
+  /** what the tidy changed, or why it was undone */
+  tidy_note: string | null
+  /** the tidied copy has worked at least once */
+  tidy_proven: boolean
   last_used_at: string | null
   created_at: string
   updated_at: string

@@ -402,7 +402,31 @@ def run_once(*, pack=None, model=None) -> bool:
         log.exception("learning %r crashed", task)
         result = PracticeResult("failed", f"something broke: {type(exc).__name__}")
     _finish(attempt_id, session_id, result)
+    if result.status == "learned" and settings.game_practice_tidy_enabled:
+        _tidy(attempt_id, task, result, pack=pack, model=model)
     return True
+
+
+def _tidy(attempt_id: uuid.UUID, task: str, result, *, pack=None, model=None) -> None:
+    """After she's told the user: a tidied copy of the move she just learned (game_skills
+    keeps the original until the copy has worked). Never fails the lesson."""
+    from app.ai.desktop.pack_client import PackClient
+    from app.ai.desktop.practice import tidy
+    from app.services import game_skills
+
+    try:
+        manifest = (pack or PackClient.from_settings()).manifest()
+        tidied = tidy(model or _model(), manifest, task, result.code, result.tries[-1] if result.tries else None)
+    except Exception as exc:  # noqa: BLE001 - the move works as learned
+        log.info("tidying %r skipped: %s", task, exc)
+        return
+    if tidied is None:
+        log.info("tidying %r: already tidy", task)
+        return
+    with SessionLocal() as db:
+        if game_skills.save_tidied(db, attempt_id, tidied.code, tidied.changes):
+            db.commit()
+            log.info("tidied %r: %s", task, tidied.changes)
 
 
 def _finish(attempt_id: uuid.UUID, session_id: uuid.UUID, result) -> None:

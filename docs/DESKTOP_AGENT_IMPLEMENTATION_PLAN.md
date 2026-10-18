@@ -1169,7 +1169,7 @@ A game without a pack keeps the stage C-D3 path: screen and keys, reflexes, `pur
 - **Library:** Postgres, next to the lessons, shared across worlds; a learned skill that fails repeatedly drops back to `trial`.
 - **Code model:** gpt-6-luna.
 - **Telling the user:** a learned skill is news for her mind (the gate decides whether to think about it), and the mouth sometimes mentions it.
-- **Where and when:** the user starts a server only to play or test, and wants to watch her learn; learning happens only in a session the user started. Watching through the pack's viewer or by joining is still open.
+- **Where and when:** the user starts a server only to play or test, and wants to watch her learn; learning happens only in a session the user started. The user watches her learn by joining the server (decided 2026-10-18; the pack's viewer is not needed for now).
 
 **Sandbox built 2026-10-15 (rule 2):** `game_packs/minecraft/src/sandbox.js`, `runProgram(runner, code)`. Her code runs in a separate V8 isolate (`isolated-vm`, needs Node >= 24) with exactly `skills.*` (through the runner), `state()` and `log()`; no require, files, network, process or timers. `runner.stop()` ends the program and its skill; hurt/stopped outcomes, low health, death and disconnects end it; limits are 300 s wall clock, 2 s of her code's own CPU (an endless loop dies; the pack's thread never waits), 32 MB and 40 skill calls. While it runs, only it (and her breathing reflex) can start skills. Tests: `test/sandbox.test.js`, `test/integration/sandbox.itest.js`.
 
@@ -1186,7 +1186,18 @@ A game without a pack keeps the stage C-D3 path: screen and keys, reflexes, `pur
 
 **Single actions and pauses (2026-10-15, after a live session):** the user asked her to kill a rabbit; `fight` takes only hostile mobs, and her learner could only combine skills, so 4 tries went nowhere (tries 3-4 just said so), and "dig my way up" couldn't be built either. Her code now also has single actions (`act.attack(id)`, `dig`, `place`, `look`, `equip`, `jump`; `game_packs/minecraft/src/actions.js`): one swing, one block, one jump, so the learner can build moves no skill has. By the user's decision no target is off limits, players included. Limits: one at a time, never over a running skill, 400 per program, stop/low health end them. A try that finds the task impossible returns `{impossible: true, missing}`; two tries in a row saying so end the attempt (once isn't enough: she called climbing out of stone impossible on try 1). Counted facts now include who and what was nearby before and after. Trials: "kill the rabbit nearby" learned on try 1 (9 s, act.attack in a loop); "dig my way up until open sky" (shut in 6 stone, stone pickaxe only) not learned in about 10 trials of 4 tries, each getting further (she climbs 1-2 blocks by jump-and-place, then makes a coding slip); fixes from them: `jump` resolves at the top, `dig` waits for the drop, errors say what to do (she held the pickaxe to place; she placed where she was mid-air), and the writer is told she's 2 blocks tall and needs 2 clear blocks over her head to jump. Medium reasoning got further but took about 4 min. Also: pauses she made with `pause_game` were stamped `user_pause`, so she couldn't lift them and asked the user to say "go ahead" four times; they're now `columbina_pause` (hers to resume, and a new goal from her own turn resumes it) unless the user asked (`pause_game(user_asked=True)`), and she's told not to pause for being stuck.
 
-**Not yet (H2):** a learned program is only a record: it doesn't join her skill list, and nothing is reviewed or reused yet.
+**H2 built 2026-10-17 (her moves), smaller than planned:** a lesson that works is saved per user and game in `game_learned_skills` (`services/game_skills.py`, migration `a3d7f1c9e5b8`); learning the same move again replaces the program. Her hands see each enabled move as one more skill, `learned_<words>(times)`, which runs the saved program `times` times in a row through the pack's sandbox and stops at the first time it doesn't work. Columbina's game summary lists them so she plans with them instead of offering to learn them again. The Learning page lists each with its code, uses and successes, and switches it off or deletes it.
+
+Differences from the plan above:
+- **Usable at once, no `trial` -> `approved` step and no test-server run first** (the user's choice, 2026-10-17: after she learned to pillar up and a minute later couldn't, they wanted a working move kept and used right away; the user can switch off or delete one).
+- **Built 2026-10-18 (migration `c2f6a8d4e1b7`):**
+  - *A move that keeps failing switches itself off* (instead of going back to trial, since there is no trial): `game_skills.MISS_LIMIT` (3) misses in a row. A miss is failed, broke or out of time; hurt, stopped or killed don't count. The reason is kept (`off_reason`) for the Learning page and her game summary ("don't plan with it; offer to learn it again"). Her hands hear it in the outcome and re-read their skills. Switching it back on, or learning it again, starts the count over.
+  - *Tidying a learned program*: once, right after the lesson ends (`practice.tidy`, same model, `GAME_PRACTICE_TIDY_ENABLED`). Coordinates, entity ids and items from that moment become look-ups, leftover debugging goes, and the `{done: false}` contract the repeats need is kept. The tidied copy isn't run first, so the program as learned stays in `original_code`. If the tidied copy misses before it has ever worked, the move goes back to the original, and that miss isn't counted against it. First real run on her two saved moves: the sheep move lost an `i--` that defeated its loop bound, and the pillar move stopped placing only `birch_planks`.
+- **Not built yet:**
+  - retrieval by embedding (every enabled move goes to her hands; fine while there are few);
+  - a per-session learning budget (each attempt is up to `GAME_PRACTICE_MAX_TRIES` Luna calls plus critics).
+
+**Not yet (H3):** the "explore and learn" curriculum mode: she only learns from "no skill for" steps and what the user asks.
 
 **Groundwork built (2026-10-10, game learning):** skill outcomes and notices are now recorded per session (`game_experiences`), and each ended session is reflected on into lessons (level 1, applied to the hands automatically), code proposals (level 3, Learning page, never applied by the app) and an episode. H's curriculum can read past failures from that log, and H2's `trial` -> `approved` lifecycle should follow the lessons' evidence rules. See CLAUDE.md "Game learning".
 
@@ -1217,7 +1228,7 @@ Verify relevant documentation again at implementation time; this plan does not p
 
 ## 16. Recommended next implementation step
 
-Stages A-D3 and stage G (Minecraft pack, phases 0-3) are built. Now: the user tests by playing with her. Next build: **stage H, Voyager mode** (H1 first: code-writing hands on the test server). Cloud hosting choices (provider, region, budget) stay deferred and do not block anything in version 1.
+Stages A-D3, stage G (Minecraft pack, phases 0-3) and stage H1-H2 (she learns moves by writing code, and keeps the ones that work) are built. Now: the user tests by playing with her and watches her learn by joining the server. Next build: **H3, the "explore and learn" mode**, plus the H2 parts listed as not built yet. Cloud hosting choices (provider, region, budget) stay deferred and do not block anything in version 1.
 
 Earliest measurements, before large builds:
 
