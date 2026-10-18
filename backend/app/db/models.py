@@ -1532,11 +1532,20 @@ class MindThought(Base):
     topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # The kind of thinking (why, next, you, judgement, feeling, memory; think.KINDS). Null for hard thoughts.
     kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # Hard thoughts (app/ai/mind/hard.py): what started it (failing, surprise, big, handoff, quiet), the kind
+    # of conclusion (decision, guess, question, intention, feeling), her private reasoning (panel only), a tip
+    # for her hands, a question for the user, and why it was dropped (status "dropped").
+    trigger: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    conclusion_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    thinking: Mapped[str | None] = mapped_column(Text, nullable=True)
+    for_hands: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dropped_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("level IN ('react', 'light', 'quiet', 'hard')", name="ck_mind_thoughts_level"),
-        CheckConstraint("status IN ('done', 'stale', 'unfinished')", name="ck_mind_thoughts_status"),
+        CheckConstraint("status IN ('done', 'stale', 'unfinished', 'dropped')", name="ck_mind_thoughts_status"),
         Index("ix_mind_thoughts_user_created", "user_id", "created_at"),
     )
 

@@ -41,15 +41,17 @@ def brain(monkeypatch, tmp_path):
     settings = get_settings()
     for name, value in (("mind_enabled", True), ("desktop_agent_enabled", True), ("mind_think_threshold", 0.7),
                         ("mind_quick_gap_seconds", 4.0), ("mind_hard_gap_seconds", 20.0), ("mind_quiet_seconds", 0),
-                        ("mind_tick_recording_enabled", False), ("mind_log_path", str(tmp_path / "mind.jsonl"))):
+                        ("mind_tick_recording_enabled", False), ("mind_log_path", str(tmp_path / "mind.jsonl")),
+                        ("mind_hard_quiet_seconds", 0)):
         monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(mind, "recent_thoughts", lambda db, sid, now, limit=5: [])
     monkeypatch.setattr(mind.mind_ticks, "recent_talk", lambda db, uid, now: [])
     monkeypatch.setattr(mind.mind_ticks.desktop_commands, "load_driver_state", lambda sid: {})
     monkeypatch.setattr(mind.desktop_preview, "redis_client", lambda: None)
-    hard, quick = [], []
-    monkeypatch.setattr(mind, "_think_hard", lambda db, session, topic, at: (
-        hard.append(topic), mind._set_thinking(session.id, topic)))
+    hard, quick, driver = [], [], {}
+    monkeypatch.setattr(mind.mind_hard, "start", lambda session, st, problem, at: (
+        hard.append(problem), setattr(st, "running", problem), setattr(st, "last_started_at", at)))
+    monkeypatch.setattr(mind.mind_hard.desktop_commands, "load_driver_state", lambda sid: driver)
     monkeypatch.setattr(mind._pool, "submit", lambda fn, sid, uid, level, text, at, thinker: (
         quick.append(level), setattr(mind._minds[sid], "quick_busy", False)))
     mind._minds.clear()
@@ -66,7 +68,7 @@ def brain(monkeypatch, tmp_path):
             over.setdefault("inventory", [{"name": "dirt", "count": next(picked)}])
         return mind.tick(None, Pack(), session, state(**over), at)
 
-    return SimpleNamespace(run=run, hard=hard, quick=quick, session=session)
+    return SimpleNamespace(run=run, hard=hard, quick=quick, session=session, driver=driver)
 
 
 def test_threshold_decides_whether_she_thinks():
@@ -88,23 +90,92 @@ def test_quiet_tick_does_nothing_and_light_respects_the_gap(brain):
     assert brain.quick == ["light", "react"]
 
 
+def test_the_gates_hard_is_a_surprise_only_when_the_world_changed(brain, monkeypatch):
+    assert brain.run(Gate({"hard": 0.9}), at=90)["hard"] is None  # the first tick: everything is "new"
+    record = brain.run(Gate({"hard": 0.9}))  # she picked something up
+    assert (record["level"], record["action"], record["hard"]) == ("light", "light", "hard: surprise")
+    assert "you got dirt" in brain.hard[0].text
+    brain.hard.clear()
+    mind._minds[brain.session.id].hard.running = None
+    monkeypatch.setattr(mind.mind_ticks, "recent_talk", lambda db, uid, now: [
+        {"role": "user", "content": "this session is for harder skills", "at": 150.0}])
+    record = brain.run(Gate({"hard": 0.9}), at=150, fresh=False)  # only the user talking: her mouth answers
+    assert record["hard"] is None and brain.hard == []
+
+
 def test_urgent_pressure_postpones_hard_thinking_until_it_is_off(brain):
+    brain.run(Gate({"none": 0.9}), at=99)
     record = brain.run(Gate({"hard": 0.9}), nearby=ZOMBIE)
     assert (record["pressure"], record["level"], record["action"]) == ("urgent", "react", "react")
-    assert record["note"] == "hard postponed until the pressure is off" and brain.hard == []
-    record = brain.run(Gate({"none": 0.95}), at=101)  # the zombie is gone
-    assert (record["level"], record["note"]) == ("hard", "the pressure is off: thinking it through now")
-    assert brain.hard == ["zombie 3 m from you"]  # what she postponed: the fight
+    assert record["hard"] == "hard postponed (surprise): urgent" and brain.hard == []
+    record = brain.run(Gate({"none": 0.95}), at=101, fresh=False)  # the zombie is gone
+    assert record["hard"] == "hard: surprise"
+    assert "zombie appeared" in brain.hard[0].text  # what she postponed: the fight
 
 
-def test_one_hard_thought_at_a_time(brain):
-    assert brain.run(Gate({"hard": 0.9}))["action"] == "hard"
-    record = brain.run(Gate({"hard": 0.9}), at=105)
-    assert (record["level"], record["note"]) == ("light", "already thinking hard")
-    mind._set_thinking(brain.session.id, None)  # the thought landed
-    assert brain.run(Gate({"hard": 0.9}), at=110)["note"] == "hard thought too soon"  # under the 20 s gap
-    assert brain.run(Gate({"hard": 0.9}), at=125)["action"] == "hard"
+def test_one_hard_thought_at_a_time_with_a_gap(brain):
+    brain.run(Gate({"none": 0.9}), at=99)
+    assert brain.run(Gate({"hard": 0.9}))["hard"] == "hard: surprise"
+    assert brain.run(Gate({"hard": 0.9}), at=105)["hard"] == "hard waiting (surprise)"
+    mind._minds[brain.session.id].hard.running = None  # the thought landed
+    assert brain.run(Gate({"none": 0.9}), at=110, fresh=False)["hard"] == "hard waiting (surprise): gap"
+    assert brain.run(Gate({"none": 0.9}), at=121, fresh=False)["hard"] == "hard: surprise"
     assert len(brain.hard) == 2
+
+
+def test_a_step_that_keeps_failing_is_thought_over_at_the_4th_and_10th_failure(brain):
+    brain.session.plan = {"goal": "kill a sheep", "steps": [
+        {"id": "s60", "state": "active", "do": "attack the sheep", "done_when": "the sheep is dead"}]}
+    fails = [{"skill": "fight", "params": {"target": "sheep"}, "status": "refused", "reason": "sheep isn't hostile"}]
+    brain.driver["step"] = {"id": "s60", "do": "attack the sheep", "since": 90.0, "tries": 4, "failed": 3,
+                            "failures": fails * 3}
+    assert brain.run(Gate({"none": 0.9}))["hard"] is None
+    brain.driver["step"] = {**brain.driver["step"], "tries": 5, "failed": 4, "failures": fails * 4}
+    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] == "hard: failing"
+    problem = brain.hard[-1]
+    assert problem.anchor == {"goal": "kill a sheep", "step_id": "s60"}
+    assert "4 failed: fight(target=sheep) -> sheep isn't hostile x4" in problem.text
+    mind._minds[brain.session.id].hard.running = None
+    assert brain.run(Gate({"none": 0.9}), at=130)["hard"] is None  # the same failure count: thought over already
+    brain.driver["step"] = {**brain.driver["step"], "failed": 10}
+    assert brain.run(Gate({"none": 0.9}), at=131)["hard"] == "hard: failing"
+
+
+def test_a_result_that_says_failed_while_she_got_the_loot_is_a_surprise(brain):
+    brain.run(Gate({"none": 0.9}), fresh=False, inventory=[])
+    brain.driver["outcomes"] = [{"skill": "learned_attack_passive_sheep", "params": {"times": 1}, "status": "failed",
+                                 "reason": "the target is gone", "seconds": 20, "at": 125.0}]
+    record = brain.run(Gate({"none": 0.9}), at=126, inventory=[{"name": "mutton", "count": 2}])
+    assert record["hard"] == "hard: surprise"
+    assert "But while it ran you got: mutton +2" in brain.hard[-1].text
+    mind._minds[brain.session.id].hard.running = None
+    assert brain.run(Gate({"none": 0.9}), at=150, fresh=False,
+                     inventory=[{"name": "mutton", "count": 2}])["hard"] is None  # seen once
+
+
+def test_something_big_is_thought_over_before_it_starts(brain):
+    brain.run(Gate({"none": 0.9}))
+    brain.session.plan = {"goal": "build a shelter", "steps": [
+        {"id": f"s{i}", "state": "pending", "do": f"step {i}"} for i in range(3)]}
+    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] == "hard: big"
+    assert brain.hard[-1].anchor == {"goal": "build a shelter"}
+    mind._minds[brain.session.id].hard.running = None
+    brain.driver["running"] = {"skill": "learned_build_up", "params": {"times": 10}}
+    assert brain.run(Gate({"none": 0.9}), at=130)["hard"] == "hard: big"
+    assert "learned_build_up 10 times in a row" in brain.hard[-1].text
+
+
+def test_quiet_hard_thinking_rotates_topics(brain, monkeypatch):
+    monkeypatch.setattr(get_settings(), "mind_hard_quiet_seconds", 180.0)
+    monkeypatch.setattr(get_settings(), "mind_hard_quiet_every_seconds", 300.0)
+    brain.run(Gate({"none": 0.9}))
+    assert brain.run(Gate({"none": 0.9}), at=200, fresh=False)["hard"] is None
+    assert brain.run(Gate({"none": 0.9}), at=400, fresh=False)["hard"] == "hard: quiet"
+    mind._minds[brain.session.id].hard.running = None
+    assert brain.run(Gate({"none": 0.9}), at=600, fresh=False)["hard"] is None  # once per 5 min
+    assert brain.run(Gate({"none": 0.9}), at=701, fresh=False)["hard"] == "hard: quiet"
+    assert [p.topic for p in brain.hard] == ["quiet: the user: what they want from today, and how they're doing",
+                                             "quiet: the session so far: what you two did, and what's unfinished"]
 
 
 def test_nothing_new_means_no_thought_whatever_the_gate_says(brain):

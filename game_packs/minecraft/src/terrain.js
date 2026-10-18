@@ -26,6 +26,7 @@ const RISE = 6 // a sector this much higher (on average) than her rises; this mu
 const WAY_OUT_CELLS = 12000 // open cells searched for the way out, at most
 const WAY_OUT_REACH = 48 // blocks from her, any direction
 const CLIMB_COST = 6 // going up from where she can't stand (a ledge, a shaft): walkable routes first
+const CLOSE = 3 // "right next to her": every column this close (the grid skips them), for a wall or pillar she's at
 
 const COMPASS = ['north', 'north-west', 'west', 'south-west', 'south', 'south-east', 'east', 'north-east']
 const compassOf = (dx, dz) => COMPASS[(Math.round(Math.atan2(-dx, -dz) / (Math.PI / 4)) % 8 + 8) % 8]
@@ -98,7 +99,19 @@ export function land (cache, feet, yaw, { radius = RADIUS, grid = GRID } = {}) {
     }
   }
   if (!seen) return null
-  const out = { sectors: [], peak: null }
+  // The highest ground right next to her, every column: the land grid starts 4 blocks out, so a
+  // pillar she's climbing beside never showed. Seen live: she built 11 blocks past an ice pillar's top.
+  let close = null
+  for (let dx = -CLOSE; dx <= CLOSE; dx++) {
+    for (let dz = -CLOSE; dz <= CLOSE; dz++) {
+      if (!dx && !dz) continue
+      const g = cache.get(fx + dx, fz + dz, top, bottom)
+      if (!g || g.kind !== 'solid') continue
+      const rel = g.y + 1 - fy
+      if (!close || rel > close.rel) close = { rel, distance: Math.round(Math.hypot(dx, dz)), capped: g.capped }
+    }
+  }
+  const out = { sectors: [], peak: null, close }
   for (const s of sectors) {
     if (!s.n) continue
     const mean = s.rel.length ? s.rel.reduce((a, b) => a + b, 0) / s.rel.length : 0
@@ -466,6 +479,12 @@ export function describeTerrain (t) {
       `${p.at_edge ? ', and the land may keep rising beyond' : ''}.${way} go_to target "peak" goes there.`)
   } else {
     lines.push('Highest ground (peak): you are on it, nothing near is more than a few blocks higher.')
+  }
+  const c = t.land?.close
+  if (c && c.rel >= 2) {
+    lines.push(`Right next to you (${c.distance} m): ground ${c.capped ? 'more than ' : ''}${c.rel} m above you (a wall, a pillar).`)
+  } else if (c) {
+    lines.push('Right next to you: nothing higher than where you stand.')
   }
   if (t.surface) lines.push(`Surface: ${t.surface.capped ? 'more than ' : 'about '}${t.surface.up} m straight above you (digging up is always a way).`)
   if ('way_out' in t) {

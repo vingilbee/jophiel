@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.db.models import ChatJob, DesktopSession, User
 from app.db.session import SessionLocal
 from app.services import chat as chat_service
-from app.services import desktop_game
+from app.services import desktop_game, game_moment
 
 log = logging.getLogger(__name__)
 
@@ -109,24 +109,31 @@ async def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
     A ``thought:`` reason is a hard thought of her mind: the reply becomes the thought."""
     topic = next((r.partition(":")[2].strip() for r in reasons if r.startswith("thought:")), None)
     try:
-        reply = await _run(user_id, session_id, reasons, plan_revision)
+        reply, moment = await _run(user_id, session_id, reasons, plan_revision)
     except BaseException:
         if topic is not None:
-            await asyncio.to_thread(_thought_done, user_id, session_id, topic, None)
+            await asyncio.to_thread(_thought_done, user_id, session_id, topic, None, None)
         raise
     if topic is not None:
-        await asyncio.to_thread(_thought_done, user_id, session_id, topic, reply)
+        await asyncio.to_thread(_thought_done, user_id, session_id, topic, reply, moment)
     return reply
 
 
-def _thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str, reply: str | None) -> None:
+def _thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str, reply: str | None,
+                  moment: game_moment.Moment | None) -> None:
     from app.services import mind
 
-    mind.hard_thought_done(user_id, session_id, topic, reply)
+    outdated: list[str] = []
+    if reply and moment is not None:
+        with SessionLocal() as db:
+            # The game moved on while she thought (not her goal or steps: her own turn may have set them).
+            outdated = game_moment.since(db, moment, game_moment.WORLD)
+    mind.hard_thought_done(user_id, session_id, topic, reply, outdated=outdated)
 
 
 async def _run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
-               plan_revision: int | None) -> str | None:
+               plan_revision: int | None) -> tuple[str | None, game_moment.Moment | None]:
+    """Her (unshown) reply, and the game as her summary saw it."""
     from app.ai import prompts
     from app.ai.chat import complete_chat
 
@@ -137,13 +144,13 @@ async def _run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str],
         await asyncio.sleep(1)
     prepared = await asyncio.to_thread(_prepare, user_id, session_id, reasons, plan_revision)
     if prepared is None:
-        return None
+        return None, None
     user_name, history, game, event = prepared
     context = AgentRuntimeContext(
         user_id=user_id, user_name=user_name, game=game.summary, game_activity=game.activity, game_vm=game.vm,
-        game_event=event, model_override=get_settings().chat_model,
+        game_moment=game.moment, game_event=event, model_override=get_settings().chat_model,
     )
     messages = [*history, {"role": "user", "content": prompts.GAME_EVENT_TRIGGER}]
     reply = await complete_chat(messages=messages, context=context)
     log.info("game event turn for session %s (%s): %s", session_id, ", ".join(reasons), reply[:200])
-    return reply
+    return reply, game.moment

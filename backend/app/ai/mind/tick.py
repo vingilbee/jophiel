@@ -37,7 +37,8 @@ MINECRAFT = Situation(
         "none": "walking, following, mining as planned",
         "react": "a mob on her or the user, losing health, drowning (\"creeper!\")",
         "light": "the user placed, broke or threw something, a find, night coming",
-        "hard": "the user asks for something that takes several steps, a step that keeps failing",
+        "hard": "her hands say it failed but she got the loot anyway, something she carried or placed is gone, "
+                "the way her plan takes is blocked",
     },
 )
 

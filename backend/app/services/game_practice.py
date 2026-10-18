@@ -227,6 +227,18 @@ def _recent(db: Session, session_id: uuid.UUID, within: float) -> GameSkillAttem
     )
 
 
+def last_result(db: Session, session_id: uuid.UUID, within: float = 120.0) -> dict | None:
+    """How the lesson that last held her hands ended, for her hands: {task, status, result}."""
+    attempt = _recent(db, session_id, within)
+    db.commit()
+    if attempt is None:
+        return None
+    text = _ended_text(attempt)
+    if attempt.status == "learned" and attempt.result:
+        text += f". What it did: {attempt.result}"
+    return {"task": attempt.task, "status": attempt.status, "result": text[:600]}
+
+
 def _ended_text(attempt: GameSkillAttempt) -> str:
     tries = len(attempt.tries or [])
     if attempt.status == "learned":

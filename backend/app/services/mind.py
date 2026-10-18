@@ -8,8 +8,10 @@ and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
   saved, and its line (if any) handed to the one speaking gate, ``agent_say``;
-- ``hard``: a background Luna game turn (``agent_events`` -> ``game_events``)
-  whose written reply becomes the thought.
+- ``hard``: slow thinking about a problem (services/mind_hard.py): a step that keeps
+  failing, a surprise, something big ahead, her mouth's hand-off, quiet time. It ends
+  in one conclusion that goes to her hands, her mouth and the thoughts panel. The gate's
+  ``hard`` level is only one of its triggers (a surprise); here it becomes a light thought.
 
 Nothing here blocks her hands or her replies. Every decision goes to
 ``MIND_LOG_PATH`` for tuning.
@@ -36,16 +38,13 @@ from app.ai.mind.tick import MINECRAFT, TickInput, danger, news, render, worse
 from app.core.config import get_settings
 from app.db.models import DesktopSession, MindThought, User
 from app.db.session import SessionLocal
-from app.services import agent_events, agent_say, desktop_preview, mind_ticks
+from app.services import agent_say, desktop_preview, game_moment, mind_hard, mind_ticks
 
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 THOUGHTS_IN_TICK = 5
 THOUGHT_WINDOW = timedelta(minutes=10)
-# An unfinished hard thought is handed to the next one once, if it's this recent. It used to be carried
-# whole, its own carried part included, so they nested: live, a user message from 17:49 still rode
-# along at 18:01, and "learning: try 2 of 4" made her say "still practising" after the move worked.
-UNFINISHED_FOR = timedelta(seconds=90)
+# What old background-turn thoughts carried from an unfinished one (before services/mind_hard.py).
 CARRIED = " (unfinished from before"
 HARD_TTL_SECONDS = 180  # a hard thought still "running" after this long is presumed lost
 STALE_AFTER = {"react": 4.0, "light": 12.0, "quiet": 20.0}  # a quick thought landing later than this isn't said
@@ -69,11 +68,12 @@ class SessionMind:
     tick_no: int = 0
     quick_busy: bool = False
     last_quick_at: float = 0.0
-    last_hard_at: float = 0.0
-    postponed: str | None = None  # a hard thought waiting for the fight to end
     last_react_at: float = 0.0
     last_danger: dict | None = None  # the danger she last reacted to (tick.danger)
     hard_local: dict = field(default_factory=dict)  # topic/since, when Redis is unavailable
+    quick_since: game_moment.Moment | None = None  # the game as the running quick thought's tick saw it
+    hard: mind_hard.HardState = field(default_factory=mind_hard.HardState)  # her slow thinking
+    user: str | None = None  # the user's name, read once
 
 
 _minds: dict[uuid.UUID, SessionMind] = {}
@@ -125,9 +125,10 @@ def _set_thinking(session_id: uuid.UUID, topic: str | None) -> None:
 
 def recent_thoughts(db: Session, session_id: uuid.UUID, now: datetime, limit: int = THOUGHTS_IN_TICK) -> list[dict]:
     rows = db.scalars(
-        select(MindThought).where(MindThought.session_id == session_id, MindThought.created_at >= now - THOUGHT_WINDOW)
+        select(MindThought).where(MindThought.session_id == session_id, MindThought.created_at >= now - THOUGHT_WINDOW,
+                                  MindThought.status != "dropped")
         .order_by(MindThought.created_at.desc()).limit(limit)).all()
-    return [{"level": r.level, "text": r.text, "said": r.said, "status": r.status,
+    return [{"level": r.level, "text": r.text, "said": r.said, "status": r.status, "conclusion": r.conclusion_kind,
              "at": r.created_at.timestamp()} for r in reversed(rows)]
 
 
@@ -136,25 +137,13 @@ def base_topic(topic: str | None) -> str | None:
     return topic.split(CARRIED, 1)[0].strip() if topic else topic
 
 
-def _unfinished(db: Session, session_id: uuid.UUID, now: datetime) -> tuple[str, float] | None:
-    """The latest unfinished hard thought, if recent, as (topic, seconds ago); handed on only once
-    (marked stale here: the next thought has it now)."""
-    row = db.scalar(
-        select(MindThought).where(MindThought.session_id == session_id, MindThought.status == "unfinished",
-                                  MindThought.created_at >= now - UNFINISHED_FOR)
-        .order_by(MindThought.created_at.desc()).limit(1))
-    if row is None or not row.topic:
-        return None
-    row.status = "stale"
-    return base_topic(row.topic), max(0.0, (now - row.created_at).total_seconds())
-
-
 def save_thought(db: Session, *, user_id: uuid.UUID, session_id: uuid.UUID | None, level: str, text: str,
                  said: str | None = None, status: str = "done", topic: str | None = None,
-                 kind: str | None = None) -> MindThought:
-    """Store a thought (caller's transaction is committed here) and show it live."""
+                 kind: str | None = None, **hard) -> MindThought:
+    """Store a thought (caller's transaction is committed here) and show it live. ``hard``: a
+    hard thought's trigger, conclusion_kind, thinking, for_hands, question, dropped_reason."""
     thought = MindThought(user_id=user_id, session_id=session_id, level=level, text=text[:1000],
-                          said=said, status=status, topic=(topic or None) and topic[:TOPIC_CHARS], kind=kind)
+                          said=said, status=status, topic=(topic or None) and topic[:TOPIC_CHARS], kind=kind, **hard)
     db.add(thought)
     db.commit()
     publish(user_id, thought)
@@ -164,6 +153,8 @@ def save_thought(db: Session, *, user_id: uuid.UUID, session_id: uuid.UUID | Non
 def thought_out(thought: MindThought) -> dict:
     return {"id": str(thought.id), "level": thought.level, "text": thought.text, "said": thought.said,
             "status": thought.status, "topic": thought.topic, "kind": thought.kind,
+            "trigger": thought.trigger, "conclusion_kind": thought.conclusion_kind, "thinking": thought.thinking,
+            "for_hands": thought.for_hands, "question": thought.question, "dropped_reason": thought.dropped_reason,
             "session_id": str(thought.session_id) if thought.session_id else None,
             "created_at": thought.created_at.isoformat() if thought.created_at else
             datetime.now(timezone.utc).isoformat()}
@@ -254,14 +245,12 @@ def run_once() -> None:
         for session in sessions:
             try:
                 tick(db, pack, session, state, time.time())
+                asked = mind_hard.ask_if_due(db, session, time.time())
+                if asked:
+                    _log({"ts": time.time(), "session": str(session.id), "question": asked})
             except Exception:  # noqa: BLE001 - the brain must never get in the way of play
                 log.exception("mind tick for session %s failed", session.id)
                 db.rollback()
-
-
-def _topic(changed: list[str], why: str) -> str:
-    lines = [c for c in changed if not c.startswith("(first tick")] or [why]
-    return "; ".join(lines)[:TOPIC_CHARS]
 
 
 def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at: float) -> dict:
@@ -286,30 +275,18 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
     raw = g.level_from(result, settings.mind_think_threshold)
     level = g.capped(raw, pressure)
     note = None
-    if raw == "hard" and pressure == "urgent":
-        mind.postponed = _topic(fresh, why)
-        note = "hard postponed until the pressure is off"
-    elif pressure != "urgent" and mind.postponed and not thinking and level in (None, "none", "light"):
-        level, note = "hard", "the pressure is off: thinking it through now"
-    if level == "hard" and (thinking or at - mind.last_hard_at < settings.mind_hard_gap_seconds):
-        level, note = "light", ("already thinking hard" if thinking else "hard thought too soon")
+    if level == "hard":
+        level = "light"  # hard thinking starts from a problem (mind_hard; the gate's hard may be a surprise)
     if session.state != "running" and level == "react":
         level = "light"  # paused: nothing to react to with her body
-    resuming = bool(note and note.startswith("the pressure is off"))
-    if level not in (None, "none") and not fresh and not resuming:
+    if level not in (None, "none") and not fresh:
         level, note = "none", "nothing new since the last tick"
     elif (level == "react" and mind.last_danger is not None and at - mind.last_react_at < SAME_DANGER_SECONDS
           and not worse(danger(current.state), mind.last_danger)):
         level, note = "none", "same danger, not worse"
 
     action = "none"
-    if level == "hard":
-        topic = mind.postponed if resuming else _topic(fresh, why)
-        mind.postponed = None
-        _think_hard(db, session, topic, at)
-        mind.last_hard_at = at
-        action = "hard"
-    elif level in ("react", "light"):
+    if level in ("react", "light"):
         if mind.quick_busy:
             action = "skipped: a quick thought is running"
         elif level == "light" and at - mind.last_quick_at < settings.mind_quick_gap_seconds:
@@ -317,6 +294,7 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
         else:
             mind.quick_busy = True
             mind.last_quick_at = at
+            mind.quick_since = game_moment.capture(db, session, state, at=at)
             if level == "react":
                 mind.last_react_at, mind.last_danger = at, danger(current.state)
             _pool.submit(_think_quick, session.id, session.owner_user_id, level, text, at,
@@ -325,9 +303,15 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
     if action == "none" and _quiet_due(mind, current, pressure, thinking, at):
         mind.quick_busy = True
         mind.last_quick_at = at
+        mind.quick_since = game_moment.capture(db, session, state, at=at)
         _pool.submit(_think_quick, session.id, session.owner_user_id, "quiet", text, at,
                      thinkers and thinkers["light"])
         action = "quiet"
+    if mind.user is None:
+        user = db.get(User, session.owner_user_id) if db is not None else None
+        mind.user = user.name if user is not None and user.name else "the user"
+    hard = mind_hard.step(session, mind.hard, state=state, plan=session.plan, talk=current.talk, fresh=fresh,
+                          gate_hard=raw == "hard", pressure=pressure, at=at, user=mind.user)
 
     if settings.mind_tick_recording_enabled:
         mind_ticks.append_tick(session.id, mind.tick_no, current, text, pressure, changed, why,
@@ -336,7 +320,7 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
         "ts": at, "session": str(session.id), "tick": mind.tick_no, "pressure": pressure, "why": why,
         "changed": changed[:8], "news": len(fresh), "gate": result.gate, "gate_level": result.level, "raw": raw, "level": level,
         "probabilities": result.probabilities, "gate_ms": result.latency_ms, "gate_error": result.error,
-        "note": note, "action": action, "thinking": thinking,
+        "note": note, "action": action, "hard": hard, "thinking": thinking,
     }
     _log(record)
     return record
@@ -348,7 +332,7 @@ def _quiet_due(mind: SessionMind, current: TickInput, pressure: str, thinking: s
     quiet = get_settings().mind_quiet_seconds
     if not quiet or pressure == "urgent" or thinking or mind.quick_busy:
         return False
-    if at - max(mind.last_quick_at, mind.last_hard_at) < quiet:
+    if at - max(mind.last_quick_at, mind.hard.last_started_at) < quiet:
         return False
     return not any(m.get("role") == "user" and at - m.get("at", 0) < USER_TURN_SECONDS for m in current.talk)
 
@@ -369,6 +353,11 @@ def _think_quick(session_id: uuid.UUID, user_id: uuid.UUID, level: str, text: st
             late = time.time() - at > STALE_AFTER[level]
             live = session is not None and session.state in mind_ticks.LIVE_STATES
             status = "done" if live and not late else "stale"
+            # Thought from a moment the game has left (seen live: "it slipped away" about a sheep
+            # the lesson had just killed): not said, and kept as possibly out of date.
+            outdated = game_moment.since(db, mind.quick_since) if status == "done" else []
+            if outdated:
+                status = "stale"
             said = None
             outcome = None
             if thought.say and status == "done":
@@ -381,6 +370,7 @@ def _think_quick(session_id: uuid.UUID, user_id: uuid.UUID, level: str, text: st
             _log({"ts": time.time(), "session": str(session_id), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,
+                  "changed": outdated or None,
                   "ms": thought.latency_ms})
     except Exception:  # noqa: BLE001
         log.exception("mind: quick thought failed for session %s", session_id)
@@ -388,31 +378,21 @@ def _think_quick(session_id: uuid.UUID, user_id: uuid.UUID, level: str, text: st
         mind.quick_busy = False
 
 
-def _think_hard(db: Session, session: DesktopSession, topic: str, at: float) -> None:
-    """Hand the moment to Luna as a background game turn; its reply becomes the thought."""
-    topic = base_topic(topic) or topic
-    unfinished = _unfinished(db, session.id, datetime.fromtimestamp(at, timezone.utc))
-    detail = topic
-    if unfinished and unfinished[0] != topic:
-        detail += (f"{CARRIED}, {round(unfinished[1])} s ago, so check it still holds before acting on it: "
-                   f"{unfinished[0]})")
-    agent_events.enqueue(
-        db, user_id=session.owner_user_id, source="desktop", dedupe_key=str(session.id),
-        reason=f"thought: {detail}"[:400],
-        payload={"session_id": str(session.id), "plan_revision": session.plan_revision, "mind_topic": topic},
-    )
-    db.commit()
-    _set_thinking(session.id, topic)
-    agent_events.wake()
-
-
-def hard_thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str | None, reply: str | None) -> None:
-    """Called by the background turn: store what she thought (or that it couldn't run)."""
+def hard_thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str | None, reply: str | None,
+                      *, outdated: list[str] | None = None) -> None:
+    """Called by a background turn with a ``thought:`` reason (queued before hard thinking moved to
+    services/mind_hard.py): store what she thought (or that it couldn't run).
+    ``outdated``: what changed in the game while she thought; then it's kept as stale, so her
+    mouth reads it as possibly out of date rather than as fact."""
     topic = base_topic(topic)
     with SessionLocal() as db:
         text = " ".join((reply or "").split())
         if text:
-            save_thought(db, user_id=user_id, session_id=session_id, level="hard", text=text, topic=topic)
+            save_thought(db, user_id=user_id, session_id=session_id, level="hard", text=text, topic=topic,
+                         status="stale" if outdated else "done")
+            if outdated:
+                _log({"ts": time.time(), "session": str(session_id), "hard": "stale", "thought": text[:300],
+                      "changed": outdated})
         elif topic:
             save_thought(db, user_id=user_id, session_id=session_id, level="hard",
                          text=f"(didn't get to think this through: {topic})", status="unfinished", topic=topic)

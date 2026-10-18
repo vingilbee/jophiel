@@ -30,8 +30,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.models import (DESKTOP_TERMINAL_STATES, ChatMessage, Conversation, DesktopEnvironment, DesktopSession,
                            DesktopSessionEvent, GameExperience)
+from app.ai.desktop import step_check
 from app.schemas.desktop import PlanAppend, PlanIn, PlanReplace, PlanStepIn, SessionCreate
-from app.services import desktop_commands, desktop_preview, game_learning, game_pack, game_players
+from app.services import desktop_commands, desktop_preview, game_learning, game_moment, game_pack, game_players
 from app.services import desktop_sessions as sessions
 from app.services.desktop_sessions import DesktopError
 
@@ -89,6 +90,8 @@ class GameContext:
     tools: bool
     activity: str | None = None
     vm: bool = False
+    # The game as this summary saw it, so what changed while she wrote can be told (game_moment).
+    moment: game_moment.Moment | None = None
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
@@ -242,9 +245,10 @@ def _times_set(db: Session, session: DesktopSession, goal: str) -> int:
     return sum(1 for each in goals if each and _same_goal(each, goal))
 
 
-def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
+def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> GameContext | None:
     """The game summary for one of Columbina's turns, or None when the user has
-    no game environment (then she gets neither the summary nor the tools)."""
+    no game environment (then she gets neither the summary nor the tools).
+    ``for_reply``: a reply to the user, which takes her open question (to ask it)."""
     if not get_settings().desktop_agent_enabled:
         return None
     envs = _environments(db, user_id)
@@ -266,13 +270,18 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
     driver = desktop_commands.load_driver_state(session.id) or {}
     lines += _commitment_lines(session, now)
     if pack:
-        lines += _pack_details(db, env, session, driver, now)
+        details, state = _pack_details(db, env, session, driver, now, for_reply=for_reply)
+        lines += details
+        moment = game_moment.capture(db, session, state, at=now)
         db.commit()
-        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm)
+        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm,
+                           moment=moment)
     vm_lines, facts = _vm_details(session, driver, now)
     lines += vm_lines
+    moment = game_moment.capture(db, session, None, at=now)
     db.commit()
-    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts), vm=vm)
+    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts), vm=vm,
+                       moment=moment)
 
 
 def _environment_lines(db: Session, user_id: uuid.UUID,
@@ -355,7 +364,9 @@ def _plan_lines(db: Session, session: DesktopSession) -> list[str]:
                      + "; ".join(session.plan["constraints"]) + ".")
     lines.append(
         f"Steps done: {len(done)} of {len(steps)}."
-        + (f" Now: {active['do']} (done when: {active['done_when']})." if active else " None left.")
+        + (f" Now: {active['do']} (done when: {active['done_when']}"
+           + (f"; counted: {step_check.describe(active['check'])}" if active.get("check") else "") + ")."
+           if active else " None left.")
     )
     return lines
 
@@ -439,10 +450,10 @@ def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[st
 
 
 def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession, driver: dict,
-                  now: float) -> list[str]:
-    """What her hands are doing and what the game says, for a pack session.
-    The game state comes from the game itself (counted by code); notes are her
-    hands' own words."""
+                  now: float, *, for_reply: bool = False) -> tuple[list[str], dict | None]:
+    """What her hands are doing and what the game says, for a pack session, and the
+    game's state (None if unreachable). The game state comes from the game itself
+    (counted by code); notes are her hands' own words."""
     lines = []
     running = driver.get("running")
     if running and session.state == "running":
@@ -460,7 +471,7 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
 
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
-    lines += _mind_lines(db, session, now)
+    lines += _mind_lines(db, session, now, for_reply=for_reply)
     from app.services import game_practice
 
     lines += game_practice.summary_lines(db, session, now)
@@ -479,6 +490,7 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
                          + "; ".join(f"{d['text']} ({_ago(now - d.get('at', now))})" for d in did) + ".")
     if driver.get("notes"):
         lines.append(f'Your hands\' note: "{driver["notes"]}".')
+    state = None
     if env.status == "online":
         try:
             from app.ai.desktop.pack_client import PackClient, PackError
@@ -487,14 +499,26 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
             lines.append("Your player right now (from the game): " + " ".join(state.get("text", "").split("\n"))
                          + " (Your hands switch to the best tool by themselves each time they mine or fight.)")
         except PackError:
-            pass
-    return lines
+            state = None
+    return lines, state
 
 
-def _mind_lines(db: Session, session: DesktopSession, now: float) -> list[str]:
-    """Her own recent thoughts during play (services/mind.py), so a reply fits what
-    she's been noticing. Empty when her mind is off."""
-    from app.services import mind
+def _thought_line(t: dict, now: float) -> str:
+    # A stale thought was written before the game moved on (or landed too late): it may be wrong now.
+    notes = [f"thought over: a {t['conclusion']}"] if t.get("conclusion") else []
+    if t.get("said"):
+        notes.append(f'you said "{t["said"]}"')
+    notes.append(_ago(now - t["at"]))
+    if t["status"] == "stale":
+        notes.append("out of date: the game changed after you thought it, so check it against now")
+    return f'"{t["text"]}" ({"; ".join(notes)})'
+
+
+def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: bool = False) -> list[str]:
+    """Her own recent thoughts during play (services/mind.py), what she means to do and
+    the question she wanted to ask (services/mind_hard.py), so a reply fits what she's
+    been noticing and thinking over. Empty when her mind is off."""
+    from app.services import mind, mind_hard
 
     if not mind.enabled():
         return []
@@ -502,12 +526,19 @@ def _mind_lines(db: Session, session: DesktopSession, now: float) -> list[str]:
     thoughts = [t for t in mind.recent_thoughts(db, session.id, at) if t["status"] != "unfinished"]
     lines = []
     if thoughts:
-        lines.append("On your mind (your own thoughts while playing, newest last): " + "; ".join(
-            f'"{t["text"]}"' + (f' (you said "{t["said"]}")' if t.get("said") else "")
-            + f" ({_ago(now - t['at'])})" for t in thoughts) + ".")
+        lines.append("On your mind (your own thoughts while playing, newest last): "
+                     + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
+    intentions = mind_hard.intentions(session.id)
+    if intentions:
+        lines.append("You mean to (your own intentions, from thinking it over): "
+                     + "; ".join(f'"{i["text"]}"' for i in intentions) + ".")
+    question = mind_hard.take_question(session.id) if for_reply else None
+    if question:
+        lines.append(f'A question you wanted to ask the user, from thinking it over: "{question["text"]}". '
+                     "Ask it in this reply if it still fits, in your own words; otherwise let it go.")
     thinking = mind.thinking_about(session.id)
     if thinking:
-        lines.append(f"You're still thinking this through: {thinking}.")
+        lines.append(f"You're still thinking over: {thinking}.")
     return lines
 
 
@@ -677,14 +708,14 @@ def turn_picture(user_id: uuid.UUID, spoke_at: float) -> tuple[bytes, str] | Non
     return out.getvalue(), note
 
 
-def summary_for(user_id: uuid.UUID) -> GameContext | None:
+def summary_for(user_id: uuid.UUID, *, for_reply: bool = False) -> GameContext | None:
     """``describe`` with its own DB session, for a turn being assembled (run in
     a thread). Never fails a turn: any error just means no game this turn."""
     from app.db.session import SessionLocal
 
     try:
         with SessionLocal() as db:
-            context = describe(db, user_id)
+            context = describe(db, user_id, for_reply=for_reply)
     except Exception:  # pragma: no cover - logged, then the turn goes on without the game
         import logging
 

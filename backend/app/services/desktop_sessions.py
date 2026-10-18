@@ -533,7 +533,8 @@ def _number_steps(session: DesktopSession, steps) -> list[dict]:
     numbered = []
     for step in steps:
         numbered.append({"id": f"s{session.next_step_number}", "do": step.do,
-                         "done_when": step.done_when, "state": "pending"})
+                         "done_when": step.done_when, "state": "pending",
+                         **({"check": step.check.model_dump(exclude_none=True)} if step.check else {})})
         session.next_step_number += 1
     return numbered
 
@@ -813,6 +814,8 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
 
     if kind in COMMENTARY_KINDS and mind.enabled():
         return  # her mind sees the same notices every tick and decides itself
+    if kind == "struggling" and mind.enabled():
+        return  # her slow thinking takes a step that keeps failing (services/mind_hard.py)
     if session.commentary_mode in event_rules(kind).wakes:
         _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")
         db.commit()

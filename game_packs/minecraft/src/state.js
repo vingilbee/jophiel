@@ -197,6 +197,8 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     held: held ? { name: held.name, count: held.count } : null,
     armor: wearing(bot),
     inventory: mergedInventory(bot),
+    // Mobs she killed since she joined, counted (src/kills.js): {label: count}.
+    kills: { ...(bot.killCounts ?? {}) },
     time: { time_of_day: timeOfDay, day: bot.time.day, phase: dayPhase(timeOfDay) },
     weather: bot.thunderState > 0 ? 'thunder' : bot.isRaining ? 'rain' : 'clear',
     nearby: nearbyEntities(bot, radius),

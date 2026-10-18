@@ -90,9 +90,18 @@ class PairingOut(BaseModel):
 # --- plan ---------------------------------------------------------------------
 
 
+class StepCheck(_In):
+    """A step's done_when in a form code counts (app/ai/desktop/step_check.py)."""
+
+    kind: Literal["has", "gained", "killed", "top_here", "peak", "near_player"]
+    what: Annotated[str, StringConstraints(strip_whitespace=True, max_length=60)] | None = None
+    count: int | None = Field(default=None, ge=1, le=2304)
+
+
 class PlanStepIn(_In):
     do: ShortText
     done_when: ShortText
+    check: StepCheck | None = None
 
 
 class PlanIn(_In):
@@ -117,6 +126,7 @@ class PlanStepOut(BaseModel):
     do: str
     done_when: str
     state: StepState
+    check: dict | None = None
 
 
 class PlanOut(BaseModel):

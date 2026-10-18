@@ -121,11 +121,15 @@ narration, grounded, repeats.
 | `react` | a fast model (`MIND_REACT_MODEL`, default gpt-4.1-mini) | a gut reaction; say a few words |
 | `light` | Luna (`MIND_QUICK_MODEL`, default gpt-6-luna, reasoning off) | write a short thought; say one short line |
 | `quiet` | Luna, like `light` | a thought about what's next, the user or herself, never the present; rarely a line |
-| `hard` | Luna, as a background game turn (the existing `game_events` path) with her game tools | change the plan, modes or rules, tell her hands, `say`; her written reply becomes the thought |
+| `hard` | Luna with reasoning (`MIND_HARD_MODEL`, `MIND_HARD_REASONING_EFFORT` low), no tools | one conclusion: a decision, a guess to test, a question for the user, an intention, a feeling; see `COLUMBINA_HARD_THINKING_PLAN.md` |
 
 Limits: one quick thought and one hard thought at a time per session; a quick thought at most every
-`MIND_QUICK_GAP_SECONDS` (react skips it); a hard thought at most every `MIND_HARD_GAP_SECONDS`.
-A gate answer of `hard` while a hard thought is already running becomes `light`.
+`MIND_QUICK_GAP_SECONDS` (react skips it); a hard thought at most every `MIND_HARD_GAP_SECONDS`
+(her mouth's hand-off skips it). **Since 2026-10-17 hard thinking starts from a problem, not from
+the gate's level** (services/mind_hard.py): a step that keeps failing, a surprise (a result that
+says failed while she got the loot, or the gate's `hard` when something in the world changed), a
+new big goal or a learned move run 5+ times, her mouth's `think_it_over`, or quiet time (3 min of
+nothing, once per 5 min). The gate's `hard` becomes a `light` thought.
 
 **Quiet thinking.** Thinking only on news would leave her blank between events, so after
 `MIND_QUIET_SECONDS` (25) with no thought of any kind, nothing urgent, no hard thought running and
@@ -143,10 +147,9 @@ offered an empty option, models took it every time.
 - The quick model may return an empty thought when its recent thoughts already cover the moment.
 
 **Interruption.** Ticks never cancel a thought. When a thought lands it is checked against now:
-still fitting, it's used; if the session stopped meanwhile it's kept as `stale` (shown, never acted
-on or said). A hard thought that can't run (the session ended) is saved `unfinished`, and the next
-hard thought gets it as "Unfinished: ..." so it continues rather than starts over. A half-done
-thought is never acted on.
+still fitting, it's used; if the session stopped meanwhile, or the game changed since its tick
+(services/game_moment.py), it's kept as `stale` (shown, never said). A hard thought whose problem is
+gone (that step is over, the user changed the goal) is saved `dropped`, with why, and never sent on.
 
 ## When the mouth talks
 

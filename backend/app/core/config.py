@@ -464,11 +464,24 @@ class Settings(BaseSettings):
     # need speed: a small model.
     mind_quick_model: str = "gpt-6-luna"
     mind_react_model: str = "gpt-4.1-mini"
+    # After a reply in a game, if the game changed while she said it, a small model checks
+    # whether that made something she said wrong, and if so she corrects herself out loud
+    # (services/game_correction.py).
+    game_corrections_enabled: bool = True
+    game_correction_model: str = "gpt-6-luna"
     # Quiet thinking: after this long with no thought, and nothing urgent, she thinks ahead,
     # about the user or about herself (never describing the moment). 0 turns it off.
     mind_quiet_seconds: float = Field(default=25.0, ge=0, le=3600)
     mind_quick_gap_seconds: float = Field(default=4.0, ge=0, le=600)
     mind_hard_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
+    # Hard thinking (docs/COLUMBINA_HARD_THINKING_PLAN.md): slow thinking about a problem that ends
+    # in one conclusion. Time isn't short there, so it reasons. Quiet hard thinking: after this long
+    # with nothing new, at most once per QUIET_EVERY (0 turns it off).
+    mind_hard_model: str = "gpt-6-luna"
+    mind_hard_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
+    mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
+    mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
+    mind_hard_log_path: str = "var/mind_hard.jsonl"
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     mind_tick_path: str = "var/mind_ticks.jsonl"

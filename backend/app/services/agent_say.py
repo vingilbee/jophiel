@@ -109,6 +109,11 @@ def _user_spoke_within(db: Session, user_id: uuid.UUID, seconds: float) -> bool:
         .limit(1)) is not None
 
 
+def user_spoke_since(db: Session, user_id: uuid.UUID, at: float) -> bool:
+    """Whether the user sent a message after ``at`` (Unix seconds)."""
+    return _user_spoke_within(db, user_id, max(0.0, time.time() - at))
+
+
 def deliver(db: Session, *, user_id: uuid.UUID, text: str, reasons: list[str], commentary_mode: str) -> str:
     """Say ``text`` to the user now, if restraint allows. Returns what happened,
     for the model."""

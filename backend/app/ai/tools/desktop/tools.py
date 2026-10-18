@@ -20,13 +20,29 @@ from pydantic import BaseModel, Field
 
 from app.ai.context import GameEvent
 from app.db.session import SessionLocal
-from app.services import agent_say, desktop_game, game_practice
+from app.services import agent_say, desktop_game, game_moment, game_practice, mind_hard
 from app.services.desktop_sessions import DesktopError
+
+
+class Check(BaseModel):
+    kind: Literal["has", "gained", "killed", "top_here", "peak", "near_player"] = Field(description=(
+        "has: you carry at least count of what; gained: count more of what than when the step began; killed: "
+        "count of the mob what killed during the step; top_here: nothing right next to you is higher than "
+        "where you stand (on top of a pillar, wall or tree); peak: on the highest ground near (a hill or "
+        "mountain top); near_player: within count metres (default 3) of the player what"))
+    what: str | None = Field(default=None, max_length=60, description=(
+        "a Minecraft id (birch_planks, sheep, tearDrop12), or a family word: 'planks' counts every kind of planks, "
+        "'log' every log"))
+    count: int | None = Field(default=None, ge=1, le=2304)
 
 
 class Step(BaseModel):
     do: str = Field(max_length=120, description="one concrete action, e.g. 'walk to the nearest oak tree'")
     done_when: str = Field(max_length=120, description="what is visibly true when it's done, e.g. 'a trunk fills the crosshair'")
+    check: Check | None = Field(default=None, description=(
+        "with your own Minecraft player: done_when in a form the game counts, whenever it can be (an amount, a "
+        "kill, a top, being next to someone). The step then ends the moment it's true, even halfway through a "
+        "skill, so you never overshoot. Leave it out for steps only words can judge (follow me, explore)."))
 
 
 async def _run(fn: Callable[..., str], user_id: uuid.UUID, **kwargs) -> str:
@@ -40,8 +56,12 @@ async def _run(fn: Callable[..., str], user_id: uuid.UUID, **kwargs) -> str:
 
 
 def _steps(steps: list[Step] | None) -> list[dict] | None:
-    return [s.model_dump() for s in steps] if steps else None
+    return [s.model_dump(exclude_none=True) for s in steps] if steps else None
 
+
+# A background turn's answer once the user has spoken since it woke (seen live: "make a bed" lost
+# to a stuck turn that set "find and kill a sheep" again a second later).
+USER_SPOKE = "the user said something after you woke, and your reply to them handles it. Leave it"
 
 # Each look is a vision call; a model that loops on it gets slow and expensive.
 MAX_LOOKS_PER_TURN = 2
@@ -85,15 +105,49 @@ async def _ask_about_frame(jpeg: bytes, question: str) -> str:
 
 def build_desktop_tools(
     user_id: uuid.UUID, event: GameEvent | None = None, *, spoke_at: float | None = None,
+    since: game_moment.Moment | None = None,
 ) -> list[BaseTool]:
     """Game tools for one user. ``event`` set = a background turn: no
     start_game, plans are hers (planning source, capped), resume only undoes
     her own pauses, and she gets ``say``. Otherwise (a reply to the user):
-    she also gets keep_playing."""
+    she also gets keep_playing. ``since``: the game as the turn's summary saw it;
+    results then say what changed since, and a background turn does nothing once
+    the user has spoken after it."""
     looks = 0
     said = False
+    reported = ""
     source = "columbina_planning_turn" if event else "columbina_user_turn"
     since_revision = event.plan_revision if event else None
+
+    async def news(kinds: frozenset[str] | None = None) -> str:
+        """What changed in her game since the turn began, each change told once."""
+        nonlocal reported
+        if since is None:
+            return ""
+
+        def check() -> str:
+            with SessionLocal() as db:
+                return "; ".join(game_moment.since(db, since, kinds))
+        text = await asyncio.to_thread(check)
+        if not text or text == reported:
+            return ""
+        reported = text
+        return (f"\n(Since this turn began, counted by the game: {text}. Go by what's true now, not by "
+                "what you read at the start.)")
+
+    async def user_spoke() -> bool:
+        if event is None or since is None:
+            return False
+
+        def check() -> bool:
+            with SessionLocal() as db:
+                return agent_say.user_spoke_since(db, user_id, since.at)
+        return await asyncio.to_thread(check)
+
+    async def act(fn: Callable[..., str], **kwargs) -> str:
+        if await user_spoke():
+            return f"Not done: {USER_SPOKE}."
+        return await _run(fn, user_id, **kwargs) + await news()
 
     @tool
     async def look_at_my_game(question: str, moment: Literal["now", "when_user_spoke"] = "now") -> str:
@@ -114,7 +168,7 @@ def build_desktop_tools(
         described = await asyncio.to_thread(pack)
         if described is not None:  # Minecraft as her own player: facts from the game, no picture
             looks += 1
-            return described
+            return described + await news()
         at = spoke_at if moment == "when_user_spoke" else None
 
         def load():
@@ -144,7 +198,7 @@ def build_desktop_tools(
         rules: up to 5 short rules your hands keep for this whole goal, e.g. "keep at least 5 torches",
         "stay above ground at night". Use it for what you learned playing that applies here.
         """
-        return await _run(desktop_game.start, user_id, goal=goal, steps=_steps(steps), game=game, constraints=rules)
+        return await act(desktop_game.start, goal=goal, steps=_steps(steps), game=game, constraints=rules)
 
     @tool
     async def set_game_plan(goal: str, steps: list[Step] | None = None, rules: list[str] | None = None) -> str:
@@ -161,13 +215,13 @@ def build_desktop_tools(
             # 25 minutes, each one cutting off what she was doing).
             return ("Not done: you're still on your last step, so don't replace the plan; line up "
                     "what comes next with add_game_steps, or leave it.")
-        return await _run(desktop_game.set_plan, user_id, goal=goal, steps=_steps(steps), source=source,
-                          constraints=rules, since_revision=since_revision)
+        return await act(desktop_game.set_plan, goal=goal, steps=_steps(steps), source=source,
+                         constraints=rules, since_revision=since_revision)
 
     @tool
     async def add_game_steps(steps: list[Step]) -> str:
         """Add steps after your current ones, without stopping what you're doing."""
-        return await _run(desktop_game.add_steps, user_id, steps=_steps(steps) or [], since_revision=since_revision)
+        return await act(desktop_game.add_steps, steps=_steps(steps) or [], since_revision=since_revision)
 
     @tool
     async def tell_my_hands(message: str, replace_previous: bool = False) -> str:
@@ -182,7 +236,7 @@ def build_desktop_tools(
         among their skills: a tip asking for a move no skill does (e.g. pillaring up) won't
         happen, so tell the user you can't do that yet instead (you can offer to learn it).
         """
-        return await _run(desktop_game.tell_hands, user_id, message=message, replace_previous=replace_previous)
+        return await act(desktop_game.tell_hands, message=message, replace_previous=replace_previous)
 
     @tool
     async def set_my_modes(guard: bool | None = None, gather: list[str] | None = None,
@@ -195,7 +249,7 @@ def build_desktop_tools(
         don't change. Use them when the user wants two things at once ("follow me and watch
         for mobs", "grab iron on the way"), and turn them off when they no longer apply.
         """
-        return await _run(desktop_game.set_modes, user_id, guard=guard, gather=gather, pickup=pickup)
+        return await act(desktop_game.set_modes, guard=guard, gather=gather, pickup=pickup)
 
     @tool
     async def play_carefully(on: bool) -> str:
@@ -204,7 +258,7 @@ def build_desktop_tools(
         deep water) or when the user says "careful"; turn it off once you're past it. It also
         turns itself off after 3 minutes and when you set a new goal. Slower, but you never
         walk blind."""
-        return await _run(desktop_game.set_careful, user_id, on=on)
+        return await act(desktop_game.set_careful, on=on)
 
     @tool
     async def pause_game(user_asked: bool) -> str:
@@ -212,24 +266,24 @@ def build_desktop_tools(
         pause; then only they lift it. Otherwise the pause is yours, and you resume it yourself.
         Being stuck or unsure is not a reason to pause: try another way and ask the user while
         you keep playing."""
-        return await _run(desktop_game.pause, user_id, user_asked=user_asked and event is None)
+        return await act(desktop_game.pause, user_asked=user_asked and event is None)
 
     @tool
     async def resume_game() -> str:
         """Continue playing after a pause: one you made yourself (when you know what to do next),
         or any pause when the user wants you to continue."""
-        return await _run(desktop_game.resume, user_id, only_own_pauses=event is not None)
+        return await act(desktop_game.resume, only_own_pauses=event is not None)
 
     @tool
     async def end_game() -> str:
         """Stop playing for good (you can start again later)."""
-        return await _run(desktop_game.end, user_id)
+        return await act(desktop_game.end)
 
     @tool
     async def keep_playing(enabled: bool) -> str:
         """Whether you pick a new goal yourself when this one is done (true), or stop and tell the
         user (false). Use when the user says e.g. "keep playing" or "stop when you're done"."""
-        return await _run(desktop_game.set_keep_playing, user_id, keep_playing=enabled)
+        return await act(desktop_game.set_keep_playing, keep_playing=enabled)
 
     @tool
     async def how_to_make(item: str) -> str:
@@ -239,25 +293,25 @@ def build_desktop_tools(
         you're not sure about, so you can ask the user for exactly what's missing.
         item: the Minecraft id, e.g. white_bed, stone_pickaxe, torch.
         """
-        return await _run(desktop_game.how_to_make, user_id, item=item)
+        return await act(desktop_game.how_to_make, item=item)
 
     @tool
     async def this_is_me(player: str) -> str:
         """Save which Minecraft player is the user, when they tell you ("I'm tearDrop12") or confirm
         your guess. Kept for good, so you always know who "me" is. player: their exact in-game name."""
-        return await _run(desktop_game.this_is_me, user_id, player=player)
+        return await act(desktop_game.this_is_me, player=player)
 
     @tool
     async def note_promise(promise: str) -> str:
         """Remember something you just told the user you'd do or tell them later, while playing
         (e.g. "tell them when the entrance is sealed"). You'll see it every turn until you drop it."""
-        return await _run(desktop_game.note_promise, user_id, promise=promise)
+        return await act(desktop_game.note_promise, promise=promise)
 
     @tool
     async def drop_promise(number: int | None = None) -> str:
         """Drop a promise once you've kept it (or it no longer applies): its number from your game
         summary, or none to drop them all."""
-        return await _run(desktop_game.drop_promise, user_id, number=number)
+        return await act(desktop_game.drop_promise, number=number)
 
     @tool
     async def say(text: str) -> str:
@@ -268,6 +322,11 @@ def build_desktop_tools(
         if said:
             return "Already said something this time; that's enough."
         assert event is not None
+        if await user_spoke():
+            return f"Not said: {USER_SPOKE}."
+        changed = await news(game_moment.WORLD)  # not the plan: this turn may have set it
+        if changed:
+            return ("Not said yet." + changed + " Check your words still fit; then call say again, or leave it.")
 
         def call() -> str:
             with SessionLocal() as db:
@@ -293,6 +352,8 @@ def build_desktop_tools(
         if said:
             return "Already said something this time; offer it next time."
         assert event is not None
+        if await user_spoke():
+            return f"Not offered: {USER_SPOKE}."
 
         def call() -> str:
             with SessionLocal() as db:
@@ -321,17 +382,27 @@ def build_desktop_tools(
         tells you to do a move you don't have ("place blocks to climb up"), don't just say you can't:
         say you haven't learned it yet and ask if you should; if they say yes, call this. task: the move, in a few words. It runs in the background: tell the user
         you're on it; you'll see how each try went in your game summary."""
-        return await _run(game_practice.start, user_id, task=task)
+        return await act(game_practice.start, task=task)
+
+    @tool
+    async def think_it_over(what: str) -> str:
+        """Think something over properly in the background, while you answer now: when what the
+        user says is unclear, asks for something big, or needs a plan you can't work out in one
+        breath ("this session is for harder skills", "explore the mindset"). Not for clear, simple
+        requests: just do those. Your conclusion shows up on your mind in a little while, and you
+        may ask them a question from it then. Answer them now anyway, briefly ("Let me think about
+        how to do that"). what: what to think over, in a few words."""
+        return await act(mind_hard.hand_off, what=what)
 
     @tool
     async def stop_learning() -> str:
         """Stop teaching yourself a move (when the user wants you to stop, or to do something else).
         Your hands carry on."""
-        return await _run(game_practice.stop, user_id)
+        return await act(game_practice.stop)
 
     if event is not None:
         return [look_at_my_game, how_to_make, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
                 play_carefully, pause_game, resume_game, end_game, drop_promise, say, offer_to_learn]
     return [look_at_my_game, how_to_make, start_game, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
             play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me, note_promise, drop_promise,
-            learn_skill, stop_learning]
+            learn_skill, stop_learning, think_it_over]
