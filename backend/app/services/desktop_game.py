@@ -229,9 +229,9 @@ def _skill_manual(env: DesktopEnvironment) -> list[str]:
                      "guard (fight hostiles close to you or the player you're with), gather (mine listed blocks "
                      "close by on the way, e.g. iron_ore), pickup (grab drops close by). They're the only way "
                      "to do two things at once; which are on is in \"Background modes\" below.")
-        lines.append("Before offering to learn a move: if you can name the skill above that does it, with its "
-                     "parameters, plan that skill instead. If you can't, offer: a step no skill does just gets "
-                     "stuck again.")
+        lines.append("Before learning a move (or offering to): if you can name the skill above that does it, with "
+                     "its parameters, plan that skill instead. If you can't, learn it: a step no skill does just "
+                     "gets stuck again.")
         _manual_cache.update(at=now, lines=lines)
     return list(_manual_cache["lines"])
 
@@ -270,6 +270,10 @@ def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> Gam
     driver = desktop_commands.load_driver_state(session.id) or {}
     lines += _commitment_lines(session, now)
     if pack:
+        from app.services import game_challenges
+
+        if session.state not in DESKTOP_TERMINAL_STATES:
+            lines += game_challenges.summary_lines(db, session)
         details, state = _pack_details(db, env, session, driver, now, for_reply=for_reply)
         lines += details
         moment = game_moment.capture(db, session, state, at=now)
@@ -337,7 +341,11 @@ def _session_lines(session: DesktopSession, pack: bool, now: float) -> list[str]
     if session.reason_code and session.state != "running":
         lines.append(f"Why: {REASONS.get(session.reason_code, session.reason_code)}.")
     if session.state not in DESKTOP_TERMINAL_STATES:
-        lines.append("After each goal: " + ("you pick the next one yourself (keep playing is on)."
+        from app.services import game_challenges
+
+        lines.append("After each goal: " + ("you pick your next challenge yourself (exploring is on)."
+                                            if game_challenges.exploring(session) else
+                                            "you pick the next one yourself (keep playing is on)."
                                             if session.autonomy == "continue" else
                                             "you stop and tell the user (keep playing is off)."))
     return lines
@@ -814,12 +822,15 @@ def _blockers(env: DesktopEnvironment) -> str:
 
 def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
              source: str = "columbina_user_turn", constraints: list[str] | None = None,
-             since_revision: int | None = None) -> str:
+             since_revision: int | None = None, challenge: bool = False) -> str:
     """``since_revision`` (her background turns): the plan she woke up to. If the user has
-    changed it since, this is refused: she decided from what's now out of date."""
+    changed it since, this is refused: she decided from what's now out of date.
+    ``challenge``: this goal is a challenge she set herself while exploring (stage H3)."""
+    from app.services import game_challenges
+
     session = _live(db, user_id)
     _refuse_if_user_replanned(db, session, since_revision)
-    if source == "columbina_planning_turn":
+    if source == "columbina_planning_turn" and not game_challenges.exploring(session):
         limit = get_settings().desktop_max_auto_goals
         if sessions.auto_goals_set(db, session.id) >= limit:
             raise DesktopError("limit_reached", 409, f"you've picked {limit} goals yourself since the user last joined in; "
@@ -845,6 +856,13 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
     sessions.replace_plan(db, user_id, session.id, PlanReplace(
         expected_plan_revision=session.plan_revision, source=source, **plan.model_dump(),
     ))
+    adopted = game_challenges.on_plan_set(db, session, source=source, goal=plan.goal, challenge=challenge)
+    db.commit()
+    stopped = ""
+    if source == "columbina_user_turn":
+        from app.services import game_practice
+
+        stopped = game_practice.stop_own(db, user_id)  # the user's goal comes before a lesson of her own
     # A new goal starts clean: tips to her hands and careful mode were about
     # the old one (cave tips once followed her onto an open hillside).
     cleared = []
@@ -855,7 +873,9 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
         desktop_commands.set_careful(session.id, False)
         cleared.append("careful mode")
     note = f" (Cleared {' and '.join(cleared)} from before.)" if cleared else ""
-    return f"Done; you're now on: {plan.steps[0].do}.{note}" + _unpause(db, user_id, source)
+    if adopted:
+        note += f' This is your challenge now: "{adopted}".'
+    return f"Done; you're now on: {plan.steps[0].do}.{note}{stopped}" + _unpause(db, user_id, source)
 
 
 def _refuse_if_user_replanned(db: Session, session: DesktopSession, since_revision: int | None) -> None:

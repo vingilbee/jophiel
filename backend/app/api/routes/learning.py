@@ -23,6 +23,7 @@ from app.api.deps import get_current_user, validate_origin
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.game_learning import (
+    ChallengeOut,
     LearnedSkillOut,
     LearnedSkillUpdate,
     LessonOut,
@@ -31,7 +32,7 @@ from app.schemas.game_learning import (
     ProposalUpdate,
     ReflectionOut,
 )
-from app.services import game_learning, game_skills
+from app.services import game_challenges, game_learning, game_skills
 from app.services.game_learning import LearningError
 
 router = APIRouter(prefix="/learning", tags=["learning"])
@@ -80,6 +81,11 @@ def update_proposal(proposal_id: uuid.UUID, data: ProposalUpdate, user: User = D
 @router.get("/reflections", response_model=list[ReflectionOut])
 def list_reflections(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return game_learning.recent_reflections(db, user.id)
+
+
+@router.get("/challenges", response_model=list[ChallengeOut])
+def list_challenges(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return game_challenges.listing(db, user.id)
 
 
 @router.get("/skills", response_model=list[LearnedSkillOut])

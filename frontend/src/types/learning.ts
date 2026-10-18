@@ -72,6 +72,23 @@ export interface Reflection {
 }
 
 /** A move she taught herself (stage H2): her hands have it as a skill while enabled. */
+/** A challenge she set herself while exploring (stage H3). */
+export interface Challenge {
+  id: string
+  game: string
+  challenge: string
+  why: string
+  aim: 'discover' | 'for_us'
+  check: { kind: string; what?: string; count?: number } | null
+  status: 'active' | 'done' | 'given_up' | 'replaced' | 'expired'
+  result: string | null
+  /** moves she learned on the way */
+  learned: string[]
+  created_at: string
+  started_at: string | null
+  ended_at: string | null
+}
+
 export interface LearnedSkill {
   id: string
   game: string

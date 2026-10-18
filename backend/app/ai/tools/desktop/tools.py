@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 
 from app.ai.context import GameEvent
 from app.db.session import SessionLocal
-from app.services import agent_say, desktop_game, game_moment, game_practice, mind_hard
+from app.core.config import get_settings
+from app.services import agent_say, desktop_game, game_challenges, game_moment, game_practice, mind_hard
 from app.services.desktop_sessions import DesktopError
 
 
@@ -201,13 +202,16 @@ def build_desktop_tools(
         return await act(desktop_game.start, goal=goal, steps=_steps(steps), game=game, constraints=rules)
 
     @tool
-    async def set_game_plan(goal: str, steps: list[Step] | None = None, rules: list[str] | None = None) -> str:
+    async def set_game_plan(goal: str, steps: list[Step] | None = None, rules: list[str] | None = None,
+                            challenge: bool = False) -> str:
         """Change what you're doing in the game: a new goal and steps. Your current move
         carries on only if it still fits. Only when the user wants something different from
         what you're doing: an "ok", a question or a chat about something else needs no new plan.
 
         goal: only what to achieve; conditions on how ("without sleeping") go in rules.
         rules: up to 5 short rules your hands keep for this whole goal (as in start_game).
+        challenge: true when this goal is a challenge you set yourself while exploring (the one
+        in your game summary, or your own idea), so it's kept with the challenges you've done.
         To keep going after the current steps without stopping, use add_game_steps.
         """
         if event is not None and all(reason == "plan_low" for reason in event.reasons):
@@ -216,7 +220,7 @@ def build_desktop_tools(
             return ("Not done: you're still on your last step, so don't replace the plan; line up "
                     "what comes next with add_game_steps, or leave it.")
         return await act(desktop_game.set_plan, goal=goal, steps=_steps(steps), source=source,
-                         constraints=rules, since_revision=since_revision)
+                         constraints=rules, since_revision=since_revision, challenge=challenge)
 
     @tool
     async def add_game_steps(steps: list[Step]) -> str:
@@ -284,6 +288,13 @@ def build_desktop_tools(
         """Whether you pick a new goal yourself when this one is done (true), or stop and tell the
         user (false). Use when the user says e.g. "keep playing" or "stop when you're done"."""
         return await act(desktop_game.set_keep_playing, keep_playing=enabled)
+
+    @tool
+    async def explore_and_learn(enabled: bool) -> str:
+        """Exploring (your own Minecraft player): whether you pick your own next challenge after each
+        goal and teach yourself the moves it needs (true), or not (false). Use when the user says e.g.
+        "go explore", "stop exploring", "just stay with me for now"."""
+        return await act(game_challenges.set_explore, enabled=enabled)
 
     @tool
     async def how_to_make(item: str) -> str:
@@ -373,16 +384,18 @@ def build_desktop_tools(
     async def learn_skill(task: str) -> str:
         """Teach yourself a move you don't have yet (your own Minecraft player): you write a program
         out of your skills, run it, check what it did and fix it, up to a few tries, while your hands
-        wait. Use it when the user says yes to your offer, or asks you to learn something ("learn how
-        to make a furnace"). Only for a move none of your hands' skills does: if you can name the
-        skill that does it, with its parameters (finding a mob: explore with goal mob:<type>), say so
-        and put it in the plan instead, unless the user still wants you to learn it. Moves you taught
-        yourself (learned_..., in your game summary) are skills you have: use them; learning one again
-        (only when the user asks) replaces it with the new program if that works. When the user
-        tells you to do a move you don't have ("place blocks to climb up"), don't just say you can't:
-        say you haven't learned it yet and ask if you should; if they say yes, call this. task: the move, in a few words. It runs in the background: tell the user
-        you're on it; you'll see how each try went in your game summary."""
-        return await act(game_practice.start, task=task)
+        wait. Use it when a step needs a move none of your hands' skills does (your hands said "no
+        skill for: ..."), when the user asks you to learn something ("learn how to make a furnace"),
+        or says yes to an offer. You don't need to ask first: say what you're trying. Only for a move
+        none of your hands' skills does: if you can name the skill that does it, with its parameters
+        (finding a mob: explore with goal mob:<type>), put that in the plan instead, unless the user
+        still wants you to learn it. Moves you taught yourself (learned_..., in your game summary) are
+        skills you have: use them; learning one again (only when the user asks) replaces it with the
+        new program if that works. When the user tells you to do a move you don't have ("place blocks
+        to climb up"), don't just say you can't: say you haven't learned it yet and that you'll try,
+        and call this. task: the move, in a few words. It runs in the background; you'll see how each
+        try went in your game summary. A goal from the user stops a lesson you started yourself."""
+        return await act(game_practice.start, task=task, origin="self" if event is not None else "user")
 
     @tool
     async def think_it_over(what: str) -> str:
@@ -401,8 +414,11 @@ def build_desktop_tools(
         return await act(game_practice.stop)
 
     if event is not None:
+        # Her own turns may start lessons themselves (2026-10-18, the user's choice "for now"),
+        # unless GAME_PRACTICE_ASK_FIRST: then she can only offer.
+        learning = [offer_to_learn] if get_settings().game_practice_ask_first else [learn_skill, stop_learning]
         return [look_at_my_game, how_to_make, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
-                play_carefully, pause_game, resume_game, end_game, drop_promise, say, offer_to_learn]
+                play_carefully, pause_game, resume_game, end_game, drop_promise, say, *learning]
     return [look_at_my_game, how_to_make, start_game, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
-            play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me, note_promise, drop_promise,
-            learn_skill, stop_learning, think_it_over]
+            play_carefully, pause_game, resume_game, end_game, keep_playing, explore_and_learn, this_is_me,
+            note_promise, drop_promise, learn_skill, stop_learning, think_it_over]

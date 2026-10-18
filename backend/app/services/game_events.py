@@ -9,6 +9,7 @@ user. Waits for a user turn already in flight, so it never talks over a reply.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import time
 import uuid
@@ -94,6 +95,14 @@ def _prepare(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], news
         game = desktop_game.describe(db, user_id)
         if game is None:
             return None
+        if any(r == "goal_done" or r == "paused:planning_timeout" for r in reasons):
+            from app.services import game_challenges
+
+            # Exploring (stage H3): her next challenge, picked now, for her to make her goal.
+            picked = game_challenges.propose(db, session, game.summary)
+            if picked is not None:
+                game = dataclasses.replace(
+                    game, summary=game.summary + "\n" + "\n".join(game_challenges.proposal_lines(picked)))
         event = GameEvent(
             reasons=tuple(reasons), commentary_mode=session.commentary_mode,
             keep_playing=session.autonomy == "continue",

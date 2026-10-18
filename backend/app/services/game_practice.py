@@ -171,7 +171,9 @@ def holding(db: Session, session_id: uuid.UUID) -> bool:
 
 
 def start(db: Session, user_id: uuid.UUID, *, task: str, origin: str = "user") -> str:
-    """Queue an attempt. Only ever called from a turn where the user spoke."""
+    """Queue an attempt. ``origin``: "user" (a turn where the user spoke) or "self" (her own
+    background turn: since 2026-10-18 she may start lessons herself, unless
+    GAME_PRACTICE_ASK_FIRST). A goal from the user stops a lesson of her own (``stop_own``)."""
     if not enabled():
         raise DesktopError("unavailable", 503, "learning new moves is switched off")
     task = _clean_task(task)
@@ -192,12 +194,29 @@ def start(db: Session, user_id: uuid.UUID, *, task: str, origin: str = "user") -
     if session.state != "running":
         from app.services.desktop_game import _unpause
 
-        # Getting stuck ("no skill for: …") paused her: the user's yes to learning is a yes to go on.
-        waiting = _unpause(db, user_id, "columbina_user_turn")
+        # Getting stuck ("no skill for: …") paused her: the user's yes to learning is a yes to go
+        # on; learning on her own lifts only her own pauses.
+        waiting = _unpause(db, user_id, "columbina_user_turn" if origin == "user" else "columbina_planning_turn")
         if "still paused" in waiting:
             waiting += " Learning starts once you're playing again."
     return (f'Started learning: "{task}". You write a program from your skills, run it, check it and fix it, '
             f"up to {settings.game_practice_max_tries} tries; your hands wait meanwhile.{waiting}")
+
+
+def stop_own(db: Session, user_id: uuid.UUID) -> str:
+    """The user gave her a goal: a lesson she started herself stops (one they asked for goes on).
+    Returns a note for her tool result, or ""."""
+    try:
+        session = _pack_session(db, user_id)
+    except DesktopError:
+        return ""
+    attempt = active(db, session.id)
+    if attempt is None or attempt.origin != "self":
+        db.commit()
+        return ""
+    task = attempt.task
+    stop(db, user_id)
+    return f' (Stopped teaching yourself "{task}": the user\'s goal comes first.)'
 
 
 def stop(db: Session, user_id: uuid.UUID) -> str:
@@ -445,7 +464,11 @@ def _finish(attempt_id: uuid.UUID, session_id: uuid.UUID, result) -> None:
         if row.status == "learned":
             from app.services import game_skills
 
-            game_skills.save_learned(db, row)  # one of her moves now, in any session (H2)
+            move = game_skills.save_learned(db, row)  # one of her moves now, in any session (H2)
+            if move is not None:
+                from app.services import game_challenges
+
+                game_challenges.on_learned(db, session_id, move.name)  # learned on the way to a challenge
         db.commit()
         text = _ended_text(row)
         db.commit()

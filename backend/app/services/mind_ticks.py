@@ -96,7 +96,7 @@ def next_notices(pack: PackClient, cursors: dict, session_id: uuid.UUID) -> list
 
 def build_tick(db: Session, session: DesktopSession, state: dict, notices: list[dict], at: float, *,
                thoughts: list[dict] | None = None, thinking: str | None = None) -> TickInput:
-    from app.services import game_practice
+    from app.services import game_challenges, game_practice
 
     driver = desktop_commands.load_driver_state(session.id) or {}
     return TickInput(
@@ -104,6 +104,7 @@ def build_tick(db: Session, session: DesktopSession, state: dict, notices: list[
         talk=recent_talk(db, session.owner_user_id, datetime.fromtimestamp(at, timezone.utc)),
         hands_note=driver.get("notes") or None, thoughts=thoughts or [], thinking=thinking,
         learning=game_practice.tick_line(db, session.id),
+        challenge=game_challenges.tick_line(db, session.id),
     )
 
 

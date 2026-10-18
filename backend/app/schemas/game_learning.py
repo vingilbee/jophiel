@@ -123,5 +123,22 @@ class LearnedSkillOut(BaseModel):
     updated_at: datetime
 
 
+class ChallengeOut(BaseModel):
+    """A challenge she set herself while exploring (stage H3)."""
+
+    id: uuid.UUID
+    game: str
+    challenge: str
+    why: str
+    aim: Literal["discover", "for_us"]
+    check: dict | None
+    status: Literal["active", "done", "given_up", "replaced", "expired"]
+    result: str | None
+    learned: list[str]
+    created_at: datetime
+    started_at: datetime | None
+    ended_at: datetime | None
+
+
 class LearnedSkillUpdate(BaseModel):
     enabled: bool

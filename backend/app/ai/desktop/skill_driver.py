@@ -884,8 +884,8 @@ class SkillDriverRun:
         """Every step is done: wait for Columbina's next goal when playing on
         her own, otherwise pause (plan complete)."""
         deps = self.deps
-        picked = deps.auto_goals(self.session_id) if deps.auto_goals else 0
-        if view.autonomy != "continue" or picked >= self.max_auto_goals:
+        picked = deps.auto_goals(self.session_id) if deps.auto_goals and not view.exploring else 0
+        if view.autonomy != "continue" or picked >= self.max_auto_goals:  # exploring: no cap (stage H3)
             deps.pause(self.session_id, "plan_complete")
             self._save()
             return False

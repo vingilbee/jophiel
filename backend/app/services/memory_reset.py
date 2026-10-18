@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AgentEventJob, Conversation, EpisodicMemory, GameExperience, GameLearnedSkill, GameLesson, GameProposal,
+    AgentEventJob, Conversation, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill, GameLesson, GameProposal,
     GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryJob, SemanticMemory,
 )
 
@@ -24,8 +24,8 @@ SCOPES: dict[str, tuple[type, ...]] = {
     "conversations": (Conversation,),
     "memory": (SemanticMemory, EpisodicMemory, LearningMemory, MemoryJob),
     # Learned moves before attempts: they point at the attempt they came from.
-    "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameLearnedSkill,
-             GameSkillAttempt),
+    "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameChallenge,
+             GameLearnedSkill, GameSkillAttempt),
 }
 
 

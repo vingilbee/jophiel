@@ -450,6 +450,16 @@ class Settings(BaseSettings):
     # A move that worked is tidied once (one more call on the same model): fixed positions
     # and ids looked up instead, leftovers gone. The original is kept until the tidy works.
     game_practice_tidy_enabled: bool = True
+    # Ask the user before learning (offer_to_learn in background turns). Off since
+    # 2026-10-18 (the user's choice, "for now"): she starts lessons herself and says so.
+    game_practice_ask_first: bool = False
+    # Explore and learn (stage H3, services/game_challenges.py): when a goal is done she
+    # picks her own next challenge (one call), does it with her skills, and learns what
+    # they lack. Per session it can be switched off ("stop exploring"); this turns it off
+    # everywhere. No budget yet, by the user's choice: the report shows the cost.
+    game_explore_enabled: bool = True
+    game_explore_model: str = "gpt-6-luna"
+    game_explore_reasoning_effort: str | None = "low"
     # Mind tick recording (app/ai/mind): while a pack session is live, write what
     # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
     # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.

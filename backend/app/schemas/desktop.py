@@ -160,6 +160,7 @@ class SessionCommand(_In):
 class SessionOptions(_In):
     autonomy: Literal["continue", "stop"] | None = None
     commentary_mode: CommentaryMode | None = None
+    explore: bool | None = None  # stage H3: she picks her own challenges after a goal
 
 
 class SessionResume(_In):
@@ -183,6 +184,7 @@ class SessionOut(BaseModel):
     driver_status: str | None
     commentary_mode: CommentaryMode
     autonomy: Literal["continue", "stop"] = "continue"
+    explore: bool = True
     max_duration_seconds: int
     started_at: datetime
     ended_at: datetime | None

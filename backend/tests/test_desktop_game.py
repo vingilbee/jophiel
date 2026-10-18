@@ -175,7 +175,7 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
     assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "tell_my_hands",
                           "set_my_modes", "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing",
-                          "how_to_make", "this_is_me", "note_promise", "drop_promise", "learn_skill", "stop_learning",
+                          "explore_and_learn", "how_to_make", "this_is_me", "note_promise", "drop_promise", "learn_skill", "stop_learning",
                           "think_it_over"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))

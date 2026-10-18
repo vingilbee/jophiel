@@ -11,7 +11,6 @@ import { useAuth } from './useAuth'
 import type {
   DesktopCaptureGate,
   DesktopCaptureScope,
-  DesktopCommentaryMode,
   DesktopDecisionReport,
   DesktopDriverState,
   DesktopPlanInput,
@@ -21,6 +20,7 @@ import type {
   DesktopProfile,
   DesktopSession,
   DesktopSessionEvent,
+  DesktopSessionOptions,
 } from '../types/desktop'
 
 const POLL_MS = 3000
@@ -61,7 +61,7 @@ interface DesktopSessionContextValue {
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
   sendDecision: (decision: Record<string, unknown>) => Promise<void>
   setPlan: (plan: DesktopPlanInput) => Promise<void>
-  setOptions: (options: { autonomy?: 'continue' | 'stop'; commentary_mode?: DesktopCommentaryMode }) => Promise<void>
+  setOptions: (options: DesktopSessionOptions) => Promise<void>
   pause: () => Promise<void>
   resume: () => Promise<void>
   takeover: () => Promise<void>

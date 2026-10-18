@@ -1197,7 +1197,36 @@ Differences from the plan above:
   - retrieval by embedding (every enabled move goes to her hands; fine while there are few);
   - a per-session learning budget (each attempt is up to `GAME_PRACTICE_MAX_TRIES` Luna calls plus critics).
 
-**Not yet (H3):** the "explore and learn" curriculum mode: she only learns from "no skill for" steps and what the user asks.
+**H3 built 2026-10-18 (decided with the user the same day), not yet tried live:** "explore and learn": when she's free, she picks her own next challenge, does it, and learns what it needs.
+- **User decisions:**
+  - *Consent:* no consent for lessons for now. She may start a lesson herself, in any turn, instead of only offering one, and she says what she's trying.
+  - *Budget:* none for now. Watch what it costs: the report shows it.
+  - *What she aims for:* flexible. Discovering new things (items, tools, the tool ladder) or something for the two of them (a shelter, gear for the user), whichever fits the moment.
+  - *When:* no restriction. The user opens the server when they want to join, so she may explore whenever the pack session plays.
+  - *Interrupting:* the user's words always win ("no, don't do that", "follow me").
+- **She picks a challenge** (`app/ai/desktop/curriculum.py`, pure, Luna) when her goal is done and keep-playing would pick the next one. Inputs:
+  - what she carries, her skills and learned moves, and what's around her (surroundings, terrain, time of day);
+  - the user's whereabouts and what they're doing;
+  - her done list and her try-again list.
+
+  Output: one small challenge just beyond what she can do now ("get 3 iron ore", "make a stone pickaxe", "cross this river"), why she picked it, and a counted `check` when one fits. Columbina's background turn sees it in her summary and adopts it with `set_game_plan`, so the plan is still hers, in her words.
+- **Existing skills first:** her hands try the challenge with what they have. A lesson starts only when they report "no skill for: …", and with no consent needed she calls `learn_skill` herself (background turns get it instead of `offer_to_learn`).
+- **The user interrupts:** a goal from the user replaces the challenge, as any plan does. New: a user goal also stops a lesson she started herself. Today a lesson runs on, and her hands wait for it, up to 4 tries of 3 min, unless she calls `stop_learning`. After the user's goal is done, she goes back to exploring.
+- **Record** (`game_challenges`): the challenge, why, check, how it ended (done, failed, gave up, replaced by the user), what was counted, and the move learned, if any. Done challenges are her done list. Failed ones go on the try-again list, retried only after she has learned a new move or in a later session.
+- **News:** picking, finishing and giving up a challenge are game events for her mind, so she talks about them like other news.
+- **Switch:** a session option, on by default. The user can say "stop exploring" (a tool), and keep playing still decides whether she picks anything after a goal at all. Keep playing was already on by default (`autonomy` defaults to `continue`). What used to stop her was the cap of `DESKTOP_MAX_AUTO_GOALS` (10) goals picked since the user last joined in, and that cap is lifted while exploring.
+- **Measuring:** `scripts/game_learning_report.py` adds an exploring table per session:
+  - challenges picked, taken, done, given up and replaced;
+  - lessons (and how many she started herself), moves learned and tries;
+  - model calls (picks + 2 per try + 1 per tidy), the stand-in for cost.
+
+  Not built: new items per hour and the tool ladder (no inventory history is kept per session).
+- **Code:**
+  - the pick: `app/ai/desktop/curriculum.py`;
+  - the record and its rules: `app/services/game_challenges.py` (table `game_challenges`, migration `d7a3e5c9b2f4`, which also adds `desktop_sessions.explore` and lesson origin `self`);
+  - wiring: the after-goal turn in `game_events._prepare`; `set_game_plan(challenge)`, `explore_and_learn` and `learn_skill` in background turns (`GAME_PRACTICE_ASK_FIRST` brings back `offer_to_learn`); `game_practice.stop_own`; the mind tick's `challenge` line;
+  - settings `GAME_EXPLORE_*`; the Learning page's "Challenges she set herself"; the "Explore and learn" switch on the session panel.
+- **First real-model picks** (5 states from recorded ticks, 3-6 s each): an oak log when empty-handed; "reach tearDrop12" when hurt in the Nether near piglins; a wooden pickaxe next to a table with logs; a hillside shelter at night with hostiles close.
 
 **Groundwork built (2026-10-10, game learning):** skill outcomes and notices are now recorded per session (`game_experiences`), and each ended session is reflected on into lessons (level 1, applied to the hands automatically), code proposals (level 3, Learning page, never applied by the app) and an episode. H's curriculum can read past failures from that log, and H2's `trial` -> `approved` lifecycle should follow the lessons' evidence rules. See CLAUDE.md "Game learning".
 

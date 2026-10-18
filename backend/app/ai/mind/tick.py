@@ -59,6 +59,9 @@ class TickInput:
     # What she's teaching herself (services/game_practice.tick_line): "learning X: try 2 of 4",
     # or how it just ended. Each new try is news.
     learning: str | None = None
+    # The challenge she set herself while exploring (services/game_challenges.tick_line), or how
+    # one just ended. A new one, or its end, is news.
+    challenge: str | None = None
 
 
 def is_hostile(entity: dict) -> bool:
@@ -205,6 +208,8 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
         out.append((f"session {previous.session_state} -> {tick.session_state}", True))
     if tick.learning and tick.learning != previous.learning:
         out.append((f"learning: {tick.learning}", True))
+    if tick.challenge and tick.challenge != previous.challenge:
+        out.append((tick.challenge, True))
 
     for n in tick.notices:
         out.append((f"noticed: {n.get('text', '')}", True))
@@ -265,6 +270,8 @@ def render(tick: TickInput, previous: TickInput | None) -> tuple[str, str, list[
         lines.append(f"Still thinking hard about: {tick.thinking}")
     if tick.learning:
         lines.append(f"Teaching yourself a move: {tick.learning}")
+    if tick.challenge:
+        lines.append(f"Exploring: {tick.challenge}")
     if tick.talk:
         lines.append("Recent talk (oldest first):")
         for m in tick.talk[-TALK_KEPT:]:
