@@ -11,13 +11,19 @@ export const HIT_WINDOW_MS = 5000 // a death this long after her last hit is her
 export function attachKills (bot, { now = () => Date.now() } = {}) {
   const hits = new Map() // entity id -> { label, at }
   const counts = {}
-  const attack = bot.attack.bind(bot)
-  bot.attack = (entity, ...rest) => {
-    const at = now()
-    for (const [id, hit] of hits) if (at - hit.at > HIT_WINDOW_MS) hits.delete(id)
-    if (entity && entity !== bot.entity && entity.id !== undefined) hits.set(entity.id, { label: entityLabel(entity), at })
-    return attack(entity, ...rest)
+  const wrap = () => {
+    const attack = bot.attack.bind(bot)
+    bot.attack = (entity, ...rest) => {
+      const at = now()
+      for (const [id, hit] of hits) if (at - hit.at > HIT_WINDOW_MS) hits.delete(id)
+      if (entity && entity !== bot.entity && entity.id !== undefined) hits.set(entity.id, { label: entityLabel(entity), at })
+      return attack(entity, ...rest)
+    }
   }
+  // mineflayer adds bot.attack only once it's connected (its plugins load on 'inject_allowed',
+  // seconds later with a Microsoft sign-in); this listener comes after its own, so it's there by then.
+  if (bot.attack) wrap()
+  else bot.once('inject_allowed', wrap)
   bot.on('entityDead', (entity) => {
     const hit = hits.get(entity?.id)
     if (!hit) return
