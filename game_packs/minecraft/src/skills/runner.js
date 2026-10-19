@@ -7,6 +7,11 @@
 // Background modes (src/modes) may put a skill on hold: the runner runs the mode's action (itself a
 // skill, with its own short time limit), then picks the skill back up under the same run, so
 // whoever started it sees one run with `data.interruptions`. Stop, low health and death end both.
+// Breathing is always on and comes before everything: with her head under water and her air low,
+// a resumable skill goes on hold while she swims up (skills/water.js), any other skill ends, and
+// with no skill running she starts `surface` herself (source "reflex").
+// A program she wrote (src/sandbox.js) runs its skills through here too: while one runs, only it
+// (and her breathing) may start skills, and stop() ends the program as well as its skill.
 // LAN-only joining is enforced before she is ever in a world (config.assertPrivateHost).
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
@@ -14,13 +19,15 @@ import { randomUUID } from 'node:crypto'
 import { ParamError, SkillEnd, validateParams } from './contract.js'
 import { eatBest, nearestHostile, retreatFrom, stopEverything } from './common.js'
 import { SKILL_STYLE } from '../motion/styles.js'
-import { ModeMemory, ModeSettings, describeAction, pickMode } from '../modes/modes.js'
+import { ModeMemory, ModeSettings, RESUMABLE, breathePick, describeAction, pickMode } from '../modes/modes.js'
+import { needsAir } from './water.js'
 
 export class BusyError extends Error {}
 export class UnknownSkillError extends Error {}
 
 const SAFETY_SECONDS = 6
 const MODE_CHECK_MS = 250
+const BREATH_CHECK_MS = 250
 const INTERRUPTIONS_KEPT = 10
 
 // A segment of a skill put on hold for a mode (never an outcome anyone sees).
@@ -44,10 +51,12 @@ export class SkillRunner extends EventEmitter {
     this.keep = keep
     this.runs = [] // newest last; finished and current
     this.active = null // { record, controller }
+    this.program = null // { stop(reason) } while a program of hers runs (src/sandbox.js)
 
     this._onHealth = () => {
       const run = this.active
-      if (!run || run.skill.name === 'eat' || this.bot.health > this.lowHealth) return
+      // Eating and swimming up for air are what help: low health doesn't cut them short.
+      if (!run || run.skill.name === 'eat' || run.skill.name === 'surface' || this.bot.health > this.lowHealth) return
       run.lowHealth = true
       this._abort(new SkillEnd('hurt', `health low (${Math.round(this.bot.health)}/20)`))
     }
@@ -56,6 +65,8 @@ export class SkillRunner extends EventEmitter {
     bot.on('health', this._onHealth)
     bot.on('death', this._onDeath)
     bot.on('end', this._onEnd)
+    this._breath = setInterval(() => this._checkBreath(), BREATH_CHECK_MS)
+    this._breath.unref?.()
   }
 
   get current () {
@@ -74,6 +85,7 @@ export class SkillRunner extends EventEmitter {
   // stops only what its driver started.
   start (name, input = {}, { source = 'user' } = {}) {
     if (this.active) throw new BusyError(`already running ${this.active.record.skill}`)
+    if (this.program && source !== 'program' && source !== 'reflex') throw new BusyError('running a program of hers')
     const skill = this.skills.get(name)
     if (!skill) throw new UnknownSkillError(`no skill named ${name}`)
     const params = validateParams(skill.params, input)
@@ -107,7 +119,11 @@ export class SkillRunner extends EventEmitter {
   }
 
   stop (reason = 'stopped by request') {
+    this.program?.stop(reason)
     const run = this.active
+    // Swimming up for air (the breathing reflex) isn't stopped: it ends by itself within seconds,
+    // and stopping it would only drown her. Her hands, finding it running, simply try again later.
+    if (run?.record.source === 'reflex') return run.record
     if (run?.controller.signal.aborted) {
       // Already ending (e.g. getting safe after low health): stop that too, right now.
       run.stopRequested = true
@@ -185,6 +201,31 @@ export class SkillRunner extends EventEmitter {
     this.emit('finish', record)
   }
 
+  // Out of air under water? Whatever she's doing, she swims up first.
+  _checkBreath () {
+    let drowning
+    try {
+      drowning = needsAir(this.bot)
+    } catch {
+      return // a half-loaded world
+    }
+    if (!drowning) return
+    const run = this.active
+    if (!run) {
+      try {
+        this.start('surface', {}, { source: 'reflex' })
+      } catch {}
+      return
+    }
+    if (run.skill.name === 'surface' || run.pick || run.controller.signal.aborted || run.segment?.signal.aborted) return
+    if (RESUMABLE.has(run.skill.name)) {
+      run.pick = breathePick(this.bot)
+      run.segment.abort(new OnHold())
+    } else {
+      this._abort(new SkillEnd('hurt', `running out of air (${this.bot.oxygenLevel}/20): swimming up first`))
+    }
+  }
+
   // A background mode needed now? Then put the skill on hold (the loop in _execute runs it).
   _checkModes (run) {
     if (run !== this.active || run.pick || run.controller.signal.aborted || run.segment?.signal.aborted) return
@@ -247,6 +288,8 @@ export class SkillRunner extends EventEmitter {
   }
 
   detach () {
+    clearInterval(this._breath)
+    this.program?.stop('shutting down')
     this._abort(new SkillEnd('stopped', 'shutting down'))
     this.bot.off('health', this._onHealth)
     this.bot.off('death', this._onDeath)

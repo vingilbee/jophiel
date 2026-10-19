@@ -118,3 +118,19 @@ class PackClient:
 
     def notices(self, since: int = 0, *, wait: float = 0) -> dict:
         return self._call("GET", "/notices", params={"since": since, "wait": wait}, timeout=wait + 3.0)
+
+    def start_program(self, code: str, *, seconds: float | None = None) -> dict:
+        """Run her code in the pack's sandbox (stage H): ``{"id", "status": "running"}``; 409 busy."""
+        body: dict = {"code": code}
+        if seconds is not None:
+            body["seconds"] = seconds
+        return self._call("POST", "/programs", json=body)
+
+    def get_program(self, program_id: str, *, wait: float = 0) -> dict:
+        """The program: status, reason, value, calls, log, seconds (waits up to ``wait`` s)."""
+        return self._call("GET", f"/programs/{program_id}", params={"wait": wait} if wait else None,
+                          timeout=wait + 3.0)
+
+    def block_census(self, x: float, y: float, z: float, radius: int = 10) -> dict:
+        """``{center, radius, counts: {block: n}, unloaded}``: blocks around a spot, air left out."""
+        return self._call("GET", "/blocks", params={"x": x, "y": y, "z": z, "r": radius})

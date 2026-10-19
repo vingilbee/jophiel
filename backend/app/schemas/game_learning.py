@@ -100,3 +100,23 @@ class ReflectionOut(BaseModel):
     result: dict | None
     created_at: datetime
     processed_at: datetime | None
+
+
+class LearnedSkillOut(BaseModel):
+    """A move she taught herself (stage H2): her hands have it as a skill while enabled."""
+
+    id: uuid.UUID
+    game: str
+    name: str
+    task: str
+    code: str
+    enabled: bool
+    uses: int
+    successes: int
+    last_used_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LearnedSkillUpdate(BaseModel):
+    enabled: bool

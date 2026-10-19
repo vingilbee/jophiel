@@ -12,11 +12,18 @@
 //   GET  /recipes/<item>              -> what it takes to make <item>, against what she carries
 //   GET  /modes                       -> background modes { guard, gather: [blocks], pickup }
 //   POST /modes {guard?, gather?, pickup?} -> sets the ones given; 400 for an unknown block name
+//   POST /programs {code, seconds?}   -> 202 { id, status }: runs her code in the sandbox
+//                                        (src/sandbox.js) | 409 busy; POST /skills/stop stops it
+//   GET  /programs/<id>?wait=<s>      -> the program: status, reason, value, calls, log
+//   GET  /blocks?x=&y=&z=&r=          -> { center, radius, counts: {block: n}, unloaded }: blocks
+//                                        within r (at most 16) of a spot, air left out
 import { createServer } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 
 import { ParamError } from './skills/contract.js'
 import { BusyError, UnknownSkillError } from './skills/runner.js'
+import { getProgram, startProgram } from './sandbox.js'
+import { blockCensus } from './state.js'
 
 const MAX_BODY = 16 * 1024
 
@@ -104,6 +111,26 @@ export function startApi ({ host, port, token, pack }) {
     }
     const recipe = /^\/recipes\/([a-z0-9_]{1,64})$/.exec(path)
     if (recipe && req.method === 'GET') return needsWorld() || send(res, 200, pack.recipe(recipe[1]))
+    if (key === 'GET /blocks') {
+      if (needsWorld()) return
+      const [x, y, z, r] = ['x', 'y', 'z', 'r'].map((k) => Number(url.searchParams.get(k)))
+      if (![x, y, z].every(Number.isFinite)) throw new ParamError('x, y and z are required')
+      return send(res, 200, blockCensus(runner.bot, { x, y, z }, Number.isFinite(r) ? r : 10))
+    }
+    if (key === 'POST /programs') {
+      if (needsWorld()) return
+      const body = await readJson(req)
+      if (typeof body.code !== 'string' || !body.code.trim()) throw new ParamError('code is required')
+      const seconds = body.seconds === undefined ? undefined : Number(body.seconds)
+      if (seconds !== undefined && !(seconds > 0 && seconds <= 600)) throw new ParamError('seconds must be 1-600')
+      return send(res, 202, startProgram(runner, body.code, { seconds }))
+    }
+    const program = /^\/programs\/([0-9a-f-]{36})$/.exec(path)
+    if (program && req.method === 'GET') {
+      const wait = Math.min(Math.max(Number(url.searchParams.get('wait') ?? 0) || 0, 0), 60)
+      const record = await getProgram(program[1], wait * 1000)
+      return record ? send(res, 200, record) : send(res, 404, { error: 'no such program' })
+    }
     const run = /^\/skills\/runs\/([0-9a-f-]{36})$/.exec(path)
     if (run && req.method === 'GET') {
       const wait = Math.min(Math.max(Number(url.searchParams.get('wait') ?? 0) || 0, 0), 60)

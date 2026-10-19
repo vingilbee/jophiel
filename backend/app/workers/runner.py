@@ -8,7 +8,9 @@ import redis
 
 from app.core.config import get_settings
 from app.workers import (
-    agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, memory, whatsapp,
+    agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, game_practice,
+    memory, mind, mind_ticks,
+    whatsapp,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +114,16 @@ def run(stop: threading.Event | None = None) -> None:
             if getattr(settings, "game_learning_enabled", False):
                 # Reflection on ended game sessions: rare, slow model calls on their own thread.
                 worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
+            if getattr(settings, "game_practice_enabled", False):
+                # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
+                worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
+            if getattr(settings, "mind_enabled", False):
+                # Her mind: a tick about once a second on its own thread (it also records
+                # ticks when MIND_TICK_RECORDING_ENABLED), so it never delays a reply or her hands.
+                worker_specs.append(("mind", mind.run_once, "macrovision:mind:wakeups", 1.0))
+            elif getattr(settings, "mind_tick_recording_enabled", False):
+                # Recording what her mind would see each second: its own thread, reads only.
+                worker_specs.append(("mind-ticks", mind_ticks.run_once, "macrovision:mind-ticks:wakeups", 1.0))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

@@ -62,7 +62,7 @@ PACK_SKILLS = ("go somewhere, mine, fight, explore, craft, place a block, eat, s
 # Written to Columbina: she is the one playing. The fast model that presses the
 # keys is her hands, never someone she talks about.
 REASONS = {
-    "user_pause": "the user paused it", "user_takeover": "the user took over the controls",
+    "user_pause": "the user paused it", "columbina_pause": "you paused it yourself", "user_takeover": "the user took over the controls",
     "user_end": "the user ended it", "plan_complete": "you finished everything you set out to do",
     "driver_stuck": "you got stuck", "needs_human": "you need the user (something only they can give or do)",
     "driver_error": "your game controls kept failing", "driver_unavailable": "your game controls are not available (model not configured)",
@@ -226,6 +226,9 @@ def _skill_manual(env: DesktopEnvironment) -> list[str]:
                      "guard (fight hostiles close to you or the player you're with), gather (mine listed blocks "
                      "close by on the way, e.g. iron_ore), pickup (grab drops close by). They're the only way "
                      "to do two things at once; which are on is in \"Background modes\" below.")
+        lines.append("Before offering to learn a move: if you can name the skill above that does it, with its "
+                     "parameters, plan that skill instead. If you can't, offer: a step no skill does just gets "
+                     "stuck again.")
         _manual_cache.update(at=now, lines=lines)
     return list(_manual_cache["lines"])
 
@@ -287,6 +290,9 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             if who:
                 lines.append(who)
             lines.extend(_skill_manual(each))
+            from app.services import game_skills
+
+            lines.extend(game_skills.summary_lines(db, user_id, PACK_GAME))
             games.append(f"Minecraft [{game_pack.PACK_PROFILE_ID}]")
         else:
             line, vm_games = _vm_line(each, retired=retired)
@@ -454,6 +460,10 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
 
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
+    lines += _mind_lines(db, session, now)
+    from app.services import game_practice
+
+    lines += game_practice.summary_lines(db, session, now)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately
@@ -478,6 +488,26 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
                          + " (Your hands switch to the best tool by themselves each time they mine or fight.)")
         except PackError:
             pass
+    return lines
+
+
+def _mind_lines(db: Session, session: DesktopSession, now: float) -> list[str]:
+    """Her own recent thoughts during play (services/mind.py), so a reply fits what
+    she's been noticing. Empty when her mind is off."""
+    from app.services import mind
+
+    if not mind.enabled():
+        return []
+    at = datetime.fromtimestamp(now, timezone.utc)
+    thoughts = [t for t in mind.recent_thoughts(db, session.id, at) if t["status"] != "unfinished"]
+    lines = []
+    if thoughts:
+        lines.append("On your mind (your own thoughts while playing, newest last): " + "; ".join(
+            f'"{t["text"]}"' + (f' (you said "{t["said"]}")' if t.get("said") else "")
+            + f" ({_ago(now - t['at'])})" for t in thoughts) + ".")
+    thinking = mind.thinking_about(session.id)
+    if thinking:
+        lines.append(f"You're still thinking this through: {thinking}.")
     return lines
 
 
@@ -820,15 +850,18 @@ def _unpause(db: Session, user_id: uuid.UUID, source: str) -> str:
     """A new goal doesn't move a paused session. After sleeping finished her
     plan she set "gather logs" twice, was told "Done; you're now on: ...", and
     said she'd started while standing still. On the user's turn her own pause
-    (plan done, stuck) resumes with the new goal; any other pause is said plainly."""
+    (plan done, stuck, paused herself) resumes with the new goal. On her own turn
+    only a pause she made or got stuck in does: a finished plan with keep playing
+    off stays stopped. The user's pause is said plainly."""
     session = _live(db, user_id)
     if session.state not in ("paused", "manual", "disconnected"):
         return ""
-    if source == "columbina_user_turn" and session.state == "paused" and session.reason_code in SELF_RESUMABLE:
+    own = SELF_RESUMABLE if source == "columbina_user_turn" else ("columbina_pause", "driver_stuck")
+    if session.state == "paused" and session.reason_code in own:
         try:
             sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
                                     reason="columbina_resume")
-            return " You'd paused after your last goal; you're playing again."
+            return " You'd paused yourself; you're playing again."
         except DesktopError:
             db.rollback()
             session = _live(db, user_id)
@@ -1043,13 +1076,19 @@ def set_careful(db: Session, user_id: uuid.UUID, *, on: bool) -> str:
             if on else "Careful mode off: normal moves again.")
 
 
-def pause(db: Session, user_id: uuid.UUID) -> str:
-    sessions.pause_session(db, user_id, _live(db, user_id).id, reason="user_pause")
-    return "Paused; you've let go of the controls."
+def pause(db: Session, user_id: uuid.UUID, *, user_asked: bool) -> str:
+    """``user_asked``: the user wants the pause, and only they lift it. Otherwise
+    it's hers. Before this (2026-10-15) every pause she made was stamped as the user's, so
+    she couldn't undo them and asked the user to say "go ahead" four times."""
+    reason = "user_pause" if user_asked else "columbina_pause"
+    sessions.pause_session(db, user_id, _live(db, user_id).id, reason=reason)
+    if user_asked:
+        return "Paused; you've let go of the controls. Only the user can lift this pause."
+    return "Paused; you've let go of the controls. It's your pause: resume_game when you know what to do next."
 
 
 # Pauses Columbina may undo on her own: ones she caused. Never the user's.
-SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete")
+SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete", "columbina_pause")
 
 
 def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) -> str:

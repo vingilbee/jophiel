@@ -7,12 +7,14 @@ import { followPlayer, goTo } from './movement.js'
 import { craft, eat, sleep } from './survival.js'
 import { collectItems, give, lookAt, place } from './hands.js'
 import { smelt, store, take } from './containers.js'
+import { wear } from './armor.js'
+import { surface } from './water.js'
 
 // memory: this world's WorldMemory (explored chunks and noted places).
 export function createSkills ({ memory }) {
   return [
     goTo, mine, fight, createExplore(memory), eat, sleep, craft, followPlayer,
-    place, collectItems, give, lookAt, store, take, smelt
+    place, collectItems, give, lookAt, store, take, smelt, wear, surface
   ]
 }
 

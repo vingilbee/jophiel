@@ -136,7 +136,7 @@ def test_pausing_stops_the_skill_her_hands_started_but_not_one_run_by_hand(db, a
     desktop_game.start(db, alice.id, goal="Mine stone")
     game_pack.sync(db, pack)
     pack.running = {"id": "r1", "skill": "mine", "source": "driver"}
-    desktop_game.pause(db, alice.id)
+    desktop_game.pause(db, alice.id, user_asked=True)
     assert pack.stops == 1 and pack.running is None
     pack.running = {"id": "r2", "skill": "follow_player", "source": "user"}
     game_pack.sync(db, pack)
@@ -327,6 +327,7 @@ def test_she_sees_her_skills_her_failed_tries_and_her_promises(db, alice, pack):
     desktop_game.note_promise(db, alice.id, promise="tell them when the bed is ready")
     summary = desktop_game.describe(db, alice.id).summary
     assert "Your hands' skills (all they can do, one at a time):" in summary
+    assert "Before offering to learn a move: if you can name the skill above that does it" in summary
     assert "- craft(item, count): Craft an item. Stops when: missing ingredients." in summary
     assert ("This step so far (counted): 2 min, 5 tries, 4 failed: craft(item=white_bed) -> missing ingredients x3; "
             "craft(item=bed) -> no item is called bed.") in summary

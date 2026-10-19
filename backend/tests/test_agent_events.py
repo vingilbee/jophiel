@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.ai.context import GameEvent
 from app.ai.tools.desktop import build_desktop_tools
+from app.core.config import get_settings
 from app.db.models import AgentEventJob, ChatMessage, Conversation, DesktopSession
 from app.services import agent_events, agent_say, desktop_game
 from app.services import desktop_sessions as svc
@@ -111,6 +112,18 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     assert agent_events.reasons_of(_jobs(db)[-1]) == ["danger: creeper behind you"]
 
 
+def test_with_her_mind_on_commentary_wakeups_are_left_to_it_but_control_still_wakes(db, alice, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "mind_enabled", True)
+    monkeypatch.setattr(settings, "desktop_agent_enabled", True)
+    session = _playing(db, alice)
+    svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
+    svc.driver_noticed(db, session.id, kind="warning", text="the sun is setting")
+    assert _jobs(db) == []  # her mind sees these notices every tick
+    svc.driver_noticed(db, session.id, kind="struggling", text="mine failed 4 times")
+    assert agent_events.reasons_of(_jobs(db)[-1]) == ["struggling: mine failed 4 times"]
+
+
 # --- when she may speak ---------------------------------------------------------------
 
 
@@ -200,6 +213,57 @@ def test_saying_saves_the_message_and_publishes_it(db, alice, isolated_redis):
     again = agent_say.deliver(db, user_id=alice.id, text="And more!", reasons=["goal_done"],
                               commentary_mode="occasional")
     assert again.startswith("Not said")  # a minute hasn't passed
+
+
+def test_her_minds_own_lines_wait_while_the_user_has_just_spoken(db, alice, isolated_redis):
+    """Live: almost every message got two answers, a quick thought's and the reply."""
+    from datetime import datetime, timedelta
+
+    conversation = Conversation(user_id=alice.id, title="chat")
+    db.add(conversation)
+    db.commit()
+    db.add(ChatMessage(conversation_id=conversation.id, role="user", content="can you climb that?"))
+    db.commit()
+    say = lambda reasons: agent_say.deliver(db, user_id=alice.id, text="On it!", reasons=reasons,  # noqa: E731
+                                            commentary_mode="occasional")
+    assert say(["light: the peak is close"]).startswith("Not said: the user just spoke")
+    assert say(["thought: the user said: can you climb that?"]).startswith("Not said: the user just spoke")
+    assert say(["react: creeper behind me"]).startswith("Said")  # danger still speaks
+    db.execute(ChatMessage.__table__.update().where(ChatMessage.role == "user").values(
+        created_at=datetime.now() - timedelta(hours=12)))  # long ago, in any clock
+    db.commit()
+    assert not agent_say._user_spoke_within(db, alice.id, agent_say.MIND_HUSH_SECONDS)
+
+
+def test_an_unfinished_thought_is_handed_on_once_briefly_and_never_nested(db, alice, database, monkeypatch):
+    """Live: unfinished topics nested inside each other, so a user message from minutes before rode along,
+    and a stale "learning: try 2 of 4" made her say "still practising" after the move had worked."""
+    from app.db.models import MindThought
+    from app.services import mind
+
+    session = _playing(db, alice)
+    enqueued = []
+    monkeypatch.setattr(mind, "SessionLocal", database)
+    monkeypatch.setattr(agent_events, "enqueue", lambda db_, **kw: enqueued.append(kw["reason"]))
+    mind.save_thought(db, user_id=alice.id, session_id=session.id, level="hard", status="unfinished",
+                      text="(didn't get to think this through: learning: try 2 of 4)",
+                      topic="learning: try 2 of 4")
+    now = db.scalar(select(MindThought.created_at)).timestamp()
+    mind._think_hard(db, session, "your hands: go_to -> idle", now + 5)
+    assert enqueued[-1].startswith("thought: your hands: go_to -> idle (unfinished from before, 5 s ago, "
+                                   "so check it still holds before acting on it: learning: try 2 of 4)")
+    # handed on once: the next thought doesn't carry it again
+    mind._think_hard(db, session, "news: the move worked", now + 8)
+    assert enqueued[-1] == "thought: news: the move worked"
+    # the carrying thought itself unfinished: only its own topic is kept
+    mind.hard_thought_done(alice.id, session.id, enqueued[0].partition(":")[2].strip(), None)
+    db.expire_all()
+    topics = db.scalars(select(MindThought.topic).where(MindThought.status == "unfinished")).all()
+    assert topics == ["your hands: go_to -> idle"]
+    # and an old unfinished one isn't carried at all
+    latest = db.scalar(select(MindThought.created_at).order_by(MindThought.created_at.desc()).limit(1))
+    mind._think_hard(db, session, "news: dusk", latest.timestamp() + mind.UNFINISHED_FOR.total_seconds() + 5)
+    assert enqueued[-1] == "thought: news: dusk"
 
 
 # --- her background tools -----------------------------------------------------------

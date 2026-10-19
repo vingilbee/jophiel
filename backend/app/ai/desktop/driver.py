@@ -346,6 +346,9 @@ class OpenAIDriver:
             "url": "data:image/jpeg;base64," + base64.b64encode(item).decode(), "detail": self.image_detail}}
             for item in (jpeg if isinstance(jpeg, list) else [jpeg])]
         extra = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
+        if self.reasoning_effort in (None, "none"):
+            # A reasoning model that is reasoning accepts only its default temperature.
+            extra["temperature"] = 0
         started = time.monotonic()
         try:
             response = self._client.chat.completions.create(
@@ -358,7 +361,6 @@ class OpenAIDriver:
                 response_format={"type": "json_schema", "json_schema": {
                     "name": SCHEMA_NAME, "strict": True, "schema": schema,
                 }},
-                temperature=0,
                 max_completion_tokens=self.max_tokens,
                 store=False,
             )

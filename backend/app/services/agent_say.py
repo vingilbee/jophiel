@@ -15,9 +15,11 @@ import time
 import uuid
 
 import redis
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.db.models import ChatMessage, Conversation
 from app.services import chat as chat_service
 from app.services import desktop_preview, dialogue_memory
 from app.services.game_event_kinds import QUIET, URGENT_GAP_SECONDS, kind_of, rules
@@ -87,12 +89,34 @@ def allowed(reasons: list[str], commentary_mode: str, seconds_since_last: float 
     return True, ""
 
 
+# Her mind's own lines (a quick thought's, or a hard thought's background turn) wait this long after
+# the user's last message: her reply answers it. Live, nearly every message got two answers, a quick
+# thought's and the reply, and now and then they disagreed. A reaction to danger still speaks.
+MIND_HUSH_SECONDS = 20.0
+_MIND_PREFIXES = ("thought:", "light:", "quiet:")
+
+
+def from_mind(reasons: list[str]) -> bool:
+    return any(r.startswith(_MIND_PREFIXES) for r in reasons)
+
+
+def _user_spoke_within(db: Session, user_id: uuid.UUID, seconds: float) -> bool:
+    # created_at is now() stored without a zone, so compare with the database's own local clock.
+    since = func.localtimestamp() - func.make_interval(0, 0, 0, 0, 0, 0, seconds)
+    return db.scalar(
+        select(ChatMessage.id).join(Conversation, Conversation.id == ChatMessage.conversation_id)
+        .where(Conversation.user_id == user_id, ChatMessage.role == "user", ChatMessage.created_at >= since)
+        .limit(1)) is not None
+
+
 def deliver(db: Session, *, user_id: uuid.UUID, text: str, reasons: list[str], commentary_mode: str) -> str:
     """Say ``text`` to the user now, if restraint allows. Returns what happened,
     for the model."""
     text = " ".join(text.split())[:400]
     if not text:
         return "Nothing to say."
+    if from_mind(reasons) and _user_spoke_within(db, user_id, MIND_HUSH_SECONDS):
+        return "Not said: the user just spoke, and your reply to them answers it; keep this to yourself."
     client = desktop_preview.redis_client()
     last = None
     if client is not None:

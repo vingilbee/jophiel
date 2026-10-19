@@ -48,6 +48,7 @@ Server -> client. JSON frames::
   {"type": "nudge_start", "conversation_id": str, "reason": str}
   {"type": "nudge_token", "content": str}       (repeated, streamed)
   {"type": "nudge_end"}
+  {"type": "thought", "thought": {...}}          (her mind while playing: services/mind)
 
 ``nudge_*`` frames are the agent speaking *first* — unprompted, from a salience
 rule (see `app.services.salience`), with no client request behind them. They
@@ -821,6 +822,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                 try:
                     data = json.loads(message["data"])
                 except (TypeError, ValueError):
+                    continue
+                if data.get("kind") == "thought":
+                    # Her mind (services/mind): shown in the thoughts panel, never spoken
+                    # and never a message, so it doesn't wait for a reply to finish.
+                    await send_json({"type": "thought", "thought": data.get("thought")})
                     continue
                 # This socket's voice phase, as the browser last reported it.
                 def replying() -> bool:

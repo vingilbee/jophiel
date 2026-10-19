@@ -11,8 +11,12 @@ const { Vec3 } = require('vec3')
 
 const REACH = 4
 
-const isAir = (block) => block && (block.boundingBox === 'empty') && !['water', 'lava'].includes(block.name)
-const isSolid = (block) => block?.boundingBox === 'block'
+const LIQUIDS = ['water', 'lava']
+export const isAir = (block) => block && (block.boundingBox === 'empty') && !LIQUIDS.includes(block.name)
+export const isSolid = (block) => block?.boundingBox === 'block'
+// A full block (dirt, cobblestone) goes into water or lava like into air, as in the game: how she
+// bridges a river or covers lava. A torch or a flower can't (it would wash away).
+export const canGoIn = (there, placing) => isAir(there) || (LIQUIDS.includes(there?.name) && placing?.boundingBox === 'block')
 
 // "x y z": the block at that point (decimals are fine: 1.5 is in block 1).
 function parsePlace (text) {
@@ -22,7 +26,7 @@ function parsePlace (text) {
 }
 
 // Is anyone (her included) standing in this block?
-function occupied (bot, position) {
+export function occupied (bot, position) {
   const box = { min: position, max: position.offset(1, 1, 1) }
   return Object.values(bot.entities).some((e) => {
     if (!e.position || e.name === 'item' || e.type === 'projectile' || e.type === 'other') return false
@@ -53,7 +57,8 @@ function spotNextToHer (bot) {
 
 export const place = {
   name: 'place',
-  description: 'Put down a block she carries (e.g. a crafting table, a torch, a furnace): next to her, or at a spot.',
+  description: 'Put down a block she carries (e.g. a crafting table, a torch, a furnace): next to her, or at a spot. ' +
+    'A full block (dirt, cobblestone) can also go into water or lava, resting against a solid block beside it.',
   doneWhen: 'the block is in place',
   stopsWhen: 'she has none, the spot is taken or has nothing to rest on, can\'t reach it',
   params: {
@@ -74,7 +79,7 @@ export const place = {
     const target = params.where ? parsePlace(params.where) : spotNextToHer(bot)
     if (!target) return failed('no free spot next to her (move to open ground first)')
     const there = bot.blockAt(target)
-    if (!isAir(there)) return failed(`that spot is taken (${there?.name ?? 'unloaded'})`)
+    if (!canGoIn(there, bot.registry.blocksByName[params.block])) return failed(`that spot is taken (${there?.name ?? 'unloaded'})`)
     // Something solid to place against: the ground first, then the sides.
     const faces = [new Vec3(0, 1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1), new Vec3(0, -1, 0)]
     const face = faces.find((f) => isSolid(bot.blockAt(target.minus(f))))

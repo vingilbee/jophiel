@@ -190,3 +190,17 @@ export interface Prediction {
   portion_scale?: number | null
   source: string
 }
+
+/** One thought of her mind while playing (backend services/mind.py). Not a message. */
+export interface Thought {
+  id: string
+  session_id: string | null
+  level: 'react' | 'light' | 'quiet' | 'hard'
+  text: string
+  said: string | null
+  status: 'done' | 'stale' | 'unfinished'
+  topic: string | null
+  /** The kind of thinking: why, next, you, judgement, feeling, memory (null for hard thoughts). */
+  kind?: string | null
+  created_at: string
+}

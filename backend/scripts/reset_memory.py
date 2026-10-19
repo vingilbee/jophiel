@@ -7,7 +7,7 @@
 
 Scopes: conversations (and everything built on them), memory (semantic,
 episodic, learning, memory jobs), game (game event jobs, experiences, lessons,
-proposals, reflection jobs). Game episodes are episodic memory: scope memory.
+proposals, reflection jobs, her attempts at learning a move, the moves she learned). Game episodes are episodic memory: scope memory.
 Never touches core_memory, accounts, integrations or calorie/weight logs.
 Asks before deleting unless --yes.
 """

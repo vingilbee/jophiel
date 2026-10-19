@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AppHeader } from '../components/AppHeader'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { learningApi } from '../api/learning'
-import type { Lesson, Proposal, ProposalStatus, Reflection } from '../types/learning'
+import type { LearnedSkill, Lesson, Proposal, ProposalStatus, Reflection } from '../types/learning'
 
 const STATUS_STYLES: Record<string, string> = {
   open: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
@@ -10,6 +10,8 @@ const STATUS_STYLES: Record<string, string> = {
   implemented: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
   rejected: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
   confirmed: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
+  on: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
+  off: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
   trial: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
   retired: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
 }
@@ -59,6 +61,7 @@ function agentBrief(p: Proposal): string {
 }
 
 export function LearningPage() {
+  const [skills, setSkills] = useState<LearnedSkill[] | null>(null)
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
   const [reflections, setReflections] = useState<Reflection[] | null>(null)
@@ -66,7 +69,13 @@ export function LearningPage() {
 
   const load = useCallback(async () => {
     try {
-      const [p, l, r] = await Promise.all([learningApi.proposals(), learningApi.lessons(), learningApi.reflections()])
+      const [s, p, l, r] = await Promise.all([
+        learningApi.skills(),
+        learningApi.proposals(),
+        learningApi.lessons(),
+        learningApi.reflections(),
+      ])
+      setSkills(s)
       setProposals(p)
       setLessons(l)
       setReflections(r)
@@ -100,8 +109,8 @@ export function LearningPage() {
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-[-0.03em]">What she's learned.</h1>
           <p className="mt-2 max-w-xl text-sm text-[#7183A3]">
-            After each game session Columbina looks back on what happened. Lessons go straight into how she
-            plays. Proposals are changes to her game code: she never makes them herself. Review them here and
+            Moves she taught herself are hers to use at once. After each game session Columbina looks back on
+            what happened. Lessons go straight into how she plays. Proposals are changes to her game code: she never makes them herself. Review them here and
             hand the good ones to a coding agent.
           </p>
         </div>
@@ -109,6 +118,22 @@ export function LearningPage() {
         {error && (
           <p className="mb-5 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">{error}</p>
         )}
+
+        <Section
+          title="Moves she taught herself"
+          hint="Programs that worked when she practiced a move. Her hands use them like any skill, in any session, while they're on. Learning one again replaces it."
+        >
+          {skills === null && !error && <Loading />}
+          {skills?.length === 0 && <Empty text="No moves yet. Ask her to learn one while you play (e.g. pillar up by placing blocks)." />}
+          {skills?.map((s) => (
+            <SkillCard
+              key={s.id}
+              skill={s}
+              onEnabled={(enabled) => act(() => learningApi.setSkillEnabled(s.id, enabled))}
+              onDelete={() => act(() => learningApi.deleteSkill(s.id))}
+            />
+          ))}
+        </Section>
 
         <Section title="Proposals" hint="Changes to the game code she suggests, with the outcomes behind them.">
           {proposals === null && !error && <Loading />}
@@ -286,6 +311,39 @@ function ProposalCard({
         {p.status !== 'open' && (
           <button onClick={() => onStatus('open')} className={SMALL_BUTTON}>Reopen</button>
         )}
+      </div>
+    </article>
+  )
+}
+
+function SkillCard({
+  skill: s,
+  onEnabled,
+  onDelete,
+}: {
+  skill: LearnedSkill
+  onEnabled: (enabled: boolean) => void
+  onDelete: () => void
+}) {
+  return (
+    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-4 sm:px-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="mr-auto text-sm font-medium">{s.task}</h3>
+        <span className="font-mono text-[11px] text-[#7183A3]">{s.name}</span>
+        <Chip label={s.enabled ? 'on' : 'off'} />
+      </div>
+      <p className="mt-2 text-[11px] text-[#7183A3]">
+        {s.game} · learned {day(s.created_at)}
+        {s.updated_at !== s.created_at && ` · relearned ${day(s.updated_at)}`} ·{' '}
+        {s.uses ? `used ${s.uses}×, worked ${s.successes}` : 'not used yet'}
+      </p>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs text-[#7183A3]">Her program</summary>
+        <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.code}</pre>
+      </details>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={() => onEnabled(!s.enabled)} className={SMALL_BUTTON}>{s.enabled ? 'Switch off' : 'Switch on'}</button>
+        <button onClick={onDelete} className={SMALL_BUTTON}>Delete</button>
       </div>
     </article>
   )
