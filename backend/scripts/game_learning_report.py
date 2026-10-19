@@ -1,4 +1,5 @@
-"""Is she learning? Per-session play stats, split by whether lessons were on.
+"""Is she learning? Per-session play stats, split by whether lessons were on, and
+what exploring did (challenges she set herself, lessons, model calls).
 
     uv run python scripts/game_learning_report.py                  # all game sessions
     uv run python scripts/game_learning_report.py --user me@x.com --last 20
@@ -23,9 +24,11 @@ from sqlalchemy import select  # noqa: E402
 
 from app.db.models import DesktopSession, User  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
-from app.services import game_learning  # noqa: E402
+from app.services import game_challenges, game_learning  # noqa: E402
 
 COLUMNS = ("minutes", "outcomes", "success_rate", "repeated_failures", "deaths", "steps_done", "stuck")
+EXPLORE = ("picked", "taken", "done", "given_up", "replaced", "lessons", "self_lessons", "learned", "tries",
+           "model_calls")
 
 
 def _avg(rows: list[dict], key: str) -> str:
@@ -48,6 +51,7 @@ def main() -> int:
             query = query.where(DesktopSession.owner_user_id == user.id)
         sessions = list(db.scalars(query.order_by(DesktopSession.started_at.desc()).limit(args.last)))
         rows = [game_learning.session_stats(db, s) for s in reversed(sessions)]
+        explored = [(s.started_at, game_challenges.session_stats(db, s)) for s in reversed(sessions)]
     if not rows:
         print("No game sessions yet.")
         return 0
@@ -61,6 +65,12 @@ def main() -> int:
                          ("lessons off", [r for r in rows if r["lessons_on"] is False])):
         if group:
             print(f"{label:12} n={len(group):<3} " + "  ".join(f"{c}={_avg(group, c)}" for c in COLUMNS))
+    explored = [(at, r) for at, r in explored if r["picked"] or r["lessons"]]
+    if explored:
+        print("\nExploring (challenges she set herself; model_calls = picks + 2 per lesson try + 1 per tidy):")
+        print(f"{'started':16} " + " ".join(f"{c:>12}" for c in EXPLORE))
+        for at, r in explored:
+            print(f"{at:%Y-%m-%d %H:%M} " + " ".join(f"{r[c]:>12}" for c in EXPLORE))
     return 0
 
 

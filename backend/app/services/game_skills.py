@@ -12,6 +12,18 @@ one-block pillar move climbs five blocks with ``times=5``. Usable at once (the
 user's choice, 2026-10-17); the Learning page lists them, and the user can
 switch one off or delete it. Columbina's game summary lists them too, so she
 plans with them instead of offering to learn them again.
+
+They look after themselves (2026-10-18):
+- **A move that keeps missing switches itself off**: ``MISS_LIMIT`` misses in a row
+  (it didn't work, its program broke, or it ran out of time; being hurt or stopped
+  isn't the move's fault and doesn't count), with the reason kept for the Learning
+  page and her summary. Learning it again, or the user switching it back on, starts
+  the count over.
+- **A learned program is tidied once** (``practice.tidy``, after the lesson ends): the
+  program that worked was written for that moment, often with fixed coordinates, ids
+  and leftover logging, so a tidy copy looks things up instead. It hasn't been run, so
+  the one she learned stays in ``original_code``: if the tidied copy misses before it
+  ever works, the move goes back to the original (that miss isn't counted against it).
 """
 from __future__ import annotations
 
@@ -29,6 +41,9 @@ NAME_WORDS = 4
 MAX_TIMES = 10
 DEFAULT_SECONDS = 120
 MAX_SECONDS = 300
+MISS_LIMIT = 3  # misses in a row that switch a move off
+WORKED = "done"
+MISSED = {"failed", "timeout", "error"}  # the move's own fault; hurt/stopped/lost aren't
 _STOPWORDS = {
     "a", "an", "the", "by", "and", "or", "to", "of", "with", "in", "on", "at", "for", "from", "into", "onto",
     "it", "its", "my", "me", "myself", "your", "yourself", "you", "i", "one", "some", "then", "so", "that",
@@ -59,10 +74,25 @@ def save_learned(db: Session, attempt: GameSkillAttempt) -> GameLearnedSkill | N
         row = GameLearnedSkill(user_id=attempt.user_id, game=attempt.game, name=name, task=attempt.task,
                                code=attempt.code, attempt_id=attempt.id)
         db.add(row)
-    else:  # learned again: the newer program, switched back on
+    else:  # learned again: the newer program, switched back on, untidied, its count started over
         row.task, row.code, row.attempt_id, row.enabled = attempt.task, attempt.code, attempt.id, True
+        row.misses_in_row, row.off_reason = 0, None
+        row.original_code, row.tidy_note, row.tidy_proven = None, None, False
     db.flush()
     return row
+
+
+def save_tidied(db: Session, attempt_id: uuid.UUID, code: str, note: str) -> bool:
+    """Use the tidied copy of the program an attempt learned, keeping the original. Only
+    if the move still has that attempt's program as learned (relearned or tidied
+    meanwhile: nothing). The caller commits."""
+    row = db.scalar(select(GameLearnedSkill).where(GameLearnedSkill.attempt_id == attempt_id))
+    if row is None or row.original_code is not None or not code.strip() or code.strip() == row.code.strip():
+        return False
+    row.original_code, row.code = row.code, code
+    row.tidy_note, row.tidy_proven = note[:500] or "tidied", False
+    db.flush()
+    return True
 
 
 def for_user(db: Session, user_id: uuid.UUID, game: str, *, enabled_only: bool = True) -> list[GameLearnedSkill]:
@@ -134,34 +164,61 @@ def outcome(record: dict, skill: str, params: dict) -> dict:
             "seconds": record.get("seconds")}
 
 
-def record_use(db: Session, session_id: uuid.UUID, name: str, worked: bool) -> None:
+def record_use(db: Session, session_id: uuid.UUID, name: str, status: str, reason: str | None = None) -> str | None:
+    """Count one use of a move by how it ended. Returns what changed about the move for
+    her hands to hear (switched off, back to the original program), or None."""
     from app.services.game_learning import game_for_profile
 
     session = db.get(DesktopSession, session_id)
     if session is None:
-        return
+        return None
     row = db.scalar(select(GameLearnedSkill).where(
         GameLearnedSkill.user_id == session.owner_user_id,
         GameLearnedSkill.game == (game_for_profile(session.profile_id) or "minecraft"),
         GameLearnedSkill.name == name))
-    if row is None:
-        return
+    if row is None or (status != WORKED and (status not in MISSED or reason == "died")):
+        return None  # hurt, stopped, killed: not the move's doing
     row.uses += 1
-    row.successes += int(worked)
     row.last_used_at = datetime.now(timezone.utc)
+    note = None
+    if status == WORKED:
+        row.successes += 1
+        row.misses_in_row = 0
+        row.tidy_proven = True
+    elif row.original_code is not None and not row.tidy_proven:
+        row.code, row.original_code = row.original_code, None
+        row.tidy_note = f"the tidied copy didn't work ({(reason or status)[:200]}), so it's back to the one she learned"
+        note = "the tidied copy of this move didn't work, so it's back to the program you learned; try it again"
+    else:
+        row.misses_in_row += 1
+        if row.misses_in_row >= MISS_LIMIT:
+            row.enabled = False
+            row.off_reason = f"didn't work {row.misses_in_row} times in a row (last: {(reason or status)[:200]})"
+            note = f"that's {row.misses_in_row} misses in a row, so this move is switched off"
     db.commit()
+    return note
 
 
 def summary_lines(db: Session, user_id: uuid.UUID, game: str) -> list[str]:
-    """For Columbina's game summary: the moves she has, so she plans with them."""
+    """For Columbina's game summary: the moves she has, so she plans with them, and the ones
+    that switched themselves off."""
     skills = for_user(db, user_id, game)
     if not skills:
-        return []
+        return off_lines(db, user_id, game)
     lines = ["Moves you taught yourself (your hands have them as skills, any session; times = how many in a "
              "row). Put them in the plan; don't offer to learn them again:"]
     lines += [f'- {s.name}: "{s.task}"' + (f" (used {s.uses}, worked {s.successes})" if s.uses else "")
               for s in skills]
-    return lines
+    return lines + off_lines(db, user_id, game)
+
+
+def off_lines(db: Session, user_id: uuid.UUID, game: str) -> list[str]:
+    """Moves that switched themselves off, so she doesn't plan with them or think she still has them."""
+    rows = [r for r in for_user(db, user_id, game, enabled_only=False) if not r.enabled and r.off_reason]
+    if not rows:
+        return []
+    return ["Moves of yours that stopped working and switched themselves off (don't plan with them; if one is "
+            "needed, offer to learn it again):"] + [f'- "{r.task}": {r.off_reason}' for r in rows]
 
 
 # --------------------------------------------------------------------------- #
@@ -174,6 +231,8 @@ def listing(db: Session, user_id: uuid.UUID) -> list[dict]:
                       .order_by(GameLearnedSkill.created_at.desc()))
     return [{"id": str(r.id), "game": r.game, "name": r.name, "task": r.task, "code": r.code,
              "enabled": r.enabled, "uses": r.uses, "successes": r.successes,
+             "misses_in_row": r.misses_in_row, "off_reason": r.off_reason, "original_code": r.original_code,
+             "tidy_note": r.tidy_note, "tidy_proven": r.tidy_proven,
              "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
              "created_at": r.created_at.isoformat(), "updated_at": r.updated_at.isoformat()} for r in rows]
 
@@ -188,6 +247,8 @@ def set_enabled(db: Session, user_id: uuid.UUID, skill_id: uuid.UUID, enabled: b
     if row is None:
         return False
     row.enabled = enabled
+    if enabled:  # the user gives it another go: its count starts over
+        row.misses_in_row, row.off_reason = 0, None
     db.commit()
     return True
 

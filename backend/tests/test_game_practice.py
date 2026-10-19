@@ -21,6 +21,7 @@ from app.ai.desktop.practice import (CRITIC_SCHEMA, WRITER_SCHEMA, PracticeDeps,
                                      writer_prompt)
 from app.ai.mind.tick import TickInput, news, render
 from app.ai.tools.desktop import build_desktop_tools
+from app.core.config import get_settings
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_skill_driver import MANIFEST, Harness, ScriptedModel, _decide
 
@@ -251,22 +252,39 @@ def test_a_decision_made_while_learning_began_is_dropped():
     assert harness.pack.runs == []
 
 
-def test_a_background_turn_may_only_offer_and_a_user_turn_may_start():
-    background = {t.name for t in build_desktop_tools(uuid.uuid4(), GameEvent(("stuck: no skill for: crossing water",)))}
+def test_her_own_turns_may_start_lessons_unless_she_must_ask_first(monkeypatch):
+    # 2026-10-18, the user's choice "for now": no consent needed; GAME_PRACTICE_ASK_FIRST brings it back.
+    event = GameEvent(("stuck: no skill for: crossing water",))
+    background = {t.name for t in build_desktop_tools(uuid.uuid4(), event)}
     user_turn = {t.name for t in build_desktop_tools(uuid.uuid4())}
-    assert "offer_to_learn" in background and "learn_skill" not in background and "stop_learning" not in background
+    assert {"learn_skill", "stop_learning"} <= background and "offer_to_learn" not in background
     assert {"learn_skill", "stop_learning"} <= user_turn and "offer_to_learn" not in user_turn
+    import app.ai.tools.desktop.tools as tool_module
+
+    asking = get_settings().model_copy(update={"game_practice_ask_first": True})
+    monkeypatch.setattr(tool_module, "get_settings", lambda: asking)
+    background = {t.name for t in build_desktop_tools(uuid.uuid4(), event)}
+    assert "offer_to_learn" in background and "learn_skill" not in background and "stop_learning" not in background
 
 
 def test_learning_is_only_for_what_no_skill_does():
     # Live: she offered to learn "find a rabbit", which explore with goal mob:rabbit already does.
-    offer = next(t for t in build_desktop_tools(uuid.uuid4(), GameEvent(("stuck",))) if t.name == "offer_to_learn")
+    import app.ai.tools.desktop.tools as tool_module
+
+    asking = get_settings().model_copy(update={"game_practice_ask_first": True})
+    real = tool_module.get_settings
+    tool_module.get_settings = lambda: asking
+    try:
+        offer = next(t for t in build_desktop_tools(uuid.uuid4(), GameEvent(("stuck",))) if t.name == "offer_to_learn")
+    finally:
+        tool_module.get_settings = real
     learn = next(t for t in build_desktop_tools(uuid.uuid4()) if t.name == "learn_skill")
     for tool in (offer, learn):
         text = " ".join(tool.description.split())
         assert "if you can name the skill that does it" in text and "explore with goal mob:<type>" in text
     learn_text = " ".join(learn.description.split())
-    assert "don't just say you can't: say you haven't learned it yet and ask if you should" in learn_text
+    assert "don't just say you can't: say you haven't learned it yet and that you'll try" in learn_text
+    assert "You don't need to ask first" in learn_text
 
 
 def test_each_try_is_news_in_her_mind():
@@ -423,8 +441,8 @@ def test_learning_a_move_again_replaces_it_and_switches_it_back_on(db, user):
 def test_a_use_is_counted_and_only_the_owner_can_change_a_move(db, user):
     session = _pack_session(db, user)
     _learned(db, user, session, "pillar up", "// p")
-    game_skills.record_use(db, session.id, "learned_pillar", True)
-    game_skills.record_use(db, session.id, "learned_pillar", False)
+    game_skills.record_use(db, session.id, "learned_pillar", "done")
+    game_skills.record_use(db, session.id, "learned_pillar", "failed", "no blocks")
     move = db.query(GameLearnedSkill).one()
     db.refresh(move)
     assert (move.uses, move.successes) == (2, 1) and move.last_used_at is not None

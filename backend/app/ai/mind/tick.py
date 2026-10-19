@@ -37,7 +37,8 @@ MINECRAFT = Situation(
         "none": "walking, following, mining as planned",
         "react": "a mob on her or the user, losing health, drowning (\"creeper!\")",
         "light": "the user placed, broke or threw something, a find, night coming",
-        "hard": "the user asks for something that takes several steps, a step that keeps failing",
+        "hard": "her hands say it failed but she got the loot anyway, something she carried or placed is gone, "
+                "the way her plan takes is blocked",
     },
 )
 
@@ -58,6 +59,9 @@ class TickInput:
     # What she's teaching herself (services/game_practice.tick_line): "learning X: try 2 of 4",
     # or how it just ended. Each new try is news.
     learning: str | None = None
+    # The challenge she set herself while exploring (services/game_challenges.tick_line), or how
+    # one just ended. A new one, or its end, is news.
+    challenge: str | None = None
 
 
 def is_hostile(entity: dict) -> bool:
@@ -204,6 +208,8 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
         out.append((f"session {previous.session_state} -> {tick.session_state}", True))
     if tick.learning and tick.learning != previous.learning:
         out.append((f"learning: {tick.learning}", True))
+    if tick.challenge and tick.challenge != previous.challenge:
+        out.append((tick.challenge, True))
 
     for n in tick.notices:
         out.append((f"noticed: {n.get('text', '')}", True))
@@ -264,6 +270,8 @@ def render(tick: TickInput, previous: TickInput | None) -> tuple[str, str, list[
         lines.append(f"Still thinking hard about: {tick.thinking}")
     if tick.learning:
         lines.append(f"Teaching yourself a move: {tick.learning}")
+    if tick.challenge:
+        lines.append(f"Exploring: {tick.challenge}")
     if tick.talk:
         lines.append("Recent talk (oldest first):")
         for m in tick.talk[-TALK_KEPT:]:

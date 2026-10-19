@@ -184,7 +184,8 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     # and only for a user with a game VM.
     if context.game is not None:
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
-                                                planner=context.game_planner))
+                                                planner=context.game_planner,
+                                                since=context.game_moment))
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)

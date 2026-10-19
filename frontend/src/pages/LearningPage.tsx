@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AppHeader } from '../components/AppHeader'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { learningApi } from '../api/learning'
-import type { LearnedSkill, Lesson, Proposal, ProposalStatus, Reflection } from '../types/learning'
+import type { Challenge, LearnedSkill, Lesson, Proposal, ProposalStatus, Reflection } from '../types/learning'
 
 const STATUS_STYLES: Record<string, string> = {
   open: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
@@ -14,6 +14,19 @@ const STATUS_STYLES: Record<string, string> = {
   off: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
   trial: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
   retired: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  active: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+  done: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
+  'gave up': 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
+  'you changed it': 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
+  'session ended': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+}
+
+const CHALLENGE_LABELS: Record<Challenge['status'], string> = {
+  active: 'active',
+  done: 'done',
+  given_up: 'gave up',
+  replaced: 'you changed it',
+  expired: 'session ended',
 }
 
 function Chip({ label }: { label: string }) {
@@ -61,6 +74,7 @@ function agentBrief(p: Proposal): string {
 }
 
 export function LearningPage() {
+  const [challenges, setChallenges] = useState<Challenge[] | null>(null)
   const [skills, setSkills] = useState<LearnedSkill[] | null>(null)
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
@@ -69,12 +83,14 @@ export function LearningPage() {
 
   const load = useCallback(async () => {
     try {
-      const [s, p, l, r] = await Promise.all([
+      const [c, s, p, l, r] = await Promise.all([
+        learningApi.challenges(),
         learningApi.skills(),
         learningApi.proposals(),
         learningApi.lessons(),
         learningApi.reflections(),
       ])
+      setChallenges(c)
       setSkills(s)
       setProposals(p)
       setLessons(l)
@@ -118,6 +134,15 @@ export function LearningPage() {
         {error && (
           <p className="mb-5 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">{error}</p>
         )}
+
+        <Section
+          title="Challenges she set herself"
+          hint="While exploring, she picks her own next challenge after each goal and teaches herself the moves it needs. Newest first."
+        >
+          {challenges === null && !error && <Loading />}
+          {challenges?.length === 0 && <Empty text="No challenges yet. With exploring on, she picks one each time a goal is done." />}
+          {challenges?.map((c) => <ChallengeRow key={c.id} challenge={c} />)}
+        </Section>
 
         <Section
           title="Moves she taught herself"
@@ -316,6 +341,25 @@ function ProposalCard({
   )
 }
 
+function ChallengeRow({ challenge: c }: { challenge: Challenge }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-[#40506F]">{c.challenge}</p>
+        {c.why && <p className="mt-1 text-xs text-[#7183A3]">{c.why}</p>}
+        <p className="mt-1 text-[11px] text-[#7183A3]">
+          {c.aim === 'for_us' ? 'for the two of you' : 'something new'} · {c.game} · {day(c.created_at)}
+          {c.result && ` · ${c.result}`}
+          {c.learned.length > 0 && ` · learned ${c.learned.join(', ')}`}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Chip label={CHALLENGE_LABELS[c.status]} />
+      </div>
+    </div>
+  )
+}
+
 function SkillCard({
   skill: s,
   onEnabled,
@@ -336,11 +380,27 @@ function SkillCard({
         {s.game} · learned {day(s.created_at)}
         {s.updated_at !== s.created_at && ` · relearned ${day(s.updated_at)}`} ·{' '}
         {s.uses ? `used ${s.uses}×, worked ${s.successes}` : 'not used yet'}
+        {s.enabled && s.misses_in_row > 0 && ` · missed the last ${s.misses_in_row}`}
       </p>
+      {!s.enabled && s.off_reason && (
+        <p className="mt-2 text-xs text-[#40506F]">Switched itself off: {s.off_reason}</p>
+      )}
+      {s.tidy_note && (
+        <p className="mt-2 text-xs text-[#40506F]">
+          {s.original_code ? (s.tidy_proven ? 'Tidied (has worked since): ' : 'Tidied, not tried yet: ') : ''}
+          {s.tidy_note}
+        </p>
+      )}
       <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Her program</summary>
+        <summary className="cursor-pointer text-xs text-[#7183A3]">{s.original_code ? 'Her program (tidied)' : 'Her program'}</summary>
         <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.code}</pre>
       </details>
+      {s.original_code && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-[#7183A3]">As she learned it</summary>
+          <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.original_code}</pre>
+        </details>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={() => onEnabled(!s.enabled)} className={SMALL_BUTTON}>{s.enabled ? 'Switch off' : 'Switch on'}</button>
         <button onClick={onDelete} className={SMALL_BUTTON}>Delete</button>

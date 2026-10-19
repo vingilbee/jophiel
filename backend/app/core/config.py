@@ -447,6 +447,19 @@ class Settings(BaseSettings):
     game_practice_program_seconds: int = Field(default=180, ge=10, le=600)
     game_practice_max_tokens: int = Field(default=6000, ge=500, le=32000)
     game_practice_queue_name: str = "macrovision:game-practice:wakeups"
+    # A move that worked is tidied once (one more call on the same model): fixed positions
+    # and ids looked up instead, leftovers gone. The original is kept until the tidy works.
+    game_practice_tidy_enabled: bool = True
+    # Ask the user before learning (offer_to_learn in background turns). Off since
+    # 2026-10-18 (the user's choice, "for now"): she starts lessons herself and says so.
+    game_practice_ask_first: bool = False
+    # Explore and learn (stage H3, services/game_challenges.py): when a goal is done she
+    # picks her own next challenge (one call), does it with her skills, and learns what
+    # they lack. Per session it can be switched off ("stop exploring"); this turns it off
+    # everywhere. No budget yet, by the user's choice: the report shows the cost.
+    game_explore_enabled: bool = True
+    game_explore_model: str = "gpt-6-luna"
+    game_explore_reasoning_effort: str | None = "low"
     # Mind tick recording (app/ai/mind): while a pack session is live, write what
     # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
     # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.
@@ -464,11 +477,24 @@ class Settings(BaseSettings):
     # need speed: a small model.
     mind_quick_model: str = "gpt-6-luna"
     mind_react_model: str = "gpt-4.1-mini"
+    # After a reply in a game, if the game changed while she said it, a small model checks
+    # whether that made something she said wrong, and if so she corrects herself out loud
+    # (services/game_correction.py).
+    game_corrections_enabled: bool = True
+    game_correction_model: str = "gpt-6-luna"
     # Quiet thinking: after this long with no thought, and nothing urgent, she thinks ahead,
     # about the user or about herself (never describing the moment). 0 turns it off.
     mind_quiet_seconds: float = Field(default=25.0, ge=0, le=3600)
     mind_quick_gap_seconds: float = Field(default=4.0, ge=0, le=600)
     mind_hard_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
+    # Hard thinking (docs/COLUMBINA_HARD_THINKING_PLAN.md): slow thinking about a problem that ends
+    # in one conclusion. Time isn't short there, so it reasons. Quiet hard thinking: after this long
+    # with nothing new, at most once per QUIET_EVERY (0 turns it off).
+    mind_hard_model: str = "gpt-6-luna"
+    mind_hard_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
+    mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
+    mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
+    mind_hard_log_path: str = "var/mind_hard.jsonl"
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of her game plan.

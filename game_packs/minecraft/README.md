@@ -3,7 +3,7 @@
 Stage G of `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`. A small Node.js service on the Mac that joins a
 Minecraft world as her own player, reads her state, lets you watch, and runs **skills** (go_to,
 mine, fight, explore, eat, sleep, craft, follow_player, place, collect_items, give, look_at, store,
-take, smelt, wear, surface) one at a time when asked through its API, and keeps a list of what she **notices**.
+take, smelt, wear, hold, put_in_hotbar, surface) one at a time when asked through its API, and keeps a list of what she **notices**.
 Phases 0-3 are built: she joins, reads her state, runs skills, moves through a natural-motion
 layer, notices things, and **her hands (the driver model) pick skills** in a game session that
 Columbina starts and steers from the chat or voice.
@@ -147,7 +147,7 @@ block broken or block gained. A player in spectator mode is said to be invisible
 |---|---|---|---|
 | `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `peak`, `surface`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
 | `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
-| `fight` | `target`: `nearest_hostile` or a hostile type | Target type dead / no hostiles left | Outnumbered (flees), none found. Hostile mobs only |
+| `fight` | `target`: `nearest_hostile` or a mob type; `count` (hostiles: all nearby; other mobs: 1) | `count` dead / no hostiles left | Outnumbered (flees), none found, an animal got away. Never players |
 | `explore` | `goal`: `block:<type>` / `mob:<type>` (optional), `radius` | Goal found (says where), or area covered | Night, danger within 8 blocks |
 | `eat` | `food` (optional) | Ate | Not hungry, nothing to eat |
 | `sleep` | — | Woke up in the morning | Not night, no bed within 32, monsters nearby |
@@ -161,6 +161,8 @@ block broken or block gained. A player in spectator mode is said to be invisible
 | `take` | `item`, `count` | Taken | No chest, chest has none, inventory full |
 | `smelt` | `item`, `count` | Smelted items taken out | No furnace within 16, no fuel, can't be smelted |
 | `wear` | `item` (optional) | The armor is on (named piece, or her best for every slot with nothing better on) | No armor, nothing better than what she wears |
+| `hold` | `item` (id, or a kind: `sword` = her best sword; `nothing`) or `slot` 1-9; `hand` main/off | It's in her hand | She has no such item |
+| `put_in_hotbar` | `item`, `slot` 1-9 | The item is in that hotbar slot (what was there swaps) | She has no such item |
 | `surface` | | Head out of the water, breath back | Nothing reachable within 12 blocks of water, stuck |
 
 All take `time_limit` (seconds, capped per skill). **Doors:** routes go through wooden doors and

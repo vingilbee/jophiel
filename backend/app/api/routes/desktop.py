@@ -84,6 +84,7 @@ def _session_out(session: DesktopSession, release_pending: bool = False) -> Sess
         driver_status=session.driver_status,
         commentary_mode=session.commentary_mode,
         autonomy=session.autonomy,
+        explore=session.explore,
         max_duration_seconds=session.max_duration_seconds,
         started_at=session.started_at,
         ended_at=session.ended_at,
@@ -259,10 +260,10 @@ def end_session(
 def set_options(
     session_id: uuid.UUID, payload: SessionOptions, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """Keep playing on her own after a goal, and how chatty she is."""
+    """Keep playing on her own after a goal, exploring, and how chatty she is."""
     return _session_out(_call(
         service.set_session_options, db, user.id, session_id,
-        autonomy=payload.autonomy, commentary_mode=payload.commentary_mode,
+        autonomy=payload.autonomy, commentary_mode=payload.commentary_mode, explore=payload.explore,
     ))
 
 

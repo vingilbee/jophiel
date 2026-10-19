@@ -536,7 +536,8 @@ def _number_steps(session: DesktopSession, steps) -> list[dict]:
     numbered = []
     for step in steps:
         numbered.append({"id": f"s{session.next_step_number}", "do": step.do,
-                         "done_when": step.done_when, "state": "pending"})
+                         "done_when": step.done_when, "state": "pending",
+                         **({"check": step.check.model_dump(exclude_none=True)} if step.check else {})})
         session.next_step_number += 1
     return numbered
 
@@ -690,6 +691,7 @@ class DriverView:
     autonomy: str = "stop"
     commentary_mode: str = "occasional"
     controller_version: str | None = None
+    exploring: bool = False  # stage H3: no cap on goals she picks herself
 
     @property
     def playing(self) -> bool:
@@ -731,10 +733,13 @@ def driver_view(db: Session, session_id: uuid.UUID) -> DriverView | None:
     if row is None:
         return None
     session, env = row
+    from app.services import game_challenges
+
     return DriverView(
         session.id, session.environment_id, session.state, session.control_owner, session.execution_generation,
         session.plan, session.plan_revision, session.profile_id, session.current_step_id,
         env.capture_gate, env.capture_epoch, session.autonomy, session.commentary_mode, env.controller_version,
+        exploring=game_challenges.exploring(session),
     )
 
 
@@ -785,6 +790,9 @@ def driver_progress(
         if upcoming is None:
             _record(db, session, "desktop.steps_exhausted", {"plan_revision": plan_revision})
             event = "goal_done"
+            from app.services import game_challenges
+
+            game_challenges.on_goal_done(db, session, plan_revision)  # a challenge she set herself is done
         elif left == 1:
             event = "plan_low"  # on the last step: time to line up what's next
     else:
@@ -823,6 +831,8 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
 
     if kind in COMMENTARY_KINDS and mind.enabled():
         return  # her mind sees the same notices every tick and decides itself
+    if kind == "struggling" and mind.enabled():
+        return  # her slow thinking takes a step that keeps failing (services/mind_hard.py)
     if session.commentary_mode in event_rules(kind).wakes:
         _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")
         db.commit()
@@ -856,12 +866,14 @@ def auto_goals_set(db: Session, session_id: uuid.UUID) -> int:
 
 def set_session_options(
     db: Session, owner_user_id: uuid.UUID, session_id: uuid.UUID, *,
-    autonomy: str | None = None, commentary_mode: str | None = None,
+    autonomy: str | None = None, commentary_mode: str | None = None, explore: bool | None = None,
 ) -> DesktopSession:
     session = _locked(db, owner_user_id, session_id)
     _require_live(session)
     if autonomy is not None:
         session.autonomy = autonomy
+    if explore is not None:
+        session.explore = explore
     if commentary_mode is not None:
         session.commentary_mode = commentary_mode
     db.commit()
