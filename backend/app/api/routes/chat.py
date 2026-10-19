@@ -256,7 +256,8 @@ def _active_jobs_for_user(user_id: uuid.UUID):
 
 def _game_fields(game) -> dict:
     """The game summary and activity line for a turn's context (none without a game VM)."""
-    return {"game": game.summary if game else None, "game_activity": game.activity if game else None}
+    return {"game": game.summary if game else None, "game_activity": game.activity if game else None,
+            "game_planner": game.planner if game else False}
 
 
 # An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a

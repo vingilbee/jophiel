@@ -108,6 +108,12 @@ class PackClient:
         """What it takes to make ``item`` (lowercase Minecraft id), against what she carries."""
         return self._call("GET", f"/recipes/{item}")
 
+    def needs(self, name: str, count: int = 1) -> dict:
+        """What to mine, smelt and craft first, in order, to get ``count`` of an item or mine a
+        block (lowercase Minecraft id), against what she has: ``{target, known, kind, ready,
+        steps: [{action, item, count, from?, tool?, tool_needed?, table?}], gaps}``."""
+        return self._call("GET", f"/needs/{name}", params={"count": count})
+
     def modes(self) -> dict:
         """Background modes: ``{"guard": bool, "gather": [block names], "pickup": bool}``."""
         return self._call("GET", "/modes")

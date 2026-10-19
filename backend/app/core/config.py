@@ -471,6 +471,14 @@ class Settings(BaseSettings):
     mind_hard_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
+    # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of her game plan.
+    # On: a new goal from a reply, stuck, struggling, the last step and a finished goal all go to
+    # one planning call (reasoning on, no tools), which keeps or revises the plan; replies set
+    # goals and one-step commands, background turns and hard thoughts no longer write plans.
+    # Off: every turn writes plans as before. Needs MIND_ENABLED.
+    mind_planner_enabled: bool = False
+    mind_plan_model: str = "gpt-6-luna"
+    mind_plan_reasoning_effort: str | None = "low"
     mind_tick_path: str = "var/mind_ticks.jsonl"
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.

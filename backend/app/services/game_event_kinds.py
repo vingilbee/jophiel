@@ -52,6 +52,10 @@ KINDS: dict[str, Kind] = {
     "react": Kind(said=NOT_QUIET, urgent=True),
     "light": Kind(said=NOT_QUIET),
     "thought": Kind(said=NOT_QUIET),
+    # Her planner (services/game_planning): a question for the user gets through like being
+    # stuck does; a line about the plan (a goal she picked, being done) like a thought.
+    "ask": Kind(always=True),
+    "plan": Kind(said=NOT_QUIET),
     # How teaching herself a move ended (services/game_practice.py): learned it, or couldn't.
     "learning": Kind(said=NOT_QUIET),
 }

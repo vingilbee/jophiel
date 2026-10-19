@@ -93,7 +93,7 @@ def allowed(reasons: list[str], commentary_mode: str, seconds_since_last: float 
 # the user's last message: her reply answers it. Live, nearly every message got two answers, a quick
 # thought's and the reply, and now and then they disagreed. A reaction to danger still speaks.
 MIND_HUSH_SECONDS = 20.0
-_MIND_PREFIXES = ("thought:", "light:", "quiet:")
+_MIND_PREFIXES = ("thought:", "light:", "quiet:", "plan:")
 
 
 def from_mind(reasons: list[str]) -> bool:
