@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import mineflayer from 'mineflayer'
 
 import { startApi } from './api.js'
+import { needsForBot } from './needs.js'
 import { recipeFor } from './recipes.js'
 import { assertPrivateHost, loadConfig } from './config.js'
 import { describeState } from './describe.js'
@@ -135,7 +136,8 @@ await startApi({
     manifest: () => manifest,
     noticing: () => (spawned ? noticing : null),
     modes: () => modes,
-    recipe: (item) => recipeFor(bot, item)
+    recipe: (item) => recipeFor(bot, item),
+    needs: (name, count) => needsForBot(bot, name, count)
   }
 })
 log(`api on http://${config.apiHost}:${config.apiPort}`)

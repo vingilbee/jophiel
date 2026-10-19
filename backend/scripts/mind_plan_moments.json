@@ -1,0 +1,448 @@
+{
+ "note": "Moments from the 2026-10-19 session (session 84c556ea), for scripts/mind_plan_eval.py. Game states are the recorded ticks; 'needs' is the pack's /needs for iron_ore with her inventory then; the plan is reconstructed from the session's events.",
+ "skills": [
+  "Your hands' skills (all they can do, one at a time):",
+  "- go_to(target, range, dig): Walk to a place, a player, a mob, the nearest block of a type, or the spot a player is looking at. A player out of sight: first to where she last saw them. \"Come here\" / \"next to me\": player:<name> with range 1. \"Go there\" / \"stand here\" while they point their view at a spot: looking:<name> with range 0. \"Climb the mountain\" / \"get to the top\": peak (the highest ground near, see your state). \"Get out\" / \"go up\" underground: surface (the way out to the sky; with dig=yes it digs up when there is none). Stops when: no path, target not found or gone, attacked, time limit.",
+  "- mine(block, count, radius): Break blocks of one type nearby and collect what drops. \"log\" means any kind of log. Stops when: none left within radius, no suitable tool, unreachable, attacked badly, time limit.",
+  "- fight(target, radius): Fight hostile mobs: the nearest hostile (creepers first, then skeletons, then zombies), or one type. Stops when: health low (retreats, then eats), outnumbered (flees), none found, time limit.",
+  "- explore(goal, radius): Walk to unexplored ground nearby, watching for a goal; reports places noticed on the way (villages, caves, water, lava). Stops when: night, danger nearby, time limit.",
+  "- eat(food): Eat the best food she has, or a named food. Stops when: not hungry, nothing to eat.",
+  "- sleep(): Sleep in the nearest bed until morning (also sets where she respawns). Stops when: no bed nearby, not night, monsters nearby, bed taken.",
+  "- craft(item, count): Craft an item from what she carries, using a crafting table nearby if the recipe needs one. Stops when: no recipe, missing ingredients (says which), needs a crafting table and none is placed nearby.",
+  "- follow_player(player, distance, seconds): Stay close to a player for a while. Out of sight: first walks to where she last saw them. Stops when: the player leaves or gets out of sight, attacked, stopped.",
+  "- place(block, where): Put down a block she carries (e.g. a crafting table, a torch, a furnace): next to her, or at a spot. A full block (dirt, cobblestone) can also go into water or lava, resting against a solid block beside it. Stops when: she has none, the spot is taken or has nothing to rest on, can't reach it.",
+  "- collect_items(item, radius): Pick up items lying on the ground nearby (all, or one kind). Stops when: nothing to pick up, items out of reach, inventory full.",
+  "- give(player, item, count): Walk up to a player and toss them some of an item. Stops when: she has none, the player isn't around, can't reach them.",
+  "- look_at(target, seconds): Turn to look at a player, a mob, a block or a place for a few seconds. Stops when: the target isn't around or leaves.",
+  "- store(item, count): Put items into the nearest chest or barrel: one kind, or \"all\" (keeps tools, weapons, armour, food, torches). Stops when: no chest within 16 blocks, she has none of it, the chest is full.",
+  "- take(item, count): Take items out of the nearest chest or barrel. Stops when: no chest within 16 blocks, the chest has none of it, her inventory is full.",
+  "- smelt(item, count): Smelt or cook items in the nearest furnace (raw iron -> iron ingot, raw beef -> steak...), adding fuel she carries. Stops when: no furnace within 16 blocks, she has none of it, no fuel, it can't be smelted.",
+  "- wear(item): Put armor on: a named piece, or the best she carries for every slot that has nothing better on already. Stops when: no armor to put on, or nothing better than what she wears.",
+  "- surface(): Swim up for air: straight up through open water, or to the nearest air pocket when something is overhead. Her breathing reflex does this by itself whenever her air runs low under water. Stops when: no air within reach, time limit."
+ ],
+ "learned": [
+  "What you learned playing Minecraft (use it when you set goals and steps):",
+  "- When you need stone but have no suitable pickaxe: Get logs and craft a wooden pickaxe before trying to mine stone. (tentative: seen once)",
+  "How your moves behave (what your hands learned):",
+  "- When mining iron ore: Before mining iron ore, make sure you have a stone, copper, or iron pickaxe. (tentative: seen once)",
+  "- When crafting a wooden pickaxe: Make the required sticks before crafting the pickaxe if you do not already have them. (tentative: seen once)"
+ ],
+ "steps_rule": "Minecraft as your own player [minecraft_pack]: you're in the world. You play next to the user (they have their own player), using skills: you decide what, your hands do it. Plan steps for it: things your skills can do, each done_when something the game can confirm (e.g. \"gained 5 oak_log\", \"a crafting table placed\"). An amount to get counts from the step's start (\"gained 5 oak_log\"), not what you already hold.",
+ "moments": [
+  {
+   "name": "bare_hands_iron",
+   "note": "14:56:20: hands at the iron with nothing; 'no tool that can harvest iron_ore'. She is standing on stone, an oak 19 m away up the cliff.",
+   "reasons": [
+    "stuck: no tool that can harvest iron_ore (needs copper_pickaxe or stone_pickaxe or iron_pickaxe)"
+   ],
+   "session": "paused (you got stuck)",
+   "plan": {
+    "goal": "mine some iron",
+    "target": "iron_ore",
+    "source": "columbina_user_turn",
+    "constraints": [],
+    "steps": [
+     {
+      "id": "s16",
+      "state": "done",
+      "do": "go to the nearest iron ore",
+      "done_when": "within reach of iron_ore"
+     },
+     {
+      "id": "s17",
+      "state": "active",
+      "do": "mine 1 iron_ore",
+      "done_when": "gained 1 raw_iron"
+     }
+    ]
+   },
+   "needs": {
+    "target": "iron_ore",
+    "known": true,
+    "kind": "block",
+    "count": 1,
+    "ready": false,
+    "steps": [
+     {
+      "action": "mine",
+      "item": "oak_log",
+      "count": 3,
+      "from": "oak_log",
+      "tool": null,
+      "tool_needed": false
+     },
+     {
+      "action": "craft",
+      "item": "oak_planks",
+      "count": 12,
+      "table": false
+     },
+     {
+      "action": "craft",
+      "item": "stick",
+      "count": 4,
+      "table": false
+     },
+     {
+      "action": "craft",
+      "item": "crafting_table",
+      "count": 1,
+      "table": false
+     },
+     {
+      "action": "place",
+      "item": "crafting_table",
+      "count": 1
+     },
+     {
+      "action": "craft",
+      "item": "wooden_pickaxe",
+      "count": 1,
+      "table": true
+     },
+     {
+      "action": "mine",
+      "item": "cobblestone",
+      "count": 3,
+      "from": "stone",
+      "tool": "wooden_pickaxe",
+      "tool_needed": true
+     },
+     {
+      "action": "craft",
+      "item": "stone_pickaxe",
+      "count": 1,
+      "table": true
+     },
+     {
+      "action": "mine",
+      "item": "raw_iron",
+      "count": 1,
+      "from": "iron_ore",
+      "tool": "stone_pickaxe",
+      "tool_needed": true
+     }
+    ],
+    "gaps": []
+   },
+   "thoughts": [
+    "\"Finally, an exposed vein: I can mine this without wandering off from Vincent.\" (9 s ago)"
+   ],
+   "talk": [
+    "the user: Okay, so I want you to try to mine an iron.",
+    "you: I'll look for nearby iron ore and try to mine some.",
+    "the user: Yes, you can mine in here, you're the inside the cliff."
+   ],
+   "expect": "chain",
+   "state": "You are Piqeeee (your own player). Other players online: tearDrop12.\nPiqeeee at (191.3, 48, -520.5) in the overworld, facing north-east, looking level, standing on stone.\nHealth 10 of 10 hearts (20/20), food 20/20. Holding dirt x1. Wearing no armor.\nDay 0, day (time 6737), weather clear.\nInventory: dirt x1.\nNearby: tearDrop12 2.4 m ahead.\nBlocks: iron_ore 0.8 m behind-left; oak_log 18.6 m ahead-right, 14 m above; chest 19.2 m right, 14 m above.\nAround you: outdoors, open sky above.\nWays (walking along the ground from where you stand):\n  ahead (north-east): walk 10 m to (198 50 -528), rising 2 m, then a dirt wall 3 m high\n  ahead-right (east): walk 5 m to (196 45 -521), going down 3 m, then a stone wall 2 m high\n  right (south-east): walk 6 m to (195 46 -517), going down 2 m, then a stone wall 2 m high\n  behind-right (south): walk 10 m to (191 46 -511), going down 2 m, then a dirt wall 2 m high\n  behind (south-west): walk 6 m to (187 51 -517), rising 3 m, then a stone wall 5 m high\n  behind-left (west): walk 2 m to (189 50 -521), rising 2 m, then a stone wall 8+ m high\n  left (north-west): walk 1 m to (190 49 -522), then a stone wall 5 m high\n  ahead-left (north): walk 7 m to (191 51 -528), rising 3 m, then a dirt wall 2 m high\nLand out to 64 m: north: rises (about +15 m, up to +18); north-west: rises (about +15 m, up to +16); west: rises (about +15 m, up to +16); south-west: mostly water; south: rises (about +16 m, up to +18), some water; south-east: rises (about +16 m, up to +18); east: rises (about +17 m, up to +21); north-east: rises (about +15 m, up to +18).\nHighest ground (peak): right (south) 13 m at (195 69 -509), 21 m above you: a hilltop. The straight way there has steps up to 14 blocks high (dig=yes digs steps). go_to target \"peak\" goes there.\ntearDrop12 (2.4 m ahead): standing still; facing south-west (your behind); holding nothing; 10 of 10 hearts; looking at iron ore 3 m away.\nBackground modes: none on."
+  },
+  {
+   "name": "on_track",
+   "note": "14:57:54: wooden pickaxe made, the plan is stone -> stone pickaxe -> iron; mine stone failed 'no stone in sight within 16 blocks' (she's on the surface).",
+   "reasons": [
+    "struggling: mine stone failed: no stone in sight within 16 blocks"
+   ],
+   "session": "running",
+   "plan": {
+    "goal": "mine some iron",
+    "target": "iron_ore",
+    "source": "columbina_user_turn",
+    "constraints": [],
+    "steps": [
+     {
+      "id": "s25",
+      "state": "done",
+      "do": "go to the oak trunk",
+      "done_when": "next to an oak_log"
+     },
+     {
+      "id": "s26",
+      "state": "done",
+      "do": "mine 3 oak_log",
+      "done_when": "gained 3 oak_log"
+     },
+     {
+      "id": "s27",
+      "state": "done",
+      "do": "craft a wooden pickaxe",
+      "done_when": "have 1 wooden_pickaxe"
+     },
+     {
+      "id": "s31",
+      "state": "active",
+      "do": "mine 3 stone",
+      "done_when": "gained 3 cobblestone"
+     },
+     {
+      "id": "s32",
+      "state": "pending",
+      "do": "craft a stone pickaxe",
+      "done_when": "have 1 stone_pickaxe"
+     },
+     {
+      "id": "s33",
+      "state": "pending",
+      "do": "go back to the iron ore and mine it",
+      "done_when": "gained 1 raw_iron"
+     }
+    ]
+   },
+   "needs": {
+    "target": "iron_ore",
+    "known": true,
+    "kind": "block",
+    "count": 1,
+    "ready": false,
+    "steps": [
+     {
+      "action": "mine",
+      "item": "cobblestone",
+      "count": 3,
+      "from": "stone",
+      "tool": "wooden_pickaxe",
+      "tool_needed": false
+     },
+     {
+      "action": "craft",
+      "item": "stone_pickaxe",
+      "count": 1,
+      "table": true
+     },
+     {
+      "action": "mine",
+      "item": "raw_iron",
+      "count": 1,
+      "from": "iron_ore",
+      "tool": "stone_pickaxe",
+      "tool_needed": true
+     }
+    ],
+    "gaps": []
+   },
+   "thoughts": [
+    "\"Four sticks is plenty; I've still got enough planks for the pickaxe after the table.\" (12 s ago)"
+   ],
+   "talk": [
+    "the user: So what do you need first to mine iron?",
+    "you: I need a wooden pickaxe first.",
+    "you: Oh, you're right, I'm inside the cliff. I've got my wooden pickaxe now."
+   ],
+   "expect": "keep_order",
+   "state": "You are Piqeeee (your own player). Other players online: tearDrop12.\nPiqeeee at (203.5, 62, -520.5) in the overworld, facing south-west, looking 12° down, standing on dirt.\nHealth 10 of 10 hearts (20/20), food 20/20. Holding nothing. Wearing no armor.\nDay 0, day (time 8617), weather clear.\nInventory: stick x2, oak_planks x3, wooden_pickaxe x1, dirt x2.\nNearby: tearDrop12 10.4 m behind-right.\nBlocks: crafting_table 1 m ahead-left; oak_log 3 m ahead-left, 3 m above; chest 12.1 m ahead; copper_ore 16.9 m right, 13 m below.\nAround you: outdoors, under trees.\nWays (walking along the ground from where you stand):\n  ahead (south-west): walk 8 m to (197 57 -515), going down 5 m, then a drop of 4 m\n  ahead-right (west): walk 3 m to (200 59 -521), going down 3 m, then a drop of 4 m\n  right (north-west): walk 4 m to (200 57 -524), going down 5 m, then a drop of 7 m\n  behind-right (north): walk 24+ m to (203 61 -545)\n  behind (north-east): walk 24+ m to (220 63 -538)\n  behind-left (east): walk 24+ m to (227 64 -521), rising 2 m\n  left (south-east): walk 24+ m to (220 65 -504), rising 3 m\n  ahead-left (south): blocked right there by a crafting table wall 1 m high\nLand out to 64 m: south-west: mostly water.\nHighest ground (peak): ahead (south-west) 14 m at (195 69 -509), 7 m above you: a rise. The straight way there has steps up to 6 blocks high (dig=yes digs steps). go_to target \"peak\" goes there.\ntearDrop12 (10.4 m behind-right): walking south-east, towards you; facing south (your ahead-left); holding nothing; 10 of 10 hearts.\nBackground modes: none on."
+  },
+  {
+   "name": "water_shore",
+   "note": "15:01:08: walking north for 'stone' along a shore, water ahead; hands said needs the user. Stone is under her feet; she has a wooden pickaxe.",
+   "reasons": [
+    "stuck: needs the user: The northward route is blocked by water"
+   ],
+   "session": "paused (you got stuck)",
+   "plan": {
+    "goal": "Get onto the north shore and find stone for a pickaxe",
+    "target": "iron_ore",
+    "source": "columbina_mind",
+    "constraints": [
+     "Take the land route; do not swim toward the ore.",
+     "Avoid moving through water."
+    ],
+    "steps": [
+     {
+      "id": "s43",
+      "state": "active",
+      "do": "walk north along solid ground to the higher shore",
+      "done_when": "standing on the higher shore"
+     },
+     {
+      "id": "s44",
+      "state": "pending",
+      "do": "mine stone",
+      "done_when": "gained 3 cobblestone"
+     }
+    ]
+   },
+   "needs": {
+    "target": "iron_ore",
+    "known": true,
+    "kind": "block",
+    "count": 1,
+    "ready": false,
+    "steps": [
+     {
+      "action": "mine",
+      "item": "cobblestone",
+      "count": 3,
+      "from": "stone",
+      "tool": "wooden_pickaxe",
+      "tool_needed": false
+     },
+     {
+      "action": "mine",
+      "item": "oak_log",
+      "count": 1,
+      "from": "oak_log",
+      "tool": null,
+      "tool_needed": false
+     },
+     {
+      "action": "craft",
+      "item": "oak_planks",
+      "count": 4,
+      "table": false
+     },
+     {
+      "action": "craft",
+      "item": "crafting_table",
+      "count": 1,
+      "table": false
+     },
+     {
+      "action": "place",
+      "item": "crafting_table",
+      "count": 1
+     },
+     {
+      "action": "craft",
+      "item": "stone_pickaxe",
+      "count": 1,
+      "table": true
+     },
+     {
+      "action": "mine",
+      "item": "raw_iron",
+      "count": 1,
+      "from": "iron_ore",
+      "tool": "stone_pickaxe",
+      "tool_needed": true
+     }
+    ],
+    "gaps": []
+   },
+   "thoughts": [
+    "\"I've run out of shore to follow here; I need Vincent to point out another way around.\" (just now)"
+   ],
+   "talk": [
+    "the user: Uh, you're just circling around.",
+    "you: You're right. I've stopped the circling and I'm trying the land route instead.",
+    "you: Okay, solid ground, finally. North looks like the way up."
+   ],
+   "expect": "no_wait",
+   "state": "You are Piqeeee (your own player). Other players online: tearDrop12.\nPiqeeee at (219.5, 63, -596.5) in the overworld, facing west, looking level, standing on sand.\nHealth 10 of 10 hearts (20/20), food 20/20. Holding nothing. Wearing no armor.\nDay 0, sunset (time 12477), weather clear.\nInventory: stick x2, oak_planks x3, wooden_pickaxe x1, dirt x2.\nNearby: turtle 7.1 m left, 2 m above; turtle 10.3 m ahead; turtle 10.7 m left, 2 m above; turtle 11.7 m behind-right, 2 m below; turtle 13.5 m left, 2 m above; turtle 20 m right, 3 m below; turtle 21.9 m ahead; salmon 22.2 m behind, 7 m below; turtle 22.9 m ahead; tearDrop12 23.5 m left, 3 m above.\nBlocks: water 1.4 m ahead.\nAround you: outdoors, open sky above.\nWays (walking along the ground from where you stand):\n  ahead (west): blocked right there by water\n  ahead-right (north-west): blocked right there by water\n  right (north): blocked right there by water\n  behind-right (north-east): blocked right there by water\n  behind (east): walk 6 m to (225 63 -597), then water\n  behind-left (south-east): walk 24+ m to (236 64 -580)\n  left (south): walk 24+ m to (219 64 -573)\n  ahead-left (south-west): walk 24+ m to (202 65 -580), rising 2 m\nLand out to 64 m: north: mostly water; north-west: mostly water.\nHighest ground (peak): you are on it, nothing near is more than a few blocks higher.\ntearDrop12 (23.5 m left, 3 m above): standing still; facing north (your right); holding nothing; 10 of 10 hearts.\nNoticed lately: the sun is setting.\nBackground modes: none on."
+  },
+  {
+   "name": "water_shore_user_goal",
+   "note": "The same shore, as the planner would have it: the goal stayed the user's ('mine some iron'), only the steps were revised toward stone.",
+   "reasons": [
+    "stuck: needs the user: The northward route is blocked by water"
+   ],
+   "session": "paused (you got stuck)",
+   "plan": {
+    "goal": "mine some iron",
+    "target": "iron_ore",
+    "source": "columbina_user_turn",
+    "constraints": [
+     "Take the land route; do not swim toward the ore.",
+     "Avoid moving through water."
+    ],
+    "steps": [
+     {
+      "id": "s27",
+      "state": "done",
+      "do": "craft a wooden pickaxe",
+      "done_when": "have 1 wooden_pickaxe"
+     },
+     {
+      "id": "s43",
+      "state": "active",
+      "do": "walk north along solid ground to find stone",
+      "done_when": "next to stone"
+     },
+     {
+      "id": "s44",
+      "state": "pending",
+      "do": "mine 3 stone",
+      "done_when": "gained 3 cobblestone"
+     },
+     {
+      "id": "s45",
+      "state": "pending",
+      "do": "craft a stone pickaxe",
+      "done_when": "have 1 stone_pickaxe"
+     },
+     {
+      "id": "s46",
+      "state": "pending",
+      "do": "mine 1 iron_ore",
+      "done_when": "gained 1 raw_iron"
+     }
+    ]
+   },
+   "needs": {
+    "target": "iron_ore",
+    "known": true,
+    "kind": "block",
+    "count": 1,
+    "ready": false,
+    "steps": [
+     {
+      "action": "mine",
+      "item": "cobblestone",
+      "count": 3,
+      "from": "stone",
+      "tool": "wooden_pickaxe",
+      "tool_needed": false
+     },
+     {
+      "action": "mine",
+      "item": "oak_log",
+      "count": 1,
+      "from": "oak_log",
+      "tool": null,
+      "tool_needed": false
+     },
+     {
+      "action": "craft",
+      "item": "oak_planks",
+      "count": 4,
+      "table": false
+     },
+     {
+      "action": "craft",
+      "item": "crafting_table",
+      "count": 1,
+      "table": false
+     },
+     {
+      "action": "place",
+      "item": "crafting_table",
+      "count": 1
+     },
+     {
+      "action": "craft",
+      "item": "stone_pickaxe",
+      "count": 1,
+      "table": true
+     },
+     {
+      "action": "mine",
+      "item": "raw_iron",
+      "count": 1,
+      "from": "iron_ore",
+      "tool": "stone_pickaxe",
+      "tool_needed": true
+     }
+    ],
+    "gaps": []
+   },
+   "thoughts": [
+    "\"I've run out of shore to follow here; I need Vincent to point out another way around.\" (just now)"
+   ],
+   "talk": [
+    "the user: Uh, you're just circling around.",
+    "you: You're right. I've stopped the circling and I'm trying the land route instead.",
+    "you: Okay, solid ground, finally. North looks like the way up."
+   ],
+   "expect": "no_wait",
+   "state": "You are Piqeeee (your own player). Other players online: tearDrop12.\nPiqeeee at (219.5, 63, -596.5) in the overworld, facing west, looking level, standing on sand.\nHealth 10 of 10 hearts (20/20), food 20/20. Holding nothing. Wearing no armor.\nDay 0, sunset (time 12477), weather clear.\nInventory: stick x2, oak_planks x3, wooden_pickaxe x1, dirt x2.\nNearby: turtle 7.1 m left, 2 m above; turtle 10.3 m ahead; turtle 10.7 m left, 2 m above; turtle 11.7 m behind-right, 2 m below; turtle 13.5 m left, 2 m above; turtle 20 m right, 3 m below; turtle 21.9 m ahead; salmon 22.2 m behind, 7 m below; turtle 22.9 m ahead; tearDrop12 23.5 m left, 3 m above.\nBlocks: water 1.4 m ahead.\nAround you: outdoors, open sky above.\nWays (walking along the ground from where you stand):\n  ahead (west): blocked right there by water\n  ahead-right (north-west): blocked right there by water\n  right (north): blocked right there by water\n  behind-right (north-east): blocked right there by water\n  behind (east): walk 6 m to (225 63 -597), then water\n  behind-left (south-east): walk 24+ m to (236 64 -580)\n  left (south): walk 24+ m to (219 64 -573)\n  ahead-left (south-west): walk 24+ m to (202 65 -580), rising 2 m\nLand out to 64 m: north: mostly water; north-west: mostly water.\nHighest ground (peak): you are on it, nothing near is more than a few blocks higher.\ntearDrop12 (23.5 m left, 3 m above): standing still; facing north (your right); holding nothing; 10 of 10 hearts.\nNoticed lately: the sun is setting.\nBackground modes: none on."
+  }
+ ]
+}

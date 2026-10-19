@@ -509,13 +509,16 @@ def _set_plan(db: Session, session: DesktopSession, data: PlanIn, *, source: str
     abandoned = 0
     if session.plan is not None:
         abandoned = sum(1 for step in session.plan["steps"] if step["state"] in _OPEN_STEP_STATES)
-    session.plan = {
+    plan = {
         "goal": data.goal,
         "steps": _number_steps(session, data.steps),
         "if_stuck": data.if_stuck,
         "constraints": list(data.constraints),
         "source": source,
     }
+    if data.target:
+        plan["target"] = data.target
+    session.plan = plan
     session.plan_revision += 1
     session.current_step_id = None
     if session.plan_revision > 1:
@@ -761,6 +764,13 @@ def driver_progress(
     if step is None or step["state"] not in ("pending", "active"):
         db.commit()
         return False
+    from app.services import game_planning
+
+    if status == "needs_human" and game_planning.handles(session):
+        # Whether to ask the user is her planner's call, with the whole plan in view: her
+        # hands only see their step. Live, a rule "ask Vincent if there's no land route" made
+        # them stop for the user after one blocked shore, at night, after the user had left.
+        status, note = "stuck", f"needs the user: {note}" if note else "needs the user"
     session.driver_status = status
     stopping = False
     event = None
@@ -914,9 +924,13 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
 
 def _game_event(db: Session, session: DesktopSession, reason: str) -> None:
     """Wake Columbina about this session (in the caller's transaction; the
-    caller commits, then calls ``agent_events.wake``)."""
-    from app.services import agent_events
+    caller commits, then calls ``agent_events.wake``). News about the plan goes to
+    her planner instead when it writes this session's plan (services/game_planning)."""
+    from app.services import agent_events, game_planning
 
+    if game_planning.is_plan_news(reason) and game_planning.handles(session):
+        game_planning.request(db, session, reason)
+        return
     agent_events.enqueue(
         db, user_id=session.owner_user_id, source="desktop", dedupe_key=str(session.id), reason=reason,
         # The newest event's plan: "on the last step" about an older plan is no news (game_events).

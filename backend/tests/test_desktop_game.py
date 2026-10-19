@@ -381,6 +381,27 @@ def test_a_new_goal_resumes_her_own_pause_and_never_hides_the_users(db, alice):
     assert session.state == "paused" and "still paused" in reply  # a finished plan: only the user's turn resumes
 
 
+def test_resuming_while_playing_never_says_she_is_paused(db, alice):
+    """Seen live: after she resumed her own pause, a background turn's resume_game got
+    "this pause wasn't yours" while she was running, and she told the user she was paused."""
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="Mine iron")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    svc.controller_pause(db, session.id, reason="driver_stuck")
+    desktop_game.resume(db, alice.id, only_own_pauses=True)
+    db.refresh(session)
+    assert session.state == "running" and session.reason_code not in desktop_game.SELF_RESUMABLE
+
+    reply = desktop_game.resume(db, alice.id, only_own_pauses=True)
+    db.refresh(session)
+    assert session.state == "running" and "already playing" in reply
+
+    desktop_game.pause(db, alice.id, user_asked=True)
+    with pytest.raises(DesktopError):  # the user's pause is still theirs to lift
+        desktop_game.resume(db, alice.id, only_own_pauses=True)
+
+
 # --------------------------------------------------------------------------- #
 # The moment the user meant (2026-10-08): frame history and the turn picture
 # --------------------------------------------------------------------------- #

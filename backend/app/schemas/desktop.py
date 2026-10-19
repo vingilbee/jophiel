@@ -14,7 +14,9 @@ SessionState = Literal["starting", "running", "paused", "manual", "disconnected"
 ControlOwner = Literal["none", "gameplay", "manual"]
 CommentaryMode = Literal["quiet", "occasional", "commentary"]
 StepState = Literal["pending", "active", "done", "skipped", "abandoned"]
-PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "user_api"]
+# columbina_mind: her planner revising the plan she's on (app/ai/mind/plan.py); a new goal it sets
+# is columbina_user_turn (the user asked for it) or columbina_planning_turn (she picked it).
+PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "columbina_mind", "user_api"]
 CaptureGate = Literal["allowed", "blocked", "manual_auth"]
 CaptureScope = Literal["desktop", "game_window"]
 
@@ -100,6 +102,9 @@ class PlanIn(_In):
     steps: list[PlanStepIn] = Field(min_length=1, max_length=50)  # the configured cap is enforced by the service
     if_stuck: PlanText | None = None
     constraints: list[ShortText] = Field(default_factory=list, max_length=5)
+    # The item or block the goal is about (a game id, e.g. iron_ore): her planner works out
+    # what it takes to get it (services/game_planning).
+    target: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,64}$")] | None = None
 
 
 class PlanReplace(PlanIn):

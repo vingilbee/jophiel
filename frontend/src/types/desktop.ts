@@ -92,7 +92,7 @@ export interface DesktopPlan {
   steps: DesktopPlanStep[]
   if_stuck: string | null
   constraints: string[]
-  source: 'columbina_planning_turn' | 'columbina_user_turn' | 'user_api'
+  source: 'columbina_planning_turn' | 'columbina_user_turn' | 'columbina_mind' | 'user_api'
 }
 
 export interface DesktopSession {

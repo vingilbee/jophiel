@@ -99,6 +99,9 @@ class AgentRuntimeContext:
     game_activity: str | None = None
     # A key-pressing game VM is paired: its rules (preview, lag, counted moves) apply.
     game_vm: bool = False
+    # Her planner writes the game plan (services/game_planning): replies set goals and one-step
+    # commands, background turns don't plan.
+    game_planner: bool = False
     # A background turn about the game (no user message): her game tools
     # become the background set (with ``say``) and the prompt says why she woke.
     game_event: GameEvent | None = None

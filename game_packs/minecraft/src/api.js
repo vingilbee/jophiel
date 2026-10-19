@@ -10,6 +10,8 @@
 //   GET  /notices?since=<seq>&wait=<s> -> { next, notices }: what she noticed after <seq>, waiting
 //                                        up to <s> (max 60) for something new
 //   GET  /recipes/<item>              -> what it takes to make <item>, against what she carries
+//   GET  /needs/<name>?count=<n>      -> what to mine, smelt and craft first, in order, to get an
+//                                        item or mine a block (src/needs.js), against what she has
 //   GET  /modes                       -> background modes { guard, gather: [blocks], pickup }
 //   POST /modes {guard?, gather?, pickup?} -> sets the ones given; 400 for an unknown block name
 //   POST /programs {code, seconds?}   -> 202 { id, status }: runs her code in the sandbox
@@ -111,6 +113,11 @@ export function startApi ({ host, port, token, pack }) {
     }
     const recipe = /^\/recipes\/([a-z0-9_]{1,64})$/.exec(path)
     if (recipe && req.method === 'GET') return needsWorld() || send(res, 200, pack.recipe(recipe[1]))
+    const needs = /^\/needs\/([a-z0-9_]{1,64})$/.exec(path)
+    if (needs && req.method === 'GET') {
+      const count = Math.min(Math.max(Math.round(Number(url.searchParams.get('count') ?? 1)) || 1, 1), 64)
+      return needsWorld() || send(res, 200, pack.needs(needs[1], count))
+    }
     if (key === 'GET /blocks') {
       if (needsWorld()) return
       const [x, y, z, r] = ['x', 'y', 'z', 'r'].map((k) => Number(url.searchParams.get(k)))

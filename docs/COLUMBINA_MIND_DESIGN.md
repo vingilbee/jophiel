@@ -167,8 +167,55 @@ her hands are running, her modes, or her skills; otherwise say she'll try, or as
 
 Game-event wakeups for **commentary** (danger, warning, discovery, notable) are skipped while the
 brain is on: the brain sees the same notices every tick and decides itself. Wakeups that **control
-play** (plan low, goal done, stuck, struggling, needs the user, self-pauses) still run in v1, so
-planning can't regress while the brain is tested. Moving those into the brain is the next step.
+play** (plan low, goal done, stuck, struggling, needs the user) go to the planner when
+`MIND_PLANNER_ENABLED` is on (below); otherwise they still wake a background turn.
+
+## Planning
+
+**Why.** Before the planner, every turn holding the plan tools wrote plans: replies to the user,
+background turns on game events, hard thoughts (all Luna, reasoning off, the plan a side effect of
+whatever the turn was busy with). In the 2026-10-19 session that was 16 plans in 11 minutes, and a
+hard thought wrote "I still need a stone pickaxe to mine iron" while, in the same turn, replacing a
+correct wood → stone → iron plan with "mine iron ore" (she held a wooden pickaxe).
+
+**One author.** With `MIND_PLANNER_ENABLED`, only the planner writes the plan of her own Minecraft
+player (game packs; the VM path is unchanged):
+
+| Who | Before | With the planner |
+|---|---|---|
+| Mouth (reply to the user) | `set_game_plan` / `add_game_steps` | `set_game_goal(goal, target, rules)` (the planner writes the steps); `do_now` for a one-go command (follow me, come here), applied at once |
+| Background turns, hard thoughts | `set_game_plan` / `add_game_steps` | `rethink_plan(why)` only |
+| Hands | `needs_human` paused for the user | report `stuck` (with what they saw); asking is the planner's call |
+
+**When it runs.** Code decides, never the gate: a goal from the mouth, her hands stuck or
+struggling, the last step, a goal done, or a hard thought's `rethink_plan`. Each is a planning job
+(`agent_events`, source `plan`, one per session, merged while waiting). Jev still gates *thinking*.
+
+**The call** (`app/ai/mind/plan.py`): one structured call, reasoning on (`low`), no tools. Input,
+most important first (`services/game_planning.build_input`): why now, the goal and the plan with
+step ids, **what it takes** (the pack's `GET /needs/<item>`: what to mine, smelt and craft first,
+in order, computed from the game's own data against her inventory), what is happening (her hands,
+her player, lately, her thoughts), her skills, how steps are written, what she learned (plan *and*
+skill lessons), who is who, the talk. Output: `keep` (the usual answer), `revise` (the open steps by
+id, new ones where they belong, removals named: a step is only lost when dropped), `new_goal`,
+`wait_for_user` (pauses and asks), `done`; plus `why`, an optional `ask` or `say`, `rules`, `target`.
+
+**Applying it** (code): a decision about a plan that changed meanwhile, or while a newer goal from
+the user waits, is dropped (the newer job plans again). `keep` lifts a pause her hands got stuck in.
+A user's goal is recorded as theirs (`columbina_user_turn`); a revision as `columbina_mind`; a goal
+she picked herself as `columbina_planning_turn` (counts toward her own-goal limit).
+
+**Thinking and planning can't disagree:** the decision's `why` is saved as her thought (level hard,
+kind `plan`). While a job waits or runs, the mouth's summary says she's working it out, so a reply
+doesn't claim steps she doesn't have yet. Asking is a normal move, not a last resort (where is it,
+do you have any, which way, can you help); a question goes through `agent_say` in any commentary
+mode, like being stuck.
+
+**Measured** with `scripts/mind_plan_eval.py` on the 2026-10-19 moments
+(`scripts/mind_plan_moments.json`): bare hands at the iron → the full wood → wooden pickaxe → stone
+→ stone pickaxe → iron chain 3/3; the plan on track with a failed step → stone pickaxe still before
+iron 3/3; stuck on a water-blocked shore under the user's goal → a different approach, not waiting,
+3/3. Not solved by planning: she never thinks of digging down for stone (an experience gap).
 
 ## Where thoughts live
 
@@ -202,12 +249,17 @@ Differences, and what they mean:
 | `MIND_QUICK_GAP_SECONDS` | 4 | between quick thoughts (react ignores it) |
 | `MIND_HARD_GAP_SECONDS` | 20 | between hard thoughts |
 | `MIND_TICK_RECORDING_ENABLED` | false | also write every tick to `var/mind_ticks.jsonl` |
+| `MIND_PLANNER_ENABLED` | false | the planner writes the plan (needs `MIND_ENABLED`) |
+| `MIND_PLAN_MODEL` | gpt-6-luna | the planning call |
+| `MIND_PLAN_REASONING_EFFORT` | low | its reasoning effort |
 
-Every gate decision and thought is also logged to `var/mind.jsonl` (level, latency, why), for tuning.
+Every gate decision, thought and planning decision is also logged to `var/mind.jsonl` (level,
+latency, why; planning: decision, outcome, steps), for tuning.
 
 ## Not yet
 
-- Control events (stuck, plan low...) handled by the brain instead of game-event turns.
+- The mouth speaking from the mind's record (thoughts, plan and why, what the hands did) instead of
+  a summary, so it never claims what she didn't do (next, after planning).
 - The mouth wording the brain's light lines (v1 lets the quick model word them).
 - The brain outside games (conversation, idle, tasks), replacing the nudge rules in `salience.py`.
 - Mood/character tuning the gate; recognising places from memory while playing.

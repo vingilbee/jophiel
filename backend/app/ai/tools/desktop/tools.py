@@ -84,12 +84,16 @@ async def _ask_about_frame(jpeg: bytes, question: str) -> str:
 
 
 def build_desktop_tools(
-    user_id: uuid.UUID, event: GameEvent | None = None, *, spoke_at: float | None = None,
+    user_id: uuid.UUID, event: GameEvent | None = None, *, spoke_at: float | None = None, planner: bool = False,
 ) -> list[BaseTool]:
     """Game tools for one user. ``event`` set = a background turn: no
     start_game, plans are hers (planning source, capped), resume only undoes
     her own pauses, and she gets ``say``. Otherwise (a reply to the user):
-    she also gets keep_playing."""
+    she also gets keep_playing.
+
+    ``planner``: her planner writes the plan (services/game_planning). Then a reply
+    sets a goal (set_game_goal) or a one-step command (do_now), never steps, and a
+    background turn can only ask for the plan to be looked at again (rethink_plan)."""
     looks = 0
     said = False
     source = "columbina_planning_turn" if event else "columbina_user_turn"
@@ -168,6 +172,55 @@ def build_desktop_tools(
     async def add_game_steps(steps: list[Step]) -> str:
         """Add steps after your current ones, without stopping what you're doing."""
         return await _run(desktop_game.add_steps, user_id, steps=_steps(steps) or [], since_revision=since_revision)
+
+    @tool("start_game")
+    async def start_game_with_planner(goal: str, target: str | None = None, game: str | None = None,
+                                      rules: list[str] | None = None) -> str:
+        """Start playing a game with a goal (or set the goal if already set up). Your mind works out
+        the steps in a few seconds.
+
+        Use it as soon as the user wants you to play something; don't ask to confirm a clear request.
+        goal: what to achieve, in the user's words, a short sentence. Only the what: conditions on how
+        ("without sleeping", "stay close to me") go in rules.
+        target: the one item or block it's about, as a Minecraft id (iron_ore, oak_log, white_bed), if any.
+        game: a game id from your game summary (e.g. "minecraft_pack" = Minecraft as your own player);
+        omit for the default.
+        rules: up to 5 short rules your hands keep for this whole goal ("stay above ground at night").
+        """
+        return await _run(desktop_game.start, user_id, goal=goal, game=game, constraints=rules, target=target)
+
+    @tool
+    async def set_game_goal(goal: str, target: str | None = None, rules: list[str] | None = None) -> str:
+        """Tell your mind what the user wants you to do in the game now. It works out the steps (in a
+        few seconds) and your hands start on them; you don't write steps. Only when the user wants
+        something different from what you're doing: an "ok", a question or a chat about something
+        else needs no new goal.
+
+        goal: what to achieve, in the user's words, a short sentence ("mine some iron"). Conditions on
+        how go in rules.
+        target: the one item or block it's about, as a Minecraft id (iron_ore, oak_log, white_bed), if any:
+        your mind works out what it takes to get it.
+        rules: up to 5 short rules your hands keep the whole time ("stay above ground", "no swimming").
+        """
+        return await _run(desktop_game.set_goal, user_id, goal=goal, target=target, rules=rules)
+
+    @tool
+    async def do_now(do: str, done_when: str, rules: list[str] | None = None) -> str:
+        """Do one thing right away, with no planning: a direct command your hands do in one go
+        ("follow me", "come here", "go up the hill", "wait here"). Anything that takes more than one
+        step is a goal: set_game_goal.
+
+        do: the action, e.g. "follow tearDrop12". done_when: when it's done, e.g. "the user says to
+        stop" for something ongoing, "standing next to the user". rules: as in set_game_goal.
+        """
+        return await _run(desktop_game.do_now, user_id, do=do, done_when=done_when, rules=rules)
+
+    @tool
+    async def rethink_plan(why: str) -> str:
+        """Ask your mind to look at your plan again, when you've concluded it no longer fits: a
+        prerequisite missing, a step that keeps failing, something the user wants. It decides and
+        writes the plan (in a few seconds); you never write it yourself. why: one sentence."""
+        return await _run(desktop_game.rethink, user_id, why=why)
 
     @tool
     async def tell_my_hands(message: str, replace_previous: bool = False) -> str:
@@ -329,6 +382,13 @@ def build_desktop_tools(
         Your hands carry on."""
         return await _run(game_practice.stop, user_id)
 
+    if planner:
+        if event is not None:
+            return [look_at_my_game, how_to_make, rethink_plan, tell_my_hands, set_my_modes, play_carefully,
+                    pause_game, resume_game, end_game, drop_promise, say, offer_to_learn]
+        return [look_at_my_game, how_to_make, start_game_with_planner, set_game_goal, do_now, tell_my_hands,
+                set_my_modes, play_carefully, pause_game, resume_game, end_game, keep_playing, this_is_me,
+                note_promise, drop_promise, learn_skill, stop_learning]
     if event is not None:
         return [look_at_my_game, how_to_make, set_game_plan, add_game_steps, tell_my_hands, set_my_modes,
                 play_carefully, pause_game, resume_game, end_game, drop_promise, say, offer_to_learn]

@@ -233,6 +233,7 @@ async def _generate(job: ChatJob) -> None:
         game=game.summary if game else None,
         game_activity=game.activity if game else None,
         game_vm=game.vm if game else False,
+        game_planner=game.planner if game else False,
         spoke_at=spoke_at,
         game_picture=picture[0] if picture else None,
         game_picture_note=picture[1] if picture else None,

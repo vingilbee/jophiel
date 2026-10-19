@@ -419,6 +419,11 @@ def hard_thought_done(user_id: uuid.UUID, session_id: uuid.UUID, topic: str | No
     _set_thinking(session_id, None)
 
 
+def log_decision(record: dict) -> None:
+    """One line in MIND_LOG_PATH, for the parts of her mind outside the tick (her planner)."""
+    _log(record)
+
+
 def _log(record: dict) -> None:
     path = Path(get_settings().mind_log_path)
     path = path if path.is_absolute() else BACKEND_ROOT / path
