@@ -1,5 +1,7 @@
 # Phase 1 — model-backed appraisal implementation report
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-02 (America/Vancouver).
 
 **Decision: retain the deterministic default.** Phase 1 is implemented as an opt-in shadow experiment. The behavioral acceptance gate is pending; no live authority or Phase 2 rollout is granted. The separate Phase 0 whole-pipeline/provider baseline has not been completed by this change. Appraisal-only instrumentation is available now rather than deferring measurement of the new provider.

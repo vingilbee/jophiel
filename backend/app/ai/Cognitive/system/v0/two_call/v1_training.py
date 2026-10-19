@@ -19,7 +19,7 @@ from .v1_contracts import (
     APPRAISAL_FIELDS, ARGUMENT_KIND_REGISTRY_VERSION, CONFLICT_REGISTRY_VERSION, EPISTEMIC_POLICY_VERSION,
     POLICY_COMPILER_VERSION, POLICY_MODE_ROUTER_VERSION, PROTOCOL_V1, SELECTION_FACTOR_REGISTRY_VERSION,
     SPAN_ADDRESSING_VERSION, SUPPORT_POLICY_VERSION, UNDERSTANDING_COMPILER_VERSION, UNKNOWN_REGISTRY_VERSION,
-    CompiledPolicy, UnderstandingProposalV1,
+    CompiledPolicy,
 )
 
 TRAINING_SCHEMA_VERSION = 'cognitive-training-example-v1'
@@ -115,7 +115,8 @@ def project_training_example(record) -> dict[str, Any]:
                 traits={key: getattr(personality, key) for key in ('curiosity', 'warmth', 'playfulness', 'directness')},
                 biases={key: getattr(biases, key) for key in (
                     'benign_prior', 'trust_prior', 'threat_sensitivity', 'confirmation_tendency',
-                    'self_attribution_tendency', 'ambiguity_tolerance', 'social_affiliation_prior')}),
+                    'self_attribution_tendency', 'ambiguity_tolerance', 'social_affiliation_prior',
+                    'hostile_attribution', 'social_cue_sensitivity') if getattr(biases, key) is not None}),
             relationship=dict(availability='available' if request.relationship is not None else 'unavailable',
                               status=request.relationship.status if request.relationship is not None else None),
             state_before=[dict(state_key=v.state_key.value, scope_type=v.scope_type.value,
@@ -153,7 +154,12 @@ def project_training_example(record) -> dict[str, Any]:
     interpretation = trace.interpretation
     focus = next(m.content for m in request.messages if m.message_id == request.focus_message_id)
     tokens = focus_tokens(focus)
-    proposal = UnderstandingProposalV1.model_validate(orchestration.calls[0].proposal)
+    # Under conditioning guide v2 the target is the proposal after her biases,
+    # with each reading's weights and the biases the model said bear on it.
+    from .v1 import understood
+    call = orchestration.calls[0]
+    proposal, _, application = understood(call.proposal, call.payload, call.reference_table)
+    weights = {} if application is None else {(r.event_index, r.index): r for r in application.readings}
     for frame in interpretation.semantic_frames:
         local.add(frame.frame_id, 'frame')
     for item in interpretation.hypotheses:
@@ -191,12 +197,16 @@ def project_training_example(record) -> dict[str, Any]:
                 resolved_question=event.followup.resolved_question, sources=sources)
     readings, impacts = [], []
     for index, event in enumerate(proposal.events):
-        for reading in event.readings:
+        for position, reading in enumerate(event.readings):
             dimensions = {name: getattr(reading.appraisal, name) for name in APPRAISAL_FIELDS}
             if reading.appraisal.uncertainty == 'high':  # compiled as unassessed
                 dimensions = {k: v if v in {None, 'not_applicable'} else None for k, v in dimensions.items()}
             readings.append(dict(event_index=index, hypothesis_key=reading.hypothesis_key, uncertainty=reading.uncertainty,
                                  appraisal=dict(uncertainty=reading.appraisal.uncertainty, **dimensions)))
+            weight = weights.get((index, position))
+            if weight is not None:
+                readings[-1].update(likelihood=weight.prior, weight=weight.weight, lead=weight.lead,
+                                    bias_fit=[f.model_dump(mode='json') for f in reading.bias_fit])
     before = {g['ref'] for g in goals_before}
     for impact in proposal.existing_goal_impacts:
         handle = impact.goal_ref  # ``goal:i`` indexes the supplied existing goals in order

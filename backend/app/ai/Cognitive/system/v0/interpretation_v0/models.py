@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from ..contracts.interpretation import FrozenModel
 from ..perception_v0.models import (
@@ -71,6 +71,19 @@ class InterpretationBiasProfile(FrozenModel):
     self_attribution_tendency: float = Field(ge=0.0, le=1.0)
     ambiguity_tolerance: float = Field(ge=0.0, le=1.0)
     social_affiliation_prior: float = Field(ge=0.0, le=1.0)
+    # Personality mapper v0.2. Absent (and omitted from JSON) in earlier
+    # profiles, so their payloads and digests are unchanged.
+    hostile_attribution: float | None = Field(default=None, ge=0.0, le=1.0)
+    social_cue_sensitivity: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_biases(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for name in OPTIONAL_BIAS_FIELDS:
+                if data.get(name) is None:
+                    data.pop(name, None)
+        return data
 
     @model_validator(mode="after")
     def finite_biases(self) -> InterpretationBiasProfile:
@@ -78,10 +91,14 @@ class InterpretationBiasProfile(FrozenModel):
             self.benign_prior, self.trust_prior, self.threat_sensitivity,
             self.confirmation_tendency, self.self_attribution_tendency,
             self.ambiguity_tolerance, self.social_affiliation_prior,
+            *(value for value in (self.hostile_attribution, self.social_cue_sensitivity) if value is not None),
         )
         if any(not math.isfinite(value) for value in values):
             raise ValueError("compiled interpretation biases must be finite")
         return self
+
+
+OPTIONAL_BIAS_FIELDS = ("hostile_attribution", "social_cue_sensitivity")
 
 
 class InterpretationDialogueItem(FrozenModel):

@@ -79,6 +79,13 @@ class AgentRuntimeContext:
     # Small, already-ranked set of durable user memories relevant to this
     # turn. Rendered by the service so the AI layer remains storage-agnostic.
     long_term_memory: str | None = None
+    # Simple cognition, live (services/cognitive_live.py; all None unless enabled): her character
+    # page, memories typed by whose they are (replaces long_term_memory in the prompt), Student 1's
+    # quick reading of the message, and the conversation's open notes.
+    character_page: str | None = None
+    typed_memory: str | None = None
+    cognitive_reading: str | None = None
+    conversation_notes: str | None = None
 
     # --- Eyes ---
     # True when the user is sharing their screen this turn. Gates both the

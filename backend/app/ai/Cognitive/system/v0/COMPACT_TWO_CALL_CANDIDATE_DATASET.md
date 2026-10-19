@@ -1,5 +1,7 @@
 # Candidate record format and provenance
 
+> **Document status — 2026-10-18:** Historical compact-protocol proposal (October 4), not the current V1 training schema. See [v1_training.py](two_call/v1_training.py) and the [current guide](README.md). No dataset export or promotion is implied.
+
 2026-10-04. This document specifies an offline candidate export format. It does
 not enable new collection, training, retention or external export.
 

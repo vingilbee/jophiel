@@ -294,17 +294,75 @@ class EventAppraisal(FrozenModel):
     agency: AgencyValue | None
 
 
+class BiasFit(FrozenModel):
+    """Conditioning guide v2: a bias that, in this context, bears on one reading.
+
+    ``favours``: a high value makes this reading more likely here (a low value
+    less likely); ``disfavours`` the reverse. Code applies the strength.
+    """
+    bias_ref: str = Field(pattern=r'^bias:[a-z_]+$')
+    direction: Literal['favours', 'disfavours']
+
+
 class InterpretationReading(FrozenModel):
     hypothesis_key: str = Field(min_length=1)
     uncertainty: Uncertainty
     context_refs: tuple[str, ...]
     appraisal: EventAppraisal
+    # Conditioning guide v2 only (omitted otherwise, so earlier digests never
+    # change): how likely the words make this reading, before her biases, and
+    # which biases bear on it in this context.
+    likelihood: int | None = Field(default=None, ge=1, le=100)
+    bias_fit: tuple[BiasFit, ...] | None = None
+
+    @model_serializer(mode='wrap')
+    def _omit_absent_conditioning(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ('likelihood', 'bias_fit'):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        return data
 
     @model_validator(mode='after')
     def unique_refs(self):
         if len(set(self.context_refs)) != len(self.context_refs):
             raise ValueError('duplicate reading context refs')
+        if (self.likelihood is None) != (self.bias_fit is None):
+            raise ValueError('likelihood and bias_fit come together')
+        if self.bias_fit is not None and len({f.bias_ref for f in self.bias_fit}) != len(self.bias_fit):
+            raise ValueError('duplicate bias fit')
         return self
+
+
+# Code-owned record of how her biases adjusted Call 1's readings (bias-application-v1).
+class AppraisalShift(FrozenModel):
+    dimension: str
+    before: str
+    after: str
+    push: float          # signed sum of strength x lean over the favouring biases
+    applied: bool        # sampled with probability min(1, |push|)
+
+
+class ReadingWeight(FrozenModel):
+    event_index: int = Field(ge=0)
+    source_index: int = Field(ge=0)      # position in the model's proposal
+    index: int = Field(ge=0)             # position after adjustment
+    hypothesis_key: str
+    prior: float                         # the model's likelihood, normalized in its group
+    weight: float                        # after her biases
+    lead: bool
+    uncertainty_before: Uncertainty
+    uncertainty_after: Uncertainty
+    appraisal_shifts: tuple[AppraisalShift, ...]
+
+
+class BiasApplication(FrozenModel):
+    version: Literal['bias-application-v1']
+    seed: str
+    strengths: dict[str, float]          # 2 x (value - 0.5) per bias
+    ambiguity_temperature: float
+    readings: tuple[ReadingWeight, ...]
 
 
 class FollowupSource(FrozenModel):

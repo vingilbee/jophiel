@@ -42,16 +42,18 @@ def _code(**kwargs) -> PersonalityMappingErrorCode:
 
 def test_versions_are_the_brief_versions() -> None:
     assert (PERSONALITY_SOURCE_SCHEMA_VERSION, PERSONALITY_MAPPING_MANIFEST_VERSION, PERSONALITY_MAPPER_VERSION) == (
-        "core-personality-source-v0.1", "personality-runtime-mapping-v0.1", "personality-runtime-mapper-v0.1",
+        "core-personality-source-v0.2", "personality-runtime-mapping-v0.2", "personality-runtime-mapper-v0.2",
     )
 
 
-def test_source_reads_exactly_the_ten_declared_paths() -> None:
+def test_source_reads_exactly_the_fourteen_declared_paths() -> None:
     assert {f"{group}.{key}" for group, key in SOURCE_PATHS.values()} == {
         "interpretation_biases.optimism_prior", "interpretation_biases.charitable_interpretation",
         "interpretation_biases.trust_prior", "interpretation_biases.ambiguity_tolerance",
         "perception_priors.threat_sensitivity", "drives.affiliation", "drives.curiosity",
         "action_style.warmth", "action_style.playfulness", "action_style.directness",
+        "interpretation_biases.hostile_attribution_bias", "perception_priors.social_cue_sensitivity",
+        "perception_priors.contradiction_sensitivity", "traits.emotional_stability",
     }
     source = _build()
     assert source.core_memory_ref == "core_memory:columbina:v1"
@@ -159,10 +161,13 @@ def test_manifest_declares_every_output_field_exactly_once() -> None:
     assert {rule.rule_id for rule in MANIFEST.rules} == {
         "personality.interpretation.benign-prior.mean-v1", "personality.interpretation.trust-prior.direct-v1",
         "personality.interpretation.threat-sensitivity.direct-v1",
-        "personality.interpretation.confirmation-neutral.v1",
+        "personality.interpretation.confirmation.one-minus-contradiction-v1",
         "personality.interpretation.self-attribution-neutral.v1",
         "personality.interpretation.ambiguity-tolerance.direct-v1",
-        "personality.interpretation.social-affiliation.direct-v1", "personality.state.defaults-snapshot.v1",
+        "personality.interpretation.social-affiliation.direct-v1",
+        "personality.interpretation.hostile-attribution.direct-v1",
+        "personality.interpretation.social-cue-sensitivity.direct-v1",
+        "personality.state.stability-bands.v1", "personality.state.defaults-snapshot.v1",
         "personality.action.curiosity.direct-v1", "personality.action.warmth.direct-v1",
         "personality.action.playfulness.direct-v1", "personality.action.directness.direct-v1",
     }
@@ -170,6 +175,7 @@ def test_manifest_declares_every_output_field_exactly_once() -> None:
         assert rule.influence_boundary
         if rule.transform != Transform.DYNAMIC_POLICY_SNAPSHOT:
             assert (rule.lower_bound, rule.upper_bound) == (Decimal(0), Decimal(1))
+        if rule.transform not in {Transform.DYNAMIC_POLICY_SNAPSHOT, Transform.STABILITY_BANDS}:
             assert rule.rounding == "decimal-quantize-0.000001-round-half-even"
 
 
@@ -179,15 +185,21 @@ def test_manifest_transforms_are_the_declared_mappings() -> None:
     assert table[("interpretation", "benign_prior")] == (
         "mean_two", ("interpretation_biases.optimism_prior", "interpretation_biases.charitable_interpretation"),
     )
-    assert table[("interpretation", "confirmation_tendency")] == ("policy_constant", ("policy_constant",))
+    assert table[("interpretation", "confirmation_tendency")] == (
+        "one_minus", ("perception_priors.contradiction_sensitivity",))
+    assert table[("interpretation", "hostile_attribution")] == (
+        "direct", ("interpretation_biases.hostile_attribution_bias",))
+    assert table[("interpretation", "social_cue_sensitivity")] == (
+        "direct", ("perception_priors.social_cue_sensitivity",))
     assert table[("interpretation", "self_attribution_tendency")] == ("policy_constant", ("policy_constant",))
     assert table[("interpretation", "social_affiliation_prior")] == ("direct", ("drives.affiliation",))
     assert table[("interpretation", "threat_sensitivity")] == ("direct", ("perception_priors.threat_sensitivity",))
     assert table[("action", "curiosity")] == ("direct", ("drives.curiosity",))
     for field in ("warmth", "playfulness", "directness"):
         assert table[("action", field)] == ("direct", (f"action_style.{field}",))
-    assert table[("state", "state_controls")][0] == "dynamic_policy_snapshot"
-    # The two neutral constants are explicit policy, not CoreMemory facts.
+    assert table[("state", "state_controls")] == ("stability_bands", ("traits.emotional_stability",))
+    assert table[("state", "interaction_patience_band")][0] == "dynamic_policy_snapshot"
+    # The remaining neutral constant is explicit policy, not a CoreMemory fact.
     constants = [rule for rule in MANIFEST.rules if rule.transform == Transform.POLICY_CONSTANT]
     assert {rule.constant for rule in constants} == {Decimal("0.500000")}
     assert all(rule.source_fields == () for rule in constants)

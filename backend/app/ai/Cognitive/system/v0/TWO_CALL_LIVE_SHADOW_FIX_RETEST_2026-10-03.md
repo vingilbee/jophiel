@@ -1,5 +1,7 @@
 # Two-Call Cognitive Live Shadow Fix Retest
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-03  
 Run ID: `e121c7c1b5f141f89202d7aa1f607a65`  
 Sample: 32 authenticated application-path turns, including one uninterrupted 10-turn conversation  

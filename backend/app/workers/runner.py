@@ -70,6 +70,9 @@ def run(stop: threading.Event | None = None) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, request_stop)
     threads = []
+    # Load the live Student 1 in the background (only when enabled), so the first chat turn doesn't wait.
+    from app.services import cognitive_live
+    threading.Thread(target=cognitive_live.warm, name="cognitive-live-warm", daemon=True).start()
     try:
         worker_specs = [
             ("chat", chat.run_once, getattr(settings, "chat_queue_name", "macrovision:chat:jobs"), None),

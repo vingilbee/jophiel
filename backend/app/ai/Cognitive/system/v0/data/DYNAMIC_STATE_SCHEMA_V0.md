@@ -1,6 +1,8 @@
 # Dynamic State Schema V0.1
 
-Status: accepted design direction; not implemented; design cases not yet authored.
+> **Document status — 2026-10-18:** Versioned design reference. Dynamic State and its cases are implemented; use [models.py](../dynamic_state/models.py) and [policy.py](../dynamic_state/policy.py) for actual contracts. Mapper v0.2 supplies personality control bands. Earlier “not implemented” statements are historical.
+
+Status: versioned design rationale. The state updater and design cases are implemented; current fields and policy are defined by the linked source modules.
 
 ## 1. Purpose and boundary
 

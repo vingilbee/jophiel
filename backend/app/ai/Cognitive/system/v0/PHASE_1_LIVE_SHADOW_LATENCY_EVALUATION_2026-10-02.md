@@ -1,5 +1,7 @@
 # Phase 1 Live Cognitive Shadow Latency Evaluation
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-02  
 Status: exploratory local live-provider evaluation; not an SLA, rollout approval, or live-response authorization  
 Run ID: `86da20b6ef9a43a98888823576614c2c`  

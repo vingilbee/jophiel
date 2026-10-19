@@ -108,6 +108,17 @@ class V1Double:
             raw.setdefault('dialogue_updates', [])  # registry v1.7: required, usually empty
             if payload['ontology']['predicate_registry_version'] in WRITTEN_RECALL_REGISTRIES:
                 raw.setdefault('recall_answer', None)  # registry v1.8: required, null without a known recall
+        guide = payload['context'].get('conditioning_guide') if stage == 'call_one' else None
+        if guide in (*V1.BIAS_FIT_GUIDES, V1.CHARACTER_PAGE_GUIDE):
+            # Guide v2+: every reading has a likelihood and a (usually empty) bias fit;
+            # biases are named there, not cited. A character page supplies no biases.
+            supplied = {b['ref'] for b in payload['context']['interpretation_biases']}
+            for item in raw['events']:
+                for entry in item['readings']:
+                    if guide in V1.BIAS_FIT_GUIDES:
+                        entry.setdefault('likelihood', 50)
+                        entry.setdefault('bias_fit', [])
+                    entry['context_refs'] = [r for r in entry['context_refs'] if not r.startswith('bias:') or r in supplied]
         if self.mutate:
             self.mutate(stage, raw, payload)
         return output_type(stage, payload).model_validate(raw)

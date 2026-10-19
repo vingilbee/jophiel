@@ -1,8 +1,8 @@
 # Appraisal Schema V0.1
 
-Status: architectural direction accepted. The schema, deterministic rules, and
-qualitative aggregation require design-case validation before runtime or table
-implementation.
+> **Document status — 2026-10-18:** Versioned design reference. Appraisal is implemented in [appraisal/models.py](../appraisal/models.py), [engine.py](../appraisal/engine.py) and model adapters. Current V1 predicts Appraisal in Call 1. Original pre-implementation status and deterministic-only descriptions below are historical, not the current stage configuration.
+
+Status: versioned design rationale. Appraisal contracts, deterministic/reference rules and model-backed adapters are implemented. This document preserves the earlier design; current V1 Appraisal comes from Call 1 and is compiled into those contracts.
 
 ## 1. Purpose and boundary
 

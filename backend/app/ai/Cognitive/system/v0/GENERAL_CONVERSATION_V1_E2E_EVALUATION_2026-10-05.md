@@ -1,5 +1,7 @@
 # General-conversation e2e retest, cognitive two-call v1 — 2026-10-05
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 ## Scope and method
 
 This is a retest of [`GENERAL_CONVERSATION_TWO_CALL_EVALUATION_2026-10-05.md`](GENERAL_CONVERSATION_TWO_CALL_EVALUATION_2026-10-05.md)

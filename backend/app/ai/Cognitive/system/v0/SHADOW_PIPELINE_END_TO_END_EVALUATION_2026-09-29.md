@@ -1,5 +1,7 @@
 # Cognitive Shadow V0 End-to-End Evaluation
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-09-29  
 Status: behavioral evaluation; not implementation acceptance or live approval  
 Scope: local Cognitive V0.3 durable live-shadow pipeline with Dialogue Working Memory and Realization enabled

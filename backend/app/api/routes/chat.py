@@ -133,7 +133,7 @@ from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import agent_say
-from app.services import cognitive_shadow
+from app.services import cognitive_live, cognitive_shadow
 from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
@@ -971,6 +971,11 @@ async def chat_ws(websocket: WebSocket) -> None:
         long_term_memory = await asyncio.to_thread(
             memory_service.retrieve_for_prompt, user_id, content
         )
+        # Simple cognition, live: None (nothing changes) unless enabled in settings.
+        live = (await asyncio.to_thread(
+            cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
+            message=content, long_term_memory=long_term_memory,
+        ) if cognitive_live.enabled() else None)
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -984,6 +989,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             voice=voice,
             awareness=state.describe(),
             long_term_memory=long_term_memory,
+            character_page=live.character_page if live else None,
+            typed_memory=live.typed_memory if live else None,
+            cognitive_reading=live.reading if live else None,
+            conversation_notes=live.notes if live else None,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
             **_game_fields(await asyncio.to_thread(desktop_game.summary_for, user_id)),
@@ -1130,6 +1139,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             "message_id": str(assistant_message_id),
             "status": outcome_status,
         })
+        if live is not None and outcome_status == "completed":
+            # After the reply is delivered: notes follow what she actually said. Never fails the turn.
+            await asyncio.to_thread(cognitive_live.after_reply, live, user_id=user_id,
+                                    conversation_id=resolved_id, message=content, reply=reply)
 
     async def run_voice_turn(
         conversation_id: uuid.UUID | None,

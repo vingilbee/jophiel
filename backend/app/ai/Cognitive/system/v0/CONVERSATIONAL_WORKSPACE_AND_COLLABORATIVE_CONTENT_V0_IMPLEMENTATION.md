@@ -1,5 +1,7 @@
 # Conversational Workspace and Collaborative Content V0 — Implementation Report
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Status (2026-10-02): **implemented for shadow; Gates 1–6 complete; Gate 7
 (durable persistence) and Gate 8 (real-application evaluation) not done.**
 Not independently audited, not behaviorally accepted, not live-approved.

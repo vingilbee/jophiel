@@ -1,5 +1,7 @@
 # Cognitive two-call protocol v1 — implementation report
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-05.
 Scope: Cognitive V0 shadow only. Shadow isolation is unchanged: no live response,
 tool, memory-write or training authority.

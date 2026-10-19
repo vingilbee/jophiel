@@ -246,6 +246,18 @@ class Settings(BaseSettings):
     # captures and traces are retained untouched (pending jobs wait, unmodified,
     # until the feature is re-enabled or retention/deletion removes them).
     cognitive_live_shadow_enabled: bool = False
+    # --- Simple cognition, live (docs/COLUMBINA_LIVE_INTENTION_PATH_DESIGN.md; services/cognitive_live.py) ---
+    # Both off by default: with both off, chat is exactly as before.
+    # Her character page (v0.6) and typed, scoped memories in the reply model's prompt.
+    cognitive_live_character: bool = False
+    # Student 1's reading (acts, request, tone) in the prompt: "off", "on", or "ab" (per conversation,
+    # half with and half without, for comparing). Notes and logs run whenever this isn't "off".
+    cognitive_live_student: Literal["off", "on", "ab"] = "off"
+    # Trained Student 1 (student_one.pt); None = var/cognitive_simple/teacher-1-2/models-1.0.
+    cognitive_live_student_dir: str | None = None
+    # Reads her actual reply after it's sent, for the notes (offered / committed / answered). None = subagent_model.
+    cognitive_live_events_model: str | None = None
+    cognitive_live_log_path: str = "var/cognitive_live.jsonl"
     # Deterministic per-turn sample over hash(sampling policy version, turn_id).
     cognitive_live_shadow_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     cognitive_live_shadow_sampling_policy_version: str = Field(

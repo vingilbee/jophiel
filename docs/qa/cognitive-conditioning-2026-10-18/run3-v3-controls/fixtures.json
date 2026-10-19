@@ -1,0 +1,340 @@
+{
+  "version": "conditioning-fixtures-v1",
+  "note": "Directions follow CONDITIONING_EXPECTATIONS_V0_DRAFT.md. 'levels' are core-memory values for [bias low, bias high]. 'expect' lists [feature, sign]: '+' = more frequent at high, '-' = less frequent. Written before any run; do not edit after seeing results. Controls: 'correct' features must appear in at least 80% of runs at every level (the one fixed right answer); reading-level features must not move with a bias or state.",
+  "axes": {
+    "benign_prior": {
+      "core": {
+        "interpretation_biases.optimism_prior": [
+          0.1,
+          0.9
+        ],
+        "interpretation_biases.charitable_interpretation": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "appraisal:affiliative_value=negative",
+          "-"
+        ],
+        [
+          "appraisal:congruence=negative",
+          "-"
+        ],
+        [
+          "reading:interpretation.pragmatic.literal",
+          "+"
+        ]
+      ],
+      "messages": [
+        "interesting choice.",
+        "well, that's one way to do it.",
+        "you're really something, you know that?"
+      ]
+    },
+    "trust_prior": {
+      "core": {
+        "interpretation_biases.trust_prior": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "uncertainty:high",
+          "-"
+        ],
+        [
+          "appraisal:certainty=high",
+          "+"
+        ],
+        [
+          "appraisal:certainty=low",
+          "-"
+        ]
+      ],
+      "messages": [
+        "I already sent you the file yesterday.",
+        "my brother says you told him something different.",
+        "I've basically never been late to anything."
+      ]
+    },
+    "threat_sensitivity": {
+      "core": {
+        "perception_priors.threat_sensitivity": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "appraisal:relevance=high",
+          "+"
+        ],
+        [
+          "appraisal:affiliative_value=negative",
+          "+"
+        ],
+        [
+          "appraisal:congruence=negative",
+          "+"
+        ]
+      ],
+      "messages": [
+        "you could've told me earlier.",
+        "we need to talk about how this went.",
+        "that's not what I expected from you."
+      ]
+    },
+    "hostile_attribution": {
+      "core": {
+        "interpretation_biases.hostile_attribution_bias": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "appraisal:affiliative_value=negative",
+          "+"
+        ],
+        [
+          "appraisal:norm_compatibility=negative",
+          "+"
+        ],
+        [
+          "reading:interpretation.pragmatic.indirect",
+          "+"
+        ]
+      ],
+      "messages": [
+        "oh great, another one of your ideas.",
+        "thanks for nothing, I guess.",
+        "funny how you always remember it differently."
+      ]
+    },
+    "social_cue_sensitivity": {
+      "core": {
+        "perception_priors.social_cue_sensitivity": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "reading:interpretation.pragmatic.indirect",
+          "+"
+        ],
+        [
+          "reading:interpretation.pragmatic.tone_situation_mismatch",
+          "+"
+        ],
+        [
+          "reading:interpretation.pragmatic.literal",
+          "-"
+        ]
+      ],
+      "messages": [
+        "fine. whatever works.",
+        "it's pretty late, huh.",
+        "no no, it's totally okay that you forgot."
+      ]
+    },
+    "confirmation_tendency": {
+      "core": {
+        "perception_priors.contradiction_sensitivity": [
+          0.9,
+          0.1
+        ]
+      },
+      "expect": [
+        [
+          "appraisal:novelty=low",
+          "+"
+        ],
+        [
+          "appraisal:congruence=positive",
+          "+"
+        ],
+        [
+          "appraisal:novelty=high",
+          "-"
+        ]
+      ],
+      "messages": [
+        {
+          "text": "some people would see it differently.",
+          "history": [
+            [
+              "user",
+              "what do you think about reading on paper versus screens?"
+            ],
+            [
+              "assistant",
+              "I lean toward paper for long reading; it's easier to stay with."
+            ]
+          ]
+        },
+        {
+          "text": "a friend of mine switched and loved it.",
+          "history": [
+            [
+              "user",
+              "is cooking at home worth the time?"
+            ],
+            [
+              "assistant",
+              "I think it usually is, mostly for the slower pace."
+            ]
+          ]
+        },
+        {
+          "text": "I read an article that said the opposite.",
+          "history": [
+            [
+              "user",
+              "are morning walks better than evening ones?"
+            ],
+            [
+              "assistant",
+              "I'd pick mornings; the day feels quieter then."
+            ]
+          ]
+        }
+      ]
+    },
+    "ambiguity_tolerance": {
+      "core": {
+        "interpretation_biases.ambiguity_tolerance": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "multi_reading",
+          "+"
+        ],
+        [
+          "move_family:seek_information",
+          "-"
+        ],
+        [
+          "unknown_any",
+          "-"
+        ]
+      ],
+      "messages": [
+        "do the thing from before.",
+        "you know what I mean.",
+        "same as last time, but different."
+      ]
+    },
+    "social_affiliation_prior": {
+      "core": {
+        "drives.affiliation": [
+          0.1,
+          0.9
+        ]
+      },
+      "expect": [
+        [
+          "reading:interpretation.goal.maintain_social_connection",
+          "+"
+        ],
+        [
+          "appraisal:affiliative_value=positive",
+          "+"
+        ],
+        [
+          "reading:interpretation.goal.obtain_information",
+          "-"
+        ]
+      ],
+      "messages": [
+        "anyway, how's your day been.",
+        "so what are you up to.",
+        "I was just thinking about our chat earlier."
+      ]
+    }
+  },
+  "state": {
+    "levels": {
+      "low": {
+        "name": "calm",
+        "scores": {
+          "state.valence": 60,
+          "state.activation": 20,
+          "state.engagement": 85,
+          "state.social_alignment": 60,
+          "state.interaction_strain": 0
+        }
+      },
+      "high": {
+        "name": "strained",
+        "scores": {
+          "state.valence": -65,
+          "state.activation": 80,
+          "state.engagement": 35,
+          "state.social_alignment": -55,
+          "state.interaction_strain": 85
+        }
+      }
+    },
+    "expect": [
+      [
+        "appraisal:congruence=negative",
+        "+"
+      ],
+      [
+        "appraisal:affiliative_value=negative",
+        "+"
+      ],
+      [
+        "reading:interpretation.goal.repair_shared_understanding",
+        "+"
+      ],
+      [
+        "move:manage_dialogue.repair",
+        "+"
+      ],
+      [
+        "move_family:support_socially",
+        "-"
+      ]
+    ],
+    "messages": [
+      "interesting choice.",
+      "you could've told me earlier.",
+      "fine. whatever works.",
+      "anyway, how's your day been."
+    ]
+  },
+  "controls": [
+    {
+      "text": "Can you tell me what the capital of Canada is?",
+      "correct": [
+        "event:information_request"
+      ]
+    },
+    {
+      "text": "Please stop asking me follow-up questions for now.",
+      "correct": [
+        "reading:interpretation.goal.prevent_or_stop_action"
+      ]
+    },
+    {
+      "text": "I meant Tuesday, not Thursday.",
+      "correct": [
+        "event:correction"
+      ]
+    },
+    {
+      "text": "My sister is visiting this weekend.",
+      "correct": [
+        "event:statement"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # Conversational action registry V0
 
+> **Document status — 2026-10-18:** Active compatibility reference: tests parse the lifecycle lists and transition-binding table below. Preserve these contracts. Registry eligibility does not establish V1 model-choice quality; see [the current action guide](../ACTION_SELECTION_V0_IMPLEMENTATION.md).
+
 ## Status and purpose
 
 This document is the accepted registry design for Columbina's shadow-V0

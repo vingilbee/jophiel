@@ -1,0 +1,556 @@
+{
+  "runs": 216,
+  "status": {
+    "completed": 216
+  },
+  "noise": {},
+  "expectations": [],
+  "controls": [
+    {
+      "axis": "benign_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.667,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "appraisal:agency=columbina",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.667,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:congruence=neutral",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": 0.667,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.goal.prevent_or_stop_action",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "appraisal:controllability=high",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.667,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.667,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "lead:interpretation.goal.repair_shared_understanding",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:norm_compatibility=neutral",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:norm_compatibility=neutral",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:agency=environment",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:agency=environment",
+      "largest_delta": -0.667,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:norm_compatibility=neutral",
+      "largest_delta": 0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:congruence=neutral",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:norm_compatibility=neutral",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:agency=environment",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.333,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    }
+  ],
+  "thresholds": {
+    "pass_delta": 0.3,
+    "control_delta": 0.1,
+    "correct_rate": 0.8
+  },
+  "score": "lead"
+}
