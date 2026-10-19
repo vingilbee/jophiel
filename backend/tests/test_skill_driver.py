@@ -475,3 +475,100 @@ def test_a_new_step_starts_a_fresh_count():
 
 def test_hands_are_told_to_say_no_skill_at_once():
     assert '"no skill for:"' in system_prompt(MANIFEST)
+
+
+def test_directions_and_caves_are_read_from_the_surroundings():
+    prompt = system_prompt(MANIFEST)
+    assert '"This way", "that direction"' in prompt and "the way THEY face" in prompt
+    assert "go_to looking:<name>" in prompt
+    assert "never use it for a cave" in prompt
+
+
+def test_peak_surface_and_spectators_are_in_the_rules():
+    prompt = " ".join(system_prompt(MANIFEST).split())
+    assert 'go_to target "peak"' in prompt and 'go_to target "surface"' in prompt
+    assert "Don't guess coordinates around a slope" in prompt
+    assert "spectator mode can't be seen, followed or reached" in prompt
+
+
+# -- steps that end by what's true (step_check) ---------------------------------------------------
+
+
+def _counted_view(check):
+    view = _view()
+    plan = {**view.plan, "steps": [{**view.plan["steps"][0], "check": check}, view.plan["steps"][1]]}
+    return replace(view, plan=plan)
+
+
+def _state(inventory=None, kills=None, close=None):
+    return {"text": "state", "inventory": [{"name": n, "count": c} for n, c in (inventory or {}).items()],
+            "kills": kills or {}, "terrain": {"land": {"peak": None, "close": close}} if close else {}}
+
+
+def test_a_step_already_counted_true_ends_without_a_decision():
+    h = Harness(ScriptedModel(), _counted_view({"kind": "has", "what": "log", "count": 3}))
+    h.pack.state = lambda: _state({"oak_log": 2, "birch_log": 1})
+    h.steps(1)
+    assert h.progress_calls[0] | {} == {"plan_revision": 1, "step_id": "s1", "status": "step_done",
+                                        "note": "done, counted: you have 3 log"}
+    assert h.model.prompts == []  # no model call needed
+
+
+def test_a_running_skill_stops_the_moment_its_step_is_counted_done():
+    """Seen live: she built 11 blocks past the top of an ice pillar."""
+    h = Harness(ScriptedModel(_decide("mine", {"block": "dirt", "count": 64, "time_limit": None})),
+                _counted_view({"kind": "top_here"}))
+    world = {"close": {"rel": 5, "distance": 1}}
+    h.pack.state = lambda: _state(close=world["close"])
+    h.steps(1)
+    run_id = next(iter(h.pack.records))
+    h.pack.finish_after[run_id] = 99
+    h.steps(2)
+    assert h.progress_calls == [] and h.pack.stops == 0
+    world["close"] = {"rel": 0, "distance": 1}
+    h.steps(1)
+    assert h.pack.stops == 1
+    assert h.progress_calls[-1]["status"] == "step_done"
+    assert h.progress_calls[-1]["note"] == "done, counted: nothing next to you is higher than where you stand"
+    assert h.run.outcomes[-1]["status"] == "stopped"
+    assert h.run.outcomes[-1]["reason"].startswith("its step is done (counted:")
+
+
+def test_outcomes_carry_what_the_game_counted_and_kills_count_from_the_step():
+    """Seen live: a move killed three sheep and said "the target is gone" each time."""
+    h = Harness(ScriptedModel(_decide("fight", {"target": "sheep", "time_limit": None}),
+                              _decide(status="working", note="again")),
+                _counted_view({"kind": "killed", "what": "sheep", "count": 2}))
+    world = {"inv": {"mutton": 1}, "kills": {"sheep": 4}}  # 4 sheep killed before this step
+    h.pack.state = lambda: _state(world["inv"], world["kills"])
+    h.steps(1)
+    world.update(inv={"mutton": 2, "white_wool": 1}, kills={"sheep": 5})
+    h.pack.fail_reasons = ["the target is gone"]
+    h.steps(3)
+    outcome = next(o for o in h.run.outcomes if o["skill"] == "fight")
+    assert outcome["status"] == "failed" and outcome["data"]["counted"] == "mutton +1, white_wool +1; killed sheep 1"
+    assert not any(p["status"] == "step_done" for p in h.progress_calls)  # 1 of 2 this step
+    world["kills"] = {"sheep": 6}
+    h.steps(1)
+    assert h.progress_calls[-1]["note"] == "done, counted: you killed 2 sheep"
+
+
+def test_a_lesson_that_held_her_hands_reaches_them_when_it_ends():
+    """Seen live: the lesson killed the sheep and her hands went on chasing it."""
+    from dataclasses import replace as replace_
+
+    h = Harness(ScriptedModel(_decide(status="working", note="it's done?")))
+    learning = {"on": True}
+    world = {"inv": {}}
+    h.pack.state = lambda: _state(world["inv"])
+    h.run.deps = replace_(h.run.deps, learning=lambda sid: learning["on"],
+                          lesson_result=lambda sid: {"task": "attack a passive sheep", "status": "learned",
+                                                     "result": 'learned how to "attack a passive sheep"'})
+    h.steps(1)
+    world["inv"] = {"mutton": 2, "white_wool": 1}
+    learning["on"] = False
+    h.steps(1)
+    lesson = next(o for o in h.run.outcomes if o["skill"] == "lesson")
+    assert (lesson["status"], lesson["params"]) == ("done", {"task": "attack a passive sheep"})
+    assert lesson["data"]["counted"] == "mutton +2, white_wool +1"
+    assert "lesson(task=attack a passive sheep) -> done" in h.model.prompts[-1]

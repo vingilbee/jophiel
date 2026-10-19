@@ -48,6 +48,7 @@ Server -> client. JSON frames::
   {"type": "nudge_start", "conversation_id": str, "reason": str}
   {"type": "nudge_token", "content": str}       (repeated, streamed)
   {"type": "nudge_end"}
+  {"type": "thought", "thought": {...}}          (her mind while playing: services/mind)
 
 ``nudge_*`` frames are the agent speaking *first* — unprompted, from a salience
 rule (see `app.services.salience`), with no client request behind them. They
@@ -255,7 +256,9 @@ def _active_jobs_for_user(user_id: uuid.UUID):
 
 def _game_fields(game) -> dict:
     """The game summary and activity line for a turn's context (none without a game VM)."""
-    return {"game": game.summary if game else None, "game_activity": game.activity if game else None}
+    return {"game": game.summary if game else None, "game_activity": game.activity if game else None,
+            "game_planner": game.planner if game else False,
+            "game_moment": game.moment if game else None}
 
 
 # An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
@@ -822,6 +825,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                     data = json.loads(message["data"])
                 except (TypeError, ValueError):
                     continue
+                if data.get("kind") == "thought":
+                    # Her mind (services/mind): shown in the thoughts panel, never spoken
+                    # and never a message, so it doesn't wait for a reply to finish.
+                    await send_json({"type": "thought", "thought": data.get("thought")})
+                    continue
                 # This socket's voice phase, as the browser last reported it.
                 def replying() -> bool:
                     return (current_task is not None and not current_task.done()) or \
@@ -995,7 +1003,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             conversation_notes=live.notes if live else None,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
-            **_game_fields(await asyncio.to_thread(desktop_game.summary_for, user_id)),
+            **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
         )
         clauses: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = (

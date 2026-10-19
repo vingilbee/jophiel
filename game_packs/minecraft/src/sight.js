@@ -29,8 +29,10 @@ export function canSeeBlock (bot, position) {
     if (delta.x * dx + delta.y * dy + delta.z * dz >= 0) continue
     const range = delta.norm()
     if (range < 0.01) return true
+    // The block itself stops the ray even when it's see-through: beds, glass and leaves are
+    // `transparent`, and without this she couldn't see a bed she'd just placed (seen live).
     const hit = bot.world.raycast(eye, delta.normalize(), range + 0.5,
-      (b) => b.boundingBox === 'block' && !b.transparent)
+      (b) => b.position?.equals(position) || (b.boundingBox === 'block' && !b.transparent))
     if (hit && hit.position.equals(position)) return true
   }
   return false

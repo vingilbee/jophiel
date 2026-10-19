@@ -30,8 +30,10 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.models import (DESKTOP_TERMINAL_STATES, ChatMessage, Conversation, DesktopEnvironment, DesktopSession,
                            DesktopSessionEvent, GameExperience)
+from app.ai.desktop import step_check
 from app.schemas.desktop import PlanAppend, PlanIn, PlanReplace, PlanStepIn, SessionCreate
-from app.services import desktop_commands, desktop_preview, game_learning, game_pack, game_players
+from app.services import (agent_events, desktop_commands, desktop_preview, game_learning, game_moment,
+                          game_pack, game_planning, game_players)
 from app.services import desktop_sessions as sessions
 from app.services.desktop_sessions import DesktopError
 
@@ -62,7 +64,7 @@ PACK_SKILLS = ("go somewhere, mine, fight, explore, craft, place a block, eat, s
 # Written to Columbina: she is the one playing. The fast model that presses the
 # keys is her hands, never someone she talks about.
 REASONS = {
-    "user_pause": "the user paused it", "user_takeover": "the user took over the controls",
+    "user_pause": "the user paused it", "columbina_pause": "you paused it yourself", "user_takeover": "the user took over the controls",
     "user_end": "the user ended it", "plan_complete": "you finished everything you set out to do",
     "driver_stuck": "you got stuck", "needs_human": "you need the user (something only they can give or do)",
     "driver_error": "your game controls kept failing", "driver_unavailable": "your game controls are not available (model not configured)",
@@ -89,6 +91,10 @@ class GameContext:
     tools: bool
     activity: str | None = None
     vm: bool = False
+    # Her planner writes the plan (services/game_planning): replies set goals, not steps.
+    planner: bool = False
+    # The game as this summary saw it, so what changed while she wrote can be told (game_moment).
+    moment: game_moment.Moment | None = None
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
@@ -226,6 +232,9 @@ def _skill_manual(env: DesktopEnvironment) -> list[str]:
                      "guard (fight hostiles close to you or the player you're with), gather (mine listed blocks "
                      "close by on the way, e.g. iron_ore), pickup (grab drops close by). They're the only way "
                      "to do two things at once; which are on is in \"Background modes\" below.")
+        lines.append("Before learning a move (or offering to): if you can name the skill above that does it, with "
+                     "its parameters, plan that skill instead. If you can't, learn it: a step no skill does just "
+                     "gets stuck again.")
         _manual_cache.update(at=now, lines=lines)
     return list(_manual_cache["lines"])
 
@@ -239,9 +248,10 @@ def _times_set(db: Session, session: DesktopSession, goal: str) -> int:
     return sum(1 for each in goals if each and _same_goal(each, goal))
 
 
-def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
+def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> GameContext | None:
     """The game summary for one of Columbina's turns, or None when the user has
-    no game environment (then she gets neither the summary nor the tools)."""
+    no game environment (then she gets neither the summary nor the tools).
+    ``for_reply``: a reply to the user, which takes her open question (to ask it)."""
     if not get_settings().desktop_agent_enabled:
         return None
     envs = _environments(db, user_id)
@@ -260,16 +270,31 @@ def describe(db: Session, user_id: uuid.UUID) -> GameContext | None:
         return GameContext("\n".join(lines), tools=True, vm=vm)
     lines += _session_lines(session, pack, now)
     lines += _plan_lines(db, session)
+    planner = pack and game_planning.handles(session)
+    if planner and session.state not in DESKTOP_TERMINAL_STATES:
+        working_out = game_planning.planning_now(db, session.id)
+        if working_out:
+            lines.append(f"You're working out {working_out}: your plan follows in a few seconds. Until it does, "
+                         "say you're figuring it out, not what your steps are.")
     driver = desktop_commands.load_driver_state(session.id) or {}
     lines += _commitment_lines(session, now)
     if pack:
-        lines += _pack_details(db, env, session, driver, now)
+        from app.services import game_challenges
+
+        if session.state not in DESKTOP_TERMINAL_STATES:
+            lines += game_challenges.summary_lines(db, session)
+        details, state = _pack_details(db, env, session, driver, now, for_reply=for_reply)
+        lines += details
+        moment = game_moment.capture(db, session, state, at=now)
         db.commit()
-        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm)
+        return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, [], pack=True), vm=vm,
+                           planner=planner, moment=moment)
     vm_lines, facts = _vm_details(session, driver, now)
     lines += vm_lines
+    moment = game_moment.capture(db, session, None, at=now)
     db.commit()
-    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts), vm=vm)
+    return GameContext("\n".join(lines), tools=True, activity=_activity(session, games, facts), vm=vm,
+                       moment=moment)
 
 
 def _environment_lines(db: Session, user_id: uuid.UUID,
@@ -287,6 +312,9 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             if who:
                 lines.append(who)
             lines.extend(_skill_manual(each))
+            from app.services import game_skills
+
+            lines.extend(game_skills.summary_lines(db, user_id, PACK_GAME))
             games.append(f"Minecraft [{game_pack.PACK_PROFILE_ID}]")
         else:
             line, vm_games = _vm_line(each, retired=retired)
@@ -322,7 +350,11 @@ def _session_lines(session: DesktopSession, pack: bool, now: float) -> list[str]
     if session.reason_code and session.state != "running":
         lines.append(f"Why: {REASONS.get(session.reason_code, session.reason_code)}.")
     if session.state not in DESKTOP_TERMINAL_STATES:
-        lines.append("After each goal: " + ("you pick the next one yourself (keep playing is on)."
+        from app.services import game_challenges
+
+        lines.append("After each goal: " + ("you pick your next challenge yourself (exploring is on)."
+                                            if game_challenges.exploring(session) else
+                                            "you pick the next one yourself (keep playing is on)."
                                             if session.autonomy == "continue" else
                                             "you stop and tell the user (keep playing is off)."))
     return lines
@@ -349,7 +381,9 @@ def _plan_lines(db: Session, session: DesktopSession) -> list[str]:
                      + "; ".join(session.plan["constraints"]) + ".")
     lines.append(
         f"Steps done: {len(done)} of {len(steps)}."
-        + (f" Now: {active['do']} (done when: {active['done_when']})." if active else " None left.")
+        + (f" Now: {active['do']} (done when: {active['done_when']}"
+           + (f"; counted: {step_check.describe(active['check'])}" if active.get("check") else "") + ")."
+           if active else " None left.")
     )
     return lines
 
@@ -433,10 +467,10 @@ def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[st
 
 
 def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession, driver: dict,
-                  now: float) -> list[str]:
-    """What her hands are doing and what the game says, for a pack session.
-    The game state comes from the game itself (counted by code); notes are her
-    hands' own words."""
+                  now: float, *, for_reply: bool = False) -> tuple[list[str], dict | None]:
+    """What her hands are doing and what the game says, for a pack session, and the
+    game's state (None if unreachable). The game state comes from the game itself
+    (counted by code); notes are her hands' own words."""
     lines = []
     running = driver.get("running")
     if running and session.state == "running":
@@ -454,6 +488,10 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
 
             line += f": {failure_summary(step['failures'])}"
         lines.append(line + ".")
+    lines += _mind_lines(db, session, now, for_reply=for_reply)
+    from app.services import game_practice
+
+    lines += game_practice.summary_lines(db, session, now)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately
@@ -469,15 +507,75 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
                          + "; ".join(f"{d['text']} ({_ago(now - d.get('at', now))})" for d in did) + ".")
     if driver.get("notes"):
         lines.append(f'Your hands\' note: "{driver["notes"]}".')
+    state = None
     if env.status == "online":
         try:
             from app.ai.desktop.pack_client import PackClient, PackError
 
             state = PackClient.from_settings().state()
             lines.append("Your player right now (from the game): " + " ".join(state.get("text", "").split("\n"))
-                         + " (Your hands switch to the best tool by themselves each time they mine or fight.)")
+                         + " (Your hands switch to the best tool by themselves each time they mine or fight; "
+                         "to hold something else, or arrange the hotbar, your hands have hold and put_in_hotbar.)")
         except PackError:
-            pass
+            state = None
+    return lines, state
+
+
+def planning_facts(db: Session, session: DesktopSession) -> dict[str, list[str]]:
+    """What her planner reads (services/game_planning), by section, from the same sources as
+    her summary: what is happening (her hands, her player, lately, her thoughts), her skills,
+    how steps are written, what she learned, and who is who."""
+    from app.services import game_skills
+
+    env = db.get(DesktopEnvironment, session.environment_id)
+    now = time.time()
+    driver = desktop_commands.load_driver_state(session.id) or {}
+    who = _who_is_who(db, session.owner_user_id, env)
+    return {
+        "now": _pack_details(db, env, session, driver, now)[0],
+        "skills": _skill_manual(env) + game_skills.summary_lines(db, session.owner_user_id, PACK_GAME),
+        "steps": [_pack_line(env)],
+        "learned": _learned_lines(db, session.owner_user_id, game_learning.game_for_profile(session.profile_id)),
+        "who": [who] if who else [],
+    }
+
+
+def _thought_line(t: dict, now: float) -> str:
+    # A stale thought was written before the game moved on (or landed too late): it may be wrong now.
+    notes = [f"thought over: a {t['conclusion']}"] if t.get("conclusion") else []
+    if t.get("said"):
+        notes.append(f'you said "{t["said"]}"')
+    notes.append(_ago(now - t["at"]))
+    if t["status"] == "stale":
+        notes.append("out of date: the game changed after you thought it, so check it against now")
+    return f'"{t["text"]}" ({"; ".join(notes)})'
+
+
+def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: bool = False) -> list[str]:
+    """Her own recent thoughts during play (services/mind.py), what she means to do and
+    the question she wanted to ask (services/mind_hard.py), so a reply fits what she's
+    been noticing and thinking over. Empty when her mind is off."""
+    from app.services import mind, mind_hard
+
+    if not mind.enabled():
+        return []
+    at = datetime.fromtimestamp(now, timezone.utc)
+    thoughts = [t for t in mind.recent_thoughts(db, session.id, at) if t["status"] != "unfinished"]
+    lines = []
+    if thoughts:
+        lines.append("On your mind (your own thoughts while playing, newest last): "
+                     + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
+    intentions = mind_hard.intentions(session.id)
+    if intentions:
+        lines.append("You mean to (your own intentions, from thinking it over): "
+                     + "; ".join(f'"{i["text"]}"' for i in intentions) + ".")
+    question = mind_hard.take_question(session.id) if for_reply else None
+    if question:
+        lines.append(f'A question you wanted to ask the user, from thinking it over: "{question["text"]}". '
+                     "Ask it in this reply if it still fits, in your own words; otherwise let it go.")
+    thinking = mind.thinking_about(session.id)
+    if thinking:
+        lines.append(f"You're still thinking over: {thinking}.")
     return lines
 
 
@@ -647,14 +745,14 @@ def turn_picture(user_id: uuid.UUID, spoke_at: float) -> tuple[bytes, str] | Non
     return out.getvalue(), note
 
 
-def summary_for(user_id: uuid.UUID) -> GameContext | None:
+def summary_for(user_id: uuid.UUID, *, for_reply: bool = False) -> GameContext | None:
     """``describe`` with its own DB session, for a turn being assembled (run in
     a thread). Never fails a turn: any error just means no game this turn."""
     from app.db.session import SessionLocal
 
     try:
         with SessionLocal() as db:
-            context = describe(db, user_id)
+            context = describe(db, user_id, for_reply=for_reply)
     except Exception:  # pragma: no cover - logged, then the turn goes on without the game
         import logging
 
@@ -703,12 +801,19 @@ def pack_look(db: Session, user_id: uuid.UUID) -> str | None:
 # --------------------------------------------------------------------------- #
 
 
-def _plan(goal: str, steps: list[dict] | None, constraints: list[str] | None = None) -> PlanIn:
+def _plan(goal: str, steps: list[dict] | None, constraints: list[str] | None = None,
+          target: str | None = None) -> PlanIn:
     items = [PlanStepIn(**step) for step in (steps or [])] or [
         PlanStepIn(do=goal[:120], done_when=f"{goal} is done"[:120])
     ]
     rules = [rule.strip()[:120] for rule in (constraints or []) if rule.strip()][:5]
-    return PlanIn(goal=goal[:200], steps=items, constraints=rules)
+    return PlanIn(goal=goal[:200], steps=items, constraints=rules, target=_target(target))
+
+
+def _target(text: str | None) -> str | None:
+    """A game id from the model's words ("Iron Ore" -> iron_ore), or None."""
+    name = re.sub(r"[^a-z0-9_]", "", "_".join((text or "").lower().split()))[:64]
+    return name or None
 
 
 def _live(db: Session, user_id: uuid.UUID) -> DesktopSession:
@@ -720,7 +825,7 @@ def _live(db: Session, user_id: uuid.UUID) -> DesktopSession:
 
 
 def start(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
-          game: str | None = None, constraints: list[str] | None = None) -> str:
+          game: str | None = None, constraints: list[str] | None = None, target: str | None = None) -> str:
     game = game_pack.replacement(db, user_id, game) or game  # Minecraft on the VM -> her own player
     env = _usable_environment(db, user_id, game)
     if env is None and game:
@@ -731,10 +836,18 @@ def start(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | Non
     existing = _latest_session(db, user_id, env.id)
     if existing is not None and existing.state not in DESKTOP_TERMINAL_STATES:
         # Already set up (e.g. from the card): just give it this goal.
+        if game_planning.handles(existing) and len(steps or []) != 1:
+            return set_goal(db, user_id, goal=goal, target=target, rules=constraints) + _blockers(env)
         return set_plan(db, user_id, goal=goal, steps=steps, constraints=constraints) + _blockers(env)
     session, _ = sessions.start_session(db, user_id, SessionCreate(
-        environment_id=env.id, profile_id=profile_id, plan=_plan(goal, steps, constraints),
+        environment_id=env.id, profile_id=profile_id, plan=_plan(goal, steps, constraints, target),
     ), plan_source="columbina_user_turn")
+    if game_planning.handles(session) and len(steps or []) != 1:
+        # A one-step command ("follow me") needs no planning; anything else gets her planner's steps.
+        game_planning.request(db, session, "goal: a new session", goal=_goal(goal, target, constraints))
+        db.commit()
+        agent_events.wake()
+        return "Started; you're working out how to do it (your plan follows in a few seconds)." + _blockers(env)
     return "Started; you're playing with that goal." + _blockers(env)
 
 
@@ -753,12 +866,15 @@ def _blockers(env: DesktopEnvironment) -> str:
 
 def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
              source: str = "columbina_user_turn", constraints: list[str] | None = None,
-             since_revision: int | None = None) -> str:
+             since_revision: int | None = None, challenge: bool = False) -> str:
     """``since_revision`` (her background turns): the plan she woke up to. If the user has
-    changed it since, this is refused: she decided from what's now out of date."""
+    changed it since, this is refused: she decided from what's now out of date.
+    ``challenge``: this goal is a challenge she set herself while exploring (stage H3)."""
+    from app.services import game_challenges
+
     session = _live(db, user_id)
     _refuse_if_user_replanned(db, session, since_revision)
-    if source == "columbina_planning_turn":
+    if source == "columbina_planning_turn" and not game_challenges.exploring(session):
         limit = get_settings().desktop_max_auto_goals
         if sessions.auto_goals_set(db, session.id) >= limit:
             raise DesktopError("limit_reached", 409, f"you've picked {limit} goals yourself since the user last joined in; "
@@ -784,8 +900,24 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
     sessions.replace_plan(db, user_id, session.id, PlanReplace(
         expected_plan_revision=session.plan_revision, source=source, **plan.model_dump(),
     ))
-    # A new goal starts clean: tips to her hands and careful mode were about
-    # the old one (cave tips once followed her onto an open hillside).
+    adopted = game_challenges.on_plan_set(db, session, source=source, goal=plan.goal, challenge=challenge)
+    db.commit()
+    stopped = _stop_own_lesson(db, user_id) if source == "columbina_user_turn" else ""
+    note = _fresh_start(session)
+    if adopted:
+        note += f' This is your challenge now: "{adopted}".'
+    return f"Done; you're now on: {plan.steps[0].do}.{note}{stopped}" + _unpause(db, user_id, source)
+
+
+def _stop_own_lesson(db: Session, user_id: uuid.UUID) -> str:
+    from app.services import game_practice
+
+    return game_practice.stop_own(db, user_id)  # the user's goal comes before a lesson of her own
+
+
+def _fresh_start(session: DesktopSession) -> str:
+    """A new goal starts clean: tips to her hands and careful mode were about the old one
+    (cave tips once followed her onto an open hillside). Returns a note saying what went."""
     cleared = []
     if desktop_commands.hands_messages(session.id):
         desktop_commands.send_hands_message(session.id, "", replace=True)
@@ -793,8 +925,84 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
     if desktop_commands.careful_state(session.id):
         desktop_commands.set_careful(session.id, False)
         cleared.append("careful mode")
-    note = f" (Cleared {' and '.join(cleared)} from before.)" if cleared else ""
-    return f"Done; you're now on: {plan.steps[0].do}.{note}" + _unpause(db, user_id, source)
+    return f" (Cleared {' and '.join(cleared)} from before.)" if cleared else ""
+
+
+def _goal(text: str, target: str | None, rules: list[str] | None) -> dict:
+    return {"text": " ".join(text.split())[:200], "target": _target(target),
+            "rules": [" ".join(rule.split())[:120] for rule in (rules or []) if rule.strip()][:5]}
+
+
+def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None = None,
+             rules: list[str] | None = None) -> str:
+    """What the user wants now, for her planner (services/game_planning) to plan: it writes
+    the steps. Without the planner (not her own Minecraft player, or it's off), the goal is
+    set as a one-step plan as before."""
+    session = _live(db, user_id)
+    if not game_planning.handles(session):
+        return set_plan(db, user_id, goal=goal, constraints=rules)
+    game_planning.request(db, session, "goal: the user asked", goal=_goal(goal, target, rules))
+    db.commit()
+    agent_events.wake()
+    stopped = _stop_own_lesson(db, user_id)
+    if session.state == "running":
+        return ("Got it: you're working out how (your plan follows in a few seconds; your hands carry on "
+                "with what they were doing until then). Say you're on it, not what your steps will be." + stopped)
+    why = REASONS.get(session.reason_code or "", "")
+    return ("Got it: you're working out how; your plan follows in a few seconds. You're paused right now"
+            + (f" ({why})" if why else "") + ": not moving yet." + stopped)
+
+
+def do_now(db: Session, user_id: uuid.UUID, *, do: str, done_when: str, rules: list[str] | None = None) -> str:
+    """A one-step command, set at once with no planning (follow me, come here, go up the hill).
+    A goal still waiting for her planner is out of date, so it's dropped."""
+    session = _live(db, user_id)
+    game_planning.cancel_waiting(db, session.id)
+    db.commit()
+    return set_plan(db, user_id, goal=do, steps=[{"do": do, "done_when": done_when}], constraints=rules)
+
+
+def replace_from_planner(db: Session, user_id: uuid.UUID, *, read_revision: int, goal: str, steps: list[dict],
+                         constraints: list[str], target: str | None, source: str, new_goal: bool) -> str:
+    """Her planner's plan (services/game_planning), only if the plan is still the one it read.
+    A goal she picked herself counts against her limit of own goals."""
+    from app.services import game_challenges
+
+    session = _live(db, user_id)
+    if session.plan_revision != read_revision:
+        raise DesktopError("stale_plan_revision", 409, "the plan changed while you were planning")
+    if source == "columbina_planning_turn" and not game_challenges.exploring(session):
+        limit = get_settings().desktop_max_auto_goals
+        if sessions.auto_goals_set(db, session.id) >= limit:
+            raise DesktopError("limit_reached", 409, f"you've picked {limit} goals yourself since the user last "
+                               "joined in")
+    plan = _plan(goal, steps, constraints, target)
+    sessions.replace_plan(db, user_id, session.id, PlanReplace(
+        expected_plan_revision=read_revision, source=source, **plan.model_dump(),
+    ))
+    note = ""
+    if new_goal:
+        game_challenges.on_plan_set(db, session, source=source, goal=plan.goal, challenge=False)
+        db.commit()
+        note = _fresh_start(session)
+    return f"set ({'new goal' if new_goal else 'revised'}): now on {plan.steps[0].do}{note}" + _unpause(
+        db, user_id, source)
+
+
+def rethink(db: Session, user_id: uuid.UUID, *, why: str) -> str:
+    """A thought of hers concluded the plan may not fit: her planner looks at it again."""
+    session = _live(db, user_id)
+    if not game_planning.handles(session):
+        raise DesktopError("not_supported", 409, "your plan is yours to change here: set_game_plan")
+    game_planning.request(db, session, f"rethink: {' '.join(why.split())[:300]}")
+    db.commit()
+    agent_events.wake()
+    return "Your mind will look at the plan again in a few seconds."
+
+
+def unpause_after_planning(db: Session, user_id: uuid.UUID, source: str) -> str:
+    """Her planner kept the plan: a pause she made or got stuck in is lifted (try again)."""
+    return _unpause(db, user_id, source)
 
 
 def _refuse_if_user_replanned(db: Session, session: DesktopSession, since_revision: int | None) -> None:
@@ -807,7 +1015,7 @@ def _refuse_if_user_replanned(db: Session, session: DesktopSession, since_revisi
         .where(DesktopSessionEvent.session_id == session.id, DesktopSessionEvent.type == "desktop.plan_set")
         .order_by(DesktopSessionEvent.id.desc()).limit(session.plan_revision - since_revision)
     ).all()
-    by_user = next((p for p in newest if p.get("source") != "columbina_planning_turn"
+    by_user = next((p for p in newest if p.get("source") not in ("columbina_planning_turn", "columbina_mind")
                     and p.get("plan_revision", 0) > since_revision), None)
     if by_user is not None:
         raise DesktopError(
@@ -820,15 +1028,18 @@ def _unpause(db: Session, user_id: uuid.UUID, source: str) -> str:
     """A new goal doesn't move a paused session. After sleeping finished her
     plan she set "gather logs" twice, was told "Done; you're now on: ...", and
     said she'd started while standing still. On the user's turn her own pause
-    (plan done, stuck) resumes with the new goal; any other pause is said plainly."""
+    (plan done, stuck, paused herself) resumes with the new goal. On her own turn
+    only a pause she made or got stuck in does: a finished plan with keep playing
+    off stays stopped. The user's pause is said plainly."""
     session = _live(db, user_id)
     if session.state not in ("paused", "manual", "disconnected"):
         return ""
-    if source == "columbina_user_turn" and session.state == "paused" and session.reason_code in SELF_RESUMABLE:
+    own = SELF_RESUMABLE if source == "columbina_user_turn" else ("columbina_pause", "driver_stuck")
+    if session.state == "paused" and session.reason_code in own:
         try:
             sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
                                     reason="columbina_resume")
-            return " You'd paused after your last goal; you're playing again."
+            return " You'd paused yourself; you're playing again."
         except DesktopError:
             db.rollback()
             session = _live(db, user_id)
@@ -1043,17 +1254,28 @@ def set_careful(db: Session, user_id: uuid.UUID, *, on: bool) -> str:
             if on else "Careful mode off: normal moves again.")
 
 
-def pause(db: Session, user_id: uuid.UUID) -> str:
-    sessions.pause_session(db, user_id, _live(db, user_id).id, reason="user_pause")
-    return "Paused; you've let go of the controls."
+def pause(db: Session, user_id: uuid.UUID, *, user_asked: bool) -> str:
+    """``user_asked``: the user wants the pause, and only they lift it. Otherwise
+    it's hers. Before this (2026-10-15) every pause she made was stamped as the user's, so
+    she couldn't undo them and asked the user to say "go ahead" four times."""
+    reason = "user_pause" if user_asked else "columbina_pause"
+    sessions.pause_session(db, user_id, _live(db, user_id).id, reason=reason)
+    if user_asked:
+        return "Paused; you've let go of the controls. Only the user can lift this pause."
+    return "Paused; you've let go of the controls. It's your pause: resume_game when you know what to do next."
 
 
 # Pauses Columbina may undo on her own: ones she caused. Never the user's.
-SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete")
+SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete", "columbina_pause")
 
 
 def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) -> str:
     session = _live(db, user_id)
+    # Running is nothing to undo. After her own resume the reason stays "columbina_resume", which
+    # isn't hers to lift, so a background turn was told "this pause wasn't yours" while playing and
+    # told the user she was paused (seen live 2026-10-19, twice in one session).
+    if session.state == "running":
+        return "You're already playing; there's no pause to lift."
     if only_own_pauses and session.reason_code not in SELF_RESUMABLE:
         raise DesktopError("not_yours", 409, "this pause wasn't yours to undo; tell the user instead")
     sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,

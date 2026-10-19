@@ -47,7 +47,27 @@ KINDS: dict[str, Kind] = {
     "warning": Kind(wakes=NOT_QUIET, said=NOT_QUIET),  # hurt, sunset, a mob near the user, a mode result
     "discovery": Kind(wakes=NOT_QUIET),  # a village, a spawner, ore
     "notable": Kind(wakes=frozenset({COMMENTARY})),
+    # Her mind (services/mind.py), which decides itself when a moment is worth it: what
+    # she says from a thought still goes through the gap and the commentary mode.
+    "react": Kind(said=NOT_QUIET, urgent=True),
+    "light": Kind(said=NOT_QUIET),
+    "thought": Kind(said=NOT_QUIET),
+    # Her planner (services/game_planning): a question for the user gets through like being
+    # stuck does; a line about the plan (a goal she picked, being done) like a thought.
+    "ask": Kind(always=True),
+    "plan": Kind(said=NOT_QUIET),
+    # How teaching herself a move ended (services/game_practice.py): learned it, or couldn't.
+    "learning": Kind(said=NOT_QUIET),
+    # She corrects something she just said that the game has since made wrong
+    # (services/game_correction.py): in any mode, with no gap. Never wakes her.
+    "correction": Kind(wakes=frozenset(), always=True),
+    # A question from her own slow thinking (services/mind_hard.py), asked at a natural pause:
+    # she needs the user's answer, so in any mode. Never wakes her.
+    "question": Kind(wakes=frozenset(), always=True),
 }
+# What her mind replaces while it's on: notices she'd be woken to comment on (it sees
+# the same notices every tick). Plan progress, stuck and pauses still wake her.
+COMMENTARY_KINDS = frozenset({"danger", "warning", "discovery", "notable", "learning"})
 # Between two urgent lines (a fight is many danger notices).
 URGENT_GAP_SECONDS = 8.0
 UNKNOWN = Kind(wakes=frozenset())  # never wakes her by itself

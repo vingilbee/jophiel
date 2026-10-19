@@ -28,7 +28,7 @@ export function didYouMean (names, name) {
   return close.length ? ` (did you mean: ${close.join(', ')}?)` : ''
 }
 
-function carried (bot) {
+export function carried (bot) {
   const have = {}
   for (const item of bot.inventory.items()) have[item.name] = (have[item.name] ?? 0) + item.count
   return have

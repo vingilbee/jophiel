@@ -5,8 +5,18 @@
 // she faces, positive to her right, and pitch positive looking down to match the desktop
 // driver's convention.
 
+import { createRequire } from 'node:module'
+
 import { seenBlock } from './sight.js'
 import { outOfSight } from './sightings.js'
+import { watchedPlayers } from './watching.js'
+import { wearing } from './skills/armor.js'
+import { hotbar, offHand, selectedSlot } from './skills/inventory.js'
+import { readSurroundings } from './surroundings.js'
+import { readTerrain } from './terrain.js'
+
+const require = createRequire(import.meta.url)
+const { Vec3 } = require('vec3')
 
 const DEG = 180 / Math.PI
 
@@ -49,7 +59,7 @@ export function dayPhase (timeOfDay) {
 
 const round1 = (n) => Math.round(n * 10) / 10
 
-function entityLabel (entity) {
+export function entityLabel (entity) {
   if (entity.type === 'player') return entity.username ?? 'player'
   if (entity.name === 'item' && typeof entity.getDroppedItem === 'function') {
     const item = entity.getDroppedItem()
@@ -70,12 +80,15 @@ export function nearbyEntities (bot, radius, limit = 20) {
     if (distance > radius) continue
     const bearing = relativeBearing(self.yaw, dx, dz)
     out.push({
+      id: entity.id, // what her code passes to act.attack (stage H)
       label: entityLabel(entity),
       kind: entity.type ?? 'other',
       distance: round1(distance),
       bearing: Math.round(bearing),
       side: bearingWord(bearing),
-      dy: round1(dy)
+      dy: round1(dy),
+      // Where it is, for code of hers that needs coordinates (stage H1).
+      position: { x: round1(entity.position.x), y: round1(entity.position.y), z: round1(entity.position.z) }
     })
   }
   out.sort((a, b) => a.distance - b.distance)
@@ -116,6 +129,30 @@ export function notableBlocks (bot, radius = 24) {
   return out.sort((a, b) => a.distance - b.distance)
 }
 
+// How many of each block there are within `radius` of `center` (a cube), air left out: counted
+// before and after a program of hers, it shows what she built or broke (stage H1).
+const AIRS = new Set(['air', 'cave_air', 'void_air'])
+export const CENSUS_MAX_RADIUS = 16
+export function blockCensus (bot, center, radius = 10) {
+  const r = Math.max(1, Math.min(CENSUS_MAX_RADIUS, Math.floor(radius)))
+  const c = { x: Math.floor(center.x), y: Math.floor(center.y), z: Math.floor(center.z) }
+  const counts = {}
+  let unloaded = 0
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dz = -r; dz <= r; dz++) {
+        const block = bot.blockAt(new Vec3(c.x + dx, c.y + dy, c.z + dz))
+        if (!block) {
+          unloaded++
+          continue
+        }
+        if (!AIRS.has(block.name)) counts[block.name] = (counts[block.name] ?? 0) + 1
+      }
+    }
+  }
+  return { center: c, radius: r, counts, unloaded }
+}
+
 function mergedInventory (bot) {
   const counts = new Map()
   for (const item of bot.inventory.items()) {
@@ -129,6 +166,7 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
   const below = bot.blockAt(self.position.offset(0, -0.5, 0))
   const timeOfDay = bot.time.timeOfDay
   const held = bot.heldItem
+  const surroundings = safeSurroundings(bot)
   return {
     at: now.toISOString(),
     username: bot.username,
@@ -136,6 +174,11 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     players_online: Object.keys(bot.players).filter((name) => name !== bot.username),
     // Online but beyond entity range, with where she last saw them (null: not since she joined).
     players_out_of_sight: outOfSight(bot, now.getTime()),
+    // In spectator mode: invisible to her and passing through walls, so not to be looked for.
+    players_spectating: Object.values(bot.players)
+      .filter((p) => p.username !== bot.username && p.gamemode === 3).map((p) => p.username),
+    // The players she can see, and what they're doing (src/watching.js).
+    players: watchedPlayers(bot),
     version: bot.version,
     dimension: bot.game.dimension,
     game_mode: bot.game.gameMode,
@@ -153,10 +196,38 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     oxygen: bot.oxygenLevel ?? null,
     xp_level: bot.experience?.level ?? 0,
     held: held ? { name: held.name, count: held.count } : null,
+    // Her 9 hotbar slots (1-9, as the player sees them), which one is in her hand, and her off-hand.
+    hotbar: hotbar(bot),
+    hotbar_selected: selectedSlot(bot),
+    off_hand: offHand(bot),
+    armor: wearing(bot),
     inventory: mergedInventory(bot),
+    // Mobs she killed since she joined, counted (src/kills.js): {label: count}.
+    kills: { ...(bot.killCounts ?? {}) },
     time: { time_of_day: timeOfDay, day: bot.time.day, phase: dayPhase(timeOfDay) },
     weather: bot.thunderState > 0 ? 'thunder' : bot.isRaining ? 'rain' : 'clear',
     nearby: nearbyEntities(bot, radius),
-    blocks: notableBlocks(bot)
+    blocks: notableBlocks(bot),
+    // The shape of the place: sky or rock overhead, how far each way she can walk, cave mouths.
+    surroundings,
+    // The lie of the land: the high ground, which way it rises or falls, and underground the way out.
+    terrain: safeTerrain(bot, surroundings)
+  }
+}
+
+function safeSurroundings (bot) {
+  try {
+    return readSurroundings(bot)
+  } catch {
+    return null // a half-loaded world
+  }
+}
+
+function safeTerrain (bot, surroundings) {
+  const over = surroundings?.overhead?.kind
+  try {
+    return readTerrain(bot, { underground: over === 'underground' || over === 'roof' })
+  } catch {
+    return null
   }
 }

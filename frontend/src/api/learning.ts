@@ -1,7 +1,7 @@
 import { api } from './client'
-import type { Lesson, LessonStatus, Proposal, ProposalStatus, Reflection } from '../types/learning'
+import type { Challenge, LearnedSkill, Lesson, LessonStatus, Proposal, ProposalStatus, Reflection } from '../types/learning'
 
-/** What she learned from playing: lessons, code proposals, reflections. */
+/** What she learned from playing: moves she taught herself, lessons, code proposals, reflections. */
 export const learningApi = {
   lessons: () => api.get<Lesson[]>('/learning/lessons'),
   setLessonStatus: (id: string, status: Exclude<LessonStatus, 'confirmed'>) =>
@@ -13,4 +13,9 @@ export const learningApi = {
     api.patch<Proposal>(`/learning/proposals/${id}`, change),
 
   reflections: () => api.get<Reflection[]>('/learning/reflections'),
+
+  challenges: () => api.get<Challenge[]>('/learning/challenges'),
+  skills: () => api.get<LearnedSkill[]>('/learning/skills'),
+  setSkillEnabled: (id: string, enabled: boolean) => api.patch<LearnedSkill>(`/learning/skills/${id}`, { enabled }),
+  deleteSkill: (id: string) => api.delete<void>(`/learning/skills/${id}`),
 }

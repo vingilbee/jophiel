@@ -287,9 +287,12 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
     assert.equal(bot.heldItem?.name, 'iron_sword')
   })
 
-  test('fight refuses passive mobs', async () => {
+  test('fight refuses players; a named passive mob is allowed (2026-10-18)', async () => {
     await reset()
-    assert.throws(() => runner.start('fight', { target: 'cow' }), /isn't hostile/)
+    assert.throws(() => runner.start('fight', { target: 'player' }), /doesn't fight players/)
+    const r = await run('fight', { target: 'cow' })
+    assert.equal(r.status, 'failed', JSON.stringify(r)) // none here: allowed, just nothing to fight
+    assert.match(r.reason, /no cow within/)
   })
 
   test('low health ends any skill as hurt, then she eats', async () => {
@@ -381,7 +384,7 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
       const skills = await call('GET', '/skills')
       assert.deepEqual(skills.body.map((s) => s.name), [
         'go_to', 'mine', 'fight', 'explore', 'eat', 'sleep', 'craft', 'follow_player',
-        'place', 'collect_items', 'give', 'look_at', 'store', 'take', 'smelt'
+        'place', 'collect_items', 'give', 'look_at', 'store', 'take', 'smelt', 'wear', 'hold', 'put_in_hotbar', 'surface'
       ])
       assert.equal((await call('POST', '/skills/run', { skill: 'go_to', params: { target: 'block:nope' } })).status, 400)
       assert.equal((await call('POST', '/skills/run', { skill: 'dance' })).status, 400)

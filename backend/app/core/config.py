@@ -447,6 +447,83 @@ class Settings(BaseSettings):
     game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
     game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
     game_learning_queue_name: str = "macrovision:game-learning:wakeups"
+    # Teaching herself a move (stage H1, services/game_practice.py): she writes a
+    # program over her skills, the pack's sandbox runs it, a critic checks the
+    # counted result, and she fixes it, up to MAX_TRIES times. Started only from a
+    # turn where the user spoke. Each try is a writer call and a critic call.
+    game_practice_enabled: bool = True
+    game_practice_model: str = "gpt-6-luna"
+    # Writing a program benefits from thinking; it isn't on the moment-to-moment path.
+    game_practice_reasoning_effort: str | None = "low"
+    game_practice_max_tries: int = Field(default=4, ge=1, le=10)
+    game_practice_program_seconds: int = Field(default=180, ge=10, le=600)
+    game_practice_max_tokens: int = Field(default=6000, ge=500, le=32000)
+    game_practice_queue_name: str = "macrovision:game-practice:wakeups"
+    # A move that worked is tidied once (one more call on the same model): fixed positions
+    # and ids looked up instead, leftovers gone. The original is kept until the tidy works.
+    game_practice_tidy_enabled: bool = True
+    # Ask the user before learning (offer_to_learn in background turns). Off since
+    # 2026-10-18 (the user's choice, "for now"): she starts lessons herself and says so.
+    game_practice_ask_first: bool = False
+    # Explore and learn (stage H3, services/game_challenges.py): when a goal is done she
+    # picks her own next challenge (one call), does it with her skills, and learns what
+    # they lack. Per session it can be switched off ("stop exploring"); this turns it off
+    # everywhere. No budget yet, by the user's choice: the report shows the cost.
+    game_explore_enabled: bool = True
+    game_explore_model: str = "gpt-6-luna"
+    game_explore_reasoning_effort: str | None = "low"
+    # Mind tick recording (app/ai/mind): while a pack session is live, write what
+    # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
+    # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.
+    # Observation only: nothing reads it back into play.
+    mind_tick_recording_enabled: bool = False
+    # Her mind (docs/COLUMBINA_MIND_DESIGN.md): every tick a gate decides how hard
+    # she should think (none/react/light/hard); quick thoughts use a fast model,
+    # hard ones are a background Luna game turn. Replaces game-event wakeups for
+    # commentary (danger, warnings, discoveries) while on. Needs DESKTOP_AGENT_ENABLED.
+    mind_enabled: bool = False
+    mind_gate: str = Field(default="jev", pattern="^(jev|decisions)$")
+    # How sure the gate must be that a moment needs thought (light and hard together).
+    mind_think_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    # Light thoughts need reasoning (why, what next, what the user wants): Luna. React ones
+    # need speed: a small model.
+    mind_quick_model: str = "gpt-6-luna"
+    mind_react_model: str = "gpt-4.1-mini"
+    # After a reply in a game, if the game changed while she said it, a small model checks
+    # whether that made something she said wrong, and if so she corrects herself out loud
+    # (services/game_correction.py).
+    game_corrections_enabled: bool = True
+    game_correction_model: str = "gpt-6-luna"
+    # Quiet thinking: after this long with no thought, and nothing urgent, she thinks ahead,
+    # about the user or about herself (never describing the moment). 0 turns it off.
+    mind_quiet_seconds: float = Field(default=25.0, ge=0, le=3600)
+    mind_quick_gap_seconds: float = Field(default=4.0, ge=0, le=600)
+    mind_hard_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
+    # Hard thinking (docs/COLUMBINA_HARD_THINKING_PLAN.md): slow thinking about a problem that ends
+    # in one conclusion. Time isn't short there, so it reasons. Quiet hard thinking: after this long
+    # with nothing new, at most once per QUIET_EVERY (0 turns it off).
+    mind_hard_model: str = "gpt-6-luna"
+    mind_hard_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
+    mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
+    mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
+    mind_hard_log_path: str = "var/mind_hard.jsonl"
+    mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
+    mind_log_path: str = "var/mind.jsonl"
+    # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of her game plan.
+    # On: a new goal from a reply, stuck, struggling, the last step and a finished goal all go to
+    # one planning call (reasoning on, no tools), which keeps or revises the plan; replies set
+    # goals and one-step commands, background turns and hard thoughts no longer write plans.
+    # Off: every turn writes plans as before. Needs MIND_ENABLED.
+    mind_planner_enabled: bool = False
+    mind_plan_model: str = "gpt-6-luna"
+    mind_plan_reasoning_effort: str | None = "low"
+    mind_tick_path: str = "var/mind_ticks.jsonl"
+    # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
+    # Strands Decider served locally.
+    typesafe_api_key: str = ""
+    typesafe_base_url: str = "https://api.typesafe.ai/v1"
+    openrouter_api_key: str = ""
+    strands_decider_url: str = "http://127.0.0.1:8765"
 
 
 @lru_cache

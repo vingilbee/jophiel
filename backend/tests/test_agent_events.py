@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.ai.context import GameEvent
 from app.ai.tools.desktop import build_desktop_tools
+from app.core.config import get_settings
 from app.db.models import AgentEventJob, ChatMessage, Conversation, DesktopSession
 from app.services import agent_events, agent_say, desktop_game
 from app.services import desktop_sessions as svc
@@ -111,6 +112,20 @@ def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
     assert agent_events.reasons_of(_jobs(db)[-1]) == ["danger: creeper behind you"]
 
 
+def test_with_her_mind_on_commentary_wakeups_are_left_to_it_but_control_still_wakes(db, alice, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "mind_enabled", True)
+    monkeypatch.setattr(settings, "desktop_agent_enabled", True)
+    session = _playing(db, alice)
+    svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
+    svc.driver_noticed(db, session.id, kind="warning", text="the sun is setting")
+    assert _jobs(db) == []  # her mind sees these notices every tick
+    svc.driver_noticed(db, session.id, kind="struggling", text="mine failed 4 times")
+    assert _jobs(db) == []  # a step that keeps failing is her slow thinking's (services/mind_hard.py)
+    svc.driver_noticed(db, session.id, kind="stuck", text="no skill for: crossing water")
+    assert agent_events.reasons_of(_jobs(db)[-1]) == ["stuck: no skill for: crossing water"]
+
+
 # --- when she may speak ---------------------------------------------------------------
 
 
@@ -202,7 +217,24 @@ def test_saying_saves_the_message_and_publishes_it(db, alice, isolated_redis):
     assert again.startswith("Not said")  # a minute hasn't passed
 
 
-# --- her background tools -----------------------------------------------------------
+def test_her_minds_own_lines_wait_while_the_user_has_just_spoken(db, alice, isolated_redis):
+    """Live: almost every message got two answers, a quick thought's and the reply."""
+    from datetime import datetime, timedelta
+
+    conversation = Conversation(user_id=alice.id, title="chat")
+    db.add(conversation)
+    db.commit()
+    db.add(ChatMessage(conversation_id=conversation.id, role="user", content="can you climb that?"))
+    db.commit()
+    say = lambda reasons: agent_say.deliver(db, user_id=alice.id, text="On it!", reasons=reasons,  # noqa: E731
+                                            commentary_mode="occasional")
+    assert say(["light: the peak is close"]).startswith("Not said: the user just spoke")
+    assert say(["thought: the user said: can you climb that?"]).startswith("Not said: the user just spoke")
+    assert say(["react: creeper behind me"]).startswith("Said")  # danger still speaks
+    db.execute(ChatMessage.__table__.update().where(ChatMessage.role == "user").values(
+        created_at=datetime.now() - timedelta(hours=12)))  # long ago, in any clock
+    db.commit()
+    assert not agent_say._user_spoke_within(db, alice.id, agent_say.MIND_HUSH_SECONDS)
 
 
 def test_background_tools_plan_as_her_and_only_undo_her_own_pauses(database, alice, monkeypatch):
@@ -363,3 +395,43 @@ def test_keep_playing_off_stops_at_the_end_of_the_goal():
     script = Script([])
     _all_done(script)  # autonomy defaults to "stop" in the fake view
     assert _run(script).step() is False and script.pauses == ["plan_complete"]
+
+
+def test_her_mouth_sees_conclusions_intentions_and_takes_the_question(db, alice, monkeypatch):
+    """Hard thinking (services/mind_hard.py) reaches her reply: conclusions with their kind, never a
+    dropped one, her intentions, and the open question (taken, so it isn't also asked at a pause)."""
+    import time as time_
+
+    from app.services import mind, mind_hard
+
+    session = _playing(db, alice)
+    monkeypatch.setattr(mind, "enabled", lambda: True)
+    monkeypatch.setattr(mind, "publish", lambda user_id, thought: None)
+    mind.save_thought(db, user_id=alice.id, session_id=session.id, level="hard", text="The move kills them.",
+                      topic="surprise: x", trigger="surprise", conclusion_kind="guess", thinking="it said failed",
+                      for_hands="count the mutton")
+    mind.save_thought(db, user_id=alice.id, session_id=session.id, level="hard", text="Dig straight up.",
+                      status="dropped", topic="keeps failing: y", trigger="failing", conclusion_kind="decision",
+                      dropped_reason="that step is over")
+    mind_hard.add_intention(session.id, "keep 5 planks to get back down")
+    mind_hard.set_question(session.id, {"text": "Want me on top, or just the move?", "at": time_.time(),
+                                        "goal": session.plan["goal"]})
+    lines = "\n".join(desktop_game._mind_lines(db, session, time_.time() + 1, for_reply=True))
+    assert '"The move kills them." (thought over: a guess;' in lines
+    assert "Dig straight up" not in lines
+    assert 'You mean to (your own intentions, from thinking it over): "keep 5 planks to get back down".' in lines
+    assert 'A question you wanted to ask the user, from thinking it over: "Want me on top, or just the move?"' in lines
+    assert mind_hard.take_question(session.id) is None  # her reply has it now
+    assert "A question you wanted" not in "\n".join(desktop_game._mind_lines(db, session, time_.time() + 2))
+
+
+def test_a_counted_check_in_her_plan_is_kept_and_shown_back_to_her(db, alice):
+    session = _playing(db, alice)
+    desktop_game.set_plan(db, alice.id, goal="reach the top of the ice pillar", source="columbina_user_turn", steps=[
+        {"do": "build up beside the pillar", "done_when": "on top of the pillar", "check": {"kind": "top_here"}},
+        {"do": "wave", "done_when": "waved"}])
+    db.refresh(session)
+    steps = session.plan["steps"]
+    assert steps[0]["check"] == {"kind": "top_here"} and "check" not in steps[1]
+    lines = "\n".join(desktop_game._plan_lines(db, session))
+    assert "(done when: on top of the pillar; counted: nothing next to you higher than where you stand)" in lines

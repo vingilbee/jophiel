@@ -55,9 +55,17 @@ class FakeRedis:
 
     def delete(self, key):
         with self.lock:
-            self.hashes.pop(key, None)
-            self.lists.pop(key, None)
-            self.strings.pop(key, None)
+            found = [store.pop(key, None) for store in (self.hashes, self.lists, self.strings)]
+            return sum(item is not None for item in found)
+
+    def getdel(self, key):
+        with self.lock:
+            return self.strings.pop(key, None)
+
+    def lpop(self, key):
+        with self.lock:
+            items = self.lists.get(key) or []
+            return items.pop(0) if items else None
 
     def lpush(self, key, value):
         with self.lock:

@@ -1,4 +1,5 @@
-// fight(target): fight hostile mobs until the target is dead or none are left.
+// fight(target): fight hostile mobs until the target is dead or none are left, or an animal or other
+// mob she's told to (by name: "sheep"), `count` of them. Never players.
 // Low health is the runner's job (shared safety): it ends this skill as `hurt`, retreats and eats.
 import { ParamError, SkillEnd, done, failed, timeLimitParam } from './contract.js'
 import {
@@ -20,25 +21,34 @@ export function pickTarget (bot, candidates) {
 
 export const fight = {
   name: 'fight',
-  description: 'Fight hostile mobs: the nearest hostile (creepers first, then skeletons, then zombies), or one type.',
-  doneWhen: 'the target type is dead, or no hostiles are left nearby',
+  description: 'Fight with her best weapon: the nearest hostile (creepers first, then skeletons, then zombies), a hostile type, ' +
+    'or an animal or other mob by name when asked or needed (e.g. sheep for wool, cow for leather): count of them. Never players.',
+  doneWhen: 'count of the target are dead (hostiles: all of that type nearby), or none are left nearby',
   stopsWhen: 'health low (retreats, then eats), outnumbered (flees), none found, time limit',
   params: {
-    target: { type: 'string', default: 'nearest_hostile', description: '"nearest_hostile" or a hostile mob type, e.g. zombie' },
+    target: { type: 'string', default: 'nearest_hostile', description: '"nearest_hostile" or a mob type, e.g. zombie, sheep' },
+    count: { type: 'integer', min: 1, max: 20, description: 'how many to kill (default: all hostiles of the type nearby; 1 for any other mob)' },
     radius: { type: 'integer', min: 4, max: SEARCH_RADIUS, default: SEARCH_RADIUS, description: 'how far from her to look for them, in blocks' },
     time_limit: timeLimitParam(90, 300)
   },
   validate (bot, params) {
     if (params.target === 'nearest_hostile') return
+    if (params.target === 'player' || bot.players?.[params.target]) throw new ParamError('she doesn\'t fight players')
     const type = bot.registry.entitiesByName[params.target]
     if (!type) throw new ParamError(`no mob is called ${params.target}`)
-    if (!isHostile({ type: type.type, name: type.name })) throw new ParamError(`${params.target} isn't hostile; she only fights hostile mobs`)
   },
   async run (ctx, params) {
     const { bot } = ctx
     const stopped = () => ctx.signal.aborted
     const only = params.target === 'nearest_hostile' ? null : params.target
-    const candidates = () => hostilesAround(bot, params.radius).filter((e) => !only || e.name === only)
+    const type = only ? bot.registry.entitiesByName[only] : null
+    const hostileType = !only || isHostile({ type: type.type, name: type.name })
+    const wanted = params.count ?? (hostileType ? Infinity : 1)
+    const here = () => bot.entity.position
+    const candidates = () => (hostileType
+      ? hostilesAround(bot, params.radius).filter((e) => !only || e.name === only)
+      : Object.values(bot.entities).filter((e) => e !== bot.entity && e.name === only && e.type !== 'player' &&
+          e.position.distanceTo(here()) <= params.radius))
 
     if (!candidates().length) return failed(`no ${only ?? 'hostile mob'} within ${params.radius} blocks`)
     const weapon = await ctx.race(equipBestWeapon(bot))
@@ -68,15 +78,23 @@ export const fight = {
           ctx.check()
           return failed(`outnumbered (${close.length} hostiles close), fled`, { killed, hits, misses })
         }
+        if (killed >= wanted) return done({ killed, hits, misses })
+        if (!around.length && !hostileType) {
+          return failed(`no ${only} left within ${params.radius} blocks (killed ${killed} of ${wanted})`, { killed, hits, misses })
+        }
         if (!around.length) return done({ killed, hits, misses }, only ? `no ${only} left` : 'no hostiles left')
 
         const next = pickTarget(bot, around)
+        const distance = bot.entity.position.distanceTo(next.position)
         if (next !== target) {
           target = next
           ctx.motion?.track(target)
           bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true)
+        } else if (distance > REACH && !bot.pathfinder.isMoving()) {
+          // Stepped back out of reach and the follow thinks it's close enough (a mob that stands
+          // still, or one that ran): walk back in.
+          bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true)
         }
-        const distance = bot.entity.position.distanceTo(target.position)
         const ready = Date.now() - lastHit >= cooldown
 
         if (distance <= REACH && ready) {

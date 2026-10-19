@@ -25,7 +25,8 @@ from app.ai.desktop.pack_client import PackClient
 from app.ai.desktop.skill_driver import SkillDriverDeps, SkillDriverRun
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
-from app.services import desktop_commands, desktop_preview, game_learning, game_pack
+from app.services import (desktop_commands, desktop_preview, game_learning, game_pack, game_practice, game_skills,
+                          mind_hard)
 from app.services import desktop_sessions as sessions
 
 log = logging.getLogger(__name__)
@@ -105,9 +106,13 @@ def _drive_skills(session_id: uuid.UUID, model) -> None:
         save_state=desktop_commands.save_driver_state,
         notice=lambda sid, kind, text: _db(sessions.driver_noticed)(sid, kind=kind, text=text),
         auto_goals=_db(sessions.auto_goals_set),
-        messages=desktop_commands.hands_messages,
+        messages=mind_hard.hands_messages,  # her mouth's tips and her own intentions
         experience=_db(game_learning.record_experience),
         lessons=_db(game_learning.lessons_for_run),
+        learning=_db(game_practice.holding),
+        learned=_db(game_skills.for_session),
+        learned_used=_db(game_skills.record_use),
+        lesson_result=_db(game_practice.last_result),
     )
     run = SkillDriverRun(session_id, deps, max_decisions=settings.minecraft_pack_max_decisions,
                          planning_wait_seconds=settings.desktop_planning_wait_seconds,

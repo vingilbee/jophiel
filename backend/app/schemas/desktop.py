@@ -14,7 +14,9 @@ SessionState = Literal["starting", "running", "paused", "manual", "disconnected"
 ControlOwner = Literal["none", "gameplay", "manual"]
 CommentaryMode = Literal["quiet", "occasional", "commentary"]
 StepState = Literal["pending", "active", "done", "skipped", "abandoned"]
-PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "user_api"]
+# columbina_mind: her planner revising the plan she's on (app/ai/mind/plan.py); a new goal it sets
+# is columbina_user_turn (the user asked for it) or columbina_planning_turn (she picked it).
+PlanSource = Literal["columbina_planning_turn", "columbina_user_turn", "columbina_mind", "user_api"]
 CaptureGate = Literal["allowed", "blocked", "manual_auth"]
 CaptureScope = Literal["desktop", "game_window"]
 
@@ -90,9 +92,18 @@ class PairingOut(BaseModel):
 # --- plan ---------------------------------------------------------------------
 
 
+class StepCheck(_In):
+    """A step's done_when in a form code counts (app/ai/desktop/step_check.py)."""
+
+    kind: Literal["has", "gained", "killed", "top_here", "peak", "near_player"]
+    what: Annotated[str, StringConstraints(strip_whitespace=True, max_length=60)] | None = None
+    count: int | None = Field(default=None, ge=1, le=2304)
+
+
 class PlanStepIn(_In):
     do: ShortText
     done_when: ShortText
+    check: StepCheck | None = None
 
 
 class PlanIn(_In):
@@ -100,6 +111,9 @@ class PlanIn(_In):
     steps: list[PlanStepIn] = Field(min_length=1, max_length=50)  # the configured cap is enforced by the service
     if_stuck: PlanText | None = None
     constraints: list[ShortText] = Field(default_factory=list, max_length=5)
+    # The item or block the goal is about (a game id, e.g. iron_ore): her planner works out
+    # what it takes to get it (services/game_planning).
+    target: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,64}$")] | None = None
 
 
 class PlanReplace(PlanIn):
@@ -117,6 +131,7 @@ class PlanStepOut(BaseModel):
     do: str
     done_when: str
     state: StepState
+    check: dict | None = None
 
 
 class PlanOut(BaseModel):
@@ -150,6 +165,7 @@ class SessionCommand(_In):
 class SessionOptions(_In):
     autonomy: Literal["continue", "stop"] | None = None
     commentary_mode: CommentaryMode | None = None
+    explore: bool | None = None  # stage H3: she picks her own challenges after a goal
 
 
 class SessionResume(_In):
@@ -173,6 +189,7 @@ class SessionOut(BaseModel):
     driver_status: str | None
     commentary_mode: CommentaryMode
     autonomy: Literal["continue", "stop"] = "continue"
+    explore: bool = True
     max_duration_seconds: int
     started_at: datetime
     ended_at: datetime | None

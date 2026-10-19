@@ -105,7 +105,7 @@ def test_tools_replan_extend_pause_resume_end(db, alice):
     assert session.plan_revision == 2 and session.plan["source"] == "columbina_user_turn"
     assert [s["do"] for s in session.plan["steps"]] == ["collect dirt", "place walls"]
 
-    desktop_game.pause(db, alice.id)
+    desktop_game.pause(db, alice.id, user_asked=True)
     db.refresh(session)
     assert session.state == "paused"
     assert "Why: the user paused it." in desktop_game.describe(db, alice.id).summary
@@ -116,15 +116,43 @@ def test_tools_replan_extend_pause_resume_end(db, alice):
     db.refresh(session)
     assert session.state == "ended"
     with pytest.raises(DesktopError) as excinfo:
-        desktop_game.pause(db, alice.id)
+        desktop_game.pause(db, alice.id, user_asked=True)
     assert excinfo.value.code == "no_session"
+
+
+def test_her_own_pause_is_hers_to_lift_and_the_users_is_not(db, alice):
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="explore")
+    session = desktop_game._live(db, alice.id)
+    desktop_game.pause(db, alice.id, user_asked=False)
+    db.refresh(session)
+    assert (session.state, session.reason_code) == ("paused", "columbina_pause")
+    desktop_game.resume(db, alice.id, only_own_pauses=True)  # a background turn may undo it
+    db.refresh(session)
+    assert session.state == "running"
+
+    desktop_game.pause(db, alice.id, user_asked=False)
+    # A new goal from her own planning turn picks up where her pause left off.
+    note = desktop_game.set_plan(db, alice.id, goal="find a cave", source="columbina_planning_turn",
+                                 steps=[{"do": "explore", "done_when": "a cave is in sight"}])
+    db.refresh(session)
+    assert session.state == "running" and "playing again" in note
+
+    desktop_game.pause(db, alice.id, user_asked=True)
+    with pytest.raises(DesktopError) as excinfo:
+        desktop_game.resume(db, alice.id, only_own_pauses=True)
+    assert excinfo.value.code == "not_yours"
+    note = desktop_game.set_plan(db, alice.id, goal="find a lake", source="columbina_planning_turn",
+                                 steps=[{"do": "explore", "done_when": "a lake is in sight"}])
+    db.refresh(session)
+    assert session.state == "paused" and "still paused (the user paused it)" in note
 
 
 def test_tools_only_ever_act_for_their_user(db, alice, bob):
     _paired_env(db, alice)
     desktop_game.start(db, alice.id, goal="explore")
     with pytest.raises(DesktopError) as excinfo:
-        desktop_game.pause(db, bob.id)  # bob has no game VM: nothing of alice's is reachable
+        desktop_game.pause(db, bob.id, user_asked=True)  # bob has no game VM: nothing of alice's is reachable
     assert excinfo.value.code == "no_session"
     with pytest.raises(DesktopError):
         desktop_game.start(db, bob.id, goal="explore")
@@ -147,14 +175,15 @@ def test_the_tool_calls_the_service_for_its_own_user(database, alice, monkeypatc
     tools = {t.name: t for t in build_desktop_tools(alice.id)}
     assert set(tools) == {"look_at_my_game", "start_game", "set_game_plan", "add_game_steps", "tell_my_hands",
                           "set_my_modes", "play_carefully", "pause_game", "resume_game", "end_game", "keep_playing",
-                          "how_to_make", "this_is_me", "note_promise", "drop_promise"}
+                          "explore_and_learn", "how_to_make", "this_is_me", "note_promise", "drop_promise", "learn_skill", "stop_learning",
+                          "think_it_over"}
     reply = asyncio.run(tools["start_game"].ainvoke({"goal": "Collect 5 oak logs", "steps": [
         {"do": "find a tree", "done_when": "a trunk fills the crosshair"}]}))
     assert reply.startswith("Started; you're playing")
     again = asyncio.run(tools["start_game"].ainvoke({"goal": "again"}))
     assert again.startswith("Done; you're now on: again")
     stranger = {t.name: t for t in build_desktop_tools(uuid.uuid4())}
-    assert asyncio.run(stranger["pause_game"].ainvoke({})).startswith("Not done:")
+    assert asyncio.run(stranger["pause_game"].ainvoke({"user_asked": True})).startswith("Not done:")
 
 
 def test_what_she_is_doing_is_part_of_her_sense_of_the_moment(db, alice):
@@ -339,7 +368,7 @@ def test_a_new_goal_resumes_her_own_pause_and_never_hides_the_users(db, alice):
     db.refresh(session)
     assert session.state == "running" and "playing again" in reply
 
-    desktop_game.pause(db, alice.id)
+    desktop_game.pause(db, alice.id, user_asked=True)
     reply = desktop_game.set_plan(db, alice.id, goal="Gather more logs")
     db.refresh(session)
     assert session.state == "paused"  # the user's pause is theirs to lift
@@ -350,7 +379,28 @@ def test_a_new_goal_resumes_her_own_pause_and_never_hides_the_users(db, alice):
     svc.controller_pause(db, session.id, reason="plan_complete")
     reply = desktop_game.set_plan(db, alice.id, goal="Pick a goal", source="columbina_planning_turn")
     db.refresh(session)
-    assert session.state == "paused" and "still paused" in reply  # only the user's turn resumes
+    assert session.state == "paused" and "still paused" in reply  # a finished plan: only the user's turn resumes
+
+
+def test_resuming_while_playing_never_says_she_is_paused(db, alice):
+    """Seen live: after she resumed her own pause, a background turn's resume_game got
+    "this pause wasn't yours" while she was running, and she told the user she was paused."""
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="Mine iron")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    svc.controller_pause(db, session.id, reason="driver_stuck")
+    desktop_game.resume(db, alice.id, only_own_pauses=True)
+    db.refresh(session)
+    assert session.state == "running" and session.reason_code not in desktop_game.SELF_RESUMABLE
+
+    reply = desktop_game.resume(db, alice.id, only_own_pauses=True)
+    db.refresh(session)
+    assert session.state == "running" and "already playing" in reply
+
+    desktop_game.pause(db, alice.id, user_asked=True)
+    with pytest.raises(DesktopError):  # the user's pause is still theirs to lift
+        desktop_game.resume(db, alice.id, only_own_pauses=True)
 
 
 # --------------------------------------------------------------------------- #

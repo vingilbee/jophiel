@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,12 @@ class AgentRuntimeContext:
     game_activity: str | None = None
     # A key-pressing game VM is paired: its rules (preview, lag, counted moves) apply.
     game_vm: bool = False
+    # Her planner writes the game plan (services/game_planning): replies set goals and one-step
+    # commands, background turns don't plan.
+    game_planner: bool = False
+    # The game as the summary saw it (``app.services.game_moment.Moment``): her game
+    # tools tell her what changed since, and a reply it outdates gets corrected.
+    game_moment: Any = None
     # A background turn about the game (no user message): her game tools
     # become the background set (with ``say``) and the prompt says why she woke.
     game_event: GameEvent | None = None
