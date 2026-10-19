@@ -462,7 +462,7 @@ _MAPPER_FAILURE_REASONS = {
     PersonalityMappingErrorCode.INTERNAL_CONTRACT: PersonalityMissingReason.RUNTIME_MAPPER_PROJECTION_INVALID,
 }
 # The CoreMemory JSON groups the mapper's source builder may read from.
-_CORE_GROUPS = ("interpretation_biases", "perception_priors", "drives", "action_style")
+_CORE_GROUPS = ("interpretation_biases", "perception_priors", "drives", "action_style", "traits")
 _mapper = PersonalityRuntimeMapperV0()
 
 

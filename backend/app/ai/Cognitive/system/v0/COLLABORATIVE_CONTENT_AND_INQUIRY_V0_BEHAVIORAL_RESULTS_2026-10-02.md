@@ -1,5 +1,7 @@
 # Collaborative Content and Inquiry V0 — Behavioral Results (2026-10-02)
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Scope: offline, hermetic evaluation. These results are **not** a live-provider
 evaluation and **not** a real-application (Gate 8) evaluation. They use frozen,
 reviewed candidates (semantic frames from the regression corpus and one

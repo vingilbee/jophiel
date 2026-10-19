@@ -32,12 +32,15 @@ class CallOneOutput(FrozenModel):
     # from. "written" is the model's own answer, found in a user message;
     # "cited" means it fell back to the cited passage.
     recall_answer_source: Literal['written', 'cited'] | None = None
+    # Conditioning guide v2 only: how her biases adjusted the readings
+    # (``v1_contracts.BiasApplication``).
+    bias_application: dict[str, Any] | None = None
 
     @model_serializer(mode='wrap')
     def _omit_absent_updates(self, handler):
         data = handler(self)
         if isinstance(data, dict):
-            for key in ('dialogue_updates', 'dialogue_updates_dropped', 'recall_answer_source'):
+            for key in ('dialogue_updates', 'dialogue_updates_dropped', 'recall_answer_source', 'bias_application'):
                 if data.get(key) is None:
                     data.pop(key, None)
         return data

@@ -1,5 +1,7 @@
 # Shadow Pipeline Evaluation Findings
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-09-28  
 Status: evaluation handoff; findings are not implementation acceptance  
 Scope: local live-shadow traces from the canonical Cognitive V0.3 pipeline

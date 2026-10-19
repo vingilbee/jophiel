@@ -1,5 +1,7 @@
 # Cognitive Shadow V0 End-to-End Reevaluation
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-09-29 (America/Vancouver)  
 Status: behavioral reevaluation; not implementation acceptance or live approval  
 Baseline: `SHADOW_PIPELINE_END_TO_END_EVALUATION_2026-09-29.md`

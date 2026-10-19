@@ -1,5 +1,7 @@
 # Typed Requirement Resolution V0 — Behavioral Results (2026-09-30)
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Status: evidence for SH-EVAL-020, -022, -023, and -024 after Typed Requirement
 Resolution V0 ([`REQUIREMENT_RESOLUTION_V0_IMPLEMENTATION.md`](REQUIREMENT_RESOLUTION_V0_IMPLEMENTATION.md)).
 The "before" behavior is in

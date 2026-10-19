@@ -98,6 +98,14 @@ def understanding_schema(payload: dict) -> dict:
         name: _nullable(_enum((*_APPRAISAL_SCALES[name], 'not_applicable'))) for name in APPRAISAL_FIELDS}})
     reading = _obj({'hypothesis_key': _enum(ontology['hypothesis_keys']), 'uncertainty': _enum(_ORDINAL),
                     'context_refs': _ref_list(context_refs), 'appraisal': {'$ref': '#/$defs/Appraisal'}})
+    if context.get('conditioning_guide') in ('conditioning-guide-v2', 'conditioning-guide-v3'):
+        # Guide v2+: the reading's likelihood from the words, and the biases that bear on it here.
+        reading['properties'].update(
+            likelihood={'type': 'integer', 'minimum': 1, 'maximum': 100},
+            bias_fit={'type': 'array', 'items': _obj({
+                'bias_ref': _enum([b['ref'] for b in context['interpretation_biases']]),
+                'direction': _enum(['favours', 'disfavours'])})})
+        reading['required'].extend(['likelihood', 'bias_fit'])
     branches = []
     argument_names = set()
     shared: dict[str, str] = {}

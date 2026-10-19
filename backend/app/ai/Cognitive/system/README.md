@@ -8,9 +8,11 @@ The package has two explicit generations:
 
 - The package-root modules are the earlier local perception and intent
   prototype. They remain import-compatible through `app.ai.Cognitive.system`.
-- [`v0/`](v0/) contains the complete version-zero cognitive shadow system,
+- [the current V0 guide](v0/README.md) contains the complete version-zero cognitive shadow system,
   including its contracts, pipeline stages, durable live-shadow integration,
   fixtures, evaluation material, and local trace-summary CLI.
 
 New V0 code must live under `app.ai.Cognitive.system.v0`; do not add another
 V0 package at the `system/` root.
+
+See the [document index](v0/DOCUMENTATION_INDEX.md) before using an older brief as implementation guidance.

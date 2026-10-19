@@ -174,6 +174,42 @@ _validate_registry()
 
 READING_HYPOTHESIS_KEYS = (HYPOTHESIS_KEYS_BY_DIMENSION[HypothesisDimension.SPEAKER_GOAL]
                            + HYPOTHESIS_KEYS_BY_DIMENSION[HypothesisDimension.PRAGMATIC_MEANING])
+# What a high value of each bias does; low does the opposite and 0.5 is neutral.
+# Supplied to Call 1 only for profiles that carry the mapper v0.2 biases, so
+# earlier captures build exactly their original payload.
+CONDITIONING_GUIDE_VERSION = 'conditioning-guide-v1'
+# v2: the model reads the words and names which biases bear on each reading
+# (``bias_fit``) without seeing her values; code applies them (``v1_bias``).
+CONDITIONING_GUIDE_V2 = 'conditioning-guide-v2'
+# v3: v2, and an open message always gets both its literal and its non-literal
+# reading, so her biases have alternatives to weigh.
+CONDITIONING_GUIDE_V3 = 'conditioning-guide-v3'
+BIAS_FIT_GUIDES = (CONDITIONING_GUIDE_V2, CONDITIONING_GUIDE_V3)
+# A written character page instead of bias numbers: both calls read who she is
+# (``context.character_page`` / ``character_page``) and predict as her.
+CHARACTER_PAGE_GUIDE = 'character-page-v1'
+CONDITIONING_GUIDES = (CONDITIONING_GUIDE_VERSION, *BIAS_FIT_GUIDES)
+# Payload keys the model never sees (``provider.model_view``).
+CODE_ONLY_KEY = 'code_only'
+BIAS_MEANINGS_V1 = {
+    'benign_prior': 'assumes good intent: an open remark leans literal and kind rather than critical',
+    'trust_prior': "believes what she is told: the user's claims are taken as stated, with less doubt",
+    'threat_sensitivity': 'notices possible problems or criticism; such readings matter more to her',
+    'confirmation_tendency': 'reads new input as fitting what she already holds or said; low notices conflict and novelty',
+    'self_attribution_tendency': 'sees herself as involved when responsibility is unclear between her and the user',
+    'ambiguity_tolerance': 'comfortable with unclear meaning: keeps several readings open; low settles on one or wants it clarified',
+    'social_affiliation_prior': 'reads messages as social and relationship-oriented rather than transactional',
+    'hostile_attribution': "blames the speaker's intent when a remark could be hostile",
+    'social_cue_sensitivity': 'picks up tone and hints: indirect or tone-mismatched meaning is noticed readily',
+}
+BASE_BIAS_KEYS = ('benign_prior', 'trust_prior', 'threat_sensitivity', 'confirmation_tendency',
+                  'self_attribution_tendency', 'ambiguity_tolerance', 'social_affiliation_prior')
+
+
+def conditioning_guided(biases) -> bool:
+    return biases.hostile_attribution is not None and biases.social_cue_sensitivity is not None
+
+
 CONTEXT_REF_KINDS = frozenset({'persona', 'bias', 'relationship', 'state', 'message', 'memory', 'value'})
 EVIDENCE_REF_KINDS = frozenset({'span', 'message', 'runtime', 'memory'})
 RUNTIME_FACT_POINTERS = ('available_capabilities', 'attachments', 'task_contract', 'authorization',
@@ -282,11 +318,24 @@ def build_understanding_input(owner, semantic) -> dict:
             table.bind(f'persona:{key}', personality.profile_id, 'persona')
         traits.append(dict(ref=f'persona:{key}', value=value, availability='unavailable' if value is None else 'available'))
     biases = request.interpretation_biases
-    bias_views = []
-    for key in ('benign_prior', 'trust_prior', 'threat_sensitivity', 'confirmation_tendency',
-                'self_attribution_tendency', 'ambiguity_tolerance', 'social_affiliation_prior'):
-        table.bind(f'bias:{key}', biases.profile_id, 'bias')
-        bias_views.append(dict(ref=f'bias:{key}', value=getattr(biases, key)))
+    page = getattr(owner, 'character_page', None)
+    guide = CHARACTER_PAGE_GUIDE if page else (getattr(owner, 'conditioning_guide', CONDITIONING_GUIDE_V3)
+                                               or CONDITIONING_GUIDE_VERSION) if conditioning_guided(biases) else None
+    bias_views, code_only = [], {}
+    if page:
+        pass  # her character is the page; no bias numbers
+    elif guide in BIAS_FIT_GUIDES:
+        from .v1_bias import ALL_BIASES, FIT_BIASES, VERSION as BIAS_APPLICATION_VERSION
+        for key in FIT_BIASES:
+            table.bind(f'bias:{key}', biases.profile_id, 'bias')
+            bias_views.append(dict(ref=f'bias:{key}', meaning=BIAS_MEANINGS_V1[key]))
+        code_only = {CODE_ONLY_KEY: dict(bias_application=dict(
+            version=BIAS_APPLICATION_VERSION, values={key: getattr(biases, key) for key in ALL_BIASES}))}
+    else:
+        for key in (*BASE_BIAS_KEYS, 'hostile_attribution', 'social_cue_sensitivity') if guide else BASE_BIAS_KEYS:
+            table.bind(f'bias:{key}', biases.profile_id, 'bias')
+            bias_views.append(dict(ref=f'bias:{key}', value=getattr(biases, key),
+                                   **({'meaning': BIAS_MEANINGS_V1[key]} if guide else {})))
     relationship = []
     if request.relationship is not None:
         snapshot = request.relationship.to_appraisal_relationship()
@@ -365,7 +414,9 @@ def build_understanding_input(owner, semantic) -> dict:
                      relationship_state=dict(availability='available' if relationship else 'unavailable',
                                              dimensions=relationship),
                      dynamic_state_before=dict(availability='available', values=state),
-                     authorized_memory_refs=memories, agent_values=values, existing_goals=goals),
+                     authorized_memory_refs=memories, agent_values=values, existing_goals=goals,
+                     **({'conditioning_guide': guide} if guide else {}),
+                     **({'character_page': page} if page else {})),
         runtime=dict(capability_refs=capability_refs, trusted_fact_refs=facts,
                      safety_state=runtime_json.get('safety_decision'), authorization_state=runtime_json.get('authorization')),
         ontology=dict(predicate_registry_version=getattr(owner, 'understanding_registry', ARGUMENT_KIND_REGISTRY_VERSION),
@@ -378,6 +429,7 @@ def build_understanding_input(owner, semantic) -> dict:
                       conflict_registry_version=CONFLICT_REGISTRY_VERSION,
                       conflict_keys=[dict(key=k, description=v) for k, v in CONFLICT_KEYS.items()],
                       appraisal_schema_version=APPRAISAL_SCHEMA_VERSION),
+        **code_only,
     ))
 
 
@@ -537,6 +589,7 @@ def validate_understanding(raw, payload, entries):
     if len(tokens) != payload['focus']['token_count']:
         raise ValueError('focus tokens differ from the supplied input')
     supplied = _supplied(payload)
+    fitted = payload['context'].get('conditioning_guide') in BIAS_FIT_GUIDES
     predicates = {p['predicate_key']: p for p in payload['ontology']['predicates']}
     hypotheses = set(payload['ontology']['hypothesis_keys'])
     unknown_keys = {item['key'] for item in payload['ontology']['unknown_keys']}
@@ -623,6 +676,11 @@ def validate_understanding(raw, payload, entries):
                 raise ValueError('foreign reading key')
             for ref in reading.context_refs:
                 _check_ref(ref, CONTEXT_REF_KINDS, supplied, tokens)
+            if (reading.bias_fit is not None) != fitted:
+                raise ValueError('bias fit exists exactly under conditioning guide v2')
+            for fit in reading.bias_fit or ():
+                if fit.bias_ref not in supplied['bias']:
+                    raise ValueError('foreign bias fit')
     keys = [(impact.goal_ref, impact.event_index, impact.reading_index) for impact in proposal.existing_goal_impacts]
     if len(set(keys)) != len(keys):
         raise ValueError('duplicate existing goal impacts')
@@ -659,9 +717,30 @@ def validate_understanding(raw, payload, entries):
     return proposal, tokens
 
 
+def model_view(payload) -> dict:
+    """The payload as the model sees it: without code-only inputs."""
+    return {k: v for k, v in payload.items() if k != CODE_ONLY_KEY}
+
+
+def understood(raw, payload, entries):
+    """The validated proposal, with her biases applied under guide v2.
+
+    Returns ``(proposal, tokens, application)``; ``application`` is ``None``
+    for every earlier payload, whose proposal is used exactly as the model gave it.
+    """
+    proposal, tokens = validate_understanding(raw, payload, entries)
+    if payload['context'].get('conditioning_guide') not in BIAS_FIT_GUIDES:
+        return proposal, tokens, None
+    from .v1_bias import apply_biases
+    inputs = payload[CODE_ONLY_KEY]['bias_application']
+    proposal, application = apply_biases(proposal, inputs['values'], _canonical_digest(model_view(payload)))
+    return proposal, tokens, application
+
+
 def compile_understanding(raw, payload, entries) -> CallOneOutput:
     """Canonical semantic candidates for the existing interpretation compiler."""
-    proposal, tokens = validate_understanding(raw, payload, entries)
+    proposal, tokens, application = understood(raw, payload, entries)
+    applied = {} if application is None else dict(bias_application=application.model_dump(mode='json'))
     text = payload['focus']['text']
     registry = payload['ontology']['predicate_registry_version']
     written = None
@@ -687,8 +766,8 @@ def compile_understanding(raw, payload, entries) -> CallOneOutput:
         if registry in WRITTEN_RECALL_REGISTRIES and known_recall:
             source = dict(recall_answer_source='written' if written is not None else 'cited')
         return CallOneOutput(interpretation=SemanticModelOutput(frames=frames), appraisal=(),
-                             dialogue_updates=updates, dialogue_updates_dropped=dropped, **source)
-    return CallOneOutput(interpretation=SemanticModelOutput(frames=frames), appraisal=())
+                             dialogue_updates=updates, dialogue_updates_dropped=dropped, **source, **applied)
+    return CallOneOutput(interpretation=SemanticModelOutput(frames=frames), appraisal=(), **applied)
 
 
 def derived_support(uncertainty: str) -> HypothesisSupport:
@@ -720,7 +799,7 @@ def accepted_mind(raw, payload, entries):
     model prose: a reading's ``candidate_meaning`` is its registered key.
     """
     from .compact_contracts import EventAppraisal, GoalImpact, MindProposal, Observation, Reading
-    proposal, tokens = validate_understanding(raw, payload, entries)
+    proposal, tokens, _ = understood(raw, payload, entries)
     text = payload['focus']['text']
     regions = {entry['canonical_ref']: handle for handle, entry in entries.items() if entry['kind'] == 'evidence_region'}
     observations, readings, appraisals = [], [], []
@@ -1021,6 +1100,7 @@ def build_policy_input(owner, pipeline, turn, appraisal, update, interpretation,
                                     conflict_refs=conflicts),
         state_after=state_after, active_goals=active, goal_readiness=goal_readiness,
         personality=personality,
+        **({'character_page': owner.character_page} if getattr(owner, 'character_page', None) else {}),
         relationship=dict(availability='available' if relationship else 'unavailable', dimensions=relationship),
         runtime_constraints=dict(
             response_obligation=runtime.response_obligation,

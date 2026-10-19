@@ -25,7 +25,7 @@ from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
 from app.services import desktop_game, game_correction
 from app.services import asset_store, chat as chat_service, google_account
-from app.services import cognitive_shadow
+from app.services import cognitive_live, cognitive_shadow
 from app.services import dialogue_memory
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
@@ -209,6 +209,11 @@ async def _generate(job: ChatJob) -> None:
             raise
 
     long_term_memory, _ = await asyncio.gather(*background)
+    # Simple cognition, live: None (nothing changes) unless enabled in settings.
+    live = (await asyncio.to_thread(
+        cognitive_live.prepare, user_id=job.user_id, conversation_id=job.conversation_id, history=history,
+        message=payload["content"], long_term_memory=long_term_memory,
+    ) if cognitive_live.enabled() else None)
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     spoke_at = payload.get("spoke_at")
     picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
@@ -228,6 +233,10 @@ async def _generate(job: ChatJob) -> None:
         voice=bool(payload.get("voice", False)),
         awareness=payload.get("awareness", ""),
         long_term_memory=long_term_memory,
+        character_page=live.character_page if live else None,
+        typed_memory=live.typed_memory if live else None,
+        cognitive_reading=live.reading if live else None,
+        conversation_notes=live.notes if live else None,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
         game=game.summary if game else None,
@@ -431,6 +440,10 @@ async def _generate(job: ChatJob) -> None:
             game_correction.start(job.user_id, reply, context.game_moment)
         if context.channel == "whatsapp":
             whatsapp_service.wake_worker()
+        if live is not None and outcome == "completed":
+            # After the reply is delivered: notes follow what she actually said. Never fails the turn.
+            await asyncio.to_thread(cognitive_live.after_reply, live, user_id=job.user_id,
+                                    conversation_id=job.conversation_id, message=payload["content"], reply=reply)
     except Exception as exc:
         logger.exception("Chat job %s failed", job.id)
         publish(turn_id, {"type": "error", "turn_id": str(turn_id),

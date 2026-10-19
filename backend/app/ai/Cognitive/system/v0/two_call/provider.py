@@ -9,6 +9,19 @@ from ..realization_provider import capabilities_for, validate_protocol_capabilit
 from .contracts import CallOneOutput, CallTwoOutput, VERSION
 
 
+CONDITIONING_PROMPTS = {'conditioning-guide-v1': ('call_one_conditioning_v1.txt',),
+                        'conditioning-guide-v2': ('call_one_conditioning_v2.txt',),
+                        'conditioning-guide-v3': ('call_one_conditioning_v2.txt', 'call_one_conditioning_v3.txt'),
+                        'character-page-v1': ('call_one_character_v1.txt',)}
+
+
+def model_view(payload):
+    """What the model sees: a v1 payload without its code-only inputs."""
+    if isinstance(payload, dict) and 'code_only' in payload:
+        return {k: v for k, v in payload.items() if k != 'code_only'}
+    return payload
+
+
 def canonical(value):
     if hasattr(value, 'model_dump'):
         value = value.model_dump(mode='json')
@@ -26,6 +39,13 @@ def compact_prompt_version(stage, payload):
 V1_PROTOCOL = 'cognitive-two-call-v1'
 
 def prompt(stage, payload=None):
+    text = _prompt(stage, payload)
+    if stage == 'call_two' and payload and payload.get('protocol') == V1_PROTOCOL and payload.get('character_page'):
+        text += Path(__file__).with_name('call_two_character_v1.txt').read_text()
+    return text
+
+
+def _prompt(stage, payload=None):
     if payload and payload.get('protocol')==V1_PROTOCOL:
         if stage=='contribution':
             text = Path(__file__).with_name('contribution_v1_6.txt').read_text()
@@ -71,7 +91,9 @@ def prompt(stage, payload=None):
                                                               'call_one_v1_9.txt', 'call_one_v1_10.txt')}[registry]
                 return Path(__file__).with_name('call_one_v1_2.txt').read_text() + ''.join(
                     Path(__file__).with_name(name).read_text() for name in extensions) + (
-                    Path(__file__).with_name('call_one_v1_13.txt').read_text() if referent_contract else '')
+                    Path(__file__).with_name('call_one_v1_13.txt').read_text() if referent_contract else '') + (
+                    ''.join(Path(__file__).with_name(name).read_text() for name in CONDITIONING_PROMPTS[guide])
+                    if (guide := (payload.get('context') or {}).get('conditioning_guide')) in CONDITIONING_PROMPTS else '')
             current = (payload.get('ontology') or {}).get('predicate_registry_version') in ('argument-kind-registry-v1.2', 'argument-kind-registry-v1.3', 'argument-kind-registry-v1.4')
         else:
             if payload.get('policy_guidance') == 'policy-guidance-v1.6':
@@ -268,7 +290,7 @@ class OpenAITwoCallModel:
         schema = response_schema(stage,payload) if schema is None else schema
         suffix = {V1_PROTOCOL:'_v1','context-conditioned-two-call-v0.1':'_compact_v0_1'}.get(payload.get('protocol'),'_v0_1')
         params = dict(model=self.model_id, messages=[{'role':'system', 'content':prompt(stage, payload)},
-            {'role':'user', 'content':'INPUT_DATA\n' + canonical(payload) + '\nEND_INPUT_DATA'}],
+            {'role':'user', 'content':'INPUT_DATA\n' + canonical(model_view(payload)) + '\nEND_INPUT_DATA'}],
             response_format={'type':'json_schema', 'json_schema':{'name':stage+suffix, 'strict':True, 'schema':schema}},
             temperature=0.0, n=1, stream=False, store=False, timeout=float(self.timeout))
         params[self.capabilities.token_limit_parameter] = self.max_tokens

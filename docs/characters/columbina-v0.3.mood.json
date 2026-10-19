@@ -1,0 +1,6 @@
+{
+  "_comment": "Her mood dynamics, read by app/ai/Cognitive/simple/mood.py. baseline = where each value rests; react = how far one turn's feeling moves it (0-1); drift = how far it returns to baseline per turn (0-1). mood and closeness are -1..1, the rest 0..1.",
+  "baseline": {"mood": 0.3, "energy": 0.55, "interest": 0.6, "tension": 0.15, "closeness": 0.1},
+  "react": {"mood": 0.35, "energy": 0.2, "interest": 0.3, "tension": 0.4, "closeness": 0.25},
+  "drift": {"mood": 0.1, "energy": 0.05, "interest": 0.1, "tension": 0.12, "closeness": 0.03}
+}

@@ -392,9 +392,15 @@ class TwoCallOrchestrator:
         self.understanding_descriptors = ()
         from .v1_contracts import ARGUMENT_KIND_REGISTRY_VERSION
         self.understanding_registry = ARGUMENT_KIND_REGISTRY_VERSION
+        from .v1 import CONDITIONING_GUIDE_V3
+        # Used only for profiles that carry the mapper v0.2 biases.
+        self.conditioning_guide = CONDITIONING_GUIDE_V3
+        self.character_page = None
         if self.protocol==V1 and isinstance(model,FrozenTwoCallModel):
             # Replay rebuilds the exact input version the capture was made with.
             self.understanding_registry = model.trace.calls[0].payload['ontology']['predicate_registry_version']
+            self.conditioning_guide = (model.trace.calls[0].payload.get('context') or {}).get('conditioning_guide')
+            self.character_page = (model.trace.calls[0].payload.get('context') or {}).get('character_page')
         if self.protocol==V1:
             from .v1_contracts import BEHAVIOR_POLICY_V1,REALIZATION_POLICY_V1,ALIGNMENT_POLICY_V1
             self.behavior_policy,self.realization_policy,self.alignment_policy = BEHAVIOR_POLICY_V1,REALIZATION_POLICY_V1,ALIGNMENT_POLICY_V1
@@ -461,6 +467,12 @@ class TwoCallOrchestrator:
                         else f'{stage}-v1'))
                 if stage == 'contribution' and payload.get('followup_context_version'):
                     provenance['prompt_version'] += '+followup-v1'
+                guide = (payload.get('context') or {}).get('conditioning_guide') if stage == 'call_one' else None
+                if guide:
+                    provenance['prompt_version'] += ('+conditioning-' + guide.rsplit('-', 1)[1]
+                                                     if guide.startswith('conditioning-guide-') else '+' + guide)
+                if stage == 'call_two' and payload.get('character_page'):
+                    provenance['prompt_version'] += '+character-page-v1'
             elif self.protocol!='legacy-v0.1':
                 from .provider import compact_prompt_version
                 version=compact_prompt_version(stage,payload).replace('_','.')
@@ -946,8 +958,14 @@ class ProposedActionEngine:
             raise error from exc
 
 
-def install(pipeline, model, *, protocol="legacy-v0.1"):
+def install(pipeline, model, *, protocol="legacy-v0.1", conditioning_guide=None, character_page=None):
     owner = TwoCallOrchestrator(model,protocol)
+    if conditioning_guide is not None and not isinstance(model, FrozenTwoCallModel):
+        owner.conditioning_guide = conditioning_guide
+    if character_page is not None and not isinstance(model, FrozenTwoCallModel):
+        if not isinstance(character_page, str) or not character_page.strip():
+            raise ValueError('character_page is the written page text')
+        owner.character_page = character_page
     pipeline.goal_engine = BindingGoalEngine(identity_factory=pipeline.goal_engine.identity_factory)
     owner.goal_engine = pipeline.goal_engine
     if isinstance(model, FrozenTwoCallModel):

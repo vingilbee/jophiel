@@ -1,5 +1,7 @@
 # Outcome Observation Schema V0.1 Draft
 
+> **Document status — 2026-10-18:** Design proposal, not a claim that the full observation/episode/learning system exists. The implemented state input is `OutcomeObservation` in [dynamic_state/models.py](../dynamic_state/models.py). Do not equate that subset with every proposed channel event or promotion mechanism below.
+
 Status: V0.1 design accepted; case validation is required before database or
 runtime implementation. Timer values and fixed confidence tiers remain
 provisional calibration parameters.

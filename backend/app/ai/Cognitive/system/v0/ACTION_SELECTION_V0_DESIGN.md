@@ -1,12 +1,15 @@
 # Action Selection V0 accepted design
 
+> **Document status — 2026-10-18:** Compatibility reference: lifecycle lists in this document are parsed by registry tests. Its deterministic planner describes the reference/older route; V1 model selection is documented in [the action guide](ACTION_SELECTION_V0_IMPLEMENTATION.md). Older implementation authority/order statements do not supersede the current guide.
+
 Status: accepted for deterministic shadow implementation on 2026-09-25
 
 This document records the planner audit and closes the design decisions required
 to implement Action Selection V0. It is normative where older action prose,
-registry notes, or fixture shorthand are ambiguous. The detailed scoring model
-and action semantics remain in `README.md` and
-`data/CONVERSATIONAL_ACTION_REGISTRY_V0.md`.
+registry notes, or fixture shorthand are ambiguous. The implemented deterministic scoring model is in
+[action_selection_v0/policy.py](action_selection_v0/policy.py) and
+[features.py](action_selection_v0/features.py); action semantics are in
+[data/CONVERSATIONAL_ACTION_REGISTRY_V0.md](data/CONVERSATIONAL_ACTION_REGISTRY_V0.md).
 
 The implementation handoff is `ACTION_SELECTION_V0_IMPLEMENTATION.md`.
 
@@ -20,7 +23,7 @@ realization, or authorize external actions.
 
 The audit covered:
 
-- the canonical action design in `README.md`;
+- the earlier action design formerly embedded in the main README;
 - all 75 definitions and the transition-effect manifest in
   `data/CONVERSATIONAL_ACTION_REGISTRY_V0.md`;
 - the authoring and validation contract in
@@ -304,10 +307,12 @@ coverage, residual needs, planned goal coverage, unknown-handling intent,
 contradiction-handling intent, action/family counts, accumulated costs, and a
 canonical state signature.
 
-The accepted `action-policy-v0.1` feature manifest, marginal-utility formula,
-shared move overhead, repetition schedule, and zero-valued `STOP` baseline in
-`README.md` are normative. Numerical weights are bootstrap policy constants,
-not psychological claims or learned truth.
+The deterministic feature manifest, marginal-utility formula, move overhead,
+repetition schedule and `STOP` baseline are implemented in
+[action_selection_v0/policy.py](action_selection_v0/policy.py) and
+[features.py](action_selection_v0/features.py). Numerical weights are bootstrap
+policy constants, not psychological claims or learned truth. This scoring route
+is distinct from V1 Call 2 selection.
 
 The selector continues only when the best candidate has score greater than
 zero. Deterministic ties resolve by:

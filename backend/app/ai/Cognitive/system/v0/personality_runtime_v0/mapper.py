@@ -26,6 +26,7 @@ from .manifest import (
     PERSONALITY_ROUNDING,
     STATE_BASELINE_SNAPSHOT,
     MappingManifest,
+    stability_bands,
     MappingRule,
     OutputProfile,
     Transform,
@@ -75,6 +76,8 @@ class PersonalityRuntimeMapperV0:
         elif rule.transform == Transform.MEAN_TWO:
             first, second = (getattr(source, field) for field in rule.source_fields)
             result = (first + second) / Decimal(2)
+        elif rule.transform == Transform.ONE_MINUS:
+            result = Decimal(1) - getattr(source, rule.source_fields[0])
         elif rule.transform == Transform.POLICY_CONSTANT:
             result = rule.constant
         else:
@@ -87,20 +90,22 @@ class PersonalityRuntimeMapperV0:
     def _unit_fields(self, profile: OutputProfile, source: CorePersonalitySourceV0) -> dict[str, float]:
         return {rule.output_field: self._value(rule, source) for rule in self.manifest.rules_for(profile)}
 
-    def _state_fields(self) -> dict[str, object]:
-        fields = {rule.output_field for rule in self.manifest.rules_for(OutputProfile.STATE)}
-        if fields != {"state_controls", "interaction_patience_band"} or any(
-            rule.transform != Transform.DYNAMIC_POLICY_SNAPSHOT
-            for rule in self.manifest.rules_for(OutputProfile.STATE)
-        ):
+    def _state_fields(self, source: CorePersonalitySourceV0) -> dict[str, object]:
+        rules = {rule.output_field: rule for rule in self.manifest.rules_for(OutputProfile.STATE)}
+        if set(rules) != {"state_controls", "interaction_patience_band"} \
+                or rules["interaction_patience_band"].transform != Transform.DYNAMIC_POLICY_SNAPSHOT \
+                or rules["state_controls"].transform not in {Transform.DYNAMIC_POLICY_SNAPSHOT, Transform.STABILITY_BANDS}:
             raise PersonalityMappingError(PersonalityMappingErrorCode.INTERNAL_CONTRACT)
         if set(STATE_BASELINE_SNAPSHOT) != set(StateKey):
             # A Dynamic State key this mapper version never reviewed.
             raise PersonalityMappingError(PersonalityMappingErrorCode.INTERNAL_CONTRACT)
+        controls = rules["state_controls"]
+        bands = (stability_bands(getattr(source, controls.source_fields[0]))
+                 if controls.transform == Transform.STABILITY_BANDS else dict(NEUTRAL_STATE_CONTROL_BANDS))
         return {
             "interaction_patience_band": NEUTRAL_INTERACTION_PATIENCE_BAND,
             "state_controls": {
-                key: PersonalityControl(baseline_score=STATE_BASELINE_SNAPSHOT[key], **NEUTRAL_STATE_CONTROL_BANDS)
+                key: PersonalityControl(baseline_score=STATE_BASELINE_SNAPSHOT[key], **bands)
                 for key in StateKey
             },
         }
@@ -117,7 +122,7 @@ class PersonalityRuntimeMapperV0:
         state = PersonalityProfile(
             profile_id=f"{projection_id}:state",
             mapper_version=PERSONALITY_MAPPER_VERSION,
-            **self._state_fields(),
+            **self._state_fields(source),
         )
         action = ActionPersonalityProfile(
             profile_id=f"{projection_id}:action",

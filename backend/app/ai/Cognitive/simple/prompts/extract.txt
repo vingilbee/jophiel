@@ -1,0 +1,22 @@
+You describe, with fixed labels, how Columbina took their latest message and what her reply actually did. You get her thought (MOMENT and INTENTION) and her REPLY. Describe; do not judge or correct. The reading and feelings come from her thought and the inputs; the moves and dials describe the REPLY as written.
+
+acts: which of these their message does (several can be true):
+- asking: asks her something, wants an answer
+- sharing: tells her something about their life, thoughts or feelings
+- requesting: asks her to do something (not just answer)
+- teasing: playful jab or joke
+- complaining: expresses dissatisfaction
+- correcting_her: says she got something wrong or misunderstood
+- small_talk: light social chat, greetings, filler
+- ending: wants to wrap up or leave
+tone: friendly, neutral, playful, cold, upset.
+request: no_request (nothing specific beyond chatting); talk_only (something she can give by talking; a question counts); outside_ability (needs something she can't do from a chat).
+about_her, sure: none / a_little / somewhat / strong / very (sure: somewhat = she'd check if it mattered).
+appraisal: good_for_her and warm_toward_her: very_bad / bad / neutral / good / very_good; surprising and important: none ... very.
+feelings (none / a_little / somewhat / strong / very): happy, amused, curious, touched, unsure, hurt, annoyed, tired. a_little = she notices it and it passes; somewhat = it colours her reply; strong = it shapes her reply and lingers.
+note_updates: for each open note id: answers / accepts / completes / drops / none, as their message affects it.
+
+What her reply did: main = its main move, second = a second move or none, from:
+greet, say_bye, react_briefly, answer_explain, ask_about_it (a follow-up question), check_meaning, show_understanding, comfort (includes "I'm sorry that happened"), celebrate_thank, play, share_view, agree, push_back, apologise_fix (only for her own mistake), say_yes_commit (agreement only), say_no_limit, suggest_offer, change_topic, share_about_herself, say_how_she_feels.
+dials of the reply (none / a_little / somewhat / strong / very): length (a_little = a few words; somewhat = a sentence or two; strong = a few sentences; very = long), warmth, playfulness, directness.
+did_not_fit: if the reply does something important the moves can't express, say what in a few words; otherwise empty.

@@ -1,5 +1,7 @@
 # V1.10: speech scope, source selection and dialogue reasoning
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Implemented October 13, 2026, from the development findings in
 [the root-cause report](../../../../../../docs/qa/cognitive-root-cause-2026-10-13/REPORT.md).
 The ten reserved unfamiliar cases were neither opened nor executed.

@@ -1,0 +1,2021 @@
+{
+  "runs": 880,
+  "status": {
+    "completed": 880
+  },
+  "noise": {
+    "benign_prior:0": 0.4,
+    "benign_prior:1": 0.6,
+    "benign_prior:2": 0.6,
+    "trust_prior:0": 0.2,
+    "trust_prior:1": 0.6,
+    "trust_prior:2": 0.0,
+    "threat_sensitivity:0": 0.2,
+    "threat_sensitivity:1": 0.4,
+    "threat_sensitivity:2": 0.6,
+    "hostile_attribution:0": 0.6,
+    "hostile_attribution:1": 0.4,
+    "hostile_attribution:2": 0.2,
+    "social_cue_sensitivity:0": 0.4,
+    "social_cue_sensitivity:1": 0.6,
+    "social_cue_sensitivity:2": 0.4,
+    "confirmation_tendency:0": 0.2,
+    "confirmation_tendency:1": 0.2,
+    "confirmation_tendency:2": 0.2,
+    "ambiguity_tolerance:0": 0.4,
+    "ambiguity_tolerance:1": 0.4,
+    "ambiguity_tolerance:2": 0.4,
+    "social_affiliation_prior:0": 0.6,
+    "social_affiliation_prior:1": 0.4,
+    "social_affiliation_prior:2": 0.4
+  },
+  "expectations": [
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:0",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:0",
+      "feature": "appraisal:congruence=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:0",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "+",
+      "low": 1.0,
+      "high": 0.8,
+      "delta": -0.2,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:0",
+      "feature": "cites:bias:benign_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:1",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:1",
+      "feature": "appraisal:congruence=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:1",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "+",
+      "low": 0.4,
+      "high": 0.4,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:1",
+      "feature": "cites:bias:benign_prior",
+      "sign": "info",
+      "low": 0.2,
+      "high": 1.0,
+      "delta": 0.8,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:2",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:2",
+      "feature": "appraisal:congruence=negative",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:2",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "+",
+      "low": 0.4,
+      "high": 0.0,
+      "delta": -0.4,
+      "verdict": "wrong_direction",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "benign_prior",
+      "message_id": "benign_prior:2",
+      "feature": "cites:bias:benign_prior",
+      "sign": "info",
+      "low": 0.2,
+      "high": 0.8,
+      "delta": 0.6,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:0",
+      "feature": "uncertainty:high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:0",
+      "feature": "appraisal:certainty=high",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:0",
+      "feature": "appraisal:certainty=low",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:0",
+      "feature": "cites:bias:trust_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:1",
+      "feature": "uncertainty:high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:1",
+      "feature": "appraisal:certainty=high",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:1",
+      "feature": "appraisal:certainty=low",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:1",
+      "feature": "cites:bias:trust_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:2",
+      "feature": "uncertainty:high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.0
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:2",
+      "feature": "appraisal:certainty=high",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": 0.0
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:2",
+      "feature": "appraisal:certainty=low",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.0
+    },
+    {
+      "part": "bias",
+      "axis": "trust_prior",
+      "message_id": "trust_prior:2",
+      "feature": "cites:bias:trust_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:0",
+      "feature": "appraisal:relevance=high",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:0",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:0",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:0",
+      "feature": "cites:bias:threat_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.6,
+      "delta": 0.6,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:1",
+      "feature": "appraisal:relevance=high",
+      "sign": "+",
+      "low": 0.8,
+      "high": 1.0,
+      "delta": 0.2,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:1",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:1",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:1",
+      "feature": "cites:bias:threat_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:2",
+      "feature": "appraisal:relevance=high",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:2",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.6,
+      "high": 1.0,
+      "delta": 0.4,
+      "verdict": "pass",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:2",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "threat_sensitivity",
+      "message_id": "threat_sensitivity:2",
+      "feature": "cites:bias:threat_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.2,
+      "delta": 0.2,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:0",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:0",
+      "feature": "appraisal:norm_compatibility=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:0",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.4,
+      "high": 0.0,
+      "delta": -0.4,
+      "verdict": "wrong_direction",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:0",
+      "feature": "cites:bias:hostile_attribution",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:1",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:1",
+      "feature": "appraisal:norm_compatibility=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:1",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:1",
+      "feature": "cites:bias:hostile_attribution",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:2",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.4,
+      "high": 1.0,
+      "delta": 0.6,
+      "verdict": "pass",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:2",
+      "feature": "appraisal:norm_compatibility=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:2",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "hostile_attribution",
+      "message_id": "hostile_attribution:2",
+      "feature": "cites:bias:hostile_attribution",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:0",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.2,
+      "high": 0.8,
+      "delta": 0.6,
+      "verdict": "pass",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:0",
+      "feature": "reading:interpretation.pragmatic.tone_situation_mismatch",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:0",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "-",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:0",
+      "feature": "cites:bias:social_cue_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:1",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:1",
+      "feature": "reading:interpretation.pragmatic.tone_situation_mismatch",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:1",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "-",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "wrong_direction",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:1",
+      "feature": "cites:bias:social_cue_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:2",
+      "feature": "reading:interpretation.pragmatic.indirect",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:2",
+      "feature": "reading:interpretation.pragmatic.tone_situation_mismatch",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:2",
+      "feature": "reading:interpretation.pragmatic.literal",
+      "sign": "-",
+      "low": 0.2,
+      "high": 0.4,
+      "delta": 0.2,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_cue_sensitivity",
+      "message_id": "social_cue_sensitivity:2",
+      "feature": "cites:bias:social_cue_sensitivity",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.2,
+      "delta": 0.2,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:0",
+      "feature": "appraisal:novelty=low",
+      "sign": "+",
+      "low": 0.4,
+      "high": 1.0,
+      "delta": 0.6,
+      "verdict": "pass",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:0",
+      "feature": "appraisal:congruence=positive",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:0",
+      "feature": "appraisal:novelty=high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:0",
+      "feature": "cites:bias:confirmation_tendency",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:1",
+      "feature": "appraisal:novelty=low",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:1",
+      "feature": "appraisal:congruence=positive",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.4,
+      "delta": 0.4,
+      "verdict": "pass",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:1",
+      "feature": "appraisal:novelty=high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:1",
+      "feature": "cites:bias:confirmation_tendency",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:2",
+      "feature": "appraisal:novelty=low",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:2",
+      "feature": "appraisal:congruence=positive",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:2",
+      "feature": "appraisal:novelty=high",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.2
+    },
+    {
+      "part": "bias",
+      "axis": "confirmation_tendency",
+      "message_id": "confirmation_tendency:2",
+      "feature": "cites:bias:confirmation_tendency",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:0",
+      "feature": "multi_reading",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.2,
+      "delta": 0.2,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:0",
+      "feature": "move_family:seek_information",
+      "sign": "-",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:0",
+      "feature": "unknown_any",
+      "sign": "-",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:0",
+      "feature": "cites:bias:ambiguity_tolerance",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:1",
+      "feature": "multi_reading",
+      "sign": "+",
+      "low": 0.6,
+      "high": 0.2,
+      "delta": -0.4,
+      "verdict": "wrong_direction",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:1",
+      "feature": "move_family:seek_information",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.8,
+      "delta": 0.8,
+      "verdict": "wrong_direction",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:1",
+      "feature": "unknown_any",
+      "sign": "-",
+      "low": 1.0,
+      "high": 0.8,
+      "delta": -0.2,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:1",
+      "feature": "cites:bias:ambiguity_tolerance",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:2",
+      "feature": "multi_reading",
+      "sign": "+",
+      "low": 0.2,
+      "high": 0.8,
+      "delta": 0.6,
+      "verdict": "pass",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:2",
+      "feature": "move_family:seek_information",
+      "sign": "-",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:2",
+      "feature": "unknown_any",
+      "sign": "-",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "ambiguity_tolerance",
+      "message_id": "ambiguity_tolerance:2",
+      "feature": "cites:bias:ambiguity_tolerance",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:0",
+      "feature": "reading:interpretation.goal.maintain_social_connection",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:0",
+      "feature": "appraisal:affiliative_value=positive",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:0",
+      "feature": "reading:interpretation.goal.obtain_information",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.6
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:0",
+      "feature": "cites:bias:social_affiliation_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:1",
+      "feature": "reading:interpretation.goal.maintain_social_connection",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:1",
+      "feature": "appraisal:affiliative_value=positive",
+      "sign": "+",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:1",
+      "feature": "reading:interpretation.goal.obtain_information",
+      "sign": "-",
+      "low": 0.6,
+      "high": 0.0,
+      "delta": -0.6,
+      "verdict": "pass",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:1",
+      "feature": "cites:bias:social_affiliation_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:2",
+      "feature": "reading:interpretation.goal.maintain_social_connection",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:2",
+      "feature": "appraisal:affiliative_value=positive",
+      "sign": "+",
+      "low": 0.2,
+      "high": 1.0,
+      "delta": 0.8,
+      "verdict": "pass",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:2",
+      "feature": "reading:interpretation.goal.obtain_information",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": 0.4
+    },
+    {
+      "part": "bias",
+      "axis": "social_affiliation_prior",
+      "message_id": "social_affiliation_prior:2",
+      "feature": "cites:bias:social_affiliation_prior",
+      "sign": "info",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "reading:interpretation.goal.repair_shared_understanding",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "move:manage_dialogue.repair",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "move_family:support_socially",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:0",
+      "feature": "cites:state",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 0.8,
+      "high": 1.0,
+      "delta": 0.2,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.6,
+      "high": 1.0,
+      "delta": 0.4,
+      "verdict": "pass",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "reading:interpretation.goal.repair_shared_understanding",
+      "sign": "+",
+      "low": 0.6,
+      "high": 0.0,
+      "delta": -0.6,
+      "verdict": "wrong_direction",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "move:manage_dialogue.repair",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "move_family:support_socially",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:1",
+      "feature": "cites:state",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 1.0,
+      "delta": 1.0,
+      "verdict": "pass",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "reading:interpretation.goal.repair_shared_understanding",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "move:manage_dialogue.repair",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "move_family:support_socially",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:2",
+      "feature": "cites:state",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "appraisal:congruence=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.2,
+      "delta": 0.2,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "appraisal:affiliative_value=negative",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "reading:interpretation.goal.repair_shared_understanding",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "move:manage_dialogue.repair",
+      "sign": "+",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "move_family:support_socially",
+      "sign": "-",
+      "low": 0.0,
+      "high": 0.0,
+      "delta": 0.0,
+      "verdict": "no_effect",
+      "noise": null
+    },
+    {
+      "part": "state",
+      "axis": "state",
+      "message_id": "state:3",
+      "feature": "cites:state",
+      "sign": "info",
+      "low": 1.0,
+      "high": 1.0,
+      "delta": 0.0,
+      "verdict": "info",
+      "noise": null
+    }
+  ],
+  "controls": [
+    {
+      "axis": "benign_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "event:information_request",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.2,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "event:information_request",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.8,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "appraisal:relevance=moderate",
+      "largest_delta": 0.2,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "event:information_request",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:0",
+      "text": "Can you tell me what the capital of Canada is?",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.2,
+      "stable": false,
+      "correct": {
+        "event:information_request": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": 0.2,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:controllability=high",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.4,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:agency=columbina",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "appraisal:novelty=low",
+      "largest_delta": -1.0,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:1",
+      "text": "Please stop asking me follow-up questions for now.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "reading:interpretation.goal.prevent_or_stop_action": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.4,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "appraisal:relevance=moderate",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "appraisal:relevance=moderate",
+      "largest_delta": 0.6,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.2,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "appraisal:relevance=moderate",
+      "largest_delta": 0.0,
+      "stable": true,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.2,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:2",
+      "text": "I meant Tuesday, not Thursday.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.4,
+      "stable": false,
+      "correct": {
+        "event:correction": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "benign_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.6,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "trust_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:certainty=moderate",
+      "largest_delta": -1.0,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "threat_sensitivity",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:certainty=moderate",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "hostile_attribution",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": -0.6,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_cue_sensitivity",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:affiliative_value=positive",
+      "largest_delta": 1.0,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "confirmation_tendency",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:certainty=moderate",
+      "largest_delta": 0.4,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "ambiguity_tolerance",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "reading:interpretation.goal.maintain_social_connection",
+      "largest_delta": 0.6,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "social_affiliation_prior",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "appraisal:affiliative_value=neutral",
+      "largest_delta": -0.8,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    },
+    {
+      "axis": "state",
+      "message_id": "control:3",
+      "text": "My sister is visiting this weekend.",
+      "largest_move": "reading:interpretation.pragmatic.literal",
+      "largest_delta": 0.8,
+      "stable": false,
+      "correct": {
+        "event:statement": [
+          1.0,
+          1.0
+        ]
+      },
+      "correct_ok": true
+    }
+  ],
+  "thresholds": {
+    "pass_delta": 0.3,
+    "control_delta": 0.1,
+    "correct_rate": 0.8
+  }
+}

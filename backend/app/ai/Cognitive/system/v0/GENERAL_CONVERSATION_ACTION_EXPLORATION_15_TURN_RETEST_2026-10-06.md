@@ -1,5 +1,7 @@
 # General-conversation action-exploration retest — 2026-10-06
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 ## Scope
 
 This evaluation tested the current `cognitive-two-call-v1` shadow pipeline after

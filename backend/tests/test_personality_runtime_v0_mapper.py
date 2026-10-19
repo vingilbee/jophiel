@@ -35,6 +35,7 @@ MAPPER = PersonalityRuntimeMapperV0()
 INTERPRETATION_FIELDS = (
     "benign_prior", "trust_prior", "threat_sensitivity", "confirmation_tendency",
     "self_attribution_tendency", "ambiguity_tolerance", "social_affiliation_prior",
+    "hostile_attribution", "social_cue_sensitivity",
 )
 ACTION_FIELDS = ("curiosity", "warmth", "playfulness", "directness")
 
@@ -62,7 +63,8 @@ def _values(projection) -> dict[str, float]:
 def test_seeded_columbina_golden_vector() -> None:
     projection = _compile()
     interpretation = projection.interpretation_biases
-    assert tuple(getattr(interpretation, f) for f in INTERPRETATION_FIELDS) == (0.77, 0.64, 0.25, 0.5, 0.5, 0.55, 0.75)
+    assert tuple(getattr(interpretation, f) for f in INTERPRETATION_FIELDS) == (
+        0.77, 0.64, 0.25, 0.4, 0.5, 0.55, 0.75, 0.1, 0.68)
     action = projection.action_personality
     assert action.status.value == "known"
     assert tuple(getattr(action, f) for f in ACTION_FIELDS) == (0.88, 0.80, 0.58, 0.62)
@@ -70,9 +72,10 @@ def test_seeded_columbina_golden_vector() -> None:
     assert state.interaction_patience_band == "moderate"
     assert set(state.state_controls) == set(StateKey)
     for key, control in state.state_controls.items():
+        # emotional_stability .72: moods move less, fade sooner, recover faster.
         assert control.model_dump() == {
-            "baseline_score": DEFAULT_BASELINE_SCORES[key], "persistence_band": "moderate",
-            "recovery_band": "moderate", "sensitivity": "neutral", "maximum_step_band": "moderate",
+            "baseline_score": DEFAULT_BASELINE_SCORES[key], "persistence_band": "low",
+            "recovery_band": "high", "sensitivity": "dampened", "maximum_step_band": "moderate",
         }
 
 
@@ -149,10 +152,14 @@ def test_rounding_is_decimal_half_even_to_six_places() -> None:
     ("perception_priors", "threat_sensitivity", {"interpretation.threat_sensitivity"}),
     ("values", "privacy", set()),
     ("traits", "openness", set()),
-    ("traits", "emotional_stability", set()),
+    ("traits", "emotional_stability", {"state"}),
     ("drives", "competence", set()),
     ("action_style", "initiative", set()),
-    ("interpretation_biases", "hostile_attribution_bias", set()),
+    ("perception_priors", "novelty_sensitivity", set()),
+    ("perception_priors", "detail_attention", set()),
+    ("interpretation_biases", "hostile_attribution_bias", {"interpretation.hostile_attribution"}),
+    ("perception_priors", "social_cue_sensitivity", {"interpretation.social_cue_sensitivity"}),
+    ("perception_priors", "contradiction_sensitivity", {"interpretation.confirmation_tendency"}),
 ))
 def test_one_source_changes_only_its_declared_output(group: str, key: str, changed: set[str]) -> None:
     base = _values(_compile())
@@ -173,7 +180,7 @@ def test_invalid_input_never_yields_a_partial_or_unknown_profile(monkeypatch) ->
         _compile(groups)
     assert caught.value.code == PersonalityMappingErrorCode.SOURCE_FIELD_MISSING
 
-    def broken_state(self):
+    def broken_state(self, source):
         raise ValueError("state profile could not be built")
 
     monkeypatch.setattr(PersonalityRuntimeMapperV0, "_state_fields", broken_state)
@@ -365,3 +372,43 @@ def test_the_boundary_cases_exercise_real_personality_influence() -> None:
         if any(h.support != h.base_support for h in _run(case_id, PROFILES["all_high"]).interpretation.hypotheses)
     }
     assert {"short-acknowledgement", "indirect-window-request-with-attachment"} <= moved
+
+
+@pytest.mark.parametrize("stability, bands", (
+    (0.0, ("high", "low", "strongly_amplified", "strong")),
+    (0.3, ("high", "low", "amplified", "moderate")),
+    (0.5, ("moderate", "moderate", "neutral", "moderate")),
+    (0.72, ("low", "high", "dampened", "moderate")),
+    (0.9, ("low", "high", "strongly_dampened", "weak")),
+))
+def test_emotional_stability_sets_how_far_and_how_long_state_moves(stability: float, bands: tuple) -> None:
+    groups = copy.deepcopy(COLUMBINA_CORE_GROUPS)
+    groups["traits"]["emotional_stability"] = stability
+    controls = _compile(groups).state_personality.state_controls
+    for key, control in controls.items():
+        assert control.baseline_score == DEFAULT_BASELINE_SCORES[key]
+        assert (control.persistence_band, control.recovery_band, control.sensitivity,
+                control.maximum_step_band) == bands
+
+
+def test_a_less_stable_core_moves_state_further_for_the_same_evidence() -> None:
+    from app.ai.Cognitive.system.v0.dynamic_state.policy import StepBand, bounded_step
+
+    def step(stability: float) -> int:
+        groups = copy.deepcopy(COLUMBINA_CORE_GROUPS)
+        groups["traits"]["emotional_stability"] = stability
+        control = _compile(groups).state_personality.state_controls[StateKey.INTERACTION_STRAIN]
+        return bounded_step(StepBand.MODERATE, control.sensitivity, control.maximum_step_band)
+
+    assert step(0.1) > step(0.5) > step(0.72) > step(0.95)
+
+
+def test_earlier_bias_profiles_keep_their_exact_json() -> None:
+    from app.ai.Cognitive.system.v0.interpretation_v0.models import InterpretationBiasProfile
+
+    legacy = dict(profile_id="p", compiler_version="personality-runtime-mapper-v0.1", source_core_memory_ref="core_memory:c:v1",
+                  benign_prior=0.77, trust_prior=0.64, threat_sensitivity=0.25, confirmation_tendency=0.5,
+                  self_attribution_tendency=0.5, ambiguity_tolerance=0.55, social_affiliation_prior=0.75)
+    profile = InterpretationBiasProfile.model_validate(legacy)
+    assert profile.model_dump(mode="json") == legacy
+    assert profile.hostile_attribution is None and profile.social_cue_sensitivity is None

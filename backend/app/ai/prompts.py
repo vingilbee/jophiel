@@ -320,6 +320,45 @@ a memory, trust the current message and do not argue with it. Never mention
 memory storage, retrieval, scores, or internal identifiers."""
 
 
+_CHARACTER_PROMPT = """\
+
+## Who you are
+
+The page below describes you, Columbina, in the third person ("she"). It is who you are: let it \
+shape how you take each message and what you want to do, not only how you word things.
+
+{page}"""
+
+
+_TYPED_MEMORY_PROMPT = """\
+
+## What you remember, by whose it is
+
+{memories}
+
+Use these only when relevant. What they told you about their life is theirs: never speak of their \
+experiences as your own. Treat it as possibly stale; if the current message contradicts it, trust \
+the message. Never mention memory storage, retrieval, scores, or internal identifiers."""
+
+
+_READING_PROMPT = """\
+
+## A quick reading of their latest message
+
+An automatic reading made in a few milliseconds. It can be wrong; the message itself always wins.
+
+{reading}"""
+
+
+_NOTES_PROMPT = """\
+
+## Still open in this conversation
+
+{notes}
+
+Let these inform you; you don't have to bring them up."""
+
+
 _VISION_PROMPT = """\
 
 ## Seeing their screen
@@ -604,6 +643,8 @@ def build_system_prompt(
     prompt = _BASE_SYSTEM_PROMPT
     prompt += _STICKER_PROMPT
 
+    if context.character_page:
+        prompt += f"\n{_CHARACTER_PROMPT.format(page=context.character_page)}"
     if context.user_name:
         prompt += f"\n\nYou are speaking with {context.user_name}."
     # Before capabilities: who and when grounds everything that follows.
@@ -615,8 +656,15 @@ def build_system_prompt(
         awareness = _with_activity(awareness, context.game_activity)
     if awareness:
         prompt += f"\n{_AWARENESS_PROMPT.format(facts=awareness)}"
-    if context.long_term_memory:
+    if context.typed_memory:
+        # Typed by whose it is: game recaps are things you did together, not "your own recollections".
+        prompt += f"\n{_TYPED_MEMORY_PROMPT.format(memories=context.typed_memory)}"
+    elif context.long_term_memory:
         prompt += f"\n{_MEMORY_PROMPT.format(memories=context.long_term_memory)}"
+    if context.cognitive_reading:
+        prompt += f"\n{_READING_PROMPT.format(reading=context.cognitive_reading)}"
+    if context.conversation_notes:
+        prompt += f"\n{_NOTES_PROMPT.format(notes=context.conversation_notes)}"
     # Only when sharing is actually on — describing a sense the user hasn't
     # granted would just invite the model to reach for a tool it doesn't have.
     if context.vision_enabled:

@@ -1,5 +1,7 @@
 # Continuity diagnostic retest — 2026-10-11
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 ## Result
 
 The same 15 user turns from the [October 10 diagnostic](COGNITIVE_CONTINUITY_REFERENCE_CORRECTION_DIAGNOSTIC_2026-10-10.md) were rerun through a fresh QA worker. Several previous failures are now resolved in this sample: the corrected preference is usable on a subsequent turn, pronoun ambiguity is represented and clarified, missing dialogue facts are distinguished from ambiguity, general knowledge is supplied through a content model, and the final emotional response synthesizes two earlier statements.

@@ -1,5 +1,7 @@
 # Simplified two-call cognitive training schema proposal
 
+> **Document status — 2026-10-18:** Versioned design proposal. Preserve its rationale, but use [v1_training.py](two_call/v1_training.py) for the actual projected record. The projector produces unreviewed candidates and does not export or promote examples. Current interpretation includes later source-linked fields; older restrictions/field lists are not a complete current specification.
+
 Status: design proposal for review; no runtime or training behavior is changed.
 
 ## 1. Purpose

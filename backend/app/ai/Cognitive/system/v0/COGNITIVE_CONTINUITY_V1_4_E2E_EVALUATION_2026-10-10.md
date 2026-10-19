@@ -1,5 +1,7 @@
 # Continuity v1.4 end-to-end shadow evaluation — 2026-10-10
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Follow-up to `COGNITIVE_CONTINUITY_REFERENCE_CORRECTION_DIAGNOSTIC_2026-10-10.md`.
 It evaluates the uncommitted `argument-kind-registry-v1.4` work: extractive
 dialogue citations (`two_call/continuity.py`), `dialogue_recall_request`,

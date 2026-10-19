@@ -1,5 +1,7 @@
 # Compact two-call reliability fix (decision-context-v0.2)
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-05. Scope: observational Cognitive V0 shadow only. No delivery, tool or
 memory authority changed. Follows `COMPACT_TWO_CALL_IMPLEMENTATION_REPORT.md` and
 `PHASED_MODEL_BACKED_COGNITION_AND_LATENCY_IMPLEMENTATION.md`.

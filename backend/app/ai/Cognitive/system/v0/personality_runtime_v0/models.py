@@ -1,7 +1,7 @@
 """Immutable source and error contracts for Personality Runtime Mapper V0.
 
-The source is a closed projection of exactly the ten CoreMemory values V0
-consumes. It is built from plain JSON groups the application layer copies out
+The source is a closed projection of exactly the CoreMemory values V0
+consumes (fourteen since mapper v0.2). It is built from plain JSON groups the application layer copies out
 of the ORM row; this module never sees a database object.
 """
 
@@ -15,9 +15,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, PlainSerializer, model_validator
 
-PERSONALITY_SOURCE_SCHEMA_VERSION = "core-personality-source-v0.1"
-PERSONALITY_MAPPING_MANIFEST_VERSION = "personality-runtime-mapping-v0.1"
-PERSONALITY_MAPPER_VERSION = "personality-runtime-mapper-v0.1"
+PERSONALITY_SOURCE_SCHEMA_VERSION = "core-personality-source-v0.2"
+PERSONALITY_MAPPING_MANIFEST_VERSION = "personality-runtime-mapping-v0.2"
+PERSONALITY_MAPPER_VERSION = "personality-runtime-mapper-v0.2"
 
 # CoreMemory.schema_version values whose group layout V0 understands.
 SUPPORTED_CORE_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})
@@ -117,7 +117,7 @@ class _FrozenSource(BaseModel):
 
 
 class CorePersonalitySourceV0(_FrozenSource):
-    source_schema_version: Literal["core-personality-source-v0.1"] = PERSONALITY_SOURCE_SCHEMA_VERSION
+    source_schema_version: Literal["core-personality-source-v0.2"] = PERSONALITY_SOURCE_SCHEMA_VERSION
     core_memory_ref: str
     core_memory_name: str
     core_memory_version: int
@@ -129,6 +129,11 @@ class CorePersonalitySourceV0(_FrozenSource):
     ambiguity_tolerance: UnitDecimal
     threat_sensitivity: UnitDecimal
     affiliation: UnitDecimal
+    # v0.2: read so they can condition interpretation and state movement.
+    hostile_attribution_bias: UnitDecimal
+    social_cue_sensitivity: UnitDecimal
+    contradiction_sensitivity: UnitDecimal
+    emotional_stability: UnitDecimal
 
     curiosity: UnitDecimal
     warmth: UnitDecimal
@@ -154,6 +159,10 @@ SOURCE_PATHS: dict[str, tuple[str, str]] = {
     "ambiguity_tolerance": ("interpretation_biases", "ambiguity_tolerance"),
     "threat_sensitivity": ("perception_priors", "threat_sensitivity"),
     "affiliation": ("drives", "affiliation"),
+    "hostile_attribution_bias": ("interpretation_biases", "hostile_attribution_bias"),
+    "social_cue_sensitivity": ("perception_priors", "social_cue_sensitivity"),
+    "contradiction_sensitivity": ("perception_priors", "contradiction_sensitivity"),
+    "emotional_stability": ("traits", "emotional_stability"),
     "curiosity": ("drives", "curiosity"),
     "warmth": ("action_style", "warmth"),
     "playfulness": ("action_style", "playfulness"),
@@ -169,7 +178,7 @@ def source_path(field: str) -> str:
 def build_source(
     *, name: Any, version: Any, schema_version: Any, groups: Mapping[str, Any],
 ) -> CorePersonalitySourceV0:
-    """Copy exactly the ten consumed paths from plain CoreMemory JSON groups.
+    """Copy exactly the consumed paths from plain CoreMemory JSON groups.
 
     Every other group and key is ignored. Any missing, null, Boolean,
     nonnumeric, non-finite, or out-of-range consumed value fails the whole

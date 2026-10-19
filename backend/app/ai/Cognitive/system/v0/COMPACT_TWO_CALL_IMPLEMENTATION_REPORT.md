@@ -1,5 +1,7 @@
 # Compact context-conditioned two-call implementation
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 Date: 2026-10-04. Scope: observational Cognitive V0 shadow.
 Implements the runtime redesign in `PHASED_MODEL_BACKED_COGNITION_AND_LATENCY_IMPLEMENTATION.md`
 and `CONTEXT_CONDITIONED_TWO_CALL_PIPELINE_REDESIGN.md`. Behavioral acceptance and

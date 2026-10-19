@@ -1,5 +1,7 @@
 # Compact two-call latency and size record
 
+> **Document status — 2026-10-18:** Historical implementation/evaluation record. Results, configuration, “current” status, and next-step instructions below apply to the recorded revision and sample. They are not the current backlog or proof of present behavior. Start with the [current guide](README.md) and [document index](DOCUMENTATION_INDEX.md).
+
 2026-10-04. **No live provider latency benchmark was run.** p50/p95/max latency,
 live acceptance rate, real input/output/cache/reasoning token counts and first-token
 timing are unavailable. The user's previously reported 25.68 seconds is historical

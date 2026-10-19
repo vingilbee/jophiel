@@ -41,7 +41,7 @@ DESIGN_CASES = DATA / "realization_design_cases.json"
 @lru_cache(maxsize=1)
 def mapper_projection():
     groups = {key: COLUMBINA_CORE_GROUPS[key] for key in ("interpretation_biases", "perception_priors", "drives",
-                                                          "action_style")}
+                                                          "action_style", "traits")}
     return PersonalityRuntimeMapperV0().compile(build_source(name="columbina", version=1, schema_version=1, groups=groups))
 
 
