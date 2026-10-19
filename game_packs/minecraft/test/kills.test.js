@@ -42,3 +42,16 @@ test('a death long after her last hit is not hers, and each death counts once', 
   assert.deepEqual(bot.killCounts, { zombie: 1 })
   assert.deepEqual(kills, ['zombie'])
 })
+
+test('a bot not connected yet has no attack: it is counted once mineflayer adds it', () => {
+  const bot = new EventEmitter()
+  bot.entity = { id: 1 }
+  attachKills(bot) // createBot returns before its plugins load
+  bot.swings = []
+  bot.attack = (entity) => bot.swings.push(entity.id)
+  bot.emit('inject_allowed')
+  bot.attack({ id: 7, name: 'sheep' })
+  bot.emit('entityDead', { id: 7, name: 'sheep' })
+  assert.deepEqual(bot.swings, [7])
+  assert.deepEqual(bot.killCounts, { sheep: 1 })
+})
