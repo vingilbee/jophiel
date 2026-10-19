@@ -124,3 +124,6 @@ build/
 dist/
 *.whl
 *.egg
+
+# Local process-runner config for Windows (mprocs.yaml is the shared one)
+mprocs.windows.yaml
