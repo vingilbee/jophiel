@@ -468,7 +468,7 @@ function ago(at?: number): string {
   return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`
 }
 
-/** Keep playing on her own after a goal, and how often she speaks up (stage D2b). */
+/** Keep playing on her own after a goal, exploring (her own player), and how often she speaks up. */
 function PlayOptions() {
   const { session, busy, setOptions } = useDesktopSession()
   if (!session) return null
@@ -485,6 +485,19 @@ function PlayOptions() {
         />
         Keep playing on her own
       </label>
+      {session.profile_id === 'minecraft_pack' && (
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={session.explore}
+            disabled={busy}
+            onChange={(e) =>
+              void setOptions(e.target.checked ? { explore: true, autonomy: 'continue' } : { explore: false })
+            }
+          />
+          Explore and learn
+        </label>
+      )}
       <span role="group" aria-label="How often she speaks up" className="flex gap-1">
         {(['quiet', 'occasional', 'commentary'] as const).map((mode) => (
           <button

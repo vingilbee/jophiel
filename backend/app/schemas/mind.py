@@ -16,7 +16,14 @@ class ThoughtOut(BaseModel):
     level: Literal["react", "light", "quiet", "hard"]
     text: str
     said: str | None
-    status: Literal["done", "stale", "unfinished"]
+    status: Literal["done", "stale", "unfinished", "dropped"]
     topic: str | None
     kind: str | None = None
+    # Hard thoughts (services/mind_hard.py).
+    trigger: str | None = None
+    conclusion_kind: str | None = None
+    thinking: str | None = None
+    for_hands: str | None = None
+    question: str | None = None
+    dropped_reason: str | None = None
     created_at: datetime

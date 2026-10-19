@@ -98,8 +98,8 @@ The program is the body of an async JavaScript function. It runs in a sealed san
 (the skill gave up; you may try something else), or invalid (bad params: reason says why; nothing ran). \
 If a skill ends hurt or stopped, the whole program ends at once.
 - state(): what you see right now, as an object: position {{x, y, z}} (your feet), facing {{compass}}, \
-standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, inventory \
-[{{name, count}}], armor, nearby [{{id, label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs: \
+standing_on (block name), on_ground, in_water, health, food, oxygen, held {{name, count}}, hotbar \
+[{{slot (1-9), name, count}}], hotbar_selected (the slot in your hand), off_hand, inventory [{{name, count}}], armor, nearby [{{id, label, kind, distance, side, dy, position {{x, y, z}}}}] (players and mobs: \
 label is the mob ("rabbit", "zombie") or the player's name; kind is the game's type: "player", "hostile", \
 "animal", "passive", "water_creature", "ambient", "projectile" or "other", so find a mob by its label), blocks [{{kind, name, distance, side, dy}}] (the nearest log, ore, \
 water, lava, crafting table, furnace, bed, chest), players [{{name, holding, health, moving, pose}}], time {{phase}}, \
@@ -139,8 +139,9 @@ Rules:
 assume a skill worked.
 - Look before you act: read state(), and use blockAt/findBlocks to find out where things are (water, a gap, \
 the ground) instead of guessing coordinates. Use the real positions and names they give.
-- When no skill does it, build it from single actions: that's what they're for. A skill refusing (e.g. fight \
-only takes hostile mobs) is not the end.
+- When no skill does it, build it from single actions: that's what they're for. A skill refusing is not the end.
+- act.attack swings with whatever is in your hand: hold your best weapon first (act.equip a sword, else an axe, \
+from state().inventory). skills.fight takes any mob by name (count, 1 by default) with her best weapon.
 - Keep it short: under 80 lines, at most 40 skill calls, no endless loops (bound every loop).
 - Return a small object that says what you did and whether it worked, e.g. {{ done: true, crossed: 12 }}.
 - If the task can't be done at all with your skills and single actions (not "not now": a mob that wandered off \
@@ -160,6 +161,29 @@ health, how long she was in water while it ran). Judge from the counted facts an
 and log are its claims, not proof. A block placed shows as +1 of it in the blocks counted. Success means the \
 task is actually done in the world. If it isn't, say in one or two sentences what went wrong, so the next try \
 can fix it."""
+
+
+TIDY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "changed": {"type": "boolean", "description": "false if it's already tidy: then code is ignored"},
+        "code": {"type": "string", "description": "the tidied function body (JavaScript)"},
+        "changes": {"type": "string", "description": "one sentence: what you changed"},
+    },
+    "required": ["changed", "code", "changes"],
+    "additionalProperties": False,
+}
+
+TIDY_RULES = """
+
+You have just taught yourself this task, and the program below worked. It's being kept as one of your moves, used again later in other places, sometimes several times in a row (each run should do the task once). It was written for that one moment, over several tries. Tidy it so it works anywhere, doing the same thing in the world:
+- Replace anything copied from that moment (fixed coordinates, entity ids, a player's or mob's position) with look-ups: state(), findBlocks, blockAt, positions relative to where you stand. The same for items you \
+happened to carry then: a block to place or a tool picked by name ("birch_planks") becomes one chosen from your \
+inventory when it runs (any placeable block, the best tool you have). Names the task itself gives stay.
+- Remove leftover debugging, dead branches and steps that did nothing. Keep the log() lines that say what happened.
+- Keep every check of an outcome and every bound on a loop. Don't add new ideas or new ways of doing it.
+- It must end with { done: true, ... } when it worked and { done: false, reason: "..." } when it didn't: a run that returns done: false stops the repeats.
+- If it's already like that, say changed: false. Write only the function body: no declaration, no fences."""
 
 
 @dataclass
@@ -518,3 +542,32 @@ def program_text(program: dict) -> str:
     if program.get("log"):
         lines.append("Log: " + " | ".join(program["log"]))
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Tidying a move that worked
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class Tidied:
+    code: str
+    changes: str
+
+
+def tidy(model: DriverModel, manifest: list[dict], task: str, code: str, last_try: dict | None = None,
+         game: str = "Minecraft") -> Tidied | None:
+    """A cleaner copy of a program that worked (fixed positions and ids looked up instead,
+    leftovers gone), or None when it's already tidy or the model can't. Not run here:
+    ``game_skills`` keeps the original until the tidied copy has worked once."""
+    text = f"Task: {task}\n\nThe program that worked:\n{code}"
+    if last_try:
+        if last_try.get("facts"):
+            text += f"\n\nWhat it did, counted by the game: {facts_text(last_try['facts'])}"
+        if (last_try.get("verdict") or {}).get("reason"):
+            text += f"\nWhy it counted as done: {last_try['verdict']['reason']}"
+    reply = model.step(writer_prompt(manifest, game) + TIDY_RULES, text, [], TIDY_SCHEMA)
+    tidied = str(reply.output.get("code", "")).strip()[:MAX_CODE_CHARS]
+    if not reply.output.get("changed") or not tidied or tidied == code.strip():
+        return None
+    return Tidied(tidied, str(reply.output.get("changes", ""))[:400])

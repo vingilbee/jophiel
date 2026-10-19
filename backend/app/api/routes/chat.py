@@ -257,7 +257,8 @@ def _active_jobs_for_user(user_id: uuid.UUID):
 def _game_fields(game) -> dict:
     """The game summary and activity line for a turn's context (none without a game VM)."""
     return {"game": game.summary if game else None, "game_activity": game.activity if game else None,
-            "game_planner": game.planner if game else False}
+            "game_planner": game.planner if game else False,
+            "game_moment": game.moment if game else None}
 
 
 # An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
@@ -993,7 +994,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             long_term_memory=long_term_memory,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
-            **_game_fields(await asyncio.to_thread(desktop_game.summary_for, user_id)),
+            **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
         )
         clauses: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = (

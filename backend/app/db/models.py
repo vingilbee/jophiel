@@ -1413,6 +1413,9 @@ class DesktopSession(Base):
     # When a goal is done: "continue" = Columbina picks the next goal herself;
     # "stop" = she says so and the session pauses.
     autonomy: Mapped[str] = mapped_column(String(16), nullable=False, default="continue", server_default="continue")
+    # Explore and learn (stage H3, services/game_challenges.py): after a goal she picks her
+    # own next challenge, and the cap on goals she picks herself doesn't apply.
+    explore: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     # Retried start requests (e.g. a repeated tool call) return the same session.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1532,11 +1535,20 @@ class MindThought(Base):
     topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # The kind of thinking (why, next, you, judgement, feeling, memory; think.KINDS). Null for hard thoughts.
     kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # Hard thoughts (app/ai/mind/hard.py): what started it (failing, surprise, big, handoff, quiet), the kind
+    # of conclusion (decision, guess, question, intention, feeling), her private reasoning (panel only), a tip
+    # for her hands, a question for the user, and why it was dropped (status "dropped").
+    trigger: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    conclusion_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    thinking: Mapped[str | None] = mapped_column(Text, nullable=True)
+    for_hands: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dropped_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("level IN ('react', 'light', 'quiet', 'hard')", name="ck_mind_thoughts_level"),
-        CheckConstraint("status IN ('done', 'stale', 'unfinished')", name="ck_mind_thoughts_status"),
+        CheckConstraint("status IN ('done', 'stale', 'unfinished', 'dropped')", name="ck_mind_thoughts_status"),
         Index("ix_mind_thoughts_user_created", "user_id", "created_at"),
     )
 
@@ -1693,7 +1705,8 @@ class GameSkillAttempt(Base):
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'running', 'learned', 'failed', 'stopped')",
                         name="ck_game_skill_attempts_status"),
-        CheckConstraint("origin IN ('offer', 'user')", name="ck_game_skill_attempts_origin"),
+        # self: she started it herself (exploring, or a step no skill does; stage H3)
+        CheckConstraint("origin IN ('offer', 'user', 'self')", name="ck_game_skill_attempts_origin"),
         # One attempt at a time per session: her body can only learn one thing at once.
         Index("uq_game_skill_attempts_active_session", "session_id", unique=True,
               postgresql_where=text("status IN ('queued', 'running')")),
@@ -1701,11 +1714,44 @@ class GameSkillAttempt(Base):
     )
 
 
+class GameChallenge(Base):
+    """A challenge she set herself while exploring (stage H3, services/game_challenges.py):
+    proposed when a goal is done, active once she makes it her goal, then done, given up
+    (she set another goal), replaced (the user gave one) or expired (the session ended)."""
+
+    __tablename__ = "game_challenges"
+    __table_args__ = (
+        CheckConstraint("status IN ('proposed','active','done','given_up','replaced','expired')",
+                        name="ck_game_challenges_status"),
+        Index("ix_game_challenges_user_game", "user_id", "game", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    challenge: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    aim: Mapped[str] = mapped_column(String(16), nullable=False)  # discover | for_us
+    check: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # a StepCheck, when one fits
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="proposed", server_default="proposed")
+    plan_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the plan that is this challenge
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    learned: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # names of moves learned on the way
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class GameLearnedSkill(Base):
     """A move she taught herself (stage H2): the program from an attempt that worked,
     kept per user so her hands can use it in any later session (services/game_skills.py).
     Usable as soon as it's learned; the user can switch it off or delete it on the
-    Learning page. Learning the same move again replaces the program."""
+    Learning page. Learning the same move again replaces the program. Three misses in
+    a row switch it off by themselves; a learned program is tidied once, and the tidied
+    copy goes back to ``original_code`` if it misses before it ever worked."""
 
     __tablename__ = "game_learned_skills"
     __table_args__ = (UniqueConstraint("user_id", "game", "name", name="uq_game_learned_skills_user_game_name"),)
@@ -1722,6 +1768,11 @@ class GameLearnedSkill(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     successes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    misses_in_row: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    off_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # why it switched itself off
+    original_code: Mapped[str | None] = mapped_column(Text, nullable=True)  # as learned, when ``code`` is tidied
+    tidy_note: Mapped[str | None] = mapped_column(Text, nullable=True)  # what the tidy changed, or why it was undone
+    tidy_proven: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

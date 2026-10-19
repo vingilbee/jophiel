@@ -113,6 +113,8 @@ export interface DesktopSession {
   commentary_mode: DesktopCommentaryMode
   /** After a goal: "continue" = she picks the next one herself; "stop" = she pauses and tells you. */
   autonomy: 'continue' | 'stop'
+  /** Her own Minecraft player: after a goal she picks her own next challenge (stage H3). */
+  explore: boolean
   max_duration_seconds: number
   started_at: string
   ended_at: string | null
@@ -169,4 +171,10 @@ export interface DesktopDriverState {
   outcomes?: { skill: string; params: Record<string, unknown>; status: string; reason: string | null; at: number }[]
   notices?: { kind: string; urgency: string; text: string }[]
   decisions?: number
+}
+
+export interface DesktopSessionOptions {
+  autonomy?: 'continue' | 'stop'
+  commentary_mode?: DesktopCommentaryMode
+  explore?: boolean
 }

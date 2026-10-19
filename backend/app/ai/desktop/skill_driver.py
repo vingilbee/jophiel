@@ -42,6 +42,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.ai.desktop import step_check
 from app.ai.desktop.driver import DriverModel, DriverModelError
 from app.ai.desktop.pack_client import PackError
 from app.services import game_skills
@@ -52,6 +53,7 @@ STATUSES = ("working", "step_done", "stuck", "needs_human")
 WAIT_SKILL = "wait"
 MAX_WAIT_SECONDS = 30
 POLL_SECONDS = 0.5  # how long one step waits on a running skill before looking around again
+CHECK_SECONDS = 1.0  # how often a running skill's step check (step_check) is counted
 MAX_MODEL_ERRORS = 3
 MAX_REFUSED = 3  # the pack refused this many decisions in a row: stuck
 MAX_OUTCOMES = 8  # outcomes kept for the prompt
@@ -205,6 +207,9 @@ during this step: read "Inventory change since this step began", never the total
 says so (e.g. "the user says to stop"), never because you happen to be close: keep doing them (follow_player \
 again whenever one ends).
 - Your state says who you are ("You are ..."). Never target yourself; "the user" is one of the other players.
+- An outcome's "counted" is what the game counted while it ran (items gained or lost, mobs killed): trust it \
+over the skill's own words (a move that says "the target is gone" while it counted killed sheep 1 did kill it). \
+A step with "counted:" ends by itself the moment that's true, even mid-skill.
 - Read the last outcome before choosing. If a skill failed, its reason says what's missing: fix that first \
 (e.g. "no tool that can harvest stone (needs wooden_pickaxe...)" -> get logs, craft planks, sticks, a crafting \
 table, place it, craft the pickaxe). Don't repeat the same failing action unchanged.
@@ -243,6 +248,12 @@ explore or mine: guard fights hostiles close to you or the player you're with, g
 close by, pickup grabs drops. Don't spend decisions on what a mode that's on already does; an outcome's \
 "interruptions" say what they did along the way.
 - Columbina's messages to you are how to play: follow them.
+- What you hold: "use your sword", "switch to the pickaxe", "hold the torch" is hold (item or a kind, e.g. \
+"sword"; hand="off" for the off-hand); "put the sword in slot 1" is put_in_hotbar. Your "Hotbar" line shows the \
+9 slots and which is in your hand. Mining, eating, placing and fight switch by themselves; a learned move uses \
+what's in your hand, so hold the right thing first (a weapon before one that attacks).
+- fight takes any mob by name when the step needs it (sheep for wool, a cow for leather): count of them, 1 by \
+default. Never players.
 - Skills named learned_... are moves Columbina taught herself: use them like any skill for what they do \
 (times: how many in a row, e.g. one block up per time). Read their outcome as for any skill.
 - If you truly can't make progress (tried several different ways), answer status "stuck" with a note saying \
@@ -346,9 +357,12 @@ class SkillDriverDeps:
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
     # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
-    # successes}], each one more skill; learned_used(session, name, worked) counts a use.
+    # successes}], each one more skill; learned_used(session, name, status, reason) counts a use and says
+    # what changed about the move (switched off, back to its original program), or None.
     learned: Callable[[uuid.UUID], list[dict]] | None = None
-    learned_used: Callable[[uuid.UUID, str, bool], None] | None = None
+    learned_used: Callable[[uuid.UUID, str, str, str | None], str | None] | None = None
+    # How the lesson that last held her hands ended: {task, status, result}, or None.
+    lesson_result: Callable[[uuid.UUID], dict | None] | None = None
     now: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
 
@@ -380,6 +394,13 @@ class SkillDriverRun:
     step_inventory: dict[str, int] | None = None
     # What her background modes did lately: [{"text", "at"}], newest last.
     modes_did: list[dict] = field(default_factory=list)
+    # Counted from (step_check.baseline): the current step's first look, the running skill's start,
+    # and the start of a lesson that held her hands.
+    step_start: dict | None = None
+    run_before: dict | None = None
+    hold_before: dict | None = None
+    was_learning: bool = False
+    last_check_at: float = 0.0
     manifest: list[dict] | None = None
     learned: dict[str, dict] = field(default_factory=dict)  # name -> her learned move (H2)
     _schema: dict | None = None
@@ -397,8 +418,14 @@ class SkillDriverRun:
             self.running = None
             self.waiting_until = None
             self.manifest = None  # what she learns is one more skill afterwards
+            if not self.was_learning:
+                self.was_learning = True
+                self.hold_before = self._baseline()
             deps.sleep(1.0)
             return True
+        if self.was_learning:
+            self.was_learning = False
+            self._lesson_ended(view)
         try:
             self._pull_notices()
             if self.manifest is None:
@@ -437,6 +464,16 @@ class SkillDriverRun:
             return self._pack_down(exc)
         if self.step_inventory is None:
             self.step_inventory = inventory_counts(state)
+            self.step_start = step_check.baseline(state)
+        why = step_check.met(current.get("check"), state, self.step_start)
+        if why:  # counted true already: no decision needed
+            self.note = f"done, counted: {why}"
+            deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
+                          status="step_done", note=self.note)
+            deps.metric({"session": str(self.session_id), "event": "step_counted_done", "plan_step": current["id"],
+                         "why": why})
+            self._save()
+            return True
         messages = deps.messages(self.session_id) if deps.messages else []
         text = self.prompt_text(view, current, state, messages)
         asked_at = deps.now()
@@ -504,6 +541,7 @@ class SkillDriverRun:
             else:
                 self._stop_running("the plan changed")
         if action is not None:
+            self.run_before = step_check.baseline(state)
             self._start(view, current, *action)
         if self.decisions >= self.max_decisions:
             deps.pause(self.session_id, "budget")
@@ -577,6 +615,24 @@ class SkillDriverRun:
         if running["skill"] not in DANGER_SKILLS and self._urgent():
             self._stop_running("something urgent was noticed")
             return True
+        current = view.current_step()
+        if current is not None and current.get("check") and current["id"] == running.get("step_id") \
+                and deps.now() - self.last_check_at >= CHECK_SECONDS:
+            self.last_check_at = deps.now()
+            try:
+                state = deps.pack.state()
+            except PackError as exc:
+                return self._pack_down(exc)
+            why = step_check.met(current["check"], state, self.step_start)
+            if why:  # the step is done, whatever the skill thinks (seen live: 11 blocks past the pillar's top)
+                self._stop_running(f"its step is done (counted: {why})")
+                self.note = f"done, counted: {why}"
+                deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
+                              status="step_done", note=self.note)
+                deps.metric({"session": str(self.session_id), "event": "step_counted_done",
+                             "plan_step": current["id"], "why": why})
+                self._save()
+                return True
         try:
             if running.get("program"):
                 record = deps.pack.get_program(running["id"], wait=POLL_SECONDS)
@@ -589,17 +645,56 @@ class SkillDriverRun:
         self.running = None
         if running.get("program"):
             record = game_skills.outcome(record, running["skill"], running["params"])
-            if deps.learned_used:
-                try:
-                    deps.learned_used(self.session_id, running["skill"], record["status"] == "done")
-                except Exception:  # noqa: BLE001 - counting never stops play
-                    pass
+        counted = self._counted(self.run_before)
+        if counted:
+            record = {**record, "data": {**(record.get("data") or {}), "counted": counted}}
+        if running.get("program") and deps.learned_used:
+            try:
+                changed = deps.learned_used(self.session_id, running["skill"], record["status"], record.get("reason"))
+            except Exception:  # noqa: BLE001 - counting never stops play
+                changed = None
+            if changed:  # switched off, or a different program: her skill list is read again
+                record = {**record, "reason": f"{record.get('reason') or record['status']} ({changed})"}
+                self.manifest = None
         self._outcome(record, step_id=running.get("step_id"))
         if self.deps.notice and record.get("status") == "done" and running["skill"] == "fight" \
                 and (record.get("data") or {}).get("killed"):
             self.deps.notice(self.session_id, "notable", f"killed {record['data']['killed']} "
                              f"{'mob' if record['data']['killed'] == 1 else 'mobs'}")
         return True
+
+    def _baseline(self) -> dict | None:
+        try:
+            return step_check.baseline(self.deps.pack.state())
+        except PackError:
+            return None
+
+    def _counted(self, before: dict | None) -> str | None:
+        """What the game counted since ``before`` (items, kills), or None."""
+        if before is None:
+            return None
+        try:
+            return step_check.change(before, self.deps.pack.state())
+        except PackError:
+            return None
+
+    def _lesson_ended(self, view: DriverView) -> None:
+        """A lesson held her hands: how it ended, and what it counted, as an outcome of the step
+        (seen live: the lesson killed the sheep and her hands went on chasing it)."""
+        result = None
+        if self.deps.lesson_result is not None:
+            try:
+                result = self.deps.lesson_result(self.session_id)
+            except Exception:  # noqa: BLE001 - a lesson's news never stops play
+                result = None
+        current = view.current_step()
+        if result is None or current is None:
+            return
+        counted = self._counted(self.hold_before)
+        self._outcome({"skill": "lesson", "params": {"task": result.get("task", "")},
+                       "status": "done" if result.get("status") == "learned" else "failed",
+                       "reason": result.get("result"), "data": {"counted": counted} if counted else {}},
+                      step_id=current["id"])
 
     def _stop_running(self, why: str) -> None:
         if self.running is None:
@@ -714,7 +809,9 @@ class SkillDriverRun:
             mark = {"done": "[done]", "active": "[now]", "pending": "[next]"}.get(st["state"], "")
             if st["id"] == current["id"]:
                 mark = "[now]"
-            lines.append(f"  {mark} {st['id']}: {st['do']} (done when: {st['done_when']})")
+            counted = step_check.describe(st.get("check"))
+            lines.append(f"  {mark} {st['id']}: {st['do']} (done when: {st['done_when']}"
+                         + (f"; counted: {counted}" if counted else "") + ")")
         if plan.get("constraints"):
             lines.append("Rules for this goal (keep them the whole time): " + "; ".join(plan["constraints"]))
         if plan.get("if_stuck"):
@@ -793,8 +890,8 @@ class SkillDriverRun:
         """Every step is done: wait for Columbina's next goal when playing on
         her own, otherwise pause (plan complete)."""
         deps = self.deps
-        picked = deps.auto_goals(self.session_id) if deps.auto_goals else 0
-        if view.autonomy != "continue" or picked >= self.max_auto_goals:
+        picked = deps.auto_goals(self.session_id) if deps.auto_goals and not view.exploring else 0
+        if view.autonomy != "continue" or picked >= self.max_auto_goals:  # exploring: no cap (stage H3)
             deps.pause(self.session_id, "plan_complete")
             self._save()
             return False

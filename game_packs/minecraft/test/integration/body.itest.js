@@ -133,6 +133,43 @@ describe('her body on a real server', { skip: !eulaAccepted() && 'accept the Min
     assert.ok(bot.inventory.items().some((i) => i.name === 'leather_chestplate'))
   })
 
+  test('hold and put_in_hotbar: the server sees what she holds, and the slots she arranged', async () => {
+    await reset()
+    await mc(`item replace entity ${NAME} hotbar.0 with minecraft:stone_pickaxe`)
+    await mc(`item replace entity ${NAME} inventory.5 with minecraft:wooden_sword`)
+    await mc(`item replace entity ${NAME} inventory.6 with minecraft:shield`)
+    await until(() => bot.inventory.items().length >= 3)
+    let r = await run('hold', { item: 'sword' })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    assert.equal(bot.heldItem?.name, 'wooden_sword')
+    // What the other player sees in her hand is what the server has.
+    await until(() => friend.players[NAME]?.entity?.heldItem?.name === 'wooden_sword', 5000)
+    r = await run('hold', { item: 'shield', hand: 'off' })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    await until(() => bot.inventory.slots[45]?.name === 'shield', 5000)
+    r = await run('put_in_hotbar', { item: 'wooden_sword', slot: 9 })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    await until(() => bot.inventory.slots[44]?.name === 'wooden_sword', 5000)
+    r = await run('hold', { slot: 1 })
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    await until(() => bot.heldItem?.name === 'stone_pickaxe', 5000)
+  })
+
+  test('fight: a sheep she is told to, one, with her best weapon', async () => {
+    await reset()
+    await mc(`item replace entity ${NAME} inventory.3 with minecraft:stone_sword`)
+    await until(() => bot.inventory.items().length >= 1)
+    await mc(`summon minecraft:sheep ${at(4, 0, 0)} {NoAI:1b}`)
+    await mc(`summon minecraft:sheep ${at(-4, 0, 3)} {NoAI:1b}`)
+    await until(() => Object.values(bot.entities).filter((e) => e.name === 'sheep').length === 2, 5000)
+    const r = await run('fight', { target: 'sheep' }, 60000)
+    assert.equal(r.status, 'done', JSON.stringify(r))
+    assert.equal(r.data.killed, 1)
+    assert.equal(bot.heldItem?.name, 'stone_sword')
+    await sleep(1500)
+    assert.equal(Object.values(bot.entities).filter((e) => e.name === 'sheep').length, 1) // the other one lives
+  })
+
   test('breathing: dropped deep in water with nothing to do, she swims up before she drowns', async () => {
     await reset()
     // A glass tank, 12 deep, full of water; her air drains while she sits at the bottom.

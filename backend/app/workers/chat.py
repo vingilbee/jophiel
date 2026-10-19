@@ -23,7 +23,7 @@ from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
-from app.services import desktop_game
+from app.services import desktop_game, game_correction
 from app.services import asset_store, chat as chat_service, google_account
 from app.services import cognitive_shadow
 from app.services import dialogue_memory
@@ -209,7 +209,7 @@ async def _generate(job: ChatJob) -> None:
             raise
 
     long_term_memory, _ = await asyncio.gather(*background)
-    game = await asyncio.to_thread(desktop_game.summary_for, job.user_id)
+    game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     spoke_at = payload.get("spoke_at")
     picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
                if game is not None and spoke_at else None)
@@ -234,6 +234,7 @@ async def _generate(job: ChatJob) -> None:
         game_activity=game.activity if game else None,
         game_vm=game.vm if game else False,
         game_planner=game.planner if game else False,
+        game_moment=game.moment if game else None,
         spoke_at=spoke_at,
         game_picture=picture[0] if picture else None,
         game_picture_note=picture[1] if picture else None,
@@ -425,6 +426,9 @@ async def _generate(job: ChatJob) -> None:
         publish(turn_id, {"type": "stopped" if stopped else "done",
                           "turn_id": str(turn_id), "message_id": str(assistant_id),
                           "status": outcome})
+        if outcome == "completed":
+            # The game may have moved on while she said it: she corrects herself if so.
+            game_correction.start(job.user_id, reply, context.game_moment)
         if context.channel == "whatsapp":
             whatsapp_service.wake_worker()
     except Exception as exc:

@@ -9,6 +9,14 @@ function where (entity) {
   return `${entity.distance} m ${entity.side}${vertical}`
 }
 
+// "Hotbar: 1 wooden_sword, 2 [in hand] stone_pickaxe, 3 empty, ... Off-hand: shield."
+export function describeHotbar (state) {
+  if (!state.hotbar) return []
+  const slots = state.hotbar.map((s) => `${s.slot}${s.slot === state.hotbar_selected ? ' [in hand]' : ''} ` +
+    (s.name ? `${s.name}${s.count > 1 ? ` x${s.count}` : ''}` : 'empty'))
+  return [`Hotbar: ${slots.join(', ')}. Off-hand: ${state.off_hand ? state.off_hand.name : 'empty'}.`]
+}
+
 export function describeState (state) {
   const p = state.position
   const lines = [
@@ -22,6 +30,7 @@ export function describeState (state) {
       `Wearing ${Object.values(state.armor ?? {}).length ? Object.values(state.armor).join(', ') : 'no armor'}.`,
     `Day ${state.time.day}, ${state.time.phase} (time ${state.time.time_of_day}), weather ${state.weather}.`,
     `Inventory: ${state.inventory.length ? state.inventory.map((i) => `${i.name} x${i.count}`).join(', ') : 'empty'}.`,
+    ...describeHotbar(state),
     `Nearby: ${state.nearby.length ? state.nearby.map((e) => `${e.label} ${where(e)}`).join('; ') : 'nothing within range'}.`,
     `Blocks: ${state.blocks?.length ? state.blocks.map((b) => `${b.name} ${where(b)}`).join('; ') : 'nothing notable close by'}.`
   ]

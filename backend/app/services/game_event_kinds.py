@@ -58,6 +58,12 @@ KINDS: dict[str, Kind] = {
     "plan": Kind(said=NOT_QUIET),
     # How teaching herself a move ended (services/game_practice.py): learned it, or couldn't.
     "learning": Kind(said=NOT_QUIET),
+    # She corrects something she just said that the game has since made wrong
+    # (services/game_correction.py): in any mode, with no gap. Never wakes her.
+    "correction": Kind(wakes=frozenset(), always=True),
+    # A question from her own slow thinking (services/mind_hard.py), asked at a natural pause:
+    # she needs the user's answer, so in any mode. Never wakes her.
+    "question": Kind(wakes=frozenset(), always=True),
 }
 # What her mind replaces while it's on: notices she'd be woken to comment on (it sees
 # the same notices every tick). Plan progress, stuck and pauses still wake her.

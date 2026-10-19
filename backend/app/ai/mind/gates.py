@@ -31,9 +31,10 @@ LEVEL_GUIDE = {
              "blurting out.",
     "light": "Worth a short thought or one short line, but no planning: something new and mildly interesting, "
              "something the user did or said, a simple question, a small adjustment.",
-    "hard": "Needs real thinking or planning, and there is time for it: the user asks for something that needs a "
-            "plan, the plan no longer fits, repeated failures, an important new situation. Never under urgent "
-            "pressure: then it's react, and the thinking waits until after.",
+    "hard": "Something doesn't fit what she expected and is worth working out, and there is time for it: a result "
+            "that contradicts what she was doing, something of hers changed without her doing it, the place isn't "
+            "what her plan assumed. Not the user talking (her reply answers that) and not routine progress. Never "
+            "under urgent pressure: then it's react, and the thinking waits until after.",
 }
 
 

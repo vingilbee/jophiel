@@ -118,3 +118,15 @@ test('a sealed room: no way out, and digging up is still named', () => {
   assert.match(text, /Way out: no opening to the sky found through open space within 48 m\./)
   assert.match(text, /Surface: about 17 m straight above you \(digging up is always a way\)/)
 })
+
+test('a pillar right next to her shows, and stops showing once she is above its top (seen live)', () => {
+  // An ice pillar 1 block east of her, its top at y=84 (stand on 85); she builds up beside it.
+  const w = world().put('solid', 1, 64, 0, 1, 84, 0)
+  const below = land(w.cache(), FEET, 0)
+  assert.deepEqual([below.close.rel, below.close.distance], [21, 1])
+  assert.match(describeTerrain({ land: below }).join('\n'), /Right next to you \(1 m\): ground 21 m above you/)
+  const column = world().put('solid', 1, 64, 0, 1, 84, 0).put('solid', 0, 64, 0, 0, 84, 0) // her own planks
+  const top = land(column.cache(), { x: 0.5, y: 85, z: 0.5 }, 0)
+  assert.equal(top.close.rel, 0)
+  assert.match(describeTerrain({ land: top }).join('\n'), /Right next to you: nothing higher than where you stand\./)
+})
