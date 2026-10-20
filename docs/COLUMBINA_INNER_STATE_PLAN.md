@@ -106,8 +106,16 @@ are added only when one of those two needs them.
 - **One waiting problem per activity.** A newer problem replaces that activity's waiting one, and the
   mouth's hand-off always wins. A noisy source can only replace its own slot, never queue more,
   so it can't take all her attention.
-- **Choosing the next one:** by priority (hand-off, failing, surprise, big, open, quiet), then the
-  source served least recently.
+- **Choosing the next one:** the mouth's hand-off first. After that, trigger priority (failing,
+  surprise, big/open, quiet), and a waiting problem gains one level per `AGING_SECONDS` (60 s), so a
+  source that keeps finding urgent-looking problems can't starve another. Ties go to the source served
+  least recently.
+- **Event work wakes itself.** A source no tick comes back for (event rhythm, live or shadow) starts
+  its waiting problem after the gap on a timer, and again when the running thought lands. Every change
+  to attention goes through one lock, because ticks, events, timers and landing thoughts run on
+  different threads.
+- **The mind runs without a game.** `MIND_ENABLED` alone starts the mind worker. Each source has its
+  own switch (Minecraft also needs desktop mode, `mind_minecraft.enabled()`).
 - **Pressure is per user.** If any of her activities is urgent, no hard thought starts. She doesn't
   ponder a chat question while a zombie hits her.
 - **Gap:** `MIND_HARD_GAP_SECONDS` between hard thoughts (a hand-off skips it). Quick thoughts keep
@@ -182,6 +190,113 @@ that updates it. We don't add its prediction to each LLM call separately.
 **How we'll know:** the logged state moves with events and returns to baseline. Matched contrasts
 work: the same moment, calm vs tense, shifts her thoughts that way. No value stays pinned at an
 extreme. Live, she feels like the same person in the game and in chat.
+
+## Learning from experience: beliefs, opinions, experiences, how she talks
+
+Status: **design for discussion, not approved.** It doesn't touch core memory: her character (values,
+principles, traits) changes only through a reviewed core version, as it does today.
+
+### What changes her today
+
+| You do | Today | Changes her? |
+|---|---|---|
+| Say "he's not a bad guy" | The fact-saver (`long_term_memory._EXTRACTION_PROMPT`) may store **your** view as a fact about you, or nothing (it doesn't infer relationships). If it's stored, it's recalled when he comes up | No: she has no view of him herself |
+| Share a conversation log or a novel | She can read it within one turn (Drive). Nothing stays except facts from your own messages | No |
+| Play Minecraft | Experience, then a reflection, then lessons with evidence (two sessions to confirm), learned moves, and shared recaps | Yes, but only her game skill |
+
+The live prompt already has a slot for this, and it's empty: "Your own experiences: none recorded yet"
+(`cognitive_live.typed_memory_text`).
+
+### Four things she can learn, kept apart
+
+| Kind | What it is | Example | Comes from |
+|---|---|---|---|
+| **Belief** | What she thinks is true, about a person, thing or the world | "Sam is kinder than he looks" | What she's told (testimony), what she sees, what she reads |
+| **Opinion** | How she feels about something: likes, dislikes, takes | "I like slow-burn stories" | Her own reaction to an experience |
+| **Experience** | Something that happened **to her**, from her point of view | "I read chapter 3; the betrayal annoyed me" | Her mind's thoughts while she does or reads something |
+| **Way of talking** | Phrases, rhythm and humour she picks up | Shorter sentences, a running joke | Examples from conversations and reading |
+
+They're kept apart because each answers to evidence differently. A belief can be wrong and be corrected. An
+opinion isn't wrong; it just shifts. An experience is a fixed record of what happened. A way of talking is
+only style.
+
+### Beliefs and opinions: held, sourced, revisable
+
+- **A belief is her own record**, not your fact. Each one stores what it's about (a person, thing or
+  topic), the claim, how sure she is, and its **evidence**: each piece with its source (you said, she saw,
+  she read), when, and a link to the message, experience or passage.
+- **Your claim is testimony.** "He's not a bad guy" moves her belief about him partway, weighted by how
+  much she trusts you on this, and it's recorded as "you told me". If she later sees him lie, that's
+  evidence too, and both stay visible. She can say honestly: "you said he's fine, but what happened
+  last time made me unsure."
+- **Revision follows the same rule as game lessons:** a model's guess never becomes truth without
+  evidence. One mention makes a tentative belief. Evidence from separate occasions makes it firm.
+  Enough contradiction turns it into "I'm not sure any more". It never silently flips.
+- **Opinions** come from her reactions (feeling thoughts, and her inner state once it exists). They shift a
+  little with each experience. Her values in core memory still shape how she reacts, but nothing writes
+  back to core.
+- **Who writes them:** her slow thinking (hard thoughts). A conclusion can be "I now think…", citing
+  what it rests on, and code checks that the cited evidence exists, as reflection checks `e`/`u` refs.
+  The fact-saver stays about you and never writes her beliefs.
+
+### Experiences: reading as a source of her mind
+
+A document or novel becomes one more **source** in the general mind (`contracts.Source`, event
+rhythm). The material is an activity, and she goes through it in pieces (chapters, conversation chunks):
+- each piece is a moment; what surprises her or keeps coming up is a problem;
+- hard thoughts conclude feelings, guesses and opinions about it;
+- the end of a piece writes **her own** episodic memory ("I read…; it made me think…"), kept separate from
+  shared memories with you and from facts about you.
+
+That's what fills the "Your own experiences" section. It needs a field on episodic memory that says
+whose experience it is: hers, shared, or yours.
+
+**Fiction is labelled as fiction.** A belief from a novel is about the story ("in the book, Ana lies to
+protect her brother"), never about the real world, unless she reasons her way there and says so.
+
+### How she talks: examples, not rewriting
+
+- From conversations and reading, keep short **examples** of ways of talking she liked, each with
+  where it came from and what it suits (teasing, comforting, telling a story). Her mouth gets a few
+  that match the moment, as "ways you've liked saying things", the same way memories are retrieved.
+- Nothing is copied wholesale. Her character page and voice rules stay the frame; examples only colour it.
+- **Later, offline:** if a style should become stable, the examples are data for the teacher and
+  students. That's a reviewed retraining, never something that happens live.
+
+### Safety and control
+
+- She lists what she believes about someone, and why, on request, and on a page like Learning.
+- You can correct or delete any belief, opinion, experience or style example.
+- Beliefs about real third parties stay private to that user's memories and are never shared across
+  users.
+- One source can't dominate: there's a cap on how much a single conversation, document or person can move
+  a belief, so one persuasive novel or one insistent message can't rewrite her view.
+
+### Order, if approved
+
+| Step | What | Shows that |
+|---|---|---|
+| L1 | Her own experiences: an owner field on episodic memory; hard-thought conclusions write experiences; the empty prompt section fills | She remembers things as hers |
+| L2 | Beliefs with evidence: a table, hard thoughts propose, code checks evidence, firm/unsure rules, shown in her prompt when the subject comes up | "You said…, but I saw…" |
+| L3 | Reading as a source: a document or novel in pieces through the general mind, writing experiences and beliefs labelled as fiction | She has read something and has thoughts about it |
+| L4 | Opinions from reactions (with inner state, step 5) | Her taste moves with what she lived |
+| L5 | Ways of talking: kept examples, retrieved for her mouth | Style that grows, inside her character |
+
+### Measuring
+
+- **Matched contrasts:** the same question about a person, before and after one piece of testimony,
+  after contradicting evidence, and with no evidence. Her answer should move in that direction and say why.
+- **Source honesty:** every belief in a reply can be traced to stored evidence, and nothing appears
+  with none.
+- **Fiction boundary:** after reading a novel, questions about the real world are unchanged.
+- **Stability:** one message or one document moves a belief only up to the cap.
+
+### Open decisions
+
+- What trust weights your testimony gets, and whether trust is per topic.
+- What counts as "separate occasions" outside games (different days? different conversations?).
+- How long-lived opinions are: do they fade without new experience?
+- Where you review and correct these: the Learning page or a new one.
 
 ## Rules kept
 

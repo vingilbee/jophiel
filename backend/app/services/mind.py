@@ -92,8 +92,8 @@ def sources() -> list:
 
 
 def enabled() -> bool:
-    settings = get_settings()
-    return bool(settings.mind_enabled and settings.desktop_agent_enabled)
+    """Her mind runs (MIND_ENABLED). Each source has its own switch too (Minecraft: desktop mode)."""
+    return bool(get_settings().mind_enabled)
 
 
 # --------------------------------------------------------------------------- #

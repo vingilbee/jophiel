@@ -49,6 +49,13 @@ _situation = None
 _notice_cursors: dict[uuid.UUID, int] = {}
 
 
+def enabled() -> bool:
+    """Her mind is on in Minecraft: the mind and desktop mode both."""
+    from app.services import mind
+
+    return mind.enabled() and bool(get_settings().desktop_agent_enabled)
+
+
 def situation():
     """The Minecraft situation, with her playing voice for spoken lines."""
     global _situation
@@ -271,7 +278,7 @@ class MinecraftSource:
     shadow = False
 
     def enabled(self) -> bool:
-        return bool(get_settings().desktop_agent_enabled)
+        return enabled()
 
     def poll(self, db: Session) -> list[tuple[Scope, Any]] | None:
         """Each live pack session with the pack's state; None when the pack is down (no tick)."""

@@ -826,12 +826,12 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
         return
-    from app.services import mind
+    from app.services import mind_minecraft
     from app.services.game_event_kinds import COMMENTARY_KINDS
 
-    if kind in COMMENTARY_KINDS and mind.enabled():
+    if kind in COMMENTARY_KINDS and mind_minecraft.enabled():
         return  # her mind sees the same notices every tick and decides itself
-    if kind == "struggling" and mind.enabled():
+    if kind == "struggling" and mind_minecraft.enabled():
         return  # her slow thinking takes a step that keeps failing (services/mind_hard.py)
     if session.commentary_mode in event_rules(kind).wakes:
         _game_event(db, session, f"{kind}: {text[:300 if kind == 'struggling' else 120]}")

@@ -278,3 +278,72 @@ def test_a_shadow_thought_about_a_question_answered_meanwhile_is_dropped(monkeyp
     mind_conversation.observe(user_id=UID, conversation_id=uuid.uuid4(), notes=NOTES)
     record = json.loads(thinking.shadow.read_text().splitlines()[-1])
     assert (record["status"], record["dropped_reason"]) == ("dropped", "it's been answered")
+
+
+# --------------------------------------------------------------------------- #
+# Review findings (2026-10-19): desktop mode, starvation, event work waking itself
+# --------------------------------------------------------------------------- #
+
+def test_the_general_loop_runs_without_desktop_mode_and_minecraft_needs_it(monkeypatch):
+    monkeypatch.setattr(get_settings(), "mind_enabled", True)
+    monkeypatch.setattr(get_settings(), "desktop_agent_enabled", False)
+    polled = []
+
+    class Screen(FakeSource):
+        def enabled(self):
+            return True
+
+        def poll(self, db):
+            polled.append(True)
+            return []
+
+    monkeypatch.setattr(mind, "sources", lambda: [Screen("screen")])
+    monkeypatch.setattr(mind, "SessionLocal", lambda: Db())
+    monkeypatch.setattr(mind, "_last_prune", 10**12)
+    mind.run_once()
+    assert polled == [True]  # a non-game source is polled with desktop mode off
+    assert not mind_minecraft.enabled() and not mind_minecraft.SOURCE.enabled()
+
+
+def test_a_source_that_keeps_finding_urgent_problems_cannot_starve_another(started):
+    """Reproduces the review: a game finding a new failing problem every round kept winning
+    while a conversation problem waited. Waiting improves priority, so it gets its turn."""
+    game, chat = FakeSource("game"), FakeSource("chat")
+    g, c = Scope(UID, "game", uuid.uuid4()), Scope(UID, "chat", uuid.uuid4())
+    game.found = [problem("failing")]
+    tick(game, g, 100.0)
+    mind_hard.offer(chat, c, problem("big", topic="chat: y"), 100.0)
+    at = 100.0
+    for _ in range(6):
+        mind_hard.attention_for(UID).running = None
+        at += 25.0
+        game.found = [problem("failing", topic=f"failing: {at}")]
+        tick(game, g, at)
+    picks = [name for name, _ in started]
+    assert "chat" in picks and picks.index("chat") <= 5
+
+
+def test_live_event_work_wakes_itself_after_a_gap_and_after_a_thought(started, monkeypatch):
+    """No polled source is running: a live (not shadow) event source's waiting problem still starts."""
+    import time as clock
+
+    class Chat(FakeSource):
+        rhythm = Rhythm("event")
+
+    chat = Chat("chat")
+    c = Scope(UID, "chat", uuid.uuid4())
+    att = mind_hard.attention_for(UID)
+    att.last_started_at = clock.time() - 19.8  # the gap ends in 0.2 s
+    assert mind_hard.offer(chat, c, problem("open", topic="open: 1"), clock.time()) == "hard waiting (open): gap"
+    for _ in range(50):
+        if started:
+            break
+        clock.sleep(0.05)
+    assert started == [("chat", "open")]  # the gap timer woke it
+    mind_hard.offer(chat, Scope(UID, "chat", uuid.uuid4()), problem("open", topic="open: 2"), clock.time())
+    assert len(started) == 1  # waiting behind the running one
+    monkeypatch.setattr(get_settings(), "mind_hard_gap_seconds", 0.0)
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(SimpleNamespace(name="Vincent")))
+    monkeypatch.setattr(mind_hard, "gather", lambda db, source, scope, problem: (None, None, "Vincent"))
+    mind_hard.run(chat, c, att, att.running, clock.time())  # the running thought lands
+    assert started[-1] == ("chat", "open") and len(started) == 2  # and the next one starts

@@ -555,9 +555,9 @@ def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: 
     """Her own recent thoughts during play (services/mind.py), what she means to do and
     the question she wanted to ask (services/mind_hard.py), so a reply fits what she's
     been noticing and thinking over. Empty when her mind is off."""
-    from app.services import mind, mind_hard
+    from app.services import mind, mind_hard, mind_minecraft
 
-    if not mind.enabled():
+    if not mind_minecraft.enabled():
         return []
     at = datetime.fromtimestamp(now, timezone.utc)
     thoughts = [t for t in mind.recent_thoughts(db, session.id, at) if t["status"] != "unfinished"]

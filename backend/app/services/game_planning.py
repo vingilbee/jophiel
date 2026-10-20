@@ -48,9 +48,9 @@ _planner = None
 
 
 def enabled() -> bool:
-    from app.services import mind
+    from app.services import mind_minecraft
 
-    return bool(get_settings().mind_planner_enabled and mind.enabled())
+    return bool(get_settings().mind_planner_enabled and mind_minecraft.enabled())
 
 
 def handles(session: DesktopSession) -> bool:

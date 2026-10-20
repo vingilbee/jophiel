@@ -58,11 +58,15 @@ INTENTION_TTL_SECONDS = 20 * 60
 INTENTIONS_KEPT = 3
 HANDOFF_TTL_SECONDS = 120
 USER_TURN_SECONDS = 10.0
+AGING_SECONDS = 60.0  # waiting this long improves a problem's priority by one level
 EVENTS_KEPT = 200  # event ids remembered per attention, so a duplicate event is one thought
 
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mind-hard")
 _shadow_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mind-hard-shadow")
 _lock = threading.Lock()
+# Attention is touched by the mind's tick, by event sources, by gap timers and by thoughts
+# that land (each on its own thread): every change goes through this.
+_sched_lock = threading.RLock()
 _thinker: HardThinker | None = None
 
 
@@ -71,6 +75,7 @@ class Waiting:
     source: Source
     scope: Scope
     problem: Problem
+    since: float = 0.0  # when this activity started waiting (kept when a newer problem replaces it)
 
 
 @dataclass
@@ -85,8 +90,7 @@ class Attention:
     pressure: dict[str, str] = field(default_factory=dict)  # each activity's latest pressure
     served: dict[str, float] = field(default_factory=dict)  # source name -> when it last got a thought
     events: list[str] = field(default_factory=list)  # event ids already offered
-    shadow: bool = False  # only shadow sources: no tick comes back for it, so it reschedules itself
-    timer: threading.Timer | None = None
+    timer: threading.Timer | None = None  # wakes waiting event-source work after a gap
 
 
 @dataclass
@@ -103,7 +107,7 @@ _attention: dict[tuple[uuid.UUID, bool], Attention] = {}
 
 
 def attention_for(user_id: uuid.UUID, *, shadow: bool = False) -> Attention:
-    return _attention.setdefault((user_id, shadow), Attention(shadow=shadow))
+    return _attention.setdefault((user_id, shadow), Attention())
 
 
 def forget(scope: Scope, *, shadow: bool = False) -> None:
@@ -169,15 +173,22 @@ def quiet(source: Source, act: ActivityHard, att: Attention, moment: Moment, at:
                    query=topic[:300])
 
 
-def _wait(att: Attention, source: Source, scope: Scope, problem: Problem) -> None:
+def _wait(att: Attention, source: Source, scope: Scope, problem: Problem, at: float) -> None:
     held = att.waiting.get(scope.key)
-    att.waiting[scope.key] = Waiting(source, scope, _better(held.problem if held else None, problem))
+    att.waiting[scope.key] = Waiting(source, scope, _better(held.problem if held else None, problem),
+                                     since=held.since if held else at)
 
 
 def step(source: Source, scope: Scope, act: ActivityHard, moment: Moment, *, gate_hard: bool, at: float,
          user: str) -> str | None:
     """One tick of one activity: find its problems, start a hard thought if none is running.
     Returns what it did."""
+    with _sched_lock:
+        return _step(source, scope, act, moment, gate_hard=gate_hard, at=at, user=user)
+
+
+def _step(source: Source, scope: Scope, act: ActivityHard, moment: Moment, *, gate_hard: bool, at: float,
+          user: str) -> str | None:
     att = attention_for(scope.user_id, shadow=source.shadow)
     if not act.started:
         act.started, act.last_news_at = True, at
@@ -197,13 +208,18 @@ def step(source: Source, scope: Scope, act: ActivityHard, moment: Moment, *, gat
              quiet(source, act, att, moment, at, user)]
     for problem in found:
         if problem is not None:
-            _wait(att, source, scope, problem)
+            _wait(att, source, scope, problem, at)
     return schedule(att, at)
 
 
 def offer(source: Source, scope: Scope, problem: Problem, at: float) -> str | None:
     """A problem from a source that produces events (no tick). An ``event`` anchor that was
     offered before is ignored, so a duplicate event is one thought."""
+    with _sched_lock:
+        return _offer(source, scope, problem, at)
+
+
+def _offer(source: Source, scope: Scope, problem: Problem, at: float) -> str | None:
     att = attention_for(scope.user_id, shadow=source.shadow)
     event = problem.anchor.get("event")
     if event is not None:
@@ -211,19 +227,34 @@ def offer(source: Source, scope: Scope, problem: Problem, at: float) -> str | No
             return "hard: duplicate event"
         att.events = [*att.events, event][-EVENTS_KEPT:]
     att.pressure.setdefault(scope.key, "calm")
-    _wait(att, source, scope, problem)
+    _wait(att, source, scope, problem, at)
     return schedule(att, at)
 
 
-def _next(att: Attention) -> Waiting:
-    return min(att.waiting.values(), key=lambda w: (PRIORITY.get(w.problem.trigger, 5),
-                                                    att.served.get(w.source.name, 0.0)))
+def _next(att: Attention, at: float) -> Waiting:
+    """The mouth's hand-off first; then trigger priority, which improves by one level per
+    AGING_SECONDS waited, so a source that keeps finding urgent-looking problems can't
+    starve another; then the source served least recently."""
+    return min(att.waiting.values(), key=lambda w: (
+        w.problem.trigger != "handoff",
+        PRIORITY.get(w.problem.trigger, 5) - (at - w.since) / AGING_SECONDS,
+        att.served.get(w.source.name, 0.0)))
+
+
+def _event_work(att: Attention) -> bool:
+    """Waiting work from a source no tick comes back for: it has to wake itself."""
+    return any(w.source.rhythm.kind == "event" for w in att.waiting.values())
 
 
 def schedule(att: Attention, at: float) -> str | None:
+    with _sched_lock:
+        return _schedule(att, at)
+
+
+def _schedule(att: Attention, at: float) -> str | None:
     if not att.waiting:
         return None
-    pick = _next(att)
+    pick = _next(att, at)
     trigger = pick.problem.trigger
     if att.running is not None:
         return f"hard waiting ({trigger})"
@@ -231,7 +262,7 @@ def schedule(att: Attention, at: float) -> str | None:
         return f"hard postponed ({trigger}): urgent"
     gap = get_settings().mind_hard_gap_seconds
     if trigger != "handoff" and at - att.last_started_at < gap:
-        if att.shadow and att.timer is None:
+        if _event_work(att) and att.timer is None:
             att.timer = threading.Timer(gap - (at - att.last_started_at) + 0.1, _wake, (att,))
             att.timer.daemon = True
             att.timer.start()
@@ -364,11 +395,12 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
     except Exception:  # noqa: BLE001 - a hard thought that fails is just not thought
         log.exception("mind: hard thought failed for %s %s", scope.source, scope.activity)
     finally:
-        att.running, att.running_scope = None, None
-        if source.shadow:
-            schedule(att, time.time())  # no tick comes back for a shadow attention
-        else:
+        with _sched_lock:
+            att.running, att.running_scope = None, None
+        if not source.shadow:
             mind._set_thinking(scope.key, None)
+        if _event_work(att):
+            schedule(att, time.time())  # no tick comes back for event-source work
 
 
 def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem, thought: HardThought, *,
