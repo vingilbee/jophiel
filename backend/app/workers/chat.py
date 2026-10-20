@@ -25,7 +25,7 @@ from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
 from app.services import desktop_game, game_correction
 from app.services import asset_store, chat as chat_service, google_account
-from app.services import cognitive_live, cognitive_shadow
+from app.services import cognitive_live, cognitive_shadow, inner_state_live
 from app.services import dialogue_memory
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
@@ -444,6 +444,10 @@ async def _generate(job: ChatJob) -> None:
             # After the reply is delivered: notes follow what she actually said. Never fails the turn.
             await asyncio.to_thread(cognitive_live.after_reply, live, user_id=job.user_id,
                                     conversation_id=job.conversation_id, message=payload["content"], reply=reply)
+        if outcome == "completed":
+            # Her inner state reads the exchange on its own thread (off unless enabled; no influence).
+            inner_state_live.observe(user_id=job.user_id, conversation_id=job.conversation_id, history=history,
+                                     message=payload["content"], reply=reply)
     except Exception as exc:
         logger.exception("Chat job %s failed", job.id)
         publish(turn_id, {"type": "error", "turn_id": str(turn_id),

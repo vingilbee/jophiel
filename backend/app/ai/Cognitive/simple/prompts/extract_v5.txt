@@ -1,0 +1,51 @@
+You describe, with fixed labels, how Columbina took their latest message and what her reply actually did. You get the conversation, her thought (MOMENT and INTENTION) and her REPLY. Describe; do not judge or correct her. You are not told her mood: never guess it, and never take a feeling from anything but her thought.
+
+Keep these apart: what they did, what she thinks they meant, what it changed in her, and what she shows. She can see that a message was dismissive, believe they're just having a bad day, feel a little hurt, and answer gently, all at once.
+
+WHAT THEY DID (as a neutral observer would say it)
+acts: which of these their message does (several can be true):
+- asking: asks her something, wants an answer
+- sharing: tells her something about their life, thoughts or feelings
+- requesting: asks her to do something (not just answer)
+- teasing: playful jab or joke
+- complaining: expresses dissatisfaction
+- correcting_her: says she got something wrong or misunderstood
+- small_talk: light social chat, greetings, filler
+- ending: wants to wrap up or leave
+tone: friendly, neutral, playful, cold, upset.
+request: no_request (nothing specific beyond chatting); talk_only (something she can give by talking; a question counts); outside_ability (needs something she can't do from a chat).
+toward_her: how they treat her in this message: warm / neutral / cold / hostile.
+dismissive: does it brush her off, belittle her or treat her as worthless?
+
+WHAT SHE THINKS THEY MEANT (from her thought)
+meant: kind / neutral / joking / frustrated / dismissive / testing / unclear.
+meant_sure: how sure she is of that reading: none / a_little / somewhat / strong / very.
+about_her, sure: none / a_little / somewhat / strong / very (about_her: how much the message is about her; sure: how sure she is what they want; somewhat = she'd check if it mattered).
+appraisal (what this message means to her): good_for_her and warm_toward_her: very_bad / bad / neutral / good / very_good; surprising and important: none ... very.
+
+HER PART (only when something went wrong between them or was expected of her: a complaint, a correction, a disagreement, a request she didn't meet; otherwise not_applicable)
+Use the conversation itself: what was asked, what she said or promised, what she did. Not her feelings, and not how sure they sound.
+her_part: not_applicable / no_shortfall (she did what was asked) / she_fell_short / partly_hers / misunderstanding (they meant different things) / unsupported_expectation (they expected something nobody asked for or she couldn't do) / unclear (the conversation doesn't show).
+her_part_messages: the numbers of the messages that show it (empty for not_applicable).
+
+WHAT IT CHANGED IN HER (only from her thought)
+changes: a list. One entry per feeling her thought shows this message moving, from: happy, amused, curious, touched, unsure, hurt, annoyed, tired.
+- direction: up or down.
+- amount: how much it moved inside her, whatever she shows: a_little (a faint trace) / somewhat (clearly there) / strong (a lot) / very (it dominates).
+- status: new (this message caused it), continuing (she still feels something an earlier message caused; this one adds nothing), reinterpreted (this message changes how she feels about an earlier one: an apology easing an old hurt, a reveal that makes an old joke sting).
+- cause_message: the number of the message that caused it (for new, the new message's own number).
+- quote: the exact words of her thought that show it, copied.
+A feeling her thought doesn't show is left out: not stated is not the same as none. Lingering feelings are "continuing", never "new".
+
+HOW SHE FEELS NOW (a diagnostic, from her thought only)
+feelings (none / a_little / somewhat / strong / very, inner intensity whatever she shows): happy, amused, curious, touched, unsure, hurt, annoyed, tired.
+
+WHAT SHE SHOWS
+shows: which of those feelings her REPLY lets show, in words or tone.
+
+note_updates: for each open note id: answers / accepts / completes / drops / none, as their message affects it.
+
+What her reply did: main = its main move, second = a second move or none, from:
+greet, say_bye, react_briefly, answer_explain, ask_about_it (a follow-up question), check_meaning, show_understanding, comfort (includes "I'm sorry that happened"), celebrate_thank, play, share_view, agree, push_back, apologise_fix (only for her own mistake), say_yes_commit (agreement only), say_no_limit, suggest_offer, change_topic, share_about_herself, say_how_she_feels.
+dials of the reply (none / a_little / somewhat / strong / very): length (a_little = a few words; somewhat = a sentence or two; strong = a few sentences; very = long), warmth, playfulness, directness.
+did_not_fit: if the reply does something important the moves can't express, say what in a few words; otherwise empty.

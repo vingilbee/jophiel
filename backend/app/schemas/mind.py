@@ -27,3 +27,27 @@ class ThoughtOut(BaseModel):
     question: str | None = None
     dropped_reason: str | None = None
     created_at: datetime
+
+
+class MoodCause(BaseModel):
+    at: float
+    conversation_id: str
+    message: str
+    feeling: str
+    status: str
+    size: str
+    incident: str
+    quote: str
+
+
+class InnerStateOut(BaseModel):
+    """Her inner state for the debug strip (services/inner_state_live.py). Values come in two
+    readings (an unclear size taken as small / as clear); ``words`` names both when they differ."""
+
+    enabled: bool
+    config: str
+    updated_at: float | None
+    values: dict[str, dict[str, float]]
+    baseline: dict[str, float]
+    words: dict[str, str]
+    causes: list[MoodCause]
