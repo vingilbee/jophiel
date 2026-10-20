@@ -6,8 +6,9 @@ did: the frozen teacher's thought about their message (intend_v4), then `apprais
 through the frozen layered model (``app/ai/mind/mood_layers.py``,
 ``Cognitive/simple/character/columbina.inner_state.json``).
 
-- **No influence.** Nothing here reaches a reply, a thought, a plan or an action. The state is shown
-  only in the chat page's debug strip (``GET /api/mind/state``) and logged to
+- **No influence.** Nothing here reaches a reply, a thought, a plan or an action. The state, and the
+  last few thoughts the reading wrote (moment + intention), are shown only in the chat page's mind
+  panel (``GET /api/mind/state``) and logged to
   ``MIND_INNER_STATE_LOG_PATH``.
 - **Uncertainty stays visible.** Two states are kept side by side, one for each reading of an
   unclear size (small / clear). When they fall in different word bands, the words say both.
@@ -21,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -43,6 +45,7 @@ INCIDENTS_KEY = "inner:incidents:{conversation}"
 LOCK_KEY = "inner:lock:{conversation}"
 INCIDENTS_TTL = 7 * 24 * 3600
 CAUSES_KEPT = 20
+THOUGHTS_KEPT = 5
 WINDOW = 8
 # The two readings of a shift of unclear size (the frozen config's range).
 READINGS = ("small", "clear")
@@ -98,7 +101,7 @@ def _observe(*, user_id, conversation_id, history, message, reply, at) -> None:
                                     book=json.loads(book_raw) if book_raw else None))
         r.set(INCIDENTS_KEY.format(conversation=conversation_id), json.dumps(reading["book"]), ex=INCIDENTS_TTL)
         before, after = _apply(r, user_id=user_id, conversation_id=conversation_id, number=reading["number"],
-                               message=message, appraisal=reading["appraisal"], at=at)
+                               message=message, appraisal=reading["appraisal"], thought=reading["thought"], at=at)
     _log(dict(at=datetime.now(timezone.utc).isoformat(), user_id=str(user_id), conversation_id=str(conversation_id),
               number=reading["number"], message=message, reply=reply, thought=reading["thought"],
               effects=reading["appraisal"]["effects"], dropped=reading["appraisal"]["dropped_effects"],
@@ -144,7 +147,15 @@ def _time_of_day(hour: int) -> str:
     return "morning" if 5 <= hour < 12 else "afternoon" if hour < 17 else "evening" if hour < 22 else "late_night"
 
 
-def _apply(r, *, user_id, conversation_id, number, message, appraisal, at) -> tuple[dict, dict]:
+def split_thought(text: str) -> dict[str, str]:
+    """The teacher's thought (intend_v4) in its two parts, MOMENT and INTENTION. A thought that
+    doesn't follow the format is kept whole as the moment."""
+    found = dict(re.findall(r"(?ims)^\W*(moment|intention)\b[^:\n]*:?\s*(.+?)(?=^\W*(?:moment|intention)\b|\Z)", text))
+    parts = {k.lower(): v.strip() for k, v in found.items()}
+    return {"moment": parts.get("moment") or text.strip(), "intention": parts.get("intention", "")}
+
+
+def _apply(r, *, user_id, conversation_id, number, message, appraisal, thought, at) -> tuple[dict, dict]:
     """One atomic update of her stored state (both readings), retried if another update raced it."""
     import redis
 
@@ -170,9 +181,12 @@ def _apply(r, *, user_id, conversation_id, number, message, appraisal, at) -> tu
                          status=e["status"], size=e["size"], incident=labels.get(e["incident"], e["incident"]),
                          quote=e["quote"][:200])
                     for e in appraisal["effects"] if e["status"] != "lingering"]
+                thoughts = stored.get("thoughts", []) + [
+                    dict(at=at, conversation_id=str(conversation_id), message=message[:160], **split_thought(thought))]
                 pipe.multi()
                 pipe.set(key, json.dumps({**{rd: states[rd].to_dict() for rd in READINGS},
-                                          "causes": causes[-CAUSES_KEPT:], "updated_at": at}))
+                                          "causes": causes[-CAUSES_KEPT:], "thoughts": thoughts[-THOUGHTS_KEPT:],
+                                          "updated_at": at}))
                 pipe.execute()
                 return before, after
             except redis.WatchError:
@@ -215,4 +229,5 @@ def view(user_id: uuid.UUID, now: float | None = None) -> dict[str, Any]:
                 updated_at=stored.get("updated_at"),
                 values={k: {rd: round(vals[rd][k], 3) for rd in READINGS} for k in MOOD_KEYS},
                 baseline=frozen()["baseline"], words=words(vals),
-                causes=list(reversed(stored.get("causes", [])))[:8])
+                causes=list(reversed(stored.get("causes", [])))[:8],
+                thoughts=list(reversed(stored.get("thoughts", []))))
