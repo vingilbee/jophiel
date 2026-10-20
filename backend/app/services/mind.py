@@ -228,6 +228,15 @@ def run_once() -> None:
     if not enabled():
         return
     with SessionLocal() as db:
+        from app.services import memory_manager
+
+        if memory_manager.enabled():
+            # Her working memory's due checks: code only, with or without a game or a chat open.
+            try:
+                memory_manager.tick_due(db)
+            except Exception:  # noqa: BLE001
+                log.exception("mind: memory due checks failed")
+                db.rollback()
         if time.time() - _last_prune > PRUNE_EVERY_SECONDS:
             _last_prune = time.time()
             try:

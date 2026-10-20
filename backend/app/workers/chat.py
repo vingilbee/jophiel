@@ -26,7 +26,7 @@ from app.db.session import SessionLocal
 from app.services import desktop_game, game_correction
 from app.services import asset_store, chat as chat_service, google_account
 from app.services import cognitive_live, cognitive_shadow, inner_state_live
-from app.services import dialogue_memory
+from app.services import dialogue_memory, memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import stickers
@@ -215,6 +215,8 @@ async def _generate(job: ChatJob) -> None:
         message=payload["content"], long_term_memory=long_term_memory,
     ) if cognitive_live.enabled() else None)
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
+    working_memory = await asyncio.to_thread(memory_manager.view_for, job.user_id,
+                                             user_name=user.name if user else None)
     spoke_at = payload.get("spoke_at")
     picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
                if game is not None and spoke_at else None)
@@ -237,6 +239,9 @@ async def _generate(job: ChatJob) -> None:
         typed_memory=live.typed_memory if live else None,
         cognitive_reading=live.reading if live else None,
         conversation_notes=live.notes if live else None,
+        working_memory=working_memory,
+        memory_tools=memory_manager.enabled(),
+        source_message_id=job.user_message_id if memory_manager.enabled() else None,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
         game=game.summary if game else None,

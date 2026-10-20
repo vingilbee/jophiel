@@ -87,6 +87,13 @@ class AgentRuntimeContext:
     typed_memory: str | None = None
     cognitive_reading: str | None = None
     conversation_notes: str | None = None
+    # Her working memory (services/memory_manager.py; None unless MEMORY_MANAGER_ENABLED): what we're
+    # doing, in which context, and what's unfinished, rendered for this turn. ``memory_tools``: she gets
+    # the tools that change it. ``source_message_id``: the user's message this turn answers, the evidence
+    # for what those tools keep (None for turns without one).
+    working_memory: str | None = None
+    memory_tools: bool = False
+    source_message_id: uuid.UUID | None = None
 
     # --- Eyes ---
     # True when the user is sharing their screen this turn. Gates both the

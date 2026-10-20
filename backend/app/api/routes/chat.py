@@ -133,7 +133,7 @@ from app.services import asset_store, google_account, image_store, salience
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
-from app.services import agent_say
+from app.services import agent_say, memory_manager
 from app.services import cognitive_live, cognitive_shadow, inner_state_live
 from app.services import desktop_game
 from app.services import dialogue_memory
@@ -1001,6 +1001,9 @@ async def chat_ws(websocket: WebSocket) -> None:
             typed_memory=live.typed_memory if live else None,
             cognitive_reading=live.reading if live else None,
             conversation_notes=live.notes if live else None,
+            working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
+            memory_tools=memory_manager.enabled(),
+            source_message_id=user_message.id if memory_manager.enabled() else None,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
             **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),

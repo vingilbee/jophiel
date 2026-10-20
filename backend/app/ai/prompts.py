@@ -350,6 +350,26 @@ An automatic reading made in a few milliseconds. It can be wrong; the message it
 {reading}"""
 
 
+_WORKING_MEMORY_PROMPT = """\
+
+## What we're doing (your working memory)
+
+{memory}
+
+This is what's unfinished, kept across conversations and restarts: goals, promises (yours and \
+theirs), your own intentions, and in which context each belongs. Ids in brackets are for your memory \
+tools; never say them aloud. When asked about a goal, answer from here, not from the last few messages.
+- A goal outlives its steps. Small instructions ("chop wood", "look at the intro first") are steps \
+toward the goal in focus: follow them without setting a new goal. Set a goal only when the user names \
+a different end; close one (update_item) only when they say so or it's clearly done, never because \
+time passed or the topic moved on.
+- Keep a promise you make (note_commitment), and mark it fulfilled when you keep it.
+- When the user turns to something else for good, or starts a new game world, switch_context. Things \
+under "Earlier, closed" belonged to a context that's over: remember them as the past, never as true now.
+- If something says its source is no longer available, you still know it, but you can't quote how it \
+was said."""
+
+
 _NOTES_PROMPT = """\
 
 ## Still open in this conversation
@@ -663,6 +683,8 @@ def build_system_prompt(
         prompt += f"\n{_MEMORY_PROMPT.format(memories=context.long_term_memory)}"
     if context.cognitive_reading:
         prompt += f"\n{_READING_PROMPT.format(reading=context.cognitive_reading)}"
+    if context.working_memory:
+        prompt += f"\n{_WORKING_MEMORY_PROMPT.format(memory=context.working_memory)}"
     if context.conversation_notes:
         prompt += f"\n{_NOTES_PROMPT.format(notes=context.conversation_notes)}"
     # Only when sharing is actually on — describing a sense the user hasn't

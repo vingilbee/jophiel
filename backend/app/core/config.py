@@ -531,6 +531,14 @@ class Settings(BaseSettings):
     mind_inner_state_model: str = "gpt-6-luna"
     mind_inner_state_log_path: str = "var/inner_state.jsonl"
     mind_tick_path: str = "var/mind_ticks.jsonl"
+    # Her working memory (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md; services/memory_manager.py):
+    # contexts, goals that outlive their steps, commitments, intentions, questions and recent
+    # events, in Postgres. On: every reply reads it and gets the memory tools, game plans point
+    # at the goal they serve, and the mind loop runs its due checks (needs MIND_ENABLED for those).
+    memory_manager_enabled: bool = False
+    memory_intention_hours: float = Field(default=2.0, gt=0, le=720)
+    memory_context_idle_hours: float = Field(default=2.0, gt=0, le=720)
+    memory_manager_log_path: str = "var/memory_manager.jsonl"
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.
     typesafe_api_key: str = ""

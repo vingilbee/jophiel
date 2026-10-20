@@ -415,7 +415,10 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
         else:
             results["tip"] = body.command(scope, Command("tip", f"(from your own thinking) {thought.for_hands}"))
     if thought.kind == "intention":
-        add_intention(scope.key, thought.for_hands or thought.conclusion)
+        add_intention(scope.key, thought.for_hands or thought.conclusion)  # her hands' tip (an execution hint)
+        from app.services import memory_manager
+
+        memory_manager.intention_from_thought(scope.user_id, scope.activity, thought.conclusion, thought_id)
     if thought.kind == "question" and thought.question:
         set_question(scope.key, {"text": thought.question, "at": time.time(), "thought_id": str(thought_id),
                                  "goal": goal, "topic": problem.topic})

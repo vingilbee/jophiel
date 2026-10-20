@@ -75,6 +75,8 @@ REASONS = {
     "controller_lost": "the VM disconnected", "controller_replaced": "the VM reconnected",
     "heartbeat_timeout": "the VM stopped answering", "environment_revoked": "the VM was removed",
     "limit_reached": "the time limit was reached", "plan_replaced": "you changed what you were doing",
+    "goal_suspended": "the goal you were playing for was put on hold",
+    "goal_completed": "the goal you were playing for is done", "goal_abandoned": "the goal you were playing for was dropped",
     "controls_silent": "your controls stopped responding: the game computer wasn't confirming any of your moves, "
                        "so you weren't actually moving",
     "pack_offline": "your Minecraft player left the world (the pack stopped, or lost the server)",
@@ -369,7 +371,13 @@ def _plan_lines(db: Session, session: DesktopSession) -> list[str]:
     active = next((st for st in steps if st["state"] == "active"), None) or next(
         (st for st in steps if st["state"] == "pending"), None
     )
-    lines = [f"Your goal: {session.plan['goal']}."]
+    from app.services import memory_manager
+
+    goal_line = memory_manager.goal_line(db, session)
+    if goal_line:
+        lines = [goal_line, f"Your current plan for it: {session.plan['goal']}."]
+    else:
+        lines = [f"Your goal: {session.plan['goal']}."]
     repeats = _times_set(db, session, session.plan["goal"])
     if repeats >= GOAL_REPEATS_SHOWN:
         lines.append(f"You've set this same goal {repeats} times in the last {GOAL_REPEAT_MINUTES} minutes: "
@@ -392,8 +400,10 @@ def _commitment_lines(session: DesktopSession, now: float) -> list[str]:
     """What she promised the user and what she told her hands, while the session lives."""
     if session.state in DESKTOP_TERMINAL_STATES:
         return []
+    from app.services import memory_manager
+
     lines = []
-    promised = desktop_commands.promises(session.id)
+    promised = [] if memory_manager.enabled() else desktop_commands.promises(session.id)  # else: in her memory
     if promised:
         lines.append("What you promised the user (keep it, or drop it with drop_promise when it's done or moot): "
                      + "; ".join(f'{i}. "{p["text"]}" ({_ago(now - p["at"])})' for i, p in enumerate(promised, 1))
@@ -565,7 +575,10 @@ def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: 
     if thoughts:
         lines.append("On your mind (your own thoughts while playing, newest last): "
                      + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
-    intentions = mind_hard.intentions(session.id)
+    from app.services import memory_manager
+
+    # With working memory on, her intentions are in its view (the Redis list stays her hands' tips).
+    intentions = [] if memory_manager.enabled() else mind_hard.intentions(session.id)
     if intentions:
         lines.append("You mean to (your own intentions, from thinking it over): "
                      + "; ".join(f'"{i["text"]}"' for i in intentions) + ".")
@@ -825,7 +838,8 @@ def _live(db: Session, user_id: uuid.UUID) -> DesktopSession:
 
 
 def start(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
-          game: str | None = None, constraints: list[str] | None = None, target: str | None = None) -> str:
+          game: str | None = None, constraints: list[str] | None = None, target: str | None = None,
+          new_goal: bool = False, message_id: uuid.UUID | None = None) -> str:
     game = game_pack.replacement(db, user_id, game) or game  # Minecraft on the VM -> her own player
     env = _usable_environment(db, user_id, game)
     if env is None and game:
@@ -837,11 +851,16 @@ def start(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | Non
     if existing is not None and existing.state not in DESKTOP_TERMINAL_STATES:
         # Already set up (e.g. from the card): just give it this goal.
         if game_planning.handles(existing) and len(steps or []) != 1:
-            return set_goal(db, user_id, goal=goal, target=target, rules=constraints) + _blockers(env)
-        return set_plan(db, user_id, goal=goal, steps=steps, constraints=constraints) + _blockers(env)
+            return set_goal(db, user_id, goal=goal, target=target, rules=constraints, new_goal=new_goal,
+                            message_id=message_id) + _blockers(env)
+        return set_plan(db, user_id, goal=goal, steps=steps, constraints=constraints, new_goal=new_goal,
+                        message_id=message_id) + _blockers(env)
     session, _ = sessions.start_session(db, user_id, SessionCreate(
         environment_id=env.id, profile_id=profile_id, plan=_plan(goal, steps, constraints, target),
     ), plan_source="columbina_user_turn")
+    if new_goal:
+        _begin_goal(db, user_id, goal, message_id)
+        db.commit()
     if game_planning.handles(session) and len(steps or []) != 1:
         # A one-step command ("follow me") needs no planning; anything else gets her planner's steps.
         game_planning.request(db, session, "goal: a new session", goal=_goal(goal, target, constraints))
@@ -866,7 +885,8 @@ def _blockers(env: DesktopEnvironment) -> str:
 
 def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | None = None,
              source: str = "columbina_user_turn", constraints: list[str] | None = None,
-             since_revision: int | None = None, challenge: bool = False) -> str:
+             since_revision: int | None = None, challenge: bool = False, new_goal: bool = False,
+             message_id: uuid.UUID | None = None) -> str:
     """``since_revision`` (her background turns): the plan she woke up to. If the user has
     changed it since, this is refused: she decided from what's now out of date.
     ``challenge``: this goal is a challenge she set herself while exploring (stage H3)."""
@@ -887,6 +907,9 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
                 "the user (follow_player)\", done when \"the user says to stop\". Otherwise pick a different "
                 "goal, or pause and tell the user.")
     plan = _plan(goal, steps, constraints)
+    if new_goal:
+        _begin_goal(db, user_id, goal, message_id, by_user=source == "columbina_user_turn")
+        db.commit()
     if _unchanged(session, plan):
         # Set again word for word (seen live: "OK.", "Now?" and "Hello?" each re-set the same
         # goal): replacing it would cancel her move and drop her tips for nothing.
@@ -907,6 +930,19 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
     if adopted:
         note += f' This is your challenge now: "{adopted}".'
     return f"Done; you're now on: {plan.steps[0].do}.{note}{stopped}" + _unpause(db, user_id, source)
+
+
+def _begin_goal(db: Session, user_id: uuid.UUID, text: str, message_id: uuid.UUID | None, *,
+                by_user: bool = True) -> None:
+    """A different goal (``new_goal``): kept in her working memory next to the old one, which stays open;
+    the session plays for this one from now on. Without working memory there's nothing to keep."""
+    from app.services import memory_manager
+
+    if not memory_manager.enabled():
+        return
+    session = db.scalar(select(DesktopSession).where(DesktopSession.id == _live(db, user_id).id).with_for_update())
+    memory_manager.begin_goal(db, session, text, by_user=by_user,
+                              source=memory_manager.Source("message", message_id) if message_id else None)
 
 
 def _stop_own_lesson(db: Session, user_id: uuid.UUID) -> str:
@@ -934,13 +970,15 @@ def _goal(text: str, target: str | None, rules: list[str] | None) -> dict:
 
 
 def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None = None,
-             rules: list[str] | None = None) -> str:
+             rules: list[str] | None = None, new_goal: bool = False, message_id: uuid.UUID | None = None) -> str:
     """What the user wants now, for her planner (services/game_planning) to plan: it writes
     the steps. Without the planner (not her own Minecraft player, or it's off), the goal is
     set as a one-step plan as before."""
     session = _live(db, user_id)
     if not game_planning.handles(session):
-        return set_plan(db, user_id, goal=goal, constraints=rules)
+        return set_plan(db, user_id, goal=goal, constraints=rules, new_goal=new_goal, message_id=message_id)
+    if new_goal:
+        _begin_goal(db, user_id, goal, message_id)
     game_planning.request(db, session, "goal: the user asked", goal=_goal(goal, target, rules))
     db.commit()
     agent_events.wake()
@@ -977,6 +1015,8 @@ def replace_from_planner(db: Session, user_id: uuid.UUID, *, read_revision: int,
             raise DesktopError("limit_reached", 409, f"you've picked {limit} goals yourself since the user last "
                                "joined in")
     plan = _plan(goal, steps, constraints, target)
+    if new_goal:  # before the plan, so the plan links to the new goal, not the open old one
+        _begin_goal(db, user_id, goal, None, by_user=source == "columbina_user_turn")
     sessions.replace_plan(db, user_id, session.id, PlanReplace(
         expected_plan_revision=read_revision, source=source, **plan.model_dump(),
     ))
@@ -1034,7 +1074,8 @@ def _unpause(db: Session, user_id: uuid.UUID, source: str) -> str:
     session = _live(db, user_id)
     if session.state not in ("paused", "manual", "disconnected"):
         return ""
-    own = SELF_RESUMABLE if source == "columbina_user_turn" else ("columbina_pause", "driver_stuck")
+    own = ((*SELF_RESUMABLE, *GOAL_PAUSES) if source == "columbina_user_turn"
+           else ("columbina_pause", "driver_stuck"))
     if session.state == "paused" and session.reason_code in own:
         try:
             sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
@@ -1225,8 +1266,16 @@ def this_is_me(db: Session, user_id: uuid.UUID, *, player: str) -> str:
     return f'Saved: the user is "{saved}" in Minecraft, from now on.'
 
 
-def note_promise(db: Session, user_id: uuid.UUID, *, promise: str) -> str:
+def note_promise(db: Session, user_id: uuid.UUID, *, promise: str, message_id: uuid.UUID | None = None) -> str:
     session = _live(db, user_id)
+    from app.services import memory_manager
+
+    if memory_manager.enabled():
+        context = memory_manager.game_context(db, session)
+        memory_manager.note_commitment(db, user_id, promise, owner="columbina", context_id=context.id,
+                                       source=memory_manager.Source("message", message_id) if message_id else None)
+        db.commit()
+        return "Noted in your memory; you'll see it until it's kept or dropped. " + _promise_list(db, user_id, session)
     db.commit()
     kept = desktop_commands.add_promise(session.id, promise)
     if kept is None:
@@ -1235,14 +1284,49 @@ def note_promise(db: Session, user_id: uuid.UUID, *, promise: str) -> str:
         f'{i}. "{p["text"]}"' for i, p in enumerate(kept, 1)) + "."
 
 
-def drop_promise(db: Session, user_id: uuid.UUID, *, number: int | None = None) -> str:
+def drop_promise(db: Session, user_id: uuid.UUID, *, number: int | None = None, kept: bool = True,
+                 message_id: uuid.UUID | None = None) -> str:
     session = _live(db, user_id)
+    from app.services import memory_manager
+
+    if memory_manager.enabled():
+        promised = _promises_in_memory(db, user_id, session)
+        if not promised:
+            return "Nothing promised now."
+        if number is not None and not 1 <= number <= len(promised):
+            raise DesktopError("not_found", 404, f"there's no promise {number}; there are {len(promised)}")
+        source = memory_manager.Source("message", message_id) if message_id else None
+        status = "fulfilled" if kept and source is not None else "cancelled"
+        try:
+            for entry in promised if number is None else [promised[number - 1]]:
+                memory_manager.resolve(db, user_id, entry.id, status=status, source=source,
+                                       reason="kept" if status == "fulfilled" else "dropped")
+        except memory_manager.MemoryError as exc:
+            raise DesktopError(exc.code, 409, exc.message) from None
+        db.commit()
+        return "Dropped. " + _promise_list(db, user_id, session)
     db.commit()
     kept = desktop_commands.drop_promise(session.id, number)
     if kept is None:
         raise DesktopError("unavailable", 503, "promises can't be changed right now (no Redis)")
     return ("Dropped. Still promised: " + "; ".join(f'{i}. "{p["text"]}"' for i, p in enumerate(kept, 1)) + "."
             if kept else "Dropped; nothing promised now.")
+
+
+def _promises_in_memory(db: Session, user_id: uuid.UUID, session: DesktopSession) -> list:
+    from app.db.models import WorkingItem
+    from app.services import memory_manager
+
+    context = memory_manager.game_context(db, session)
+    return list(db.scalars(select(WorkingItem).where(
+        WorkingItem.user_id == user_id, WorkingItem.context_id == context.id, WorkingItem.kind == "commitment",
+        WorkingItem.owner == "columbina", WorkingItem.closed_at.is_(None)).order_by(WorkingItem.created_at)))
+
+
+def _promise_list(db: Session, user_id: uuid.UUID, session: DesktopSession) -> str:
+    promised = _promises_in_memory(db, user_id, session)
+    return ("Still promised: " + "; ".join(f'{i}. "{p.text}"' for i, p in enumerate(promised, 1)) + "."
+            if promised else "Nothing promised now.")
 
 
 def set_careful(db: Session, user_id: uuid.UUID, *, on: bool) -> str:
@@ -1267,6 +1351,8 @@ def pause(db: Session, user_id: uuid.UUID, *, user_asked: bool) -> str:
 
 # Pauses Columbina may undo on her own: ones she caused. Never the user's.
 SELF_RESUMABLE = ("driver_stuck", "planning_timeout", "plan_complete", "columbina_pause")
+# Paused because her working memory closed or suspended the goal: a new plan from the user's turn lifts it.
+GOAL_PAUSES = ("goal_suspended", "goal_completed", "goal_abandoned")
 
 
 def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) -> str:

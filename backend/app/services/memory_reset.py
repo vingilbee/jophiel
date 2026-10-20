@@ -11,12 +11,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AgentEventJob, Conversation, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill, GameLesson, GameProposal,
-    GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryJob, SemanticMemory,
+    AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
+    GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryEvent,
+    MemoryEvidence, MemoryJob, MemoryManagerState, SemanticMemory, WorkingItem,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
@@ -26,6 +27,10 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Learned moves before attempts: they point at the attempt they came from.
     "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameChallenge,
              GameLearnedSkill, GameSkillAttempt),
+    # Working memory (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md 4.8): links, events, items, state, then contexts.
+    # Game sessions stay; only their goal link is cleared first. Other scopes leave working memory alone:
+    # deleting conversations or game experiences removes their evidence links, never the goals.
+    "working": (MemoryEvidence, MemoryEvent, WorkingItem, MemoryManagerState, MemoryContext),
 }
 
 
@@ -48,6 +53,11 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
         conversation_ids = list(db.scalars(query))
     counts: dict[str, int] = {}
     for scope in chosen:
+        if scope == "working":
+            unlink = update(DesktopSession).where(DesktopSession.goal_item_id.is_not(None)).values(goal_item_id=None)
+            if ids is not None:
+                unlink = unlink.where(DesktopSession.owner_user_id.in_(ids))
+            db.execute(unlink)
         for model in SCOPES[scope]:
             statement = delete(model)
             if ids is not None:

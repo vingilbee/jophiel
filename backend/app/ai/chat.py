@@ -43,6 +43,7 @@ from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
 from app.ai.tools.desktop import build_desktop_tools
+from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -185,7 +186,11 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if context.game is not None:
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
                                                 planner=context.game_planner,
-                                                since=context.game_moment))
+                                                since=context.game_moment, message_id=context.source_message_id))
+    # Her working memory's tools: same exception (few, cheap, and the next turn must see the change).
+    if context.memory_tools:
+        direct_tools.extend(build_memory_tools(context.user_id, message_id=context.source_message_id,
+                                               background=context.game_event is not None))
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)

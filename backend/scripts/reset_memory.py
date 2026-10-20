@@ -8,6 +8,8 @@
 Scopes: conversations (and everything built on them), memory (semantic,
 episodic, learning, memory jobs), game (game event jobs, experiences, lessons,
 proposals, reflection jobs, her attempts at learning a move, the moves she learned). Game episodes are episodic memory: scope memory.
+working (her working memory: contexts, goals, promises, intentions, events; game sessions only lose
+their goal link). Deleting conversations alone leaves goals in place, without their source.
 Never touches core_memory, accounts, integrations or calorie/weight logs.
 Asks before deleting unless --yes.
 """
