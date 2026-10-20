@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Thought } from '../types'
 
-// Her mind while playing (docs/COLUMBINA_MIND_DESIGN.md). Deliberately unlike a
-// message: no bubble, dim italic text, a level badge. Collapsed it shows only the
-// latest thought; open, the recent ones, newest at the bottom.
+// Her mind while playing (docs/COLUMBINA_MIND_DESIGN.md), in the mind panel. Deliberately
+// unlike a message: no bubble, dim italic text, a level badge. Newest at the bottom.
 const KEEP = 40
 const BADGE = {
   react: 'bg-[#FFF1E0] text-[#9A5B13]',
@@ -29,65 +28,47 @@ function ago(iso: string, now: number): string {
 }
 
 export function ThoughtStream({ thoughts }: { thoughts: Thought[] }) {
-  const [open, setOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const listRef = useRef<HTMLOListElement>(null)
   const shown = thoughts.slice(-KEEP)
-  const latest = shown.at(-1)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15000)
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => {
-    if (open) listRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' })
-  }, [open, shown.length])
+    listRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' })
+  }, [shown.length])
 
-  if (!latest) return null
   return (
-    <section aria-label="Her thoughts" className="mb-3 rounded-2xl border border-dashed border-[#D9E3F0] bg-white/60 px-3 py-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left text-[11px] text-[#7A8BA6] focus-visible:outline-2 focus-visible:outline-[#8FC7E8]"
-      >
-        <span aria-hidden="true">💭</span>
-        <span className="font-medium">Thinking</span>
-        {!open && <ThoughtLine thought={latest} now={now} compact />}
-        <span className="ml-auto shrink-0">{open ? 'Hide' : `${shown.length} recent`}</span>
-      </button>
-      {open && (
-        <ol ref={listRef} className="mt-2 max-h-56 space-y-1.5 overflow-y-auto pr-1">
-          {shown.map((thought) => (
-            <li key={thought.id}><ThoughtLine thought={thought} now={now} /></li>
-          ))}
-        </ol>
-      )}
-    </section>
+    <ol ref={listRef} className="max-h-80 space-y-2 overflow-y-auto pr-1 text-[11px]">
+      {shown.map((thought) => (
+        <li key={thought.id}><ThoughtLine thought={thought} now={now} /></li>
+      ))}
+    </ol>
   )
 }
 
-function ThoughtLine({ thought, now, compact = false }: { thought: Thought; now: number; compact?: boolean }) {
+function ThoughtLine({ thought, now }: { thought: Thought; now: number }) {
   const muted = thought.status !== 'done'
   const kind = thought.conclusion_kind ?? thought.kind
   const status = thought.status === 'dropped' && thought.dropped_reason
     ? `dropped: ${thought.dropped_reason}`
     : STATUS[thought.status]
   const line = (
-    <span className={`flex min-w-0 items-baseline gap-2 ${compact ? 'flex-1' : ''}`}>
+    <span className="flex min-w-0 items-baseline gap-2">
       <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] not-italic ${BADGE[thought.level]}`}>
         {kind ? `${thought.level} · ${kind}` : thought.level}
       </span>
-      <span className={`min-w-0 italic ${compact ? 'truncate' : ''} ${muted ? 'text-[#A9B5C7]' : 'text-[#5E6F8A]'}`}>
+      <span className={`min-w-0 italic ${muted ? 'text-[#A9B5C7]' : 'text-[#5E6F8A]'}`}>
         {thought.text}
-        {!compact && thought.said && <span className="not-italic text-[#8DA0BA]"> → said “{thought.said}”</span>}
-        {!compact && status && <span className="not-italic"> ({status})</span>}
+        {thought.said && <span className="not-italic text-[#8DA0BA]"> → said “{thought.said}”</span>}
+        {status && <span className="not-italic"> ({status})</span>}
       </span>
       <span className="shrink-0 text-[10px] text-[#A9B5C7]">{ago(thought.created_at, now)}</span>
     </span>
   )
-  if (compact || thought.level !== 'hard') return line
+  if (thought.level !== 'hard') return line
   return (
     <span className="block">
       {line}
