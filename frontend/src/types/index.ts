@@ -191,6 +191,30 @@ export interface Prediction {
   source: string
 }
 
+/** What moved her mood (backend services/inner_state_live.py). */
+export interface MoodCause {
+  at: number
+  conversation_id: string
+  message: string
+  feeling: string
+  status: string
+  size: string
+  incident: string
+  quote: string
+}
+
+/** Her inner state for the debug strip: each value in two readings (an unclear size taken as
+ * small / as clear); `words` names both when they differ. Nothing reads it into her replies. */
+export interface InnerState {
+  enabled: boolean
+  config: string
+  updated_at: number | null
+  values: Record<string, { small: number; clear: number }>
+  baseline: Record<string, number>
+  words: Record<string, string>
+  causes: MoodCause[]
+}
+
 /** One thought of her mind while playing (backend services/mind.py). Not a message. */
 export interface Thought {
   id: string

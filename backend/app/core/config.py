@@ -522,6 +522,14 @@ class Settings(BaseSettings):
     mind_planner_enabled: bool = False
     mind_plan_model: str = "gpt-6-luna"
     mind_plan_reasoning_effort: str | None = "low"
+    # Her inner state, live but without influence (docs/COLUMBINA_INNER_STATE_PLAN.md step 5.2;
+    # services/inner_state_live.py): after each delivered reply a background thread reads the
+    # exchange (two model calls: the teacher's thought, then appraisal-v3.1 labels) and moves her
+    # mood (app/ai/mind/mood_layers.py, frozen config). Shown in the chat page's debug strip and at
+    # GET /api/mind/state; nothing reads it into a reply, thought, plan or action.
+    mind_inner_state_enabled: bool = False
+    mind_inner_state_model: str = "gpt-6-luna"
+    mind_inner_state_log_path: str = "var/inner_state.jsonl"
     mind_tick_path: str = "var/mind_ticks.jsonl"
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.

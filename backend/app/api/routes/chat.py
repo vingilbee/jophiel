@@ -134,7 +134,7 @@ from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import agent_say
-from app.services import cognitive_live, cognitive_shadow
+from app.services import cognitive_live, cognitive_shadow, inner_state_live
 from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
@@ -1151,6 +1151,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             # After the reply is delivered: notes follow what she actually said. Never fails the turn.
             await asyncio.to_thread(cognitive_live.after_reply, live, user_id=user_id,
                                     conversation_id=resolved_id, message=content, reply=reply)
+        if outcome_status == "completed":
+            # Her inner state reads the exchange on its own thread (off unless enabled; no influence).
+            inner_state_live.observe(user_id=user_id, conversation_id=resolved_id, history=history,
+                                     message=content, reply=reply)
 
     async def run_voice_turn(
         conversation_id: uuid.UUID | None,

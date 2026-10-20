@@ -21,6 +21,7 @@ import { useScreenSense } from '../hooks/useScreenSense'
 import { api } from '../api/client'
 import { ChatSessionTools } from '../components/ChatSessionTools'
 import { ThoughtStream } from '../components/ThoughtStream'
+import { MoodStrip } from '../components/MoodStrip'
 import { mindApi } from '../api/mind'
 import { VoiceOrb } from '../components/VoiceOrb'
 import type { ChatMessage, MessagePart, Thought } from '../types'
@@ -630,6 +631,7 @@ export function ChatPage() {
       {/* composer */}
       <div className="bg-[#F8FAFF] px-5 pb-5 pt-3 sm:px-8 sm:pb-7 lg:px-12">
         <div className="mx-auto max-w-4xl">
+          <MoodStrip />
           <ThoughtStream thoughts={thoughts} />
           <ChatSessionTools eye={eye} voice={voice} awareness={awareness} onPanelChange={setSessionPanelOpen} inputBlocked={streaming} />
         <form onSubmit={handleSubmit}>
