@@ -109,7 +109,7 @@ def main() -> int:
         for moment in moments:
             print(f"===== {moment['name']}\n{build_input(data, moment)}\n")
         return 0
-    from app.services.mind import situation
+    from app.services.mind_minecraft import situation
 
     planner = Planner(args.model or settings.mind_plan_model, api_key=settings.openai_api_key or "",
                       reasoning_effort=args.reasoning if args.reasoning is not None else settings.mind_plan_reasoning_effort)

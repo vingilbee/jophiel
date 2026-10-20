@@ -1,17 +1,17 @@
-"""Her brain during play: every tick, decide how hard to think, then think (docs/COLUMBINA_MIND_DESIGN.md).
+"""Her mind: every tick of a source, decide how hard to think, then think (docs/COLUMBINA_MIND_DESIGN.md,
+docs/COLUMBINA_INNER_STATE_PLAN.md).
 
-The ``mind`` worker thread calls ``run_once`` about once a second. For each
-live game pack session it builds a tick (``app.ai.mind.tick``), asks the gate
-how hard to think (Jev, or OpenAI Decisions as the fallback), applies the rules
-code owns (urgent pressure caps hard thinking, one thought of each kind at a time, gaps),
+General: no game here. The ``mind`` worker thread calls ``run_once`` about once a second. Each
+source (app/ai/mind/contracts.py; Minecraft in services/mind_minecraft.py) gives its live
+activities; for each one its moment goes to the gate (Jev, or OpenAI Decisions as the fallback),
+the rules code owns apply (urgent pressure caps hard thinking, one quick thought at a time, gaps),
 and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
   saved, and its line (if any) handed to the one speaking gate, ``agent_say``;
-- ``hard``: slow thinking about a problem (services/mind_hard.py): a step that keeps
-  failing, a surprise, something big ahead, her mouth's hand-off, quiet time. It ends
-  in one conclusion that goes to her hands, her mouth and the thoughts panel. The gate's
-  ``hard`` level is only one of its triggers (a surprise); here it becomes a light thought.
+- ``hard``: slow thinking about a problem (services/mind_hard.py), with attention shared per
+  user across her activities. The gate's ``hard`` level is only one of its triggers (a
+  surprise); here it becomes a light thought.
 
 Nothing here blocks her hands or her replies. Every decision goes to
 ``MIND_LOG_PATH`` for tuning.
@@ -27,18 +27,18 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import redis
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.ai.desktop.pack_client import PackClient, PackError
 from app.ai.mind import gates as g
-from app.ai.mind.tick import MINECRAFT, TickInput, danger, news, render, worse
+from app.ai.mind.contracts import Moment, Scope, Source
 from app.core.config import get_settings
-from app.db.models import DesktopSession, MindThought, User
+from app.db.models import MindThought, User
 from app.db.session import SessionLocal
-from app.services import agent_say, desktop_preview, game_moment, mind_hard, mind_ticks
+from app.services import agent_say, desktop_preview, mind_hard
 
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -59,25 +59,36 @@ _last_prune = 0.0
 _gate = None
 _fallback = None
 _thinkers = None
-_situation = None
+_sources: list | None = None
 
 
 @dataclass
-class SessionMind:
-    previous: TickInput | None = None
+class ActivityMind:
+    """Per activity (a game session, a conversation), in the mind worker's process."""
+
+    previous: Any = None  # what the source's next moment compares against
     tick_no: int = 0
     quick_busy: bool = False
     last_quick_at: float = 0.0
     last_react_at: float = 0.0
-    last_danger: dict | None = None  # the danger she last reacted to (tick.danger)
+    last_danger: Any = None  # the danger she last reacted to (the source's own)
     hard_local: dict = field(default_factory=dict)  # topic/since, when Redis is unavailable
-    quick_since: game_moment.Moment | None = None  # the game as the running quick thought's tick saw it
-    hard: mind_hard.HardState = field(default_factory=mind_hard.HardState)  # her slow thinking
+    quick_since: Any = None  # the source as the running quick thought's moment saw it
+    hard: mind_hard.ActivityHard = field(default_factory=mind_hard.ActivityHard)
     user: str | None = None  # the user's name, read once
 
 
-_minds: dict[uuid.UUID, SessionMind] = {}
-_notice_cursors: dict[uuid.UUID, int] = {}
+_minds: dict[uuid.UUID, ActivityMind] = {}
+
+
+def sources() -> list:
+    """Every source her mind reads (polled and event ones, live and shadow)."""
+    global _sources
+    if _sources is None:
+        from app.services import mind_conversation, mind_minecraft
+
+        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE]
+    return _sources
 
 
 def enabled() -> bool:
@@ -93,7 +104,11 @@ def _hard_key(session_id: uuid.UUID | str) -> str:
     return f"mind:hard:{session_id}"
 
 
-def thinking_about(session_id: uuid.UUID) -> str | None:
+def _activity(key: uuid.UUID | str) -> uuid.UUID:
+    return key if isinstance(key, uuid.UUID) else uuid.UUID(str(key))
+
+
+def thinking_about(session_id: uuid.UUID | str) -> str | None:
     """The hard thought still running for this session, if any."""
     client = desktop_preview.redis_client()
     if client is not None:
@@ -102,15 +117,15 @@ def thinking_about(session_id: uuid.UUID) -> str | None:
             return raw.decode() if isinstance(raw, bytes) else raw
         except redis.RedisError:
             pass
-    local = _minds.get(session_id, SessionMind()).hard_local
+    local = _minds.get(_activity(session_id), ActivityMind()).hard_local
     if local and time.time() - local["since"] < HARD_TTL_SECONDS:
         return local["topic"]
     return None
 
 
-def _set_thinking(session_id: uuid.UUID, topic: str | None) -> None:
+def _set_thinking(session_id: uuid.UUID | str, topic: str | None) -> None:
     client = desktop_preview.redis_client()
-    mind = _minds.setdefault(session_id, SessionMind())
+    mind = _minds.setdefault(_activity(session_id), ActivityMind())
     mind.hard_local = {"topic": topic, "since": time.time()} if topic else {}
     if client is None:
         return
@@ -208,19 +223,6 @@ def _gates():
     return _gate, _fallback, _thinkers
 
 
-def situation():
-    """The Minecraft situation, with her playing voice for spoken lines."""
-    global _situation
-    if _situation is None:
-        from dataclasses import replace
-
-        from app.ai.mind.tick import MINECRAFT
-        from app.ai.prompts import _PLAYING_VOICE_PROMPT
-
-        _situation = replace(MINECRAFT, voice=_PLAYING_VOICE_PROMPT)
-    return _situation
-
-
 def run_once() -> None:
     global _last_prune
     if not enabled():
@@ -233,56 +235,67 @@ def run_once() -> None:
             except Exception:  # noqa: BLE001
                 log.exception("mind: pruning thoughts failed")
                 db.rollback()
-        sessions = mind_ticks.live_sessions(db)
-        if not sessions:
-            _minds.clear()
-            return
-        pack = PackClient.from_settings()
-        try:
-            state = pack.state()
-        except PackError:
-            return
-        for session in sessions:
-            try:
-                tick(db, pack, session, state, time.time())
-                asked = mind_hard.ask_if_due(db, session, time.time())
-                if asked:
-                    _log({"ts": time.time(), "session": str(session.id), "question": asked})
-            except Exception:  # noqa: BLE001 - the brain must never get in the way of play
-                log.exception("mind tick for session %s failed", session.id)
-                db.rollback()
+        for source in sources():
+            if source.rhythm.kind != "poll" or not source.enabled():
+                continue
+            polled = source.poll(db)
+            if polled is None:
+                continue  # the source is unreachable: no tick, and the next one starts fresh
+            _forget_gone(source, {scope.activity for scope, _ in polled})
+            for scope, payload in polled:
+                try:
+                    tick(db, source, scope, payload, time.time())
+                    asked = mind_hard.ask_if_due(db, source, scope, time.time())
+                    if asked:
+                        _log({"ts": time.time(), "session": str(scope.activity), "question": asked})
+                except Exception:  # noqa: BLE001 - the brain must never get in the way of play
+                    log.exception("mind tick for %s %s failed", scope.source, scope.activity)
+                    db.rollback()
 
 
-def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at: float) -> dict:
-    """One tick for one session; returns the decision record (also logged)."""
+_activity_source: dict[uuid.UUID, str] = {}
+
+
+def _forget_gone(source: Source, live: set[uuid.UUID]) -> None:
+    """Activities of this source that ended: their mind and their place in attention go."""
+    for activity, name in list(_activity_source.items()):
+        if name == source.name and activity not in live:
+            _activity_source.pop(activity, None)
+            mind = _minds.pop(activity, None)
+            if mind is not None:
+                for att in mind_hard._attention.values():
+                    att.waiting.pop(str(activity), None)
+                    att.pressure.pop(str(activity), None)
+    for activity in live:
+        _activity_source[activity] = source.name
+
+
+def tick(db: Session | None, source: Source, scope: Scope, payload: Any, at: float) -> dict:
+    """One tick for one activity; returns the decision record (also logged)."""
     settings = get_settings()
-    mind = _minds.setdefault(session.id, SessionMind())
+    mind = _minds.setdefault(scope.activity, ActivityMind())
     now = datetime.fromtimestamp(at, timezone.utc)
-    thinking = thinking_about(session.id)
-    notices = mind_ticks.next_notices(pack, _notice_cursors, session.id)
-    current = mind_ticks.build_tick(db, session, state, notices, at,
-                                    thoughts=recent_thoughts(db, session.id, now), thinking=thinking)
-    previous = mind_ticks.fresh_previous(mind.previous, at)
-    text, pressure, changed, why = render(current, previous)
-    fresh = news(current, previous)
-    mind.previous = current
+    thinking = thinking_about(scope.key)
+    thoughts = recent_thoughts(db, source.thought_session(scope), now) if source.thought_session(scope) else []
+    moment = source.moment(db, scope, payload, mind.previous, at, thoughts=thoughts, thinking=thinking)
+    mind.previous = source.previous(moment)
     mind.tick_no += 1
 
     gate, fallback, thinkers = _gates()
-    result = gate.decide(text, MINECRAFT)
+    result = gate.decide(moment.text, source.gate_situation())
     if result.error and fallback is not gate:
-        result = fallback.decide(text, MINECRAFT)
+        result = fallback.decide(moment.text, source.gate_situation())
     raw = g.level_from(result, settings.mind_think_threshold)
-    level = g.capped(raw, pressure)
+    level = g.capped(raw, moment.pressure)
     note = None
     if level == "hard":
         level = "light"  # hard thinking starts from a problem (mind_hard; the gate's hard may be a surprise)
-    if session.state != "running" and level == "react":
+    if not moment.can_act and level == "react":
         level = "light"  # paused: nothing to react to with her body
-    if level not in (None, "none") and not fresh:
+    if level not in (None, "none") and not moment.fresh:
         level, note = "none", "nothing new since the last tick"
     elif (level == "react" and mind.last_danger is not None and at - mind.last_react_at < SAME_DANGER_SECONDS
-          and not worse(danger(current.state), mind.last_danger)):
+          and not source.worse(moment.danger, mind.last_danger)):
         level, note = "none", "same danger, not worse"
 
     action = "none"
@@ -292,33 +305,23 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
         elif level == "light" and at - mind.last_quick_at < settings.mind_quick_gap_seconds:
             action = "skipped: quick gap"
         else:
-            mind.quick_busy = True
-            mind.last_quick_at = at
-            mind.quick_since = game_moment.capture(db, session, state, at=at)
+            _start_quick(mind, source, scope, level, moment, at, thinkers and thinkers[level])
             if level == "react":
-                mind.last_react_at, mind.last_danger = at, danger(current.state)
-            _pool.submit(_think_quick, session.id, session.owner_user_id, level, text, at,
-                         thinkers and thinkers[level])
+                mind.last_react_at, mind.last_danger = at, moment.danger
             action = level
-    if action == "none" and _quiet_due(mind, current, pressure, thinking, at):
-        mind.quick_busy = True
-        mind.last_quick_at = at
-        mind.quick_since = game_moment.capture(db, session, state, at=at)
-        _pool.submit(_think_quick, session.id, session.owner_user_id, "quiet", text, at,
-                     thinkers and thinkers["light"])
+    if action == "none" and _quiet_due(mind, scope, moment, thinking, at):
+        _start_quick(mind, source, scope, "quiet", moment, at, thinkers and thinkers["light"])
         action = "quiet"
     if mind.user is None:
-        user = db.get(User, session.owner_user_id) if db is not None else None
+        user = db.get(User, scope.user_id) if db is not None else None
         mind.user = user.name if user is not None and user.name else "the user"
-    hard = mind_hard.step(session, mind.hard, state=state, plan=session.plan, talk=current.talk, fresh=fresh,
-                          gate_hard=raw == "hard", pressure=pressure, at=at, user=mind.user)
+    hard = mind_hard.step(source, scope, mind.hard, moment, gate_hard=raw == "hard", at=at, user=mind.user)
 
-    if settings.mind_tick_recording_enabled:
-        mind_ticks.append_tick(session.id, mind.tick_no, current, text, pressure, changed, why,
-                               extra={"mind": {"gate": result.gate, "level": level, "action": action}})
+    source.after_tick(scope, moment, mind.tick_no, {"gate": result.gate, "level": level, "action": action})
     record = {
-        "ts": at, "session": str(session.id), "tick": mind.tick_no, "pressure": pressure, "why": why,
-        "changed": changed[:8], "news": len(fresh), "gate": result.gate, "gate_level": result.level, "raw": raw, "level": level,
+        "ts": at, "session": str(scope.activity), "source": source.name, "tick": mind.tick_no,
+        "pressure": moment.pressure, "why": moment.why, "changed": moment.changed[:8], "news": len(moment.fresh),
+        "gate": result.gate, "gate_level": result.level, "raw": raw, "level": level,
         "probabilities": result.probabilities, "gate_ms": result.latency_ms, "gate_error": result.error,
         "note": note, "action": action, "hard": hard, "thinking": thinking,
     }
@@ -326,54 +329,60 @@ def tick(db: Session, pack: PackClient, session: DesktopSession, state: dict, at
     return record
 
 
-def _quiet_due(mind: SessionMind, current: TickInput, pressure: str, thinking: str | None, at: float) -> bool:
+def _start_quick(mind: ActivityMind, source: Source, scope: Scope, level: str, moment: Moment, at: float,
+                 thinker) -> None:
+    mind.quick_busy = True
+    mind.last_quick_at = at
+    mind.quick_since = moment.capture() if moment.capture else None
+    _pool.submit(_think_quick, source, scope, level, moment.text, at, thinker)
+
+
+def _quiet_due(mind: ActivityMind, scope: Scope, moment: Moment, thinking: str | None, at: float) -> bool:
     """Time for a quiet thought: nothing urgent, no thought of any kind for a while,
     no hard thought running, and the user hasn't just spoken."""
     quiet = get_settings().mind_quiet_seconds
-    if not quiet or pressure == "urgent" or thinking or mind.quick_busy:
+    if not quiet or moment.pressure == "urgent" or thinking or mind.quick_busy:
         return False
-    if at - max(mind.last_quick_at, mind.hard.last_started_at) < quiet:
+    last_hard = mind_hard.attention_for(scope.user_id).last_started_at
+    if at - max(mind.last_quick_at, last_hard) < quiet:
         return False
-    return not any(m.get("role") == "user" and at - m.get("at", 0) < USER_TURN_SECONDS for m in current.talk)
+    return not any(m.get("role") == "user" and at - m.get("at", 0) < USER_TURN_SECONDS for m in moment.talk)
 
 
-def _think_quick(session_id: uuid.UUID, user_id: uuid.UUID, level: str, text: str, at: float, thinker) -> None:
-    mind = _minds.setdefault(session_id, SessionMind())
+def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float, thinker) -> None:
+    mind = _minds.setdefault(scope.activity, ActivityMind())
     try:
         with SessionLocal() as db:
-            user = db.get(User, user_id)
+            user = db.get(User, scope.user_id)
             thought = thinker.think(level, text, user=(user.name if user and user.name else "the user"),
-                                    situation=situation())
+                                    situation=source.situation())
             if not thought.text:
-                _log({"ts": time.time(), "session": str(session_id), "quick": level,
+                _log({"ts": time.time(), "session": str(scope.activity), "quick": level,
                       "error": thought.error, "skipped": None if thought.error else "nothing new to think",
                       "ms": thought.latency_ms})
                 return
-            session = db.get(DesktopSession, session_id)
             late = time.time() - at > STALE_AFTER[level]
-            live = session is not None and session.state in mind_ticks.LIVE_STATES
-            status = "done" if live and not late else "stale"
-            # Thought from a moment the game has left (seen live: "it slipped away" about a sheep
+            status = "done" if source.live(db, scope) and not late else "stale"
+            # Thought from a moment the source has left (seen live: "it slipped away" about a sheep
             # the lesson had just killed): not said, and kept as possibly out of date.
-            outdated = game_moment.since(db, mind.quick_since) if status == "done" else []
+            outdated = source.changed_since(db, mind.quick_since) if status == "done" else []
             if outdated:
                 status = "stale"
             said = None
             outcome = None
             if thought.say and status == "done":
-                outcome = agent_say.deliver(db, user_id=user_id, text=thought.say,
-                                            reasons=[f"{level}: {thought.text}"],
-                                            commentary_mode=session.commentary_mode)
+                outcome = agent_say.deliver(db, user_id=scope.user_id, text=thought.say,
+                                            reasons=[f"{level}: {thought.text}"], **source.speaking(db, scope))
                 said = thought.say if outcome.startswith("Said") else None
-            save_thought(db, user_id=user_id, session_id=session_id, level=level, text=thought.text, said=said,
-                         status=status, kind=thought.kind)
-            _log({"ts": time.time(), "session": str(session_id), "quick": level, "kind": thought.kind,
+            save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
+                         text=thought.text, said=said, status=status, kind=thought.kind)
+            _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,
                   "changed": outdated or None,
                   "ms": thought.latency_ms})
     except Exception:  # noqa: BLE001
-        log.exception("mind: quick thought failed for session %s", session_id)
+        log.exception("mind: quick thought failed for %s %s", scope.source, scope.activity)
     finally:
         mind.quick_busy = False
 

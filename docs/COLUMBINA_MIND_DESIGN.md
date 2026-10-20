@@ -3,6 +3,10 @@
 Status: v1 being built on `feature/minecraft-awareness` (2026-10-14). Games first (Minecraft pack);
 the same design is meant to grow into an always-on mind outside games.
 
+Update (2026-10-19): the mind's runtime is now general, with Minecraft as one source and body
+behind `app/ai/mind/contracts.py` (`services/mind_minecraft.py`) and conversation as a second
+source in shadow. See `docs/COLUMBINA_INNER_STATE_PLAN.md`. The behaviour described here is unchanged.
+
 ## Why
 
 In play she felt unresponsive: she only thought when a few events chosen in code woke her
