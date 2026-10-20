@@ -19,12 +19,13 @@ from dataclasses import dataclass, field
 
 from app.ai.mind.situation import GENERAL, Situation
 
-TRIGGERS = ("failing", "surprise", "big", "handoff", "quiet")
+TRIGGERS = ("failing", "surprise", "big", "handoff", "open", "quiet")
 TRIGGER_LINES = {
     "failing": "the same step keeps failing",
     "surprise": "something didn't go the way she expected",
     "big": "she's about to start something big",
     "handoff": "{user} said something she wants to think over properly",
+    "open": "{user} asked her something that is still open after her reply",
     "quiet": "nothing is happening, so she has time to think",
 }
 CONCLUSIONS = {

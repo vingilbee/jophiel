@@ -273,6 +273,9 @@ def after_reply(prep: LivePrep | None, *, user_id: uuid.UUID, conversation_id: u
             state.pop('understand', None)
             save_state(user_id, conversation_id, state)
             prep.log.update(events=events.to_dict(), notes_after_reply=state['notes'])
+            # A question of theirs still open: her (shadow) slow thinking, off unless enabled.
+            from app.services import mind_conversation
+            mind_conversation.observe(user_id=user_id, conversation_id=conversation_id, notes=state['notes'])
         prep.log.update(reply=reply)
         path = Path(get_settings().cognitive_live_log_path)
         if not path.is_absolute():

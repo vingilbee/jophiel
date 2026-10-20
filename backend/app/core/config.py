@@ -507,6 +507,11 @@ class Settings(BaseSettings):
     mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
     mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
     mind_hard_log_path: str = "var/mind_hard.jsonl"
+    # A conversation as a source of her mind, in shadow (services/mind_conversation.py): after a reply,
+    # a question of theirs still open becomes a hard thought written only to MIND_SHADOW_LOG_PATH
+    # (never saved, said or shown). Needs COGNITIVE_LIVE_CHARACTER (its notes). Costs one model call each.
+    mind_conversation_shadow_enabled: bool = False
+    mind_shadow_log_path: str = "var/mind_shadow.jsonl"
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of her game plan.

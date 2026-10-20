@@ -5,7 +5,8 @@ import uuid
 from types import SimpleNamespace
 
 from app.ai.mind.hard import HardInput, HardThought, Problem, parse, render
-from app.services import mind, mind_hard
+from app.ai.mind.contracts import Moment, Scope
+from app.services import mind, mind_hard, mind_minecraft
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 
 SID = uuid.uuid4()
@@ -17,6 +18,10 @@ PLAN = {"goal": "kill a sheep", "source": "columbina_user_turn",
 def session(**over):
     base = dict(id=SID, owner_user_id=UID, state="running", plan=PLAN, commentary_mode="occasional")
     return SimpleNamespace(**{**base, **over})
+
+
+SOURCE = mind_minecraft.SOURCE
+SCOPE = Scope(UID, "minecraft", SID)
 
 
 def failing_problem():
@@ -52,22 +57,27 @@ def test_what_she_reads_is_one_text_in_a_fixed_order():
 
 def test_a_thought_about_a_step_or_goal_that_is_gone_is_dropped():
     problem = failing_problem()
-    assert mind_hard.dropped(None, session(), problem, None) is None
-    assert mind_hard.dropped(None, session(), problem, "the goal changed") == "the goal changed"
-    assert mind_hard.dropped(None, session(state="ended"), problem, None) == "the game ended"
+    assert mind_minecraft.dropped(None, session(), problem, None) is None
+    assert mind_minecraft.dropped(None, session(), problem, "the goal changed") == "the goal changed"
+    assert mind_minecraft.dropped(None, session(state="ended"), problem, None) == "the game ended"
     over = {**PLAN, "steps": [{**PLAN["steps"][0], "state": "done"}]}
-    assert mind_hard.dropped(None, session(plan=over), problem, None) == "that step is over"
-    assert mind_hard.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), problem, None) == "the goal changed"
+    assert mind_minecraft.dropped(None, session(plan=over), problem, None) == "that step is over"
+    assert mind_minecraft.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), problem, None) == "the goal changed"
     quiet = Problem("quiet", "Nothing is happening.", topic="quiet: x", query="x")
-    assert mind_hard.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), quiet, None) is None
+    assert mind_minecraft.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), quiet, None) is None
 
 
 def test_a_goal_the_user_changes_cancels_the_running_thought_and_the_waiting_one(monkeypatch):
-    monkeypatch.setattr(mind_hard.desktop_commands, "load_driver_state", lambda sid: {})
-    st = mind_hard.HardState(started=True, running=failing_problem(), waiting=failing_problem())
-    mind_hard.step(session(plan={**PLAN, "goal": "make a bed"}), st, state={}, plan={**PLAN, "goal": "make a bed"},
-                   talk=[], fresh=[], gate_hard=False, pressure="calm", at=100.0, user="Vincent")
-    assert st.cancelled == "the goal changed" and st.waiting is None
+    monkeypatch.setattr(mind_minecraft.desktop_commands, "load_driver_state", lambda sid: {})
+    mind_hard.reset()
+    att = mind_hard.attention_for(UID)
+    att.running, att.running_scope = failing_problem(), SCOPE
+    att.waiting[SCOPE.key] = mind_hard.Waiting(SOURCE, SCOPE, failing_problem())
+    act = mind_hard.ActivityHard(started=True, source_state=mind_minecraft.Triggers(started=True))
+    plan = {**PLAN, "goal": "make a bed"}
+    moment = Moment("tick", "calm", [], plan=plan, data={"state": {}, "tick": SimpleNamespace(at=100.0)})
+    mind_hard.step(SOURCE, SCOPE, act, moment, gate_hard=False, at=100.0, user="Vincent")
+    assert att.cancelled == "the goal changed" and att.waiting == {}
 
 
 class Db:
@@ -91,16 +101,16 @@ def _run(monkeypatch, thought: HardThought, sess=None, cancelled=None):
     sess = sess or session()
     saved, sent = [], []
     monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(sess))
-    monkeypatch.setattr(mind_hard, "gather", lambda db, s, problem: (SimpleNamespace(), None, "Vincent"))
+    monkeypatch.setattr(mind_hard, "gather", lambda db, source, scope, problem: (SimpleNamespace(), None, "Vincent"))
     monkeypatch.setattr(mind_hard, "render", lambda inp: "input")
     monkeypatch.setattr(mind_hard, "_log_hard", lambda *a: None)
     monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
         think=lambda inp, situation: thought, instructions=lambda trigger, user, situation: "system"))
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw) or SimpleNamespace(id=uuid.uuid4()))
-    monkeypatch.setattr(mind_hard, "send_on", lambda s, tid, problem, t: sent.append(t.kind))
-    st = mind_hard.HardState(running=failing_problem(), cancelled=cancelled)
-    mind_hard.run(SID, UID, st, failing_problem(), 100.0)
-    assert st.running is None
+    monkeypatch.setattr(mind_hard, "route", lambda source, scope, tid, problem, t, goal: sent.append(t.kind) or {})
+    att = mind_hard.Attention(running=failing_problem(), running_scope=SCOPE, cancelled=cancelled)
+    mind_hard.run(SOURCE, SCOPE, att, failing_problem(), 100.0)
+    assert att.running is None
     return saved, sent
 
 
@@ -120,17 +130,17 @@ def test_a_landed_thought_is_saved_and_sent_on_unless_dropped(monkeypatch):
 
 
 def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis):  # noqa: F811
-    sess = session()
-    mind_hard.send_on(sess, uuid.uuid4(), failing_problem(), HardThought("decision", "Use the learned move.",
-                                                                         for_hands="use learned_attack on sheep"))
-    mind_hard.send_on(sess, uuid.uuid4(), failing_problem(), HardThought("intention", "Keep 5 planks to get down.",
-                                                                         for_hands="keep 5 planks"))
+    def send_on(thought):
+        return mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), failing_problem(), thought, goal="kill a sheep")
+
+    routed = send_on(HardThought("decision", "Use the learned move.", for_hands="use learned_attack on sheep"))
+    assert routed["tip"].status == "accepted"  # her hands took it
+    send_on(HardThought("intention", "Keep 5 planks to get down.", for_hands="keep 5 planks"))
     texts = [m["text"] for m in mind_hard.hands_messages(SID)]
     assert texts == ["(from your own thinking) use learned_attack on sheep",
                      "keep in mind (your own intention): keep 5 planks"]
     assert [i["text"] for i in mind_hard.intentions(SID)] == ["keep 5 planks"]
-    mind_hard.send_on(sess, uuid.uuid4(), failing_problem(), HardThought("question", "Does he want me up there?",
-                                                                         question="Want me on top, or just the move?"))
+    send_on(HardThought("question", "Does he want me up there?", question="Want me on top, or just the move?"))
     question = mind_hard.take_question(SID)
     assert question["text"] == "Want me on top, or just the move?" and question["goal"] == "kill a sheep"
     assert mind_hard.take_question(SID) is None  # her reply took it: never also asked at a pause
@@ -142,13 +152,15 @@ def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch): 
     monkeypatch.setattr(mind_hard, "_reply_in_flight", lambda db, uid: False)
     monkeypatch.setattr(mind_hard.agent_say, "deliver", lambda db, **kw: said.append(kw) or "Said it.")
     mind_hard.set_question(SID, {"text": "Want me on top?", "at": 1.0, "goal": "kill a sheep", "topic": "t"})
-    assert mind_hard.ask_if_due(Db(None), session(), 100.0) is None and said == []  # they just spoke
+    db = Db(session())
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 100.0) is None and said == []  # they just spoke
     spoke["recently"] = False
-    assert mind_hard.ask_if_due(Db(None), session(), 110.0) == "asked: Said it."
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Said it."
     assert said[0]["text"] == "Want me on top?" and said[0]["reasons"][0].startswith("question:")
-    assert mind_hard.ask_if_due(Db(None), session(), 120.0) is None  # asked once
+    assert said[0]["commentary_mode"] == "occasional"
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 120.0) is None  # asked once
     mind_hard.set_question(SID, {"text": "Still?", "at": 1.0, "goal": "an old goal"})
-    assert mind_hard.ask_if_due(Db(None), session(), 130.0) == "question dropped: the goal changed"
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 130.0) == "question dropped: the goal changed"
 
 
 def test_her_mouth_hands_a_problem_to_her_slow_thinking(isolated_redis, monkeypatch):  # noqa: F811
@@ -157,7 +169,7 @@ def test_her_mouth_hands_a_problem_to_her_slow_thinking(isolated_redis, monkeypa
     from app.services import desktop_game
 
     monkeypatch.setattr(desktop_game, "_live", lambda db, uid: session())
-    answer = mind_hard.hand_off(None, UID, what="what harder skills he means")
+    answer = mind_hard.hand_off(Db(session()), UID, what="what harder skills he means")
     assert answer.startswith("You'll think it over in the background")
     problem = mind_hard.handoff(SID, "Vincent")
     assert problem.trigger == "handoff" and "what harder skills he means" in problem.text
@@ -172,7 +184,7 @@ def test_hard_thought_logs_are_replayable(tmp_path, monkeypatch):
     from app.core.config import get_settings
 
     monkeypatch.setattr(get_settings(), "mind_hard_log_path", str(tmp_path / "hard.jsonl"))
-    mind_hard._log_hard(SID, failing_problem(), "system text", "input text",
+    mind_hard._log_hard(SCOPE, failing_problem(), "system text", "input text",
                         HardThought("decision", "Go around.", latency_ms=1200))
     record = json.loads((tmp_path / "hard.jsonl").read_text())
     assert (record["system"], record["input"], record["kind"], record["trigger"]) == (

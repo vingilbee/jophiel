@@ -5,8 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.mind import gates as g
+from app.ai.mind.contracts import Scope
 from app.core.config import get_settings
-from app.services import mind
+from app.db.models import DesktopSession
+from app.services import mind, mind_hard, mind_minecraft
 
 
 def state(**over) -> dict:
@@ -45,19 +47,22 @@ def brain(monkeypatch, tmp_path):
                         ("mind_hard_quiet_seconds", 0)):
         monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(mind, "recent_thoughts", lambda db, sid, now, limit=5: [])
-    monkeypatch.setattr(mind.mind_ticks, "recent_talk", lambda db, uid, now: [])
-    monkeypatch.setattr(mind.mind_ticks.desktop_commands, "load_driver_state", lambda sid: {})
+    monkeypatch.setattr(mind_minecraft.mind_ticks, "recent_talk", lambda db, uid, now: [])
+    monkeypatch.setattr(mind_minecraft.mind_ticks.desktop_commands, "load_driver_state", lambda sid: {})
     monkeypatch.setattr(mind.desktop_preview, "redis_client", lambda: None)
     hard, quick, driver = [], [], {}
-    monkeypatch.setattr(mind.mind_hard, "start", lambda session, st, problem, at: (
-        hard.append(problem), setattr(st, "running", problem), setattr(st, "last_started_at", at)))
-    monkeypatch.setattr(mind.mind_hard.desktop_commands, "load_driver_state", lambda sid: driver)
-    monkeypatch.setattr(mind._pool, "submit", lambda fn, sid, uid, level, text, at, thinker: (
-        quick.append(level), setattr(mind._minds[sid], "quick_busy", False)))
+    monkeypatch.setattr(mind.mind_hard, "start", lambda source, scope, att, problem, at: (
+        hard.append(problem), setattr(att, "running", problem), setattr(att, "running_scope", scope),
+        setattr(att, "last_started_at", at)))
+    monkeypatch.setattr(mind_minecraft.desktop_commands, "load_driver_state", lambda sid: driver)
+    monkeypatch.setattr(mind._pool, "submit", lambda fn, source, scope, level, text, at, thinker: (
+        quick.append(level), setattr(mind._minds[scope.activity], "quick_busy", False)))
     mind._minds.clear()
-    mind._notice_cursors.clear()
+    mind_hard.reset()
+    mind_minecraft._notice_cursors.clear()
     session = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uuid.uuid4(), state="running", plan=None,
                               plan_revision=1, commentary_mode="occasional")
+    scope = mind_minecraft.scope_of(session)
 
     picked = iter(range(1, 1000))
 
@@ -66,9 +71,13 @@ def brain(monkeypatch, tmp_path):
         monkeypatch.setattr(mind, "_gates", lambda: (gate, fallback or gate, None))
         if fresh:
             over.setdefault("inventory", [{"name": "dirt", "count": next(picked)}])
-        return mind.tick(None, Pack(), session, state(**over), at)
+        return mind.tick(None, mind_minecraft.SOURCE, scope, (session, state(**over), Pack()), at)
 
-    return SimpleNamespace(run=run, hard=hard, quick=quick, session=session, driver=driver)
+    def landed():
+        """The running hard thought landed."""
+        mind_hard.attention_for(session.owner_user_id).running = None
+
+    return SimpleNamespace(run=run, hard=hard, quick=quick, session=session, driver=driver, landed=landed)
 
 
 def test_threshold_decides_whether_she_thinks():
@@ -96,8 +105,8 @@ def test_the_gates_hard_is_a_surprise_only_when_the_world_changed(brain, monkeyp
     assert (record["level"], record["action"], record["hard"]) == ("light", "light", "hard: surprise")
     assert "you got dirt" in brain.hard[0].text
     brain.hard.clear()
-    mind._minds[brain.session.id].hard.running = None
-    monkeypatch.setattr(mind.mind_ticks, "recent_talk", lambda db, uid, now: [
+    brain.landed()
+    monkeypatch.setattr(mind_minecraft.mind_ticks, "recent_talk", lambda db, uid, now: [
         {"role": "user", "content": "this session is for harder skills", "at": 150.0}])
     record = brain.run(Gate({"hard": 0.9}), at=150, fresh=False)  # only the user talking: her mouth answers
     assert record["hard"] is None and brain.hard == []
@@ -117,7 +126,7 @@ def test_one_hard_thought_at_a_time_with_a_gap(brain):
     brain.run(Gate({"none": 0.9}), at=99)
     assert brain.run(Gate({"hard": 0.9}))["hard"] == "hard: surprise"
     assert brain.run(Gate({"hard": 0.9}), at=105)["hard"] == "hard waiting (surprise)"
-    mind._minds[brain.session.id].hard.running = None  # the thought landed
+    brain.landed()  # the thought landed
     assert brain.run(Gate({"none": 0.9}), at=110, fresh=False)["hard"] == "hard waiting (surprise): gap"
     assert brain.run(Gate({"none": 0.9}), at=121, fresh=False)["hard"] == "hard: surprise"
     assert len(brain.hard) == 2
@@ -135,7 +144,7 @@ def test_a_step_that_keeps_failing_is_thought_over_at_the_4th_and_10th_failure(b
     problem = brain.hard[-1]
     assert problem.anchor == {"goal": "kill a sheep", "step_id": "s60"}
     assert "4 failed: fight(target=sheep) -> sheep isn't hostile x4" in problem.text
-    mind._minds[brain.session.id].hard.running = None
+    brain.landed()
     assert brain.run(Gate({"none": 0.9}), at=130)["hard"] is None  # the same failure count: thought over already
     brain.driver["step"] = {**brain.driver["step"], "failed": 10}
     assert brain.run(Gate({"none": 0.9}), at=131)["hard"] == "hard: failing"
@@ -148,7 +157,7 @@ def test_a_result_that_says_failed_while_she_got_the_loot_is_a_surprise(brain):
     record = brain.run(Gate({"none": 0.9}), at=126, inventory=[{"name": "mutton", "count": 2}])
     assert record["hard"] == "hard: surprise"
     assert "But while it ran you got: mutton +2" in brain.hard[-1].text
-    mind._minds[brain.session.id].hard.running = None
+    brain.landed()
     assert brain.run(Gate({"none": 0.9}), at=150, fresh=False,
                      inventory=[{"name": "mutton", "count": 2}])["hard"] is None  # seen once
 
@@ -159,7 +168,7 @@ def test_something_big_is_thought_over_before_it_starts(brain):
         {"id": f"s{i}", "state": "pending", "do": f"step {i}"} for i in range(3)]}
     assert brain.run(Gate({"none": 0.9}), at=101)["hard"] == "hard: big"
     assert brain.hard[-1].anchor == {"goal": "build a shelter"}
-    mind._minds[brain.session.id].hard.running = None
+    brain.landed()
     brain.driver["running"] = {"skill": "learned_build_up", "params": {"times": 10}}
     assert brain.run(Gate({"none": 0.9}), at=130)["hard"] == "hard: big"
     assert "learned_build_up 10 times in a row" in brain.hard[-1].text
@@ -171,7 +180,7 @@ def test_quiet_hard_thinking_rotates_topics(brain, monkeypatch):
     brain.run(Gate({"none": 0.9}))
     assert brain.run(Gate({"none": 0.9}), at=200, fresh=False)["hard"] is None
     assert brain.run(Gate({"none": 0.9}), at=400, fresh=False)["hard"] == "hard: quiet"
-    mind._minds[brain.session.id].hard.running = None
+    brain.landed()
     assert brain.run(Gate({"none": 0.9}), at=600, fresh=False)["hard"] is None  # once per 5 min
     assert brain.run(Gate({"none": 0.9}), at=701, fresh=False)["hard"] == "hard: quiet"
     assert [p.topic for p in brain.hard] == ["quiet: the user: what they want from today, and how they're doing",
@@ -205,7 +214,7 @@ def test_quiet_thinking_after_a_while_with_no_thought(brain, monkeypatch):
     assert brain.run(Gate({"none": 0.9}), at=126)["action"] == "quiet"
     assert brain.run(Gate({"none": 0.9}), at=140)["action"] == "none"  # the quiet thought counts as a thought
     assert brain.run(Gate({"none": 0.9}), at=170, nearby=ZOMBIE)["action"] == "none"  # nothing quiet about a zombie
-    monkeypatch.setattr(mind.mind_ticks, "recent_talk", lambda db, uid, now: [{"role": "user", "content": "hey", "at": 175.0}])
+    monkeypatch.setattr(mind_minecraft.mind_ticks, "recent_talk", lambda db, uid, now: [{"role": "user", "content": "hey", "at": 175.0}])
     assert brain.run(Gate({"none": 0.9}), at=180)["action"] == "none"  # they just spoke: the mouth answers
     assert brain.quick == ["light", "quiet"]
 
@@ -229,7 +238,7 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
             return False
 
         def get(self, model, key):
-            return self.session if model is mind.DesktopSession else SimpleNamespace(name="Vincent")
+            return self.session if model is DesktopSession else SimpleNamespace(name="Vincent")
 
     class Thinker:
         def __init__(self, say):
@@ -246,12 +255,13 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
     monkeypatch.setattr(mind.agent_say, "deliver", lambda db, **kw: said.append(kw["text"]) or "Said it.")
     monkeypatch.setattr(mind, "_log", lambda record: None)
     sid, uid = uuid.uuid4(), uuid.uuid4()
+    scope = Scope(uid, "minecraft", sid)
     monkeypatch.setattr(mind.time, "time", lambda: 100.5)
-    mind._think_quick(sid, uid, "react", "tick", 100.0, Thinker("zombie, left!"))
+    mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert said == ["zombie, left!"]
     assert saved[-1] | {} == {"user_id": uid, "session_id": sid, "level": "react", "text": "zombie on my left",
                               "said": "zombie, left!", "status": "done", "kind": "next"}
     monkeypatch.setattr(mind.time, "time", lambda: 110.0)  # landed 10 s late: a react is stale by then
-    mind._think_quick(sid, uid, "react", "tick", 100.0, Thinker("zombie, left!"))
+    mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert saved[-1]["status"] == "stale" and saved[-1]["said"] is None and len(said) == 1
     assert mind._minds[sid].quick_busy is False

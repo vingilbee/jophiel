@@ -48,9 +48,9 @@ _planner = None
 
 
 def enabled() -> bool:
-    from app.services import mind
+    from app.services import mind_minecraft
 
-    return bool(get_settings().mind_planner_enabled and mind.enabled())
+    return bool(get_settings().mind_planner_enabled and mind_minecraft.enabled())
 
 
 def handles(session: DesktopSession) -> bool:
@@ -332,7 +332,7 @@ def _get_planner():
 def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: dict, *, planner=None) -> str:
     """One planning job (the agent-events worker). Raises when the call fails, so the job is
     retried; returns what happened otherwise."""
-    from app.services import agent_say, mind
+    from app.services import agent_say, mind, mind_minecraft
 
     goal = payload.get("goal")
     with SessionLocal() as db:
@@ -347,7 +347,7 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
         db.commit()
     topic = (f"planning: {goal['text']}" if goal else "planning: " + "; ".join(reasons))[:GOAL_CHARS]
     decision = (planner or _get_planner()).plan(
-        text, user=name, situation=mind.situation(), max_steps=get_settings().desktop_plan_max_steps)
+        text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
     if decision.decision is None:
         mind.log_decision({"ts": time.time(), "session": str(session_id), "plan": "error", "reasons": reasons,
                   "error": decision.error, "ms": decision.latency_ms})

@@ -84,7 +84,7 @@ def write(said: str, changed: list[str], *, user: str, voice: str = "") -> str |
 
 def check(user_id: uuid.UUID, said: str, moment: game_moment.Moment) -> str | None:
     """Correct ``said`` if the game has since made it wrong. Returns what happened, for the log."""
-    from app.services import mind
+    from app.services import mind, mind_minecraft
 
     said = " ".join(_STICKER.sub("", said).split())
     if not said:
@@ -99,7 +99,7 @@ def check(user_id: uuid.UUID, said: str, moment: game_moment.Moment) -> str | No
         name = user.name if user and user.name else "the user"
         mode = session.commentary_mode if session else "occasional"
         db.commit()
-    line = write(said, changed, user=name, voice=mind.situation().voice)
+    line = write(said, changed, user=name, voice=mind_minecraft.situation().voice)
     outcome = None
     if line:
         with SessionLocal() as db:

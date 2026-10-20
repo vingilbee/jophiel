@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 from app.ai.context import GameEvent
 from app.ai.tools.desktop import tools as desktop_tools
-from app.services import game_correction, game_moment, mind
+from app.ai.mind.contracts import Scope
+from app.services import game_correction, game_moment, mind, mind_minecraft
 
 SID = uuid.uuid4()
 
@@ -148,10 +149,10 @@ def test_a_quick_thought_the_game_moved_past_is_not_said(monkeypatch):
     monkeypatch.setattr(mind.agent_say, "deliver", lambda db, **kw: said.append(kw["text"]) or "Said it.")
     monkeypatch.setattr(mind, "_log", lambda record: None)
     monkeypatch.setattr(mind.time, "time", lambda: 101.0)
-    monkeypatch.setattr(mind.game_moment, "since", lambda db, m, kinds=None: ["what you carry: mutton 0 -> 2"])
+    monkeypatch.setattr(mind_minecraft.game_moment, "since", lambda db, m, kinds=None: ["what you carry: mutton 0 -> 2"])
     sid = uuid.uuid4()
-    mind._minds[sid] = mind.SessionMind(quick_since=moment())
-    mind._think_quick(sid, uuid.uuid4(), "light", "tick", 100.0, Thinker())
+    mind._minds[sid] = mind.ActivityMind(quick_since=moment())
+    mind._think_quick(mind_minecraft.SOURCE, Scope(uuid.uuid4(), "minecraft", sid), "light", "tick", 100.0, Thinker())
     assert said == [] and saved[-1]["status"] == "stale" and saved[-1]["said"] is None
 
 
