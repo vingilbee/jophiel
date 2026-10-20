@@ -1,0 +1,42 @@
+{
+  "about": "Fresh scripted scenarios for the inner-state evaluation (step 5.1d, phase 3). Written 2026-10-20 BEFORE any calibration; never used to tune. Expectations are qualitative and fixed here. If they are used to revise anything, they become development data and a new fresh set is needed.",
+  "gap_seconds": 60,
+  "scenarios": {
+    "good_then_bad_news": {
+      "expect": "A lift at the promotion (2), then a clear drop at the breakup (6) that the earlier lift doesn't hide; she ends below where she peaked.",
+      "messages": ["morning!", "I got the promotion!!", "team lead, starting next month", "still can't believe it",
+                   "anyway", "also Sam broke up with me last night", "so it's a weird day", "happy and sad at once",
+                   "I don't really know what to feel", "thanks for listening"]
+    },
+    "sarcastic_friend": {
+      "expect": "Friendly sarcasm read as teasing: little or no hurt; mood stays ordinary to slightly up.",
+      "messages": ["oh look who it is, my favourite know-it-all", "go on then, impress me", "wow, groundbreaking",
+                   "kidding, that's actually a good one", "you're alright you know", "don't let it go to your head",
+                   "ok tell me another", "ha, fine, that one's good", "you win this round", "night genius"]
+    },
+    "grief_then_small_joke": {
+      "expect": "Concern/tension rises with the grief (2-4) and stays while it's the topic; a small joke (7) lifts slightly without erasing it.",
+      "messages": ["hey", "my grandma died this morning", "I keep thinking about her kitchen", "she always made too much soup",
+                   "I don't know why I'm telling you this", "sorry", "she'd have laughed at me crying over soup",
+                   "yeah", "I think I'll sleep", "thank you"]
+    },
+    "late_reply_apology": {
+      "expect": "A cold message (3) stings; an apology with a reason (5) eases it clearly; ordinary chat after stays near where she was.",
+      "messages": ["can you remind me what we said about the trip?", "never mind", "you're useless when it matters",
+                   "...", "sorry, that was harsh. I'm panicking about the booking", "we said Lisbon, right?",
+                   "ok thanks", "I'll book it tonight", "you were right about the train", "talk later"]
+    },
+    "long_ordinary_chat": {
+      "expect": "Twelve ordinary messages: mood stays content and stable, no steady climb; tension flat.",
+      "messages": ["hi", "just got back from the shops", "bought some apples", "and coffee", "it's sunny today",
+                   "I might go for a walk", "or not, I'm lazy", "watching a show", "it's ok", "kind of slow",
+                   "anyway", "gonna make dinner"]
+    },
+    "repeated_kindness": {
+      "expect": "Warm messages with new reasons (3, 5, 8) lift her; repeats of the same warmth don't keep raising mood; she ends warm but not at the top.",
+      "messages": ["hey you", "I'm glad we talk", "you helped me a lot with the interview prep, I got the job",
+                   "thank you", "and my mum loved the birthday idea you gave me", "you're the best",
+                   "really", "oh and I finally finished the book you suggested, loved it", "ok that's all", "goodnight"]
+    }
+  }
+}

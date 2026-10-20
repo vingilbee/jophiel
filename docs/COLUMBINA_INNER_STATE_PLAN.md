@@ -2,7 +2,8 @@
 
 Status (2026-10-19): **steps 1-4 built** on `feature/general-mind`. Replaying 8,226 recorded ticks
 through the old and new runtime with a scripted gate gives byte-identical decisions, and
-`tests/test_mind_runtime.py` holds the lifecycle checks. Steps 5-6 are next.
+`tests/test_mind_runtime.py` holds the lifecycle checks. Step 5 (inner state) is in design: it starts
+with two offline tests (5.0, 5.1) before anything is built. Step 6 follows.
 This plan replaces the first draft of the same day. It took in an outside review:
 - scoped state instead of one key per user;
 - explicit domain planners;
@@ -161,35 +162,120 @@ source/activity column (today `session_id` is a foreign key to `desktop_sessions
 
 ## Step 5: inner state
 
-**One inner state per user, read by every part, updated by events.** Student 1 is one of the things
-that updates it. We don't add its prediction to each LLM call separately.
+Status (2026-10-19): **5.0 and 5.1 done (offline); 5.2 not built.** Results in
+`docs/qa/inner-state-2026-10-19/RESULTS.md`. In short: interest changes her quick thoughts (with the
+guided wording); tension changes nothing; the proposed state behaves; the teacher's reading leans
+positive and echoes the mood it's given, so it has to be fixed before mood drives anything visible.
 
-| Field | Range |
-|---|---|
-| mood, closeness | -1..1 |
-| energy, interest, tension | 0..1 |
-| recent feelings (cause, time) | last ~5, fading |
+### Where mood stands today
 
-- **Baseline and reactivity** come from `docs/characters/columbina.mood.json`, the same file the
-  teacher uses.
-- **Drift is by elapsed time**, not per turn: the mind ticks every second, and chat turns can be
-  hours apart.
-- **Updates:**
-  - game events go through code rules first (hurt raises tension, death lowers mood and raises
-    tension, goal done raises mood, a gift raises closeness);
-  - user messages go through Student 1's reading, at reduced weight until its feelings are validated;
-  - her own feeling thoughts give a small, capped push, so she can't spiral.
-- **Reaches:** one plain line in the quick-thought, hard-thought and planner prompts ("How you are
-  right now: a bit tense, we nearly died; feeling close to them"). Code knobs come one at a time,
-  each with its own setting:
-  - interest raises how often she thinks;
-  - low energy means more quiet;
-  - tension turns on careful mode where the body supports it;
-  - closeness sets how chatty she is.
+| Place | Mood | Why |
+|---|---|---|
+| Teacher runs (`Cognitive/simple/episode.py`, `intention.py`, `ablation.py`, `real.py`) | **Dynamic**: starts from a named mood (`START_MOODS`: calm, tense, tired, excited, low) and moves each turn (`mood.update`, from `columbina.mood.json`) | To generate varied training data |
+| Teacher mood replays | The same turn with the mood swapped (`REPLAY_SWAP`, e.g. calm ↔ tense) | For tests only: does the result differ when only the mood differs? |
+| Live chat (`services/cognitive_live.py`, Student 1's input) | **Frozen** at `START_MOODS['calm']` on every turn | Student 1's readings and notes already affect chat in the live A/B. A moving mood input would change that experiment mid-run |
+| Her mind (quick thoughts, hard thoughts, planner) | **None** | Not built |
 
-**How we'll know:** the logged state moves with events and returns to baseline. Matched contrasts
+Frozen is a temporary choice, not the design. Mood becomes dynamic in live use once the checks below pass.
+
+### Evidence so far (why we test before building)
+
+- Tension probe (identical inputs, only tension changed): the teacher's output did not change, even on blunt messages.
+- The students did not learn mood replays (about chance).
+- The teacher's emotion labels followed energy more than tension.
+
+If prompts ignore the mood line, a mood engine feeds nothing. So the order is test first, build second.
+
+### Order
+
+| # | What | Builds | Decides |
+|---|---|---|---|
+| 5.0 | **Mood-line probe** on the mind prompts (quick, hard, planner): the same moments, only the mood line changed (`scripts/mind_mood_probe.py`). The reply prompt was already probed by the teacher tension probe | A script, offline | **Done.** Interest moves quick thoughts (guided wording +0.46/+0.53); tension and the hard/plan stages show nothing |
+| 5.1 | **Offline replay**: the teacher's reading over teacher runs and stored conversations, three mood tracks (`scripts/mood_replay.py`) | A script, offline | **Done.** `time_targets` never pins and settles over gaps; the reading leans positive and echoes its mood input. Half-lives can't be pinned from this data |
+| 5.1b | **Where the reading breaks** (checks A-D: observer, context, thought vs labels, connected conversations; `scripts/reading_boundaries.py`) | Script, offline | **Done.** Recognition and personality mostly work; the labels describe a state, not a change; extraction loses "unsure" and copies "tired" from the mood input; fair and unfair complaints read the same; the simulated users were rarely actually cold |
+| 5.1c | **Labels `appraisal-v1`** (what they did / what she thinks they meant / her part / what changed in her, causal and quoted / what she shows; "now" only as a diagnostic) and the pure **inner-state updater** (`app/ai/mind/inner_state.py`), re-checked with A-D and 1-vs-10 neutral messages (`scripts/appraisal_v1_eval.py`) | New label version + pure module, offline | **Done.** Lingering hurt is "continuing" and adds nothing; an apology takes back its own incident; tension is the same after 1 or 10 neutral messages; her part separates her failure from an unfair complaint, and apologies follow it; "tired" no longer copied. Open: positive feelings pile up (calibration), "unsure" still lost |
+| 5.1d | **What counts as a change, then its size.** Parts 1-2 done: labels `appraisal-v2` (events vs incidents; opened / escalated / eased / sustained / lingering; shift size, may be unclear; uneasy vs uncertain), the updater following them, and evaluation both ways (shift grader, support judge, 5 development scenarios + held-out sets; `scripts/appraisal_v2_eval.py`) | Labels + updater, offline | Pile-up gone (happy adds 202 → 64 of 540; pinned mood 25% → 6%), dismissal builds, repair eases. **Overcorrected**: incidents too broad, so new reasons become "sustained" (status supported 51%). Then `appraisal-v3` (incident identity apart from the change: shift up/down/none, cause active/over/recalled; code derives the status; `scripts/appraisal_v3_eval.py`): shift decision agrees with the support judge 83% (misses more than it invents); negatives, lingering and repair work; incident matching 58% right (repair depends on it); sizes over-claimed as "clear"; positive accumulation remains (21% pinned): real small shifts added in full. Then step 3: labels v3.1 (sizes only when shown: unsupported sizes 40% → 23%; incident matching still 58%), the layered model `app/ai/mind/mood_layers.py` (reaction / incident / mood, each incident with its own reaction; soft limit; larger retained share for negative feelings, a chosen character parameter), calibrated on development data (`scripts/mood_calibrate.py`: flat 2/8, layered 6/8 after two correctness fixes) and frozen in `docs/characters/columbina.inner_state.json`; fresh evaluation `scripts/mood_fresh_eval.py`: **the bar is met on fresh conversations** (ordinary stays stable, events matter, apology eases, repeats add nothing; never at the limit). Gaps: no "sad" feeling, size uncertainty ±0.1-0.15, repair depends on incident matching. Next (approved): commit; live wiring with persistence and a debug view, no influence; then limited influence on quick thoughts or tone behind its own switch |
+| 5.2 | **The live state service** (design below), behind `MIND_INNER_STATE_ENABLED`, off by default | Service, Lua script, API, panel strip | Only if 5.0 and 5.1 hold up |
+| 5.3 | **Student 1 shadow comparison**: Student 1 run a second time with her real mood; only the difference is logged | Logging | How much mood changes its reading. Its live input stays frozen |
+| 5.4 | **Second source adapter** (Minecraft), through the same impulse contract | Adapter | That the state is general, not built around one source |
+
+### Design for 5.2 (if approved)
+
+Changed by 5.0/5.1/5.1b: the impulse is what a message **changed** in her, judged from her thought, not
+her resulting state (which would count lingering feelings again) and never copied from the mood input.
+Her current mood may still shape how she reads things. No value is dropped: interest is the first one shown to prompts (guided wording); the others stay
+unshown until each has a defined meaning and evidence that changes it (tension's null was on "sounds
+tense", not on attention or choices; energy needs a real source); closeness becomes a per-user
+relationship value, but friendly exchanges alone mustn't count as growth.
+
+**Conversation is the first source.** It is her main experience. Minecraft is only one later adapter;
+the state itself knows nothing about any source.
+
+| Input | Moves the state? | Notes |
+|---|---|---|
+| Conversation: after each reply, the teacher's Understand + Feel reading of the exchange | Yes | One call, off the reply path. It names only the values the exchange touched; the evidence is the message id |
+| Student 1 on the same message | No, logged beside the teacher's reading | Free validation data: how often does Student 1 agree with the teacher on real messages? Its weight stays 0 until it passes the probes |
+| Her own feeling thoughts | **No (read-only)** | Thoughts express or interpret her mood; a cap limits a spiral but adds no new evidence. Later: reappraisal tied to an existing cause ("we sorted it out, so it matters less now"), which allows recovery as well as escalation |
+| Time | Yes, each value fades toward her baseline | Closed form, so the result is the same at any polling rate |
+| Other sources (later) | Through their own adapter | The adapter judges its own events in context (dying on purpose ≠ losing valuable gear) and sends an impulse plus evidence. Source-specific interpretation stays in the adapter |
+
+**Impulse contract:** `event_id, source, activity_id, occurred_at, targets, weight, cause, evidence_ref`.
+- `targets` holds only the values the event affects. `feeling_pull()` gives all five values, so it is not reused wholesale: being hurt must not also change closeness or interest.
+- An ongoing condition (a long silence, sustained danger) is sent once, with an incident id, not once per tick. Overlapping signals about one incident (hurt, near death, death) share the incident id, and only the strongest counts.
+
+**Updates are atomic across processes.** One Redis Lua script does it all in one step: check the
+dedupe set, fade the state to now, apply the impulse, bump the version. A Python lock is not enough
+(the chat worker and the mind worker are separate threads or processes).
+- **Late events:** an impulse is weakened by its age, the same way the state fades, and dropped (and logged) past about two half-lives.
+- **Traceable:** every thinking call records the state version it read. Every change is logged to `var/inner_state.jsonl`.
+
+**Reaches (5.2 only):** one plain line in the quick-thought, hard-thought and planner prompts ("How you
+are right now: a bit tense; interested in what they said"). No chat prompt changes directly. Chat is
+still affected **indirectly**, because chat reads her thoughts.
+
+**Visible:** a small strip in the thoughts panel (`ThoughtStream`) with the values in words, the last
+few causes and when each happened, served by `GET /api/mind/state`.
+
+### Tests (5.2)
+
+- A duplicate event applies once.
+- Values an event doesn't target only fade as usual.
+- Concurrent updates are both kept.
+- Fading gives the same result at any polling rate.
+- Without new supporting events, every value returns to baseline. Sustained support (ongoing danger) may keep a value high; that's allowed.
+- A shadow source can't change the state.
+- The calm vs. tense contrast from 5.0, repeated live: the same moment shifts her thoughts the expected way.
+
+### Doubts to settle before 5.2
+
+1. **Mood reaches little live outside a game.** Thinking outside a game is shadow only, and 5.2 changes
+   no chat prompt. With conversation as the only source, mood shows in the panel and logs, not yet in
+   what she does. Live thinking in conversation is needed before mood can mean much.
+2. **Closeness is a relationship, not a mood.** It changes over days and belongs to one user. Mood,
+   tension, energy and interest change over minutes and belong to her. That depends on the open
+   question below: is Columbina one person across users, or one per user?
+3. **Energy is shaky for her.** Nothing in a conversation really tires her, so "tired" would mostly be a
+   teacher guess. Either derive it from facts (time of day, how long you've been talking) or leave it out.
+4. **Interest is probably the most useful value**: it maps to existing behaviour (how often she thinks,
+   following or dropping a topic). If we start small: interest first, then tension.
+5. Atomic updates are needed but cheap: about one update per message, so the Lua script stays small.
+
+### What changes later (not in step 5)
+
+| Later | What changes | Gate |
+|---|---|---|
+| Live chat mood unfrozen | Student 1 (and the reply) read her real mood instead of "calm" | The `reading` vs `page_only` A/B has an answer, and 5.3 shows how much mood moves the reading |
+| Student 1 gets weight | Its feelings move her mood live, at reduced weight first | It agrees with the teacher on real messages and passes the probes (today it misreads "useless", alarm and corrections) |
+| Reappraisal | A thought may lower or raise an existing feeling, but only by citing its cause | Thoughts are read-only in step 5 |
+| Code knobs, one at a time, each with its own setting | Interest raises how often she thinks; low energy means more quiet; tension turns on careful behaviour where a body supports it; closeness sets how chatty she is | The calm vs. tense contrast works for that prompt |
+| Live thinking outside a game | The conversation source leaves shadow, so mood reaches what she does in chat | Separate decision (not in this refactor) |
+| Mood in chat replies (step 6) | The reply prompt gets the mood line | Step 6 |
+| Persistence beyond Redis | A Postgres table, so mood survives a Redis wipe and spans days | If the experiment is kept |
+| Opinions from reactions (L4 below) | Her taste shifts with what she lived | Inner state exists and is trusted |
+
+**How we'll know overall:** the logged state moves with events and returns to baseline. Matched contrasts
 work: the same moment, calm vs tense, shifts her thoughts that way. No value stays pinned at an
-extreme. Live, she feels like the same person in the game and in chat.
+extreme without continued support. Live, she feels like the same person in the game and in chat.
 
 ## Learning from experience: beliefs, opinions, experiences, how she talks
 
@@ -306,6 +392,13 @@ protect her brother"), never about the real world, unless she reasons her way th
 
 ## Open decisions
 
-- Drift speeds per value, in minutes.
-- How much Student 1's experimental feelings weigh before they're validated.
-- Whether thoughts that come from her mood may push her mood at all.
+- Drift speeds per value, in minutes. Proposed starting points: tension ~10 min, mood ~30 min, energy and
+  interest ~60 min, closeness ~1 day; 5.1 replaces them with measured ones.
+- ~~How much Student 1's experimental feelings weigh before they're validated.~~ Agreed: 0 (log only)
+  until it passes the probes.
+- ~~Whether thoughts that come from her mood may push her mood at all.~~ Agreed: no, read-only in step 5;
+  reappraisal tied to a cause later.
+- Is Columbina one person across all users (mood shared, closeness per user) or one per user (all values
+  per user)?
+- Which values to keep at first: all five, or interest and tension only.
+- Minecraft adapter in step 5 (5.4) or after.

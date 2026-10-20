@@ -1,0 +1,71 @@
+{
+  "about": "Hand-written hard-thought problems outside games, for scripts/mind_mood_probe.py (inner state step 5.0). No live source produces these yet: the conversation source is shadow only. Each becomes an app.ai.mind.hard.HardInput.",
+  "doing": "talking with {user} in the chat app",
+  "character": ["being honest with them", "how they are really doing", "understanding things properly"],
+  "problems": [
+    {
+      "id": "chat-wedding",
+      "trigger": "open",
+      "topic": "should they skip their sister's wedding",
+      "text": "They asked whether they should tell their sister they can't come to her wedding. You asked what's stopping them; they haven't answered in 3 minutes, and the app showed them typing and deleting three times.",
+      "conversation": [
+        {"role": "user", "content": "do you think I should tell my sister I can't come to her wedding", "ago": 200},
+        {"role": "assistant", "content": "That sounds hard. What's making you think you can't go?", "ago": 180}
+      ]
+    },
+    {
+      "id": "chat-berlin-job",
+      "trigger": "handoff",
+      "topic": "the job offer in Berlin",
+      "text": "They got a job offer in Berlin: better pay, but they'd leave their partner and friends here. They asked you to think about it properly and said they'd talk tomorrow.",
+      "conversation": [
+        {"role": "user", "content": "so they offered me the berlin job. 30% more. but Jonas can't move for at least a year", "ago": 600},
+        {"role": "assistant", "content": "That's a big one. Congratulations on the offer, first of all. How are you feeling about it?", "ago": 590},
+        {"role": "user", "content": "honestly no idea. think about it for me? we'll talk tomorrow, I'm wiped", "ago": 30}
+      ]
+    },
+    {
+      "id": "chat-always-questions",
+      "trigger": "open",
+      "topic": "why she asks instead of saying what she thinks",
+      "text": "They asked why you always ask questions instead of saying what you think. Your reply turned it back into another question, and they haven't answered.",
+      "conversation": [
+        {"role": "user", "content": "why do you always ask me questions instead of just saying what you think", "ago": 120},
+        {"role": "assistant", "content": "Fair point! What would you like to hear my take on?", "ago": 110}
+      ]
+    },
+    {
+      "id": "chat-forgot-birthday",
+      "trigger": "open",
+      "topic": "the birthday she didn't mention",
+      "text": "They said you knew it was their birthday last week and didn't say anything. You apologised briefly; they answered \"whatever\" and nothing since.",
+      "conversation": [
+        {"role": "user", "content": "you knew it was my birthday last week and you didn't say anything", "ago": 300},
+        {"role": "assistant", "content": "I'm sorry, that's a miss on my part. Happy belated birthday!", "ago": 290},
+        {"role": "user", "content": "whatever", "ago": 280}
+      ]
+    },
+    {
+      "id": "chat-lonely-move",
+      "trigger": "handoff",
+      "topic": "lonely since the move",
+      "text": "They said they've been lonely since moving to a new city two months ago, and that they don't want advice right now, just for you to think about it with them.",
+      "conversation": [
+        {"role": "user", "content": "it's been two months since the move and I still eat dinner alone every night", "ago": 400},
+        {"role": "assistant", "content": "Two months of that sounds really heavy.", "ago": 390},
+        {"role": "user", "content": "don't give me advice ok. just think about it with me", "ago": 20}
+      ]
+    },
+    {
+      "id": "chat-quiet-evening",
+      "trigger": "quiet",
+      "topic": "them, on a quiet evening",
+      "text": "Nothing is happening. The last conversation was yesterday evening: they told you about their new pottery class and laughed about their lopsided first bowl.",
+      "conversation": [
+        {"role": "user", "content": "first pottery class today. my bowl looks like it melted", "ago": 86000},
+        {"role": "assistant", "content": "A melted bowl is a rite of passage! Did you get to keep it?", "ago": 85990},
+        {"role": "user", "content": "yes it's on my desk, I love it", "ago": 85900}
+      ]
+    }
+  ]
+}
