@@ -539,6 +539,39 @@ class Settings(BaseSettings):
     memory_intention_hours: float = Field(default=2.0, gt=0, le=720)
     memory_context_idle_hours: float = Field(default=2.0, gt=0, le=720)
     memory_manager_log_path: str = "var/memory_manager.jsonl"
+    # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md; services/observation*.py): what sources
+    # reported, as one immutable stream. On: game outcomes are recorded as they happen, and the mind
+    # loop (needs MIND_ENABLED) pulls conversation messages, interruptions and deliveries. Promoting
+    # them into working memory also needs MEMORY_MANAGER_ENABLED; until then the work waits.
+    observation_enabled: bool = False
+    # Routine observations everyone has dealt with may be deleted after this; notable ones are kept.
+    observation_retention_days: float = Field(default=14.0, ge=2, le=3650)
+    observation_batch: int = Field(default=100, ge=1, le=1000)
+    observation_tick_budget_seconds: float = Field(default=0.5, gt=0, le=10)
+    observation_sweep_seconds: float = Field(default=60.0, ge=1, le=3600)
+    # A user message with no reply yet is bound to the context focused when it was sent after this.
+    observation_bind_grace_seconds: float = Field(default=300.0, ge=0, le=86400)
+    observation_max_attempts: int = Field(default=5, ge=1, le=50)
+    # An observation that still has no context after this is skipped (shown in inspection).
+    observation_context_wait_hours: float = Field(default=24.0, gt=0, le=720)
+    observation_log_path: str = "var/observation.jsonl"
+    # Shared recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md; services/recall*.py): one read service
+    # over facts, episodes, memory events and working items. On: replies get a recall section with typed
+    # references, the read tools (search_memories / read_memory / read_timeline), and a receipt of what
+    # they were given; hard thoughts read through it too; memory events are embedded in the background.
+    # Off: the same service still ranks the old fact/episode block, so nothing else changes.
+    recall_enabled: bool = False
+    recall_auto_limit: int = Field(default=6, ge=1, le=12)
+    recall_tool_calls_per_reply: int = Field(default=3, ge=0, le=10)
+    # Recent events always considered, so facts can't crowd them out; and the episode window.
+    recall_event_candidates: int = Field(default=300, ge=10, le=5000)
+    recall_episode_candidates: int = Field(default=200, ge=10, le=5000)
+    # After a reply that was given memories: which ones its words are about (one small call, off the
+    # reply path). None = subagent_model. Off: the next turn treats what was supplied as candidates.
+    recall_association_enabled: bool = True
+    recall_association_model: str | None = None
+    recall_embedding_batch: int = Field(default=32, ge=1, le=256)
+    recall_log_path: str = "var/recall.jsonl"
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.
     typesafe_api_key: str = ""

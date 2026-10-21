@@ -342,14 +342,16 @@ def _earlier(db: Session, session_id: uuid.UUID | None, topic: str, now: datetim
 def gather(db: Session, source: Source, scope: Scope, problem: Problem) -> tuple[HardInput, Any, str]:
     """What she reads: the general part here, the source's part (right now, the goal, what she
     learned, a token to tell later whether the world moved) from the source."""
-    from app.services import long_term_memory
+    from app.services import long_term_memory, recall_references
 
     user = db.get(User, scope.user_id)
     name = user.name if user and user.name else "the user"
     now = datetime.now(timezone.utc)
     base = HardInput(
         problem=problem, user=name, conversation=conversation(db, scope.user_id, now),
-        memories=long_term_memory.retrieve_for_prompt(scope.user_id, problem.query),
+        memories=(recall_references.for_thought(db, user_id=scope.user_id, source=scope.source,
+                                                activity=scope.activity, query=problem.query)
+                  if recall_references.enabled() else long_term_memory.retrieve_for_prompt(scope.user_id, problem.query)),
         earlier=_earlier(db, source.thought_session(scope), problem.topic, now), character=_character(db),
     )
     inp, token = source.gather(db, scope, problem, base)

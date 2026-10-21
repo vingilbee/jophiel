@@ -29,6 +29,7 @@ from app.services import cognitive_live, cognitive_shadow, inner_state_live
 from app.services import dialogue_memory, memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
+from app.services import recall_references
 from app.services import stickers
 from app.services import tts as tts_service
 from app.services import voice_latency
@@ -148,13 +149,14 @@ def _start_setup_tasks(job: ChatJob, payload: dict) -> list[asyncio.Task]:
                 source_channel=cognitive_shadow.source_channel_for(payload),
             )
 
-    return [
+    if recall_references.enabled():
+        # Shared recall: a TurnRecall (never raises; a failure is a "failed" result she's told about).
+        lookup = asyncio.to_thread(recall_references.for_reply, job.user_id, job.conversation_id,
+                                   job.user_message_id, payload["content"], payload.get("zone"))
+    else:
         # Fails open inside the service (returns None), like before.
-        asyncio.create_task(asyncio.to_thread(
-            memory_service.retrieve_for_prompt, job.user_id, payload["content"]
-        )),
-        asyncio.create_task(capture()),
-    ]
+        lookup = asyncio.to_thread(memory_service.retrieve_for_prompt, job.user_id, payload["content"])
+    return [asyncio.create_task(lookup), asyncio.create_task(capture())]
 
 
 async def _generate(job: ChatJob) -> None:
@@ -208,7 +210,10 @@ async def _generate(job: ChatJob) -> None:
             await asyncio.gather(*background, return_exceptions=True)
             raise
 
-    long_term_memory, _ = await asyncio.gather(*background)
+    looked_up, _ = await asyncio.gather(*background)
+    recall_turn = looked_up if isinstance(looked_up, recall_references.TurnRecall) else None
+    # The cognitive layer still reads the old fact/episode block as text: the same records, rendered so.
+    long_term_memory = recall_turn.legacy if recall_turn is not None else looked_up
     # Simple cognition, live: None (nothing changes) unless enabled in settings.
     live = (await asyncio.to_thread(
         cognitive_live.prepare, user_id=job.user_id, conversation_id=job.conversation_id, history=history,
@@ -240,6 +245,8 @@ async def _generate(job: ChatJob) -> None:
         cognitive_reading=live.reading if live else None,
         conversation_notes=live.notes if live else None,
         working_memory=working_memory,
+        recall=recall_turn.rendered if recall_turn is not None else None,
+        recall_turn=recall_turn,
         memory_tools=memory_manager.enabled(),
         source_message_id=job.user_message_id if memory_manager.enabled() else None,
         vision_enabled=bool(payload.get("vision_enabled", False)),
@@ -399,6 +406,7 @@ async def _generate(job: ChatJob) -> None:
         outcome = ("partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
         dialogue_scheduled = False
+        receipt_id = None
         with SessionLocal() as db:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
                                                           conversation_id=job.conversation_id)
@@ -409,6 +417,10 @@ async def _generate(job: ChatJob) -> None:
                     role="assistant", content=reply, turn_id=turn_id, status=outcome,
                     source_channel=context.channel, commit=False,
                 )
+                # What this reply was given from memory, with it (a savepoint: never fails the turn).
+                receipt_id = recall_references.save_receipt(
+                    db, recall_turn, assistant_message_id=assistant.id, conversation_id=job.conversation_id,
+                    reply=reply)
                 if outcome == "completed":
                     memory_service.schedule_consolidation(
                         db, user_id=job.user_id, conversation_id=job.conversation_id,
@@ -437,6 +449,8 @@ async def _generate(job: ChatJob) -> None:
             db.commit()
         if dialogue_scheduled:
             dialogue_memory.wake_worker()
+        # Which memories her words were about: its own thread, after the reply is safely stored.
+        recall_references.start_association(receipt_id)
         publish(turn_id, {"type": "stopped" if stopped else "done",
                           "turn_id": str(turn_id), "message_id": str(assistant_id),
                           "status": outcome})

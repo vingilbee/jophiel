@@ -1,0 +1,46 @@
+{
+  "method": "Read-only candidate discovery for this explicit correction; phrase matching proposes source candidates, not automatic proof of contradiction.",
+  "earlier_source_candidates": [
+    {
+      "id": "ba965433-cf2a-450c-99bd-80b61fddd826",
+      "sequence": 3
+    }
+  ],
+  "reverse_evidence_reaches": [
+    {
+      "item": "befb2024-cbf1-4385-8d67-99bc7f053f4b",
+      "status": "active",
+      "revision": 1,
+      "text": "Remember the user's CPSC 310 notes and their labels for a later test"
+    },
+    {
+      "item": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "status": "active",
+      "revision": 1,
+      "text": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)"
+    },
+    {
+      "item": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "status": "active",
+      "revision": 1,
+      "text": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square."
+    }
+  ],
+  "event_item_fk_reaches": [
+    {
+      "event": 1,
+      "item": "befb2024-cbf1-4385-8d67-99bc7f053f4b",
+      "text": "Goal: Remember the user's CPSC 310 notes and their labels for a later test"
+    },
+    {
+      "event": 4,
+      "item": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "text": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)"
+    },
+    {
+      "event": 5,
+      "item": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "text": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square."
+    }
+  ]
+}

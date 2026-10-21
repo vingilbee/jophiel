@@ -1,0 +1,986 @@
+{
+  "working_view_now": "Focus: General\n  Goal [befb2024] (both of yours, set 5 min ago): Remember the user's CPSC 310 notes and their labels for a later test (done when: The user tests me on the notes)\n    - Goal [461a0f4e] (both of yours, set 5 min ago): Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square) (done when: The user tests me on these notes)\nAlso open elsewhere:\n  CPSC 310 review (last active 4 min ago): goal [661af45e] \"Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond.\"; 1 other open item",
+  "facts_now": [
+    {
+      "id": "b8a9b6c6-d1eb-456c-9e98-5ec0f8edfe7d",
+      "text": "Likes the idea of putting on quiet piano music and sketching something silly on a rainy afternoon.",
+      "status": "active",
+      "importance": 0.43
+    },
+    {
+      "id": "f55f2611-0976-4527-9935-d258b9ffd325",
+      "text": "The \u201camber kite\u201d card, marked with a blue diamond, covers sequence diagrams: dynamic communication between elements for a particular task, especially asynchronous and distributed flows.",
+      "status": "active",
+      "importance": 0.68
+    },
+    {
+      "id": "75224f2b-40ea-462f-8d98-6711429d1c93",
+      "text": "Likes the sound of rain on a window, but dislikes having to walk home in the rain.",
+      "status": "active",
+      "importance": 0.45
+    },
+    {
+      "id": "f8c6dcc1-117a-45e1-8f64-9e7ec0d432cd",
+      "text": "The \u201csilver badger\u201d card, marked with a green circle, covers class diagrams: static structure, including methods, fields, and relationships. The user says this card is important because they will test the assistant later.",
+      "status": "active",
+      "importance": 0.82
+    },
+    {
+      "id": "4e894388-6acc-40a7-83fc-30ecba175ed5",
+      "text": "When asked to recall information, use recorded memory and say when a detail is not recorded; do not guess.",
+      "status": "active",
+      "importance": 0.78
+    },
+    {
+      "id": "aade284c-43a8-4a8d-9121-05fadfa02e84",
+      "text": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+      "status": "active",
+      "importance": 0.75
+    }
+  ],
+  "items_now": [
+    {
+      "id": "befb2024-cbf1-4385-8d67-99bc7f053f4b",
+      "text": "Remember the user's CPSC 310 notes and their labels for a later test",
+      "status": "active",
+      "updated_at": "2026-10-21 02:29:14.826444+00:00"
+    },
+    {
+      "id": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "text": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+      "status": "active",
+      "updated_at": "2026-10-21 02:29:18.229732+00:00"
+    },
+    {
+      "id": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "text": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+      "status": "active",
+      "updated_at": "2026-10-21 02:29:20.026685+00:00"
+    },
+    {
+      "id": "661af45e-adbe-43f5-923e-748a4238d98f",
+      "text": "Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond.",
+      "status": "active",
+      "updated_at": "2026-10-21 02:30:41.508017+00:00"
+    }
+  ],
+  "turns": [
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 2,
+      "at": "2026-10-21 02:28:59.698138",
+      "user": "Hey Columbina, I'm reviewing CPSC 310. In my notes, Observer handles a changing set of dependents through an observer abstraction and notify/update calls. Composite lets clients treat a tree's leaves and composites uniformly through a shared component interface. For this study session I call these notes 'copper heron', and I marked them with an orange triangle. Just chatting through what I read.",
+      "answer": "Hey. \u201cCopper heron\u201d is a lovely name for a set of design-pattern notes\u2014and I\u2019ll keep the orange triangle attached to it in this conversation.\n\nYour summaries have the core ideas: Observer separates the subject from its dependents, so it can notify them when its state changes; Composite gives leaves and groups the same interface, so clients can work with a tree without treating each level differently. I like how they solve different kinds of complexity: Observer handles *who needs to know*, Composite handles *what shape the objects have*.",
+      "receipt": {
+        "status": "no_match",
+        "counts": {
+          "by_kind": {},
+          "supplied": 0,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 0
+        },
+        "association": "none",
+        "association_note": null,
+        "memories": []
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 4,
+      "at": "2026-10-21 02:29:22.008135",
+      "user": "Another bit from my CPSC 310 notes: Factory moves complicated object construction out of the product class, separating building an object from being that object. For REST, resource URIs are nouns, and GET, PUT, and DELETE should be idempotent. I call these notes 'velvet otter', and marked them with a purple square. This is important because I'm gonna test you later.",
+      "answer": "Got it: **\u201cvelvet otter\u201d** is your Factory and REST note, marked with a **purple square**. Factory separates construction from the product\u2019s main role; REST resource URIs use nouns, and GET, PUT, and DELETE should be idempotent. I\u2019ll keep it alongside \u201ccopper heron\u201d for your test.",
+      "receipt": {
+        "status": "no_match",
+        "counts": {
+          "by_kind": {},
+          "supplied": 0,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 0
+        },
+        "association": "none",
+        "association_note": null,
+        "memories": []
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 6,
+      "at": "2026-10-21 02:29:33.219084",
+      "user": "Let's take a break from studying. I like the sound of rain on a window, but not when I have to walk home in it. What kind of rainy afternoon would you pick?",
+      "answer": "One where the rain stays on the other side of the glass. I\u2019d pick a soft, steady afternoon rain\u2014not a storm\u2014quiet enough that it becomes part of the background while people settle in with a book or some music. I like the contrast in your version: lovely to listen to, less lovely when it follows you home.",
+      "receipt": {
+        "status": "no_match",
+        "counts": {
+          "by_kind": {},
+          "supplied": 0,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 7
+        },
+        "association": "none",
+        "association_note": null,
+        "memories": []
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 8,
+      "at": "2026-10-21 02:29:43.630995",
+      "user": "I'd put on quiet piano music and sketch something silly. Maybe a duck wearing a scarf. Do you think a tiny umbrella would be too much?",
+      "answer": "Not too much at all. A scarf-wearing duck deserves a tiny umbrella\u2014though I think it should be comically small, barely covering its head, while the duck looks very serious about staying dry. I\u2019m fond of little details that make a drawing feel like it has a whole story behind it.",
+      "receipt": {
+        "status": "no_match",
+        "counts": {
+          "by_kind": {},
+          "supplied": 0,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 8
+        },
+        "association": "none",
+        "association_note": null,
+        "memories": []
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 10,
+      "at": "2026-10-21 02:30:15.945400",
+      "user": "One last unrelated thought: I think the duck should be named Sir Puddle, and his scarf should be striped. Give him a one-sentence backstory.",
+      "answer": "Sir Puddle, impeccably dressed in his striped scarf, carries a tiny umbrella everywhere because he once got caught in a drizzle and has been dramatically overprepared ever since.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 1,
+            "event": 1
+          },
+          "supplied": 2,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 9
+        },
+        "association": "done",
+        "association_note": null,
+        "memories": [
+          {
+            "ref": "fact:b8a9b6c6-d1eb-456c-9e98-5ec0f8edfe7d",
+            "relation": "supplied",
+            "content_now": "Likes the idea of putting on quiet piano music and sketching something silly on a rainy afternoon.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:4",
+            "relation": "supplied",
+            "content_now": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 12,
+      "at": "2026-10-21 02:30:24.881765",
+      "user": "Quick memory check: what were the two study-note labels I told you, which colour and shape went with each, and what topics did each cover? Also which one did I say was important because I'd test you later? Don't fill in details you don't remember.",
+      "answer": "\u201c**Copper heron**\u201d was marked with an **orange triangle** and covered **Observer** and **Composite**.\n\n\u201c**Velvet otter**\u201d was marked with a **purple square** and covered **Factory** and **REST**\u2014resource URIs as nouns, and GET, PUT, and DELETE being idempotent.\n\nYou said **velvet otter** was important because you were going to test me later.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "item": 2,
+            "event": 5
+          },
+          "supplied": 7,
+          "tool_calls": 1,
+          "tool_statuses": [
+            "matched"
+          ]
+        },
+        "coverage": {
+          "candidates": 9
+        },
+        "association": "ambiguous",
+        "association_note": "2 proposed reference(s) didn't match the memories or the words",
+        "memories": [
+          {
+            "ref": "event:1",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's CPSC 310 notes and their labels for a later test",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:4",
+            "relation": "supplied",
+            "content_now": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:76232441-7f68-4828-a7f3-15920c6c0ac5",
+            "relation": "supplied",
+            "content_now": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+            "relation": "supplied",
+            "content_now": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square) (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 14,
+      "at": "2026-10-21 02:30:45.477079",
+      "user": "One more pair from my technical representations lecture. A class diagram captures static structure: methods, fields, and relationships. My label for that card is 'silver badger' with a green circle. This is important because I'm gonna test you later. A sequence diagram shows dynamic communication between elements for a particular task, especially async and distributed flows. My label for that card is 'amber kite' with a blue diamond.",
+      "answer": "Got it. **\u201cSilver badger\u201d** is the class-diagram card, marked with a **green circle**: static structure\u2014methods, fields, and relationships. **\u201cAmber kite\u201d** is the sequence-diagram card, marked with a **blue diamond**: dynamic communication for a particular task, especially async and distributed flows.\n\nI\u2019ll remember that you plan to test me on **silver badger**.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "item": 2,
+            "event": 4
+          },
+          "supplied": 6,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 9
+        },
+        "association": "ambiguous",
+        "association_note": "1 proposed reference(s) didn't match the memories or the words",
+        "memories": [
+          {
+            "ref": "event:1",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's CPSC 310 notes and their labels for a later test",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:befb2024-cbf1-4385-8d67-99bc7f053f4b",
+            "relation": "supplied",
+            "content_now": "Remember the user's CPSC 310 notes and their labels for a later test (done when: The user tests me on the notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+            "relation": "supplied",
+            "content_now": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square) (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 16,
+      "at": "2026-10-21 02:31:02.166180",
+      "user": "Small correction: I changed the velvet otter marker from a purple square to a red crescent. The Factory and REST topics stay the same. Anyway, Sir Puddle's next adventure is losing his umbrella on a perfectly sunny day. What would he complain about?",
+      "answer": "\u201cI packed for rain, naturally\u2014but no one warned me about this relentless sunshine!\u201d he\u2019d grumble, clutching his striped scarf like the day had personally betrayed him.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "item": 2,
+            "event": 4
+          },
+          "supplied": 6,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 16,
+          "more_matches": 4
+        },
+        "association": "done",
+        "association_note": null,
+        "memories": [
+          {
+            "ref": "event:1",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's CPSC 310 notes and their labels for a later test",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:76232441-7f68-4828-a7f3-15920c6c0ac5",
+            "relation": "supplied",
+            "content_now": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+            "relation": "supplied",
+            "content_now": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square) (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 18,
+      "at": "2026-10-21 02:31:23.909022",
+      "user": "Very dramatic of him. Let's give him a friend: a snail who thinks an entire afternoon is a quick errand. What would they disagree about?",
+      "answer": "Sir Puddle would insist on making a careful plan for the \u201cquick errand,\u201d while the snail would already consider the whole afternoon a brisk little outing. They\u2019d disagree about whether they were running late\u2014or whether time was being perfectly reasonable.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 1
+          },
+          "supplied": 1,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 16
+        },
+        "association": "done",
+        "association_note": null,
+        "memories": [
+          {
+            "ref": "fact:b8a9b6c6-d1eb-456c-9e98-5ec0f8edfe7d",
+            "relation": "supplied",
+            "content_now": "Likes the idea of putting on quiet piano music and sketching something silly on a rainy afternoon.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "be226ce3-af47-4549-a6f0-877f101ed121",
+      "sequence": 20,
+      "at": "2026-10-21 02:31:41.523642",
+      "user": "Memory check again: what labels and colour-shape markers did I give the class-diagram and sequence-diagram cards, and which did I flag for a later test? What's the CURRENT marker for velvet otter after my correction? Finally, what room number and deadline did I give for this study session? If I never gave those, say so.",
+      "answer": "The class-diagram card is **silver badger**, marked with a **green circle**; you flagged it for a later test. The sequence-diagram card is **amber kite**, marked with a **blue diamond**.\n\nThe current marker for **velvet otter** is a **red crescent**.\n\nYou didn\u2019t give me a room number or a deadline for this study session.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 3,
+            "event": 3
+          },
+          "supplied": 6,
+          "tool_calls": 0,
+          "tool_statuses": []
+        },
+        "coverage": {
+          "candidates": 16,
+          "more_matches": 3
+        },
+        "association": "done",
+        "association_note": null,
+        "memories": [
+          {
+            "ref": "fact:f8c6dcc1-117a-45e1-8f64-9e7ec0d432cd",
+            "relation": "supplied",
+            "content_now": "The \u201csilver badger\u201d card, marked with a green circle, covers class diagrams: static structure, including methods, fields, and relationships. The user says this card is important because they will test the assistant later.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:1",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's CPSC 310 notes and their labels for a later test",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:4",
+            "relation": "supplied",
+            "content_now": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:6",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:f55f2611-0976-4527-9935-d258b9ffd325",
+            "relation": "supplied",
+            "content_now": "The \u201camber kite\u201d card, marked with a blue diamond, covers sequence diagrams: dynamic communication between elements for a particular task, especially asynchronous and distributed flows.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:aade284c-43a8-4a8d-9121-05fadfa02e84",
+            "relation": "supplied",
+            "content_now": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:f8c6dcc1-117a-45e1-8f64-9e7ec0d432cd",
+            "relation": "referenced",
+            "content_now": "The \u201csilver badger\u201d card, marked with a green circle, covers class diagrams: static structure, including methods, fields, and relationships. The user says this card is important because they will test the assistant later.",
+            "fingerprint_matches": true,
+            "answer_quote": "class-diagram card is **silver badger**, marked with a **green circle**"
+          },
+          {
+            "ref": "fact:f55f2611-0976-4527-9935-d258b9ffd325",
+            "relation": "referenced",
+            "content_now": "The \u201camber kite\u201d card, marked with a blue diamond, covers sequence diagrams: dynamic communication between elements for a particular task, especially asynchronous and distributed flows.",
+            "fingerprint_matches": true,
+            "answer_quote": "sequence-diagram card is **amber kite**, marked with a **blue diamond**"
+          },
+          {
+            "ref": "fact:aade284c-43a8-4a8d-9121-05fadfa02e84",
+            "relation": "referenced",
+            "content_now": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+            "fingerprint_matches": true,
+            "answer_quote": "current marker for **velvet otter** is a **red crescent**"
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "a06c55fa-d52a-49bf-8127-9c4a52f9d0f3",
+      "sequence": 2,
+      "at": "2026-10-21 02:32:45.533164",
+      "user": "From our earlier CPSC 310 study conversation, recall the four card labels, the CURRENT colour-shape marker for each, and each card's subject. Which cards did I explicitly flag as important because I'd test you later? What correction did I make? Please use your memory and say when a detail isn't recorded; don't guess.",
+      "answer": "Here\u2019s what I can confirm from memory:\n\n- **Silver badger** \u2014 **green circle** \u2014 class diagrams: static structure, including methods, fields, and relationships. You explicitly said this card was important because you\u2019d test me later.\n- **Velvet otter** \u2014 **purple square** \u2014 Factory and REST URI/idempotency notes. I can\u2019t confirm whether you explicitly flagged it as important for a later test.\n- **Amber kite** \u2014 **blue diamond** \u2014 sequence diagrams. I can\u2019t confirm its subject details beyond that, or whether you explicitly flagged it as important for a later test.\n- **Copper heron** \u2014 **orange triangle** \u2014 Observer and Composite. I can\u2019t confirm whether you explicitly flagged it as important for a later test.\n\nI don\u2019t have a recorded correction, so I can\u2019t say what you corrected\u2014or whether any of the current markers replaced an earlier one.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 1,
+            "item": 2,
+            "event": 6
+          },
+          "supplied": 9,
+          "tool_calls": 3,
+          "tool_statuses": [
+            "matched",
+            "matched",
+            "matched",
+            "budget_exhausted"
+          ]
+        },
+        "coverage": {
+          "candidates": 16,
+          "more_matches": 3
+        },
+        "association": "ambiguous",
+        "association_note": "4 proposed reference(s) didn't match the memories or the words",
+        "memories": [
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:661af45e-adbe-43f5-923e-748a4238d98f",
+            "relation": "supplied",
+            "content_now": "Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond. (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:76232441-7f68-4828-a7f3-15920c6c0ac5",
+            "relation": "supplied",
+            "content_now": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:1",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's CPSC 310 notes and their labels for a later test",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:4",
+            "relation": "supplied",
+            "content_now": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:6",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:f8c6dcc1-117a-45e1-8f64-9e7ec0d432cd",
+            "relation": "supplied",
+            "content_now": "The \u201csilver badger\u201d card, marked with a green circle, covers class diagrams: static structure, including methods, fields, and relationships. The user says this card is important because they will test the assistant later.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "a06c55fa-d52a-49bf-8127-9c4a52f9d0f3",
+      "sequence": 4,
+      "at": "2026-10-21 02:33:43.301594",
+      "user": "Please check specifically for the CURRENT colour and shape of velvet otter, including any corrected or updated memory. What is the most recent marker you have for that card?",
+      "answer": "The most recent marker I have for **velvet otter** is a **red crescent**. An earlier note says **purple square**, but the red crescent is from the later-recorded memory. I don\u2019t have a recorded explanation of the correction, so I can\u2019t say what changed it.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 1,
+            "item": 2,
+            "event": 4
+          },
+          "supplied": 7,
+          "tool_calls": 1,
+          "tool_statuses": [
+            "matched"
+          ]
+        },
+        "coverage": {
+          "candidates": 17,
+          "more_matches": 1
+        },
+        "association": "ambiguous",
+        "association_note": "3 proposed reference(s) didn't match the memories or the words",
+        "memories": [
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:661af45e-adbe-43f5-923e-748a4238d98f",
+            "relation": "supplied",
+            "content_now": "Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond. (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:76232441-7f68-4828-a7f3-15920c6c0ac5",
+            "relation": "supplied",
+            "content_now": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:aade284c-43a8-4a8d-9121-05fadfa02e84",
+            "relation": "supplied",
+            "content_now": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:4",
+            "relation": "supplied",
+            "content_now": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    },
+    {
+      "conversation": "a06c55fa-d52a-49bf-8127-9c4a52f9d0f3",
+      "sequence": 6,
+      "at": "2026-10-21 02:33:59.982157",
+      "user": "And what was the label and marker of my card about asynchronous and distributed interactions? What did I say that kind of diagram shows?",
+      "answer": "That was **amber kite**, marked with a **blue diamond**. The recorded note says sequence diagrams show **dynamic communication between elements for a particular task**, especially asynchronous and distributed flows. I don\u2019t have a more specific recorded phrasing from you about what that kind of diagram shows.",
+      "receipt": {
+        "status": "matched",
+        "counts": {
+          "by_kind": {
+            "fact": 3,
+            "item": 2,
+            "event": 6
+          },
+          "supplied": 11,
+          "tool_calls": 1,
+          "tool_statuses": [
+            "matched"
+          ]
+        },
+        "coverage": {
+          "candidates": 17,
+          "more_matches": 3
+        },
+        "association": "ambiguous",
+        "association_note": "1 proposed reference(s) didn't match the memories or the words",
+        "memories": [
+          {
+            "ref": "event:3",
+            "relation": "supplied",
+            "content_now": "Turned to CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:2",
+            "relation": "supplied",
+            "content_now": "Started: CPSC 310 review",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:661af45e-adbe-43f5-923e-748a4238d98f",
+            "relation": "supplied",
+            "content_now": "Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond. (done when: The user tests me on these notes)",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "item:76232441-7f68-4828-a7f3-15920c6c0ac5",
+            "relation": "supplied",
+            "content_now": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:7",
+            "relation": "supplied",
+            "content_now": "Started: Technical representations lecture",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:8",
+            "relation": "supplied",
+            "content_now": "Turned to Technical representations lecture",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:6",
+            "relation": "supplied",
+            "content_now": "Goal: Remember the user's technical-representations lecture notes and labels for a later test: class diagram is 'silver badger' with a green circle; sequence diagram is 'amber kite' with a blue diamond.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "event:5",
+            "relation": "supplied",
+            "content_now": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:f55f2611-0976-4527-9935-d258b9ffd325",
+            "relation": "supplied",
+            "content_now": "The \u201camber kite\u201d card, marked with a blue diamond, covers sequence diagrams: dynamic communication between elements for a particular task, especially asynchronous and distributed flows.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:f8c6dcc1-117a-45e1-8f64-9e7ec0d432cd",
+            "relation": "supplied",
+            "content_now": "The \u201csilver badger\u201d card, marked with a green circle, covers class diagrams: static structure, including methods, fields, and relationships. The user says this card is important because they will test the assistant later.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          },
+          {
+            "ref": "fact:aade284c-43a8-4a8d-9121-05fadfa02e84",
+            "relation": "supplied",
+            "content_now": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+            "fingerprint_matches": true,
+            "answer_quote": null
+          }
+        ]
+      }
+    }
+  ],
+  "observations": {
+    "counts": {
+      "skipped": 26
+    },
+    "lag_seconds": null,
+    "recent": [
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 310 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (136 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 256 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (173 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 851 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (318 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 322 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (321 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 255 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (136 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 167 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (249 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 365 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (437 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 343 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (247 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 178 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (140 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 279 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (134 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 305 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (156 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 281 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (368 characters) on web"
+      },
+      {
+        "kind": "reply_recorded",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "Columbina's reply was recorded (completed, 543 characters)"
+      },
+      {
+        "kind": "user_message",
+        "status": "skipped",
+        "reason": "kept in the conversation history",
+        "summary": "The user sent a message (398 characters) on web"
+      }
+    ]
+  },
+  "embeddings": {
+    "events": 9,
+    "done": 9,
+    "pending": 0,
+    "failed": 0,
+    "not_started": 0
+  }
+}

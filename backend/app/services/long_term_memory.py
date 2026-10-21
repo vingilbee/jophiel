@@ -306,7 +306,6 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float:
     return dot / norm if norm else 0.0
 
 
-EPISODE_CANDIDATES = 200
 # What counts as relevant, measured on real messages (text-embedding-3-small): a message about
 # a memory scores 0.3+ ("remember when you died in the cave?" 0.44); small talk scores up to
 # ~0.24 against any game recap ("how was your day?", "I'm so tired from work today").
@@ -327,80 +326,23 @@ def _content_words(text: str) -> set[str]:
     return {w for w in _WORD_RE.findall(text.lower()) if len(w) > 2 and w not in _STOPWORDS}
 
 
-def _memory_line(memory: SemanticMemory | EpisodicMemory) -> str:
-    if isinstance(memory, EpisodicMemory):
-        source = (memory.context or {}).get("source")
-        label = f"episode, {memory.event_at:%Y-%m-%d}" + (f", {source}" if source else "")
-        return f"- [{label}] {memory.summary}"
-    return f"- [{memory.kind}] {memory.content}"
-
-
 def retrieve_for_prompt(user_id: uuid.UUID, query: str) -> str | None:
-    """Return a compact ranked memory block; failures never break chat."""
+    """The old compact block of facts and episodes, for callers that read text. Ranked by the shared
+    recall service (``app.services.recall``: the same scoring, one implementation); a failure or no match
+    is None, as before. New callers use the service and its explicit statuses instead."""
     settings = get_settings()
     if not settings.long_term_memory_enabled:
         return None
+    from app.ai.recall.contracts import RecallRequest
+    from app.services import recall
+
     try:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
         with SessionLocal() as db:
-            memories = list(
-                db.scalars(
-                    select(SemanticMemory).where(
-                        SemanticMemory.user_id == user_id,
-                        SemanticMemory.status == "active",
-                        or_(SemanticMemory.expires_at.is_(None), SemanticMemory.expires_at > now),
-                    )
-                )
-            )
-            # Episodes (e.g. a game session she reflected on) compete with facts
-            # on the same score; only the most recent ones are considered.
-            episodes = list(
-                db.scalars(
-                    select(EpisodicMemory)
-                    .where(EpisodicMemory.user_id == user_id, EpisodicMemory.status == "active")
-                    .order_by(EpisodicMemory.event_at.desc())
-                    .limit(EPISODE_CANDIDATES)
-                )
-            )
-            if not memories and not episodes:
-                return None
-            query_vector = _embedding(query)
-            query_words = _content_words(query)
-            ranked: list[tuple[float, SemanticMemory | EpisodicMemory]] = []
-            for memory in [*memories, *episodes]:
-                episode = isinstance(memory, EpisodicMemory)
-                content = memory.summary if episode else memory.content
-                lexical = len(query_words & _content_words(content)) / max(1, len(query_words))
-                semantic = max(0.0, _cosine(query_vector, memory.embedding))
-                # Recent episodes first among equals: "last time" means the latest one.
-                recency = 0.0
-                if episode:
-                    event_at = memory.event_at if memory.event_at.tzinfo else memory.event_at.replace(tzinfo=timezone.utc)
-                    age_days = max(0.0, (datetime.now(timezone.utc) - event_at).total_seconds() / 86400)
-                    recency = 0.5 ** (age_days / RECENCY_DAYS)
-                score = (semantic * 0.55 + lexical * 0.25 + memory.importance * 0.1 + recency * 0.1
-                         + memory.confidence * 0.05)
-                # Standing preferences and constraints stay recallable without a close match.
-                always = not episode and memory.kind in ALWAYS_KINDS and memory.importance >= ALWAYS_IMPORTANCE
-                if semantic >= MIN_SIMILARITY or (query_words and lexical >= MIN_WORD_OVERLAP) or always:
-                    ranked.append((score, memory))
-            selected: list[SemanticMemory | EpisodicMemory] = []
-            shown_episodes = 0
-            for _, item in sorted(ranked, key=lambda x: x[0], reverse=True):
-                if isinstance(item, EpisodicMemory):
-                    if shown_episodes >= MAX_EPISODES:
-                        continue
-                    shown_episodes += 1
-                selected.append(item)
-                if len(selected) >= settings.memory_retrieval_limit:
-                    break
-            if not selected:
-                return None
-            for memory in selected:
-                memory.last_accessed_at = now
-                memory.access_count += 1
+            result = recall.search(db, RecallRequest(
+                user_id=user_id, query=query[:2000], purpose="reply", now=datetime.now(timezone.utc),
+                kinds=("fact", "episode"), limit=settings.memory_retrieval_limit))
             db.commit()
-            return "\n".join(_memory_line(memory) for memory in selected)
+        return recall.render_legacy(result) if result.status in ("matched", "partial") else None
     except Exception:
         logger.exception("Long-term memory retrieval failed; continuing without it")
         return None

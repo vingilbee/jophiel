@@ -1,0 +1,211 @@
+{
+  "facts": [
+    {
+      "id": "aade284c-43a8-4a8d-9121-05fadfa02e84",
+      "key": "fact:technical_representation_card:velvet_otter",
+      "revision": 1,
+      "evidence_count": 1,
+      "status": "active",
+      "content": "The \u201cvelvet otter\u201d card is marked with a red crescent and covers Factory and REST topics.",
+      "source": {
+        "id": "790557b4-a4d0-453a-a65c-e57b1483a670",
+        "sequence": 15,
+        "role": "user",
+        "text": "Small correction: I changed the velvet otter marker from a purple square to a red crescent. The Factory and REST topics stay the same. Anyway, Sir Puddle's next adventure is losing his umbrella on a perfectly sunny day. What would he complain about?"
+      },
+      "supporting_episode_ids": [],
+      "contradicting_episode_ids": []
+    }
+  ],
+  "items": [
+    {
+      "id": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "revision": 1,
+      "status": "active",
+      "text": "Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+      "parent_id": "befb2024-cbf1-4385-8d67-99bc7f053f4b",
+      "context_id": "3e02de44-bf93-447e-aba9-6e891d325364"
+    },
+    {
+      "id": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "revision": 1,
+      "status": "active",
+      "text": "Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+      "parent_id": "None",
+      "context_id": "fdd90473-19e3-4cbd-919a-d1ea9e96faf4"
+    }
+  ],
+  "events": [
+    {
+      "id": 4,
+      "kind": "item_added",
+      "text": "Sub-goal: Review the user's CPSC 310 notes, including Observer and Composite ('copper heron,' orange triangle) and Factory and REST idempotency ('velvet otter,' purple square)",
+      "item_id": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "context_id": "3e02de44-bf93-447e-aba9-6e891d325364"
+    },
+    {
+      "id": 5,
+      "kind": "item_added",
+      "text": "Intention: Remember that 'velvet otter' means the user's CPSC 310 notes on Factory and REST URI/idempotency, marked with a purple square.",
+      "item_id": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "context_id": "fdd90473-19e3-4cbd-919a-d1ea9e96faf4"
+    }
+  ],
+  "evidence": [
+    {
+      "id": 2,
+      "item_id": "461a0f4e-7afe-4cbf-b4cb-f02ea6b73972",
+      "event_id": null,
+      "role": "origin",
+      "message": {
+        "id": "ba965433-cf2a-450c-99bd-80b61fddd826",
+        "sequence": 3,
+        "role": "user",
+        "text": "Another bit from my CPSC 310 notes: Factory moves complicated object construction out of the product class, separating building an object from being that object. For REST, resource URIs are nouns, and GET, PUT, and DELETE should be idempotent. I call these notes 'velvet otter', and marked them with a purple square. This is important because I'm gonna test you later."
+      },
+      "observation_id": null
+    },
+    {
+      "id": 3,
+      "item_id": "76232441-7f68-4828-a7f3-15920c6c0ac5",
+      "event_id": null,
+      "role": "origin",
+      "message": {
+        "id": "ba965433-cf2a-450c-99bd-80b61fddd826",
+        "sequence": 3,
+        "role": "user",
+        "text": "Another bit from my CPSC 310 notes: Factory moves complicated object construction out of the product class, separating building an object from being that object. For REST, resource URIs are nouns, and GET, PUT, and DELETE should be idempotent. I call these notes 'velvet otter', and marked them with a purple square. This is important because I'm gonna test you later."
+      },
+      "observation_id": null
+    }
+  ],
+  "correction_messages": [
+    {
+      "id": "790557b4-a4d0-453a-a65c-e57b1483a670",
+      "sequence": 15,
+      "role": "user",
+      "text": "Small correction: I changed the velvet otter marker from a purple square to a red crescent. The Factory and REST topics stay the same. Anyway, Sir Puddle's next adventure is losing his umbrella on a perfectly sunny day. What would he complain about?"
+    }
+  ],
+  "links_from_correction": [],
+  "correction_observations": [
+    {
+      "id": 16,
+      "kind": "user_message",
+      "payload": {
+        "chars": 249,
+        "channel": "web",
+        "turn_id": "c173535d-7680-4866-8922-d95834936685",
+        "sequence": 15,
+        "message_id": "790557b4-a4d0-453a-a65c-e57b1483a670",
+        "attachments": 0
+      },
+      "summary": "The user sent a message (249 characters) on web"
+    }
+  ],
+  "total_correction_evidence": 0,
+  "receipts_by_target": {
+    "fact:aade284c-43a8-4a8d-9121-05fadfa02e84": [
+      {
+        "receipt": 10,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 10,
+        "relation": "referenced"
+      },
+      {
+        "receipt": 12,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 13,
+        "relation": "supplied"
+      }
+    ],
+    "item:461a0f4e-7afe-4cbf-b4cb-f02ea6b73972": [
+      {
+        "receipt": 6,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 7,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 8,
+        "relation": "supplied"
+      }
+    ],
+    "item:76232441-7f68-4828-a7f3-15920c6c0ac5": [
+      {
+        "receipt": 6,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 8,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 11,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 12,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 13,
+        "relation": "supplied"
+      }
+    ],
+    "event:4": [
+      {
+        "receipt": 5,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 6,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 10,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 11,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 12,
+        "relation": "supplied"
+      }
+    ],
+    "event:5": [
+      {
+        "receipt": 6,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 7,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 8,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 11,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 12,
+        "relation": "supplied"
+      },
+      {
+        "receipt": 13,
+        "relation": "supplied"
+      }
+    ]
+  }
+}
