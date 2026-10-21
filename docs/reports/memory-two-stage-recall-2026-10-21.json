@@ -1,0 +1,151 @@
+{
+  "schema": "memory-two-stage-eval-v1",
+  "expected_sequence": [
+    4,
+    5,
+    6
+  ],
+  "stage_a": {
+    "six_result_budget_control": {
+      "purpose": "explicit historical search capped to six, not a full for_reply replay",
+      "refs": [
+        "event:27",
+        "event:18",
+        "event:17",
+        "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+        "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+        "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52"
+      ],
+      "value_coverage_only": {
+        "4": false,
+        "5": true,
+        "6": true
+      }
+    },
+    "production_search": {
+      "status": "matched",
+      "records": [
+        {
+          "ref": "event:27",
+          "content": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+          "score": 0.8614,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "event:18",
+          "content": "Turned to Lantern book club",
+          "score": 0.856,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "event:17",
+          "content": "Started: Lantern book club",
+          "score": 0.8426,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+          "content": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+          "score": 0.7192,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+          "content": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+          "score": 0.7191,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+          "content": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+          "score": 0.7136,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+          "content": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+          "score": 0.6914,
+          "context": "Lantern book club"
+        },
+        {
+          "ref": "fact:f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+          "content": "Lantern's Saturday book club meeting is at 6 pm in the library courtyard.",
+          "score": 0.4844,
+          "context": null
+        },
+        {
+          "ref": "event:20",
+          "content": "Goal completed: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea (User updated the Lantern meeting time to 5 pm; same place, people, and tea preferences.)",
+          "score": 0.4347,
+          "context": "General"
+        },
+        {
+          "ref": "event:13",
+          "content": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+          "score": 0.3211,
+          "context": "General"
+        },
+        {
+          "ref": "event:21",
+          "content": "Goal completed: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard (User clarified the Lantern update keeps the same people and tea preferences; those details remain separate from CPSC cards.)",
+          "score": 0.2858,
+          "context": "General"
+        },
+        {
+          "ref": "event:14",
+          "content": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+          "score": 0.2629,
+          "context": "General"
+        }
+      ],
+      "value_coverage_only": {
+        "4": true,
+        "5": true,
+        "6": true
+      },
+      "coverage": {
+        "candidates": 38,
+        "ms": 1567
+      },
+      "has_chronology_output": false
+    },
+    "bounded_evidence_link_reconstruction": {
+      "method": "evaluation-only traversal + explicit from/to parser; not shipped recall code",
+      "pass": true,
+      "sequence": [
+        4,
+        5,
+        6
+      ],
+      "continuous": true,
+      "current_facts": [
+        {
+          "value": 6,
+          "ref": "fact:f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+          "text": "Lantern's Saturday book club meeting is at 6 pm in the library courtyard."
+        }
+      ],
+      "transitions": [
+        {
+          "old": 4,
+          "new": 5,
+          "source": "8b722942-6252-402a-9d9d-edca4e4e98d7",
+          "quote": "from 4 pm to 5 pm",
+          "user_text": "Lantern update: our Saturday book club meeting has moved from 4 pm to 5 pm. Same library courtyard, same people and tea preferences. The CPSC cards are unrelated to this change.",
+          "said_at": "2026-10-21 05:14:54.665351"
+        },
+        {
+          "old": 5,
+          "new": 6,
+          "source": "929b0098-d2cd-4466-b4e3-f98fd2586ae2",
+          "quote": "from 5 pm to 6 pm",
+          "user_text": "Another Lantern update just came in: the Saturday meeting has moved again, from 5 pm to 6 pm. The library courtyard is still the place. This replaces the 5 pm plan.",
+          "said_at": "2026-10-21 05:15:48.665912"
+        }
+      ],
+      "visited_nodes": 21
+    }
+  },
+  "stage_b": [],
+  "isolation": "No persisted chats, no answer-stage retrieval/tools/history/working view. Stage B sends only a minimal synthetic meeting fixture, not the archived source text."
+}

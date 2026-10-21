@@ -1,0 +1,696 @@
+{
+  "supplied": [
+    {
+      "receipt_id": 16,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 16,
+      "ref": "fact:b12c8032-69c8-4069-9ccd-5e60c7cf0a98",
+      "content_now": "Preparing for CPSC 310; wants to review two study cards before the next quiz and may test the assistant on them later.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 17,
+      "ref": "event:12",
+      "content_now": "Intention: Remember Marble fox and its purple square marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 17,
+      "ref": "fact:b93377c3-cd53-4685-a1cb-87e5665d367a",
+      "content_now": "Marble fox is the Factory and REST study card: separate complicated object construction from the product; resource URIs are nouns; GET, PUT, and DELETE are idempotent. Its marker is a red crescent.",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 17,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 17,
+      "ref": "fact:51dbb54c-e935-4b29-8f27-08fa081af44b",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component interface. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 17,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 17,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 18,
+      "ref": "event:12",
+      "content_now": "Intention: Remember Marble fox and its purple square marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 18,
+      "ref": "fact:51dbb54c-e935-4b29-8f27-08fa081af44b",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component interface. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 18,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 18,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 18,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:16",
+      "content_now": "The user changed the Marble fox's marker from \"purple square\" to \"red crescent\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:12",
+      "content_now": "Intention: Remember Marble fox and its purple square marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "fact:b93377c3-cd53-4685-a1cb-87e5665d367a",
+      "content_now": "Marble fox is the Factory and REST study card: separate complicated object construction from the product; resource URIs are nouns; GET, PUT, and DELETE are idempotent. Its marker is a red crescent.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "fact:51dbb54c-e935-4b29-8f27-08fa081af44b",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component interface. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "fact:b12c8032-69c8-4069-9ccd-5e60c7cf0a98",
+      "content_now": "Preparing for CPSC 310; wants to review two study cards before the next quiz and may test the assistant on them later.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "fact:97daf0d3-951c-4bac-99fc-11915b3843d1",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 19,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:16",
+      "content_now": "The user changed the Marble fox's marker from \"purple square\" to \"red crescent\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "fact:51dbb54c-e935-4b29-8f27-08fa081af44b",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component interface. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "fact:97daf0d3-951c-4bac-99fc-11915b3843d1",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 20,
+      "ref": "event:12",
+      "content_now": "Intention: Remember Marble fox and its purple square marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:16",
+      "content_now": "The user changed the Marble fox's marker from \"purple square\" to \"red crescent\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 21,
+      "ref": "event:12",
+      "content_now": "Intention: Remember Marble fox and its purple square marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:19",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:16",
+      "content_now": "The user changed the Marble fox's marker from \"purple square\" to \"red crescent\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 22,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "event:23",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 23,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:14",
+      "content_now": "Goal: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:23",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:16",
+      "content_now": "The user changed the Marble fox's marker from \"purple square\" to \"red crescent\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:15",
+      "content_now": "Intention corrected (\"purple square marker\" -> \"red crescent marker\"): Remember Marble fox and its red crescent marker: Factory and REST card (separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent).",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 24,
+      "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+      "content_now": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 24,
+      "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "fact:51dbb54c-e935-4b29-8f27-08fa081af44b",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component interface. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "fact:97daf0d3-951c-4bac-99fc-11915b3843d1",
+      "content_now": "Willow finch is the Observer and Composite study card: notify dependents through an observer abstraction; treat tree leaves and composites through one component. Its marker is a purple square.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:21",
+      "content_now": "Goal completed: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard (User clarified the Lantern update keeps the same people and tea preferences; those details remain separate from CPSC cards.)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:11",
+      "content_now": "Goal: Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "fact:b12c8032-69c8-4069-9ccd-5e60c7cf0a98",
+      "content_now": "Preparing for CPSC 310; wants to review two study cards before the next quiz and may test the assistant on them later.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 24,
+      "ref": "event:20",
+      "content_now": "Goal completed: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea (User updated the Lantern meeting time to 5 pm; same place, people, and tea preferences.)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:27",
+      "content_now": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+      "content_now": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 25,
+      "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+      "content_now": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 25,
+      "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "fact:f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+      "content_now": "Lantern's Saturday book club meeting is at 6 pm in the library courtyard.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "fact:0a5e65e4-0683-4064-929a-9ed70d24043c",
+      "content_now": "The user's preferred tea while studying is jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:22",
+      "content_now": "Goal completed: Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (The user updated the Lantern meeting time again, replacing the 5 pm plan with 6 pm)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:25",
+      "content_now": "Commitment: Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:24",
+      "content_now": "Commitment: Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:19",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 25,
+      "ref": "event:23",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:27",
+      "content_now": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+      "content_now": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:20",
+      "content_now": "Goal completed: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea (User updated the Lantern meeting time to 5 pm; same place, people, and tea preferences.)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:21",
+      "content_now": "Goal completed: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard (User clarified the Lantern update keeps the same people and tea preferences; those details remain separate from CPSC cards.)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 26,
+      "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+      "content_now": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 26,
+      "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "fact:f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+      "content_now": "Lantern's Saturday book club meeting is at 6 pm in the library courtyard.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:19",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:22",
+      "content_now": "Goal completed: Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (The user updated the Lantern meeting time again, replacing the 5 pm plan with 6 pm)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:23",
+      "content_now": "Goal: Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:24",
+      "content_now": "Commitment: Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 26,
+      "ref": "event:25",
+      "content_now": "Commitment: Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "event:27",
+      "content_now": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+      "content_now": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "event:20",
+      "content_now": "Goal completed: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea (User updated the Lantern meeting time to 5 pm; same place, people, and tea preferences.)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 27,
+      "ref": "event:13",
+      "content_now": "Goal: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 28,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 28,
+      "ref": "event:27",
+      "content_now": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 28,
+      "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+      "content_now": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 28,
+      "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+      "content_now": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 28,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 28,
+      "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "event:27",
+      "content_now": "The user corrected a mistake: the Mira tea preference is \"chamomile tea\", not \"peppermint tea\".",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "event:18",
+      "content_now": "Turned to Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "event:17",
+      "content_now": "Started: Lantern book club",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "item:8244a151-658e-4386-9607-9113edca8fdf",
+      "content_now": "Bring a printed copy of the poem \u201cRiver Lantern\u201d to the Lantern Saturday book club meeting",
+      "fingerprint_matches": false
+    },
+    {
+      "receipt_id": 29,
+      "ref": "item:6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+      "content_now": "Remember Mira has always preferred chamomile tea (correcting the earlier peppermint detail); user's study tea preference remains jasmine.",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "content_now": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences (done when: Recall the updated meeting time and unchanged place, people, and tea preferences accurately)",
+      "fingerprint_matches": true
+    },
+    {
+      "receipt_id": 29,
+      "ref": "fact:f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+      "content_now": "Lantern's Saturday book club meeting is at 6 pm in the library courtyard.",
+      "fingerprint_matches": true
+    }
+  ],
+  "working_view_now": "Focus: Duck and snail (activity)\n  No goal set here.\n  Recent: just now Started: Duck and snail\nAlso open elsewhere:\n  General (last active 4 min ago): goal [c0044ebb] \"Review the Marble fox and Willow finch CPSC 310 study cards before the next quiz\"; 1 other open item\n  Lantern book club (last active 4 min ago): 1 other open item",
+  "task_resolution_evidence": [
+    {
+      "message_id": "ec4b4e9f-6d20-45aa-a179-f73f9a48fa9b",
+      "text": "Do I still need to bring the printed copy of River Lantern to the book club, or did I already do that? What's the current meeting time and venue? Please check the most recent information, and mention if your records disagree.",
+      "role": "user"
+    }
+  ]
+}

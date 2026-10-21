@@ -1,0 +1,122 @@
+[
+  {
+    "ts": 1792559514.397996,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "c0044ebb-00e0-43d3-baef-ce61704e555a",
+    "kind": "goal",
+    "context": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3"
+  },
+  {
+    "ts": 1792559517.113138,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "321de5ba-3536-4ac6-ad6d-0042025de823",
+    "kind": "intention",
+    "context": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3"
+  },
+  {
+    "ts": 1792559555.572552,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "01ec7533-ee81-4f80-8318-0654e16b47b2",
+    "kind": "goal",
+    "context": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3"
+  },
+  {
+    "ts": 1792559558.153481,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "9653302f-c2c2-4b9f-8c70-b25a4afe6e70",
+    "kind": "goal",
+    "context": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3"
+  },
+  {
+    "ts": 1792559600.1661272,
+    "op": "revise",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "321de5ba-3536-4ac6-ad6d-0042025de823",
+    "field": "text"
+  },
+  {
+    "ts": 1792559600.193085,
+    "area": "correction",
+    "op": "applied",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "correction": "9f437760-a9c3-44e4-8122-4bd636ba5033",
+    "candidates": 5,
+    "revised": 2,
+    "unchanged": 3
+  },
+  {
+    "ts": 1792559708.726889,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+    "kind": "goal",
+    "context": "f6f70a0a-8f57-4570-8f83-f212cd0e6a26"
+  },
+  {
+    "ts": 1792559710.570873,
+    "op": "resolve",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "01ec7533-ee81-4f80-8318-0654e16b47b2",
+    "status": "completed"
+  },
+  {
+    "ts": 1792559721.257609,
+    "op": "resolve",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "9653302f-c2c2-4b9f-8c70-b25a4afe6e70",
+    "status": "completed"
+  },
+  {
+    "ts": 1792559752.222974,
+    "op": "resolve",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+    "status": "completed"
+  },
+  {
+    "ts": 1792559757.446188,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+    "kind": "goal",
+    "context": "f6f70a0a-8f57-4570-8f83-f212cd0e6a26"
+  },
+  {
+    "ts": 1792559773.527387,
+    "area": "correction",
+    "op": "dropped",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "message": "929b0098-d2cd-4466-b4e3-f98fd2586ae2",
+    "why": "not grounded"
+  },
+  {
+    "ts": 1792559775.4424121,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "8244a151-658e-4386-9607-9113edca8fdf",
+    "kind": "commitment",
+    "context": "f6f70a0a-8f57-4570-8f83-f212cd0e6a26"
+  },
+  {
+    "ts": 1792559815.562434,
+    "op": "add",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "item": "6ac8f63e-1378-429a-aa2e-1e8f61efac52",
+    "kind": "commitment",
+    "context": "f6f70a0a-8f57-4570-8f83-f212cd0e6a26"
+  },
+  {
+    "ts": 1792559835.9587882,
+    "area": "correction",
+    "op": "applied",
+    "user": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "correction": "1e2d27b5-6770-48f1-8f22-8dc5a2bb8e1e",
+    "candidates": 0,
+    "revised": 0,
+    "unchanged": 0
+  }
+]

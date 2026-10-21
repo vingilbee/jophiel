@@ -1,0 +1,48 @@
+{
+  "existing_evidence_path_from_6pm_to_4pm": [
+    {
+      "from": "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa",
+      "to": "message:929b0098-d2cd-4466-b4e3-f98fd2586ae2",
+      "evidence_role": "origin"
+    },
+    {
+      "from": "message:929b0098-d2cd-4466-b4e3-f98fd2586ae2",
+      "to": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "evidence_role": "resolution"
+    },
+    {
+      "from": "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4",
+      "to": "message:8b722942-6252-402a-9d9d-edca4e4e98d7",
+      "evidence_role": "origin"
+    },
+    {
+      "from": "message:8b722942-6252-402a-9d9d-edca4e4e98d7",
+      "to": "item:01ec7533-ee81-4f80-8318-0654e16b47b2",
+      "evidence_role": "resolution"
+    }
+  ],
+  "path_nodes": {
+    "item:d53d2827-bbb0-4a24-9953-e9ffb0a99faa": "Remember Lantern's Saturday book club meeting is at 6 pm in the library courtyard, with the same people and tea preferences",
+    "message:929b0098-d2cd-4466-b4e3-f98fd2586ae2": "Another Lantern update just came in: the Saturday meeting has moved again, from 5 pm to 6 pm. The library courtyard is still the place. This replaces the 5 pm plan.",
+    "item:17201ff3-4a57-48f4-8eaf-1e39aa037ac4": "Remember Lantern's Saturday book club meeting is at 5 pm in the library courtyard, with the same people and tea preferences",
+    "message:8b722942-6252-402a-9d9d-edca4e4e98d7": "Lantern update: our Saturday book club meeting has moved from 4 pm to 5 pm. Same library courtyard, same people and tea preferences. The CPSC cards are unrelated to this change.",
+    "item:01ec7533-ee81-4f80-8318-0654e16b47b2": "Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea"
+  },
+  "passages_per_failed_receipt": {
+    "25": [],
+    "26": [
+      {
+        "receipt_id": 26,
+        "ref": "event:20",
+        "content_now": "Goal completed: Remember the book club Lantern meets Saturdays at 4 pm in the library courtyard; the user prefers jasmine tea when studying and friend Mira prefers peppermint tea (User updated the Lantern meeting time to 5 pm; same place, people, and tea preferences.)",
+        "fingerprint_matches": true
+      },
+      {
+        "receipt_id": 26,
+        "ref": "event:21",
+        "content_now": "Goal completed: Keep the personal-context details separate from the CPSC study cards: user prefers jasmine tea when studying; Mira prefers peppermint tea; Lantern meets Saturdays at 4 pm in the library courtyard (User clarified the Lantern update keeps the same people and tea preferences; those details remain separate from CPSC cards.)",
+        "fingerprint_matches": true
+      }
+    ]
+  }
+}

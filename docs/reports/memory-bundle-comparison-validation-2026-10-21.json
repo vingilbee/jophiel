@@ -1,0 +1,39 @@
+{
+  "historical_fingerprint_matches": 15,
+  "reduced_source_count": 3,
+  "reconstruction_sequence": [
+    "4 pm",
+    "5 pm",
+    "6 pm"
+  ],
+  "reconstruction_quotes_supported": true,
+  "history_message_count": 3,
+  "common_surroundings_prompt_sha256": "e8d80b66a5f61e2e3d6e11cb7c1c99cd7eb7b9601271ef1d9bed76e007d7bd5f",
+  "tools_enabled": false,
+  "run_status": "completed_15_calls_after_explicit_user_approval",
+  "payloads": [
+    {
+      "condition": "larger_bundle",
+      "path": "../docs/reports/memory-bundle-comparison-input-larger_bundle-2026-10-21.json",
+      "system_prompt_chars": 23491,
+      "message_count": 4
+    },
+    {
+      "condition": "relevant_passages",
+      "path": "../docs/reports/memory-bundle-comparison-input-relevant_passages-2026-10-21.json",
+      "system_prompt_chars": 19475,
+      "message_count": 4
+    },
+    {
+      "condition": "source_backed_reconstruction",
+      "path": "../docs/reports/memory-bundle-comparison-input-source_backed_reconstruction-2026-10-21.json",
+      "system_prompt_chars": 20105,
+      "message_count": 4
+    }
+  ],
+  "post_run_integrity": {
+    "manifest_hash_verified": true,
+    "all_system_prompts_match_prepared_inputs": true,
+    "unique_condition_repeat_pairs": 15
+  }
+}
