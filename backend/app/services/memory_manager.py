@@ -471,6 +471,44 @@ def record_event(db: Session, user_id: uuid.UUID, *, kind: str, text: str, epist
     return db.get(MemoryEvent, event_id)
 
 
+def revise_item(db: Session, user_id: uuid.UUID, entry: WorkingItem, *, field: str, replaced: str,
+                replacement: str, source: Source, dedupe_key: str) -> MemoryEvent | None:
+    """A correction changes what an item says, and only that: the one span in ``text`` or ``done_when`` is
+    replaced, while its id, kind, owner, status, parent, context and times stay. The caller holds the item's
+    row lock and has checked its revision. The old wording stays in an ``item_revised`` event, and the
+    correcting message is linked (role ``correction``) to the item and the event."""
+    if field not in ("text", "done_when") or entry.user_id != user_id:
+        raise MemoryError("invalid", "only an item's own wording can be corrected")
+    before = getattr(entry, field) or ""
+    if before.count(replaced) != 1:
+        raise MemoryError("invalid", "the corrected words must appear exactly once")
+    setattr(entry, field, " ".join(before.replace(replaced, replacement).split()))
+    entry.revision += 1
+    entry.updated_at = _now()
+    where = "" if field == "text" else f" (done when: {entry.done_when})"
+    event = record_event(db, user_id, kind="item_revised",
+                         text=f'{_kind_word(entry)} corrected ("{replaced}" -> "{replacement}"): {entry.text}{where}',
+                         epistemic="reported", context_id=entry.context_id, item_id=entry.id, dedupe_key=dedupe_key)
+    link(db, user_id, role="correction", source=source, item_id=entry.id)
+    if event is not None:
+        link(db, user_id, role="correction", source=source, event_id=event.id)
+    _log({"op": "revise", "user": str(user_id), "item": str(entry.id), "field": field})
+    return event
+
+
+def record_correction(db: Session, user_id: uuid.UUID, *, text_: str, context_id: uuid.UUID,
+                      occurred_at: datetime, source: Source, dedupe_key: str) -> MemoryEvent:
+    """The user corrected something: one ``corrected`` event (when they said it), linked to their message.
+    What was recorded before stays as it was: this is added history, never a rewrite of it."""
+    event = record_event(db, user_id, kind="corrected", text=text_, epistemic="reported", context_id=context_id,
+                         occurred_at=occurred_at, dedupe_key=dedupe_key)
+    if event is None:  # already recorded by an earlier attempt
+        event = db.scalar(select(MemoryEvent).where(MemoryEvent.user_id == user_id,
+                                                    MemoryEvent.dedupe_key == dedupe_key))
+    link(db, user_id, role="correction", source=source, event_id=event.id)
+    return event
+
+
 def _kind_word(entry: WorkingItem) -> str:
     return {"goal": "Sub-goal" if entry.parent_id else "Goal", "commitment": "Commitment", "intention": "Intention",
             "question": "Question"}[entry.kind]
