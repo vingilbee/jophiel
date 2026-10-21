@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryEvent,
-    MemoryEvidence, MemoryJob, MemoryManagerState, SemanticMemory, WorkingItem,
+    MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
+    ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReference, SemanticMemory, WorkingItem,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
@@ -31,6 +32,12 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Game sessions stay; only their goal link is cleared first. Other scopes leave working memory alone:
     # deleting conversations or game experiences removes their evidence links, never the goals.
     "working": (MemoryEvidence, MemoryEvent, WorkingItem, MemoryManagerState, MemoryContext),
+    # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md §12): the stream, its receipts and bindings, and
+    # source state; capture then starts again from now, so nothing already seen comes back.
+    "observation": (ObservationBinding, ObservationProcessing, Observation, ObservationSource),
+    # Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what replies were given, and event embeddings
+    # (rebuilt in the background). Deleting memories elsewhere already removes their references.
+    "recall": (RecallReference, RecallReceipt, MemoryEventEmbedding),
 }
 
 
@@ -58,11 +65,16 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
             if ids is not None:
                 unlink = unlink.where(DesktopSession.owner_user_id.in_(ids))
             db.execute(unlink)
+            _forget_observation_contexts(db, ids)
         for model in SCOPES[scope]:
             statement = delete(model)
             if ids is not None:
                 statement = statement.where(model.user_id.in_(ids))
             counts[model.__tablename__] = db.execute(statement).rowcount or 0
+    if "observation" in chosen:
+        from app.services import observation
+
+        observation.reset_restart(db, ids)
     db.commit()
     if conversation_ids:
         from app.services import dialogue_memory
@@ -70,6 +82,21 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
         for conversation_id in conversation_ids:
             dialogue_memory.delete_cached_conversation(conversation_id)
     return counts
+
+
+def _forget_observation_contexts(db: Session, ids: list[uuid.UUID] | None) -> None:
+    """Before working memory's contexts go: observations keep their reports but lose the contexts (the one
+    change an observation allows), and what memory hadn't taken in yet is skipped, so a reset never
+    replays old reports into the cleared memory."""
+    def mine(statement, model):
+        return statement if ids is None else statement.where(model.user_id.in_(ids))
+
+    db.execute(mine(delete(ObservationBinding), ObservationBinding))
+    db.execute(mine(update(Observation).where(Observation.context_id.is_not(None)).values(context_id=None),
+                    Observation))
+    db.execute(mine(update(ObservationProcessing).where(
+        ObservationProcessing.consumer == "memory", ObservationProcessing.status.in_(("pending", "retry")),
+    ).values(status="skipped", processed_at=func.now(), reason="working memory was reset"), ObservationProcessing))
 
 
 def preview(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,

@@ -127,3 +127,10 @@ dist/
 
 # Local process-runner config for Windows (mprocs.yaml is the shared one)
 mprocs.windows.yaml
+
+# Generated evaluation reports stay local; keep reusable report scripts.
+/docs/reports/*
+!/docs/reports/*.py
+!/docs/reports/*.mjs
+!/docs/reports/*.js
+!/docs/reports/*.sh

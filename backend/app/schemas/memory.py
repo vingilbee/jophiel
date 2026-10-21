@@ -74,3 +74,88 @@ class WorkingMemoryOut(BaseModel):
     contexts: list[MemoryContextOut] = []
     items: list[WorkingItemOut] = []
     events: list[MemoryEventOut] = []
+
+
+# --------------------------------------------------------------------------- #
+# Observation, for inspection (GET /api/memory/observations)
+# --------------------------------------------------------------------------- #
+
+
+class ObservationSourceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source: str
+    source_instance: str
+    enabled: bool
+    availability: str
+    last_received_at: datetime | None
+    last_change_at: datetime | None
+    next_check_at: datetime | None
+    position: dict
+    last_decision: dict
+    last_error: str | None
+
+
+class ObservationOut(BaseModel):
+    id: int
+    source: str
+    source_instance: str
+    kind: str
+    actor: str
+    epistemic: str
+    content_origin: str
+    salience: str
+    summary: str
+    occurred_at: datetime | None
+    received_at: datetime
+    context_id: uuid.UUID | None
+    # How the context was bound after the fact (None: the source knew it, or it isn't bound yet).
+    bound_by: str | None
+    # What working memory did with it: pending, retry, applied, skipped or failed, and why.
+    memory_status: str
+    memory_reason: str | None
+    attempts: int
+    next_attempt_at: datetime
+
+
+class ObservationAdapterOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    started_at: datetime
+    last_run_at: datetime | None
+    last_decision: dict
+
+
+class ObservationsOut(BaseModel):
+    capture_enabled: bool
+    promotion_enabled: bool
+    counts: dict[str, int] = {}
+    # Age of the oldest report memory hasn't dealt with yet.
+    lag_seconds: float | None = None
+    sources: list[ObservationSourceOut] = []
+    recent: list[ObservationOut] = []
+    failures: list[ObservationOut] = []
+    adapters: list[ObservationAdapterOut] = []
+
+
+class RecallReceiptOut(BaseModel):
+    """What one reply was given from memory (no memory text: ids live in the references)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    assistant_message_id: uuid.UUID
+    status: str
+    counts: dict = {}
+    coverage: dict = {}
+    association_status: str
+    association_note: str | None = None
+    referenced: list[str] = []
+    supplied: list[str] = []
+    created_at: datetime
+
+
+class RecallOut(BaseModel):
+    enabled: bool
+    embeddings: dict[str, int] = {}
+    receipts: list[RecallReceiptOut] = []

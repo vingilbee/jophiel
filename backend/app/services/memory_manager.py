@@ -43,6 +43,7 @@ from app.db.models import (
     MemoryEvidence,
     MemoryManagerState,
     MindThought,
+    Observation,
     WorkingItem,
 )
 
@@ -75,12 +76,12 @@ class MemoryError(Exception):
 class Source:
     """Where something came from: one row of an existing table."""
 
-    kind: str  # message | session_event | thought | experience
+    kind: str  # message | session_event | thought | experience | observation
     id: uuid.UUID | int
 
 
 _SOURCE_COLUMN = {"message": "message_id", "session_event": "session_event_id", "thought": "thought_id",
-                  "experience": "experience_id"}
+                  "experience": "experience_id", "observation": "observation_id"}
 
 
 def enabled() -> bool:
@@ -200,12 +201,26 @@ def close_context(db: Session, user_id: uuid.UUID, context_id: uuid.UUID, *, rea
                  context_id=context.id)
     current = state(db, user_id, lock=True)
     if current.focus_context_id == context.id:
-        current.focus_context_id = ensure_general(db, user_id).id
+        general = ensure_general(db, user_id)
+        current.focus_context_id = general.id
         current.revision += 1
+        # Every focus change is a context_switched event: focus_at reads them back.
+        record_event(db, user_id, kind="context_switched", text=f"Turned to General ({context.label} closed)",
+                     epistemic="reported", context_id=general.id)
     for entry in changed:
         if entry.kind == "goal":
             _apply_goal_to_sessions(db, entry, sessions.get(entry.id, []))
     return changed
+
+
+def focus_at(db: Session, user_id: uuid.UUID, at: datetime) -> MemoryContext:
+    """The context in focus at a moment, from the focus changes recorded as ``context_switched`` events
+    (General before any). Lets a message be bound to the context it was about after the fact."""
+    moved = db.scalar(select(MemoryEvent.context_id).where(
+        MemoryEvent.user_id == user_id, MemoryEvent.kind == "context_switched", MemoryEvent.occurred_at <= at,
+    ).order_by(MemoryEvent.occurred_at.desc(), MemoryEvent.id.desc()).limit(1))
+    context = db.get(MemoryContext, moved) if moved is not None else None
+    return context or ensure_general(db, user_id)
 
 
 def find_context(db: Session, user_id: uuid.UUID, label: str) -> MemoryContext | None:
@@ -426,6 +441,8 @@ def _owns_source(db: Session, user_id: uuid.UUID, source: Source) -> bool:
         query = select(MindThought.id).where(MindThought.id == source.id, MindThought.user_id == user_id)
     elif source.kind == "experience":
         query = select(GameExperience.id).where(GameExperience.id == source.id, GameExperience.user_id == user_id)
+    elif source.kind == "observation":
+        query = select(Observation.id).where(Observation.id == source.id, Observation.user_id == user_id)
     else:
         return False
     return db.scalar(query) is not None
@@ -684,6 +701,11 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
         MemoryEvent.context_id == focus_ctx.id, MemoryEvent.kind.not_in(("item_added", "item_changed", "context_switched")),
     ).order_by(MemoryEvent.id.desc()).limit(VIEW_EVENTS)))
     recent = ["  Recent: " + "; ".join(f"{_ago(e.occurred_at, now)} {e.text}" for e in reversed(events))] if events else []
+    from app.services import observation_memory
+
+    fresh = observation_memory.pending_lines(db, user_id, focus_ctx.id, now)
+    just = ["  Just reported, not in memory yet: " + "; ".join(f"{_ago(at, now)} {text}" for at, text in fresh)
+            ] if fresh else []
 
     others = []
     for context in db.scalars(select(MemoryContext).where(
@@ -713,17 +735,18 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
         if len(past) >= VIEW_PAST:
             break
 
-    if not (goal_lines or commitments or questions or intentions or recent or others or past):
+    if not (goal_lines or commitments or questions or intentions or recent or just or others or past):
         return None
     header = [f"Focus: {focus_ctx.label}" + ("" if focus_ctx.kind == "general" else f" ({focus_ctx.kind})")]
-    sections = [header, goal_lines or ["  No goal set here."], commitments, questions, intentions, recent,
+    sections = [header, goal_lines or ["  No goal set here."], commitments, questions, intentions, recent, just,
                 ["Also open elsewhere:", *others] if others else [], ["Earlier, closed:", *past] if past else []]
 
     def render() -> str:
         return "\n".join(line for section in sections for line in section)
 
-    # Over budget: drop the least important first (events, intentions, other contexts, past).
-    for index in (5, 4, 6, 7):
+    # Over budget: drop the least important first (events, intentions, other contexts, past, then even
+    # what was just reported).
+    for index in (5, 4, 7, 8, 6):
         if len(render()) <= VIEW_CHARS:
             break
         sections[index] = []

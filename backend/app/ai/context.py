@@ -93,6 +93,11 @@ class AgentRuntimeContext:
     # for what those tools keep (None for turns without one).
     working_memory: str | None = None
     memory_tools: bool = False
+    # Shared recall (services/recall_references.py; None unless RECALL_ENABLED): the rendered result of this
+    # reply's search across every context, which replaces the long-term block in the prompt, and the turn
+    # object her read tools add to (its receipt is saved with the reply).
+    recall: str | None = None
+    recall_turn: object | None = None
     source_message_id: uuid.UUID | None = None
 
     # --- Eyes ---
