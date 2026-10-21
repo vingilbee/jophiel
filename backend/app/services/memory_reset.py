@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
-    GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryEvent,
+    GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryCorrection,
+    MemoryEvent,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReference, SemanticMemory, WorkingItem,
 )
@@ -24,7 +25,8 @@ from app.db.models import (
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
 SCOPES: dict[str, tuple[type, ...]] = {
     "conversations": (Conversation,),
-    "memory": (SemanticMemory, EpisodicMemory, LearningMemory, MemoryJob),
+    # Corrections go with the consolidation that read them (their memory events, if any, are working memory).
+    "memory": (MemoryCorrection, SemanticMemory, EpisodicMemory, LearningMemory, MemoryJob),
     # Learned moves before attempts: they point at the attempt they came from.
     "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameChallenge,
              GameLearnedSkill, GameSkillAttempt),

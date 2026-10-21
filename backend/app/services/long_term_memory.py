@@ -163,14 +163,38 @@ def _known(db: Session, user_id: uuid.UUID) -> list[str]:
     return [f"{m.normalized_key}: {' '.join(m.content.split())[:160]}" for m in rows]
 
 
+_CORRECTIONS_PROMPT = """
+Corrections: also list in `corrections` each place where the latest USER message explicitly corrects or
+updates something said or recorded earlier, by the user, by the assistant, or in KNOWN ("actually it's X,
+not Y", "I changed X to Y", "no, I said X"). Not a fact stated for the first time, not a question, not the
+assistant correcting itself, and not a newer statement that only adds to an older one. subject: what it's
+about, in the user's words; attribute: which detail of it, if said; previous_value: what was said or
+recorded before, only when the USER message, EARLIER or KNOWN show it, else null (never guess);
+new_value: what holds now; user_words: the words of the correction, copied exactly from the latest USER
+message. kind: "changed" when the user says the thing itself changed (the old value was true before);
+"mistaken" when the user says the earlier statement or record was wrong (misspoke, misheard, got it
+wrong); "unspecified" when they don't say which. Store the corrected fact in `memories` as usual too,
+reusing the KNOWN key for the same thing."""
+
+
+def _corrections_on() -> bool:
+    from app.services import memory_corrections  # imported late: it uses this module's helpers
+
+    return memory_corrections.enabled()
+
+
+def _prompt() -> str:
+    return _EXTRACTION_PROMPT + (_CORRECTIONS_PROMPT if _corrections_on() else "")
+
+
 def _extract(user_text: str, assistant_text: str, earlier: list[str] = (),
-             known: list[str] = ()) -> list[MemoryCandidate]:
+             known: list[str] = ()) -> MemoryExtraction:
     context = ("KNOWN:\n" + "\n".join(known) + "\n\n") if known else ""
     context += ("EARLIER (context only):\n" + "\n".join(earlier) + "\n\n") if earlier else ""
     response = _client().responses.parse(
         model=get_settings().memory_model,
         input=[
-            {"role": "system", "content": _EXTRACTION_PROMPT},
+            {"role": "system", "content": _prompt()},
             {
                 "role": "user",
                 "content": f"{context}USER:\n{user_text}\n\nASSISTANT:\n{assistant_text}",
@@ -179,7 +203,48 @@ def _extract(user_text: str, assistant_text: str, earlier: list[str] = (),
         text_format=MemoryExtraction,
     )
     parsed = response.output_parsed
-    return parsed.memories if parsed is not None else []
+    return parsed if parsed is not None else MemoryExtraction()
+
+
+def _said_after(db: Session, first: uuid.UUID, second: uuid.UUID) -> bool:
+    """Whether message ``first`` was said after message ``second`` (False when either is gone)."""
+    rows = {m.id: m for m in db.scalars(select(ChatMessage).where(ChatMessage.id.in_((first, second))))}
+    a, b = rows.get(first), rows.get(second)
+    if a is None or b is None:
+        return False
+    if a.conversation_id == b.conversation_id and a.conversation_sequence and b.conversation_sequence:
+        return a.conversation_sequence > b.conversation_sequence
+    return a.created_at > b.created_at
+
+
+def _corrects(extraction: MemoryExtraction, before: str, after: str) -> bool:
+    """Whether this new wording of a fact is one of the turn's corrections: the old value goes, the new
+    one comes."""
+    if not _corrections_on():
+        return False
+    old_words, new_words = set(_WORD_RE.findall(before.lower())), set(_WORD_RE.findall(after.lower()))
+    for c in extraction.corrections:
+        previous, new = set(_WORD_RE.findall((c.previous_value or "").lower())), set(_WORD_RE.findall(c.new_value.lower()))
+        if previous and new and previous <= old_words and new <= new_words and not new <= old_words:
+            return True
+    return False
+
+
+HISTORY_KEPT = 10  # earlier wordings kept on a fact
+
+
+def _keep_history(fact: SemanticMemory, *, by_message_id: uuid.UUID | None, reason: str,
+                  correction_id: uuid.UUID | None = None) -> None:
+    """Keep the wording a fact is about to lose, with where it came from (never just overwrite it)."""
+    entry = {"content": fact.content, "revision": fact.revision,
+             "source_message_id": str(fact.source_message_id) if fact.source_message_id else None,
+             "replaced_at": datetime.now(timezone.utc).isoformat(), "replaced_by_message_id":
+             str(by_message_id) if by_message_id else None, "reason": reason}
+    if correction_id is not None:
+        entry["correction_id"] = str(correction_id)
+    meta = dict(fact.metadata_ or {})
+    meta["history"] = ([*meta.get("history", []), entry])[-HISTORY_KEPT:]
+    fact.metadata_ = meta  # reassign: JSONB doesn't track in place
 
 
 def process_job(db: Session, job_id: uuid.UUID) -> bool:
@@ -206,7 +271,9 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
     try:
         turn = _turn_for_job(db, job)
         earlier = _earlier_messages(db, job.conversation_id, turn[2]) if turn else []
-        candidates = _extract(turn[0], turn[1], earlier, _known(db, job.user_id)) if turn else []
+        known = _known(db, job.user_id)
+        extraction = _extract(turn[0], turn[1], earlier, known) if turn else MemoryExtraction()
+        candidates = extraction.memories
         source_message_id = turn[2] if turn else None
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         for candidate in candidates:
@@ -236,10 +303,18 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
                     context={"normalized_key": key},
                 ))
                 continue
+            if (existing is not None and source_message_id is not None and existing.source_message_id
+                    and _said_after(db, existing.source_message_id, source_message_id)):
+                # A job that ran late never overwrites what the user said after it.
+                logger.info("Memory job %s: %s already holds a later statement", job_id, key)
+                continue
             if existing is None:
                 existing = SemanticMemory(user_id=job.user_id, normalized_key=key)
                 db.add(existing)
             else:
+                if " ".join(existing.content.split()) != " ".join(candidate.content.split()):
+                    _keep_history(existing, by_message_id=source_message_id, reason=(
+                        "correction" if _corrects(extraction, existing.content, candidate.content) else "restated"))
                 existing.evidence_count += 1
                 existing.revision += 1
             existing.kind = candidate.kind
@@ -251,6 +326,13 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
             existing.source_conversation_id = job.conversation_id
             existing.source_message_id = source_message_id
             existing.last_confirmed_at = now
+        if extraction.corrections and turn is not None and _corrections_on():
+            # Same transaction as the facts: a consolidated correction is never left without its handoff
+            # to the memory manager (services/memory_corrections.py applies it).
+            from app.services import memory_corrections
+
+            memory_corrections.record(db, job=job, message_id=source_message_id, user_text=turn[0],
+                                      shown=[*earlier, *known], corrections=extraction.corrections)
         # Completion is accepted only from the worker that still owns this
         # lease. Use a conditional UPDATE so a concurrent reclaim cannot be
         # defeated by a stale ORM object in this session.

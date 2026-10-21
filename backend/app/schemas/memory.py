@@ -68,12 +68,34 @@ class ManagerStateOut(BaseModel):
     last_event_id: int
 
 
+class MemoryCorrectionOut(BaseModel):
+    """A correction the user made and what the memory manager did with it (docs/COLUMBINA_MEMORY_CORRECTIONS.md)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source_message_id: uuid.UUID
+    subject: str
+    attribute: str | None
+    previous_value: str | None
+    new_value: str
+    kind: str
+    status: str
+    attempts: int
+    last_error: str | None
+    result: dict
+    event_id: int | None
+    said_at: datetime
+    applied_at: datetime | None
+
+
 class WorkingMemoryOut(BaseModel):
     enabled: bool
     state: ManagerStateOut | None = None
     contexts: list[MemoryContextOut] = []
     items: list[WorkingItemOut] = []
     events: list[MemoryEventOut] = []
+    corrections: list[MemoryCorrectionOut] = []
 
 
 # --------------------------------------------------------------------------- #

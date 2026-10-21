@@ -30,7 +30,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.observe.registry import SOURCE_LABELS
@@ -52,6 +52,8 @@ _GENERIC = frozenset({"world", "general", "activity", "project", "context", "lif
 _GAME_SOURCES = frozenset({"minecraft_pack"})
 # Events that only restate a working item are dropped when the item itself is in the result.
 _ITEM_ECHO = frozenset({"item_added", "item_changed"})
+# Events that quote an item's wording at the time: history once a correction revises the item.
+_ITEM_WORDING = frozenset({"item_added", "item_changed", "item_revised"})
 _QUIET_EVENT_KINDS = frozenset({"item_added", "item_changed", "context_switched", "context_opened",
                                 "source_online"})
 MIN_EVENT_SLOTS = 2  # recent events facts can't push out, when any were found
@@ -286,6 +288,9 @@ def _item_record(entry: WorkingItem, s: _Search) -> MemoryRecord:
 
 
 def _fact_record(fact: SemanticMemory) -> MemoryRecord:
+    history = (fact.metadata_ or {}).get("history") or []
+    corrected = next((h for h in reversed(history) if h.get("reason") == "correction"), None)
+    note = f'corrected by the user; it said before: "{corrected["content"]}"' if corrected else None
     return MemoryRecord(
         ref=MemoryRef("fact", str(fact.id)), subkind=fact.kind, content=fact.content, context_id=None,
         context_label=None, occurred_at=None, occurred_until=None, scheduled_at=None,
@@ -293,7 +298,7 @@ def _fact_record(fact: SemanticMemory) -> MemoryRecord:
         epistemic="reported", evidence=None,
         fingerprint=_fingerprint("fact", fact.id, fact.revision, fact.status, fact.content), matched=(),
         applicability="current" if fact.status == "active" else "no_longer_current",
-        lifecycle=None if fact.status == "active" else "replaced by a later fact")
+        lifecycle=note if fact.status == "active" else "replaced by a later fact")
 
 
 def _episode_record(episode: EpisodicMemory) -> MemoryRecord:
@@ -332,8 +337,27 @@ def _events(db: Session, req: RecallRequest, s: _Search, pulled: set[uuid.UUID])
         rows.update({e.id: e for e in db.scalars(ranged.order_by(column.desc()).limit(200))})
     events = list(rows.values())
     vectors = _event_vectors(db, events, s)
-    return [_Candidate(_event_record(e, s), vectors.get(e.id), echo_of=e.item_id if e.kind in _ITEM_ECHO else None)
-            for e in events]
+    later = _corrected_after(db, events)
+    out = []
+    for e in events:
+        record = _event_record(e, s)
+        if e.id in later:
+            # What the item said then: true history, but no longer what it says (docs/COLUMBINA_MEMORY_CORRECTIONS.md).
+            record = replace(record, applicability="no_longer_current",
+                             lifecycle=f"the user corrected it later; it now reads as in [item:{e.item_id}]")
+        out.append(_Candidate(record, vectors.get(e.id), echo_of=e.item_id if e.kind in _ITEM_ECHO else None))
+    return out
+
+
+def _corrected_after(db: Session, events: list[MemoryEvent]) -> set[int]:
+    """Events about an item that a correction revised after they were written (by its ``correction`` links)."""
+    about = {e.item_id for e in events if e.item_id is not None and e.kind in _ITEM_WORDING}
+    if not about:
+        return set()
+    latest = dict(db.execute(select(MemoryEvidence.item_id, func.max(MemoryEvidence.created_at)).where(
+        MemoryEvidence.item_id.in_(about), MemoryEvidence.role == "correction").group_by(MemoryEvidence.item_id)).all())
+    return {e.id for e in events if e.item_id in latest and e.kind in _ITEM_WORDING
+            and _utc(e.recorded_at) < _utc(latest[e.item_id])}
 
 
 def _items(db: Session, req: RecallRequest, s: _Search, pulled: set[uuid.UUID]) -> list[_Candidate]:
@@ -755,6 +779,8 @@ def _record_line(record: MemoryRecord, now: datetime, zone: ZoneInfo) -> str:
         parts.append("no longer current" + (f": {record.lifecycle}" if record.lifecycle else ""))
     elif record.lifecycle:
         parts.append(record.lifecycle)
+    if record.ref.kind == "item" and any(e.role == "correction" for e in record.evidence or ()):
+        parts.append("corrected by the user since it was first noted")
     if "direct_reference" in record.matched:
         parts.append("from your last answer")
     if record.evidence == ():

@@ -482,7 +482,7 @@ def test_recall_skips_small_talk_prefers_recent_recaps_and_leaves_room_for_facts
 
 def test_the_fact_saver_sees_earlier_messages_and_reuses_known_keys(db, user, monkeypatch):
     from app.db.models import MemoryJob
-    from app.schemas.long_term_memory import MemoryCandidate
+    from app.schemas.long_term_memory import MemoryCandidate, MemoryExtraction
 
     conversation = Conversation(user_id=user.id, title="game")
     db.add(conversation)
@@ -502,8 +502,9 @@ def test_the_fact_saver_sees_earlier_messages_and_reuses_known_keys(db, user, mo
 
     def extract(user_text, assistant_text, earlier=(), known=()):
         seen.update(user=user_text, earlier=list(earlier), known=list(known))
-        return [MemoryCandidate(kind="preference", normalized_key="preference:game_discoveries", importance=0.7,
-                                confidence=1.0, content="Tell the user when you find something, like iron.")]
+        return MemoryExtraction(memories=[MemoryCandidate(
+            kind="preference", normalized_key="preference:game_discoveries", importance=0.7, confidence=1.0,
+            content="Tell the user when you find something, like iron.")])
     monkeypatch.setattr(long_term_memory, "_extract", extract)
     assert long_term_memory.process_job(db, job.id)
     assert seen["user"] == "there was iron and you didn't say anything"

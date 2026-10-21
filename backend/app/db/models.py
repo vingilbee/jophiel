@@ -2457,3 +2457,80 @@ CREATE TRIGGER recall_receipts_owner_check BEFORE INSERT OR UPDATE ON recall_rec
 """
 
 event.listen(RecallReceipt.__table__, "after_create", DDL(RECALL_RECEIPT_OWNER_DDL).execute_if(dialect="postgresql"))
+
+
+# --------------------------------------------------------------------------- #
+# Corrections (docs/COLUMBINA_MEMORY_CORRECTIONS.md): the user correcting something said or recorded earlier
+# --------------------------------------------------------------------------- #
+
+MEMORY_CORRECTION_KINDS = ("changed", "mistaken", "unspecified")
+MEMORY_CORRECTION_STATUSES = ("pending", "processing", "applied", "failed")
+
+
+class MemoryCorrection(Base):
+    """One explicit correction by the user, as semantic consolidation read it from their message: what it's
+    about, what was said or recorded before (when known), what holds now, and whether the thing changed
+    or the earlier statement was a mistake. Written in the same transaction as the consolidated facts, then
+    applied by the memory manager to the current memories it affects (``result`` says which and how). The
+    queue and the structured record behind the ``corrected`` memory event; deleting the message deletes it."""
+
+    __tablename__ = "memory_corrections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    memory_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    attribute: Mapped[str | None] = mapped_column(Text, nullable=True)
+    previous_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_words: Mapped[str] = mapped_column(Text, nullable=False)
+    # When the user said it (their message's time): corrections apply in this order.
+    said_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_in(MEMORY_CORRECTION_KINDS)})", name="ck_memory_corrections_kind"),
+        CheckConstraint(f"status IN ({_in(MEMORY_CORRECTION_STATUSES)})", name="ck_memory_corrections_status"),
+        CheckConstraint("btrim(subject) <> '' AND btrim(new_value) <> '' AND btrim(user_words) <> ''",
+                        name="ck_memory_corrections_text"),
+        CheckConstraint("(status = 'applied') = (applied_at IS NOT NULL)", name="ck_memory_corrections_applied"),
+        UniqueConstraint("user_id", "source_message_id", "fingerprint", name="uq_memory_corrections_once"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="SET NULL (event_id)", name="fk_memory_corrections_event"),
+        Index("ix_memory_corrections_due", "status", "next_attempt_at"),
+        Index("ix_memory_corrections_user", "user_id", "said_at"),
+        Index("ix_memory_corrections_message", "source_message_id"),
+    )
+
+
+MEMORY_CORRECTION_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION memory_corrections_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+                   WHERE m.id = NEW.source_message_id AND c.user_id = NEW.user_id AND m.role = 'user') THEN
+        RAISE EXCEPTION 'a correction must come from its owner''s own message' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER memory_corrections_owner_check BEFORE INSERT OR UPDATE OF source_message_id, user_id
+    ON memory_corrections FOR EACH ROW EXECUTE FUNCTION memory_corrections_owner_check();
+"""
+
+event.listen(MemoryCorrection.__table__, "after_create",
+             DDL(MEMORY_CORRECTION_OWNER_DDL).execute_if(dialect="postgresql"))

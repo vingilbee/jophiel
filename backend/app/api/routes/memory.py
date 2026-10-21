@@ -1,6 +1,7 @@
 """Her working memory (``services/memory_manager``), for inspection: read only.
 
-    GET /api/memory/working       contexts, items (open first), recent events and the manager's state
+    GET /api/memory/working       contexts, items (open first), recent events, the manager's state and the
+                                  latest corrections (what each changed and left alone)
     GET /api/memory/observations  what sources reported: source health, pending work, lag, recent
                                   reports and what memory did with each (and why), failures
     GET /api/memory/recall        shared recall: event-embedding progress and her latest replies' receipts
@@ -15,10 +16,10 @@ from app.api.deps import get_current_user
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.memory import (
-    ManagerStateOut, MemoryContextOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
+    ManagerStateOut, MemoryContextOut, MemoryCorrectionOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
     ObservationSourceOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
 )
-from app.services import memory_manager, observation, recall_references
+from app.services import memory_corrections, memory_manager, observation, recall_references
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -36,6 +37,7 @@ def working_memory(user: User = Depends(get_current_user), db: Session = Depends
         items=[WorkingItemOut.model_validate(i).model_copy(update={
             "has_source": i.id in found["sourced"], "needs_look": i.id in pending}) for i in found["items"]],
         events=[MemoryEventOut.model_validate(e) for e in found["events"]],
+        corrections=[MemoryCorrectionOut.model_validate(c) for c in memory_corrections.recent(db, user.id)],
     )
 
 

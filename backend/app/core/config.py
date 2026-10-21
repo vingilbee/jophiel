@@ -539,6 +539,13 @@ class Settings(BaseSettings):
     memory_intention_hours: float = Field(default=2.0, gt=0, le=720)
     memory_context_idle_hours: float = Field(default=2.0, gt=0, le=720)
     memory_manager_log_path: str = "var/memory_manager.jsonl"
+    # Corrections (docs/COLUMBINA_MEMORY_CORRECTIONS.md; services/memory_corrections.py): semantic
+    # consolidation also reads explicit corrections, and the memory manager applies each one to the facts and
+    # current working items it affects (one model call to judge them, code for every write). Needs
+    # MEMORY_MANAGER_ENABLED too. Off: corrections are neither read nor applied; facts are consolidated as before.
+    memory_corrections_enabled: bool = False
+    # Who judges which memories a correction affects. None: memory_model.
+    memory_correction_model: str | None = None
     # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md; services/observation*.py): what sources
     # reported, as one immutable stream. On: game outcomes are recorded as they happen, and the mind
     # loop (needs MIND_ENABLED) pulls conversation messages, interruptions and deliveries. Promoting
