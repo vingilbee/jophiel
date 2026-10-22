@@ -8,7 +8,7 @@ the rules code owns apply (urgent pressure caps hard thinking, one quick thought
 and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
-  saved, and its line (if any) handed to the one speaking gate, ``agent_say``;
+  saved, and its proposed line (if any) queued through cognition and the mouth;
 - ``hard``: slow thinking about a problem (services/mind_hard.py), with attention shared per
   user across her activities. The gate's ``hard`` level is only one of its triggers (a
   surprise); here it becomes a light thought.
@@ -386,12 +386,14 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
                 status = "stale"
             said = None
             outcome = None
+            saved = save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
+                                 text=thought.text, status=status, kind=thought.kind)
             if thought.say and status == "done":
-                outcome = agent_say.deliver(db, user_id=scope.user_id, text=thought.say,
-                                            reasons=[f"{level}: {thought.text}"], **source.speaking(db, scope))
-                said = thought.say if outcome.startswith("Said") else None
-            save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
-                         text=thought.text, said=said, status=status, kind=thought.kind)
+                from app.services import autonomous_speech
+                outcome = autonomous_speech.submit(
+                    db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
+                    event_id=saved.id, text=thought.say, reasons=[f"{level}: {thought.text}"],
+                    ttl=STALE_AFTER[level], **source.speaking(db, scope))
             _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,

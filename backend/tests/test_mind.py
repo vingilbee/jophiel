@@ -251,8 +251,9 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
 
     session = SimpleNamespace(state="running", commentary_mode="occasional")
     monkeypatch.setattr(mind, "SessionLocal", lambda: Db(session))
-    monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw))
-    monkeypatch.setattr(mind.agent_say, "deliver", lambda db, **kw: said.append(kw["text"]) or "Said it.")
+    monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw) or SimpleNamespace(id=uuid.uuid4()))
+    from app.services import autonomous_speech
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw["text"]) or "Proposed.")
     monkeypatch.setattr(mind, "_log", lambda record: None)
     sid, uid = uuid.uuid4(), uuid.uuid4()
     scope = Scope(uid, "minecraft", sid)
@@ -260,8 +261,8 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
     mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert said == ["zombie, left!"]
     assert saved[-1] | {} == {"user_id": uid, "session_id": sid, "level": "react", "text": "zombie on my left",
-                              "said": "zombie, left!", "status": "done", "kind": "next"}
+                              "status": "done", "kind": "next"}
     monkeypatch.setattr(mind.time, "time", lambda: 110.0)  # landed 10 s late: a react is stale by then
     mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
-    assert saved[-1]["status"] == "stale" and saved[-1]["said"] is None and len(said) == 1
+    assert saved[-1]["status"] == "stale" and saved[-1].get("said") is None and len(said) == 1
     assert mind._minds[sid].quick_busy is False

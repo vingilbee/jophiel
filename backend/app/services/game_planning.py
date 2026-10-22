@@ -14,7 +14,7 @@ call, and applies its decision here:
 - new_goal / done / wait_for_user: a new plan, nothing, or a pause with a question.
 
 The planner's "why" is saved as her thought (level hard, kind plan), and a question or
-line goes through the one speaking gate (``agent_say``). A decision made on a plan that
+line becomes a shared-state proposal for cognition and the mouth. A decision made on a plan that
 changed meanwhile, or while a newer goal from the user waits, is dropped: the newer job
 plans again.
 
@@ -335,7 +335,7 @@ def _get_planner():
 def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: dict, *, planner=None) -> str:
     """One planning job (the agent-events worker). Raises when the call fails, so the job is
     retried; returns what happened otherwise."""
-    from app.services import agent_say, mind, mind_minecraft
+    from app.services import autonomous_speech, mind, mind_minecraft
 
     goal = payload.get("goal")
     with SessionLocal() as db:
@@ -366,8 +366,11 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
         line = decision.ask or decision.say
         if line and applied:
             kind = "ask" if decision.ask else "plan"
-            result = agent_say.deliver(db, user_id=user_id, text=line, reasons=[f"{kind}: {decision.why or ''}"],
-                                       commentary_mode=commentary_mode)
+            result = autonomous_speech.submit(
+                db, user_id=user_id, activity_id=session_id, source="minecraft",
+                event_id=f"plan:{read_revision}:{session.plan_revision}:{kind}", text=line,
+                reasons=[f"{kind}: {decision.why or ''}"], commentary_mode=commentary_mode,
+                question=bool(decision.ask))
             said = line if result.startswith("Said") else None
         if decision.why:
             mind.save_thought(db, user_id=user_id, session_id=session_id, level="hard", kind="plan",

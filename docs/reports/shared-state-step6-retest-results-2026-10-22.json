@@ -1,0 +1,35 @@
+{
+  "backend": {
+    "passed": 202,
+    "failures": 0,
+    "skipped": 0
+  },
+  "browser": [
+    {
+      "name": "autonomous text does not settle or mix into an active normal reply",
+      "status": "passed"
+    },
+    {
+      "name": "a late autonomous reply for another conversation cannot retarget the composer",
+      "status": "passed"
+    },
+    {
+      "name": "a socket restart can resume an active reply from server replay",
+      "status": "passed"
+    },
+    {
+      "name": "announcement retries with the same message ID create one bubble",
+      "status": "passed"
+    },
+    {
+      "name": "a reply completed offline settles from history without replay or resending",
+      "status": "passed"
+    }
+  ],
+  "frontend_audio": {
+    "passed": 21,
+    "failed": 0
+  },
+  "frontend_build": "passed",
+  "migration_test": "upgrade to a2d4f6b8c0e1 applied on isolated cluster"
+}

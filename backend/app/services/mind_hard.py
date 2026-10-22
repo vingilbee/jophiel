@@ -421,9 +421,15 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
         from app.services import memory_manager
 
         memory_manager.intention_from_thought(scope.user_id, scope.activity, thought.conclusion, thought_id)
-    if thought.kind == "question" and thought.question:
-        set_question(scope.key, {"text": thought.question, "at": time.time(), "thought_id": str(thought_id),
-                                 "goal": goal, "topic": problem.topic})
+    if thought.conclusion or thought.question:
+        from app.services import autonomous_speech
+        with SessionLocal() as db:
+            autonomous_speech.submit(
+                db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
+                event_id=thought_id, text=thought.question or thought.conclusion,
+                question=bool(thought.question),
+                reasons=[f"question: {problem.topic}" if thought.question else f"thought: {problem.topic}"],
+                **source.speaking(db, scope))
     return results
 
 
@@ -554,16 +560,14 @@ def ask_if_due(db: Session, source: Source, scope: Scope, at: float) -> str | No
     user_id = scope.user_id
     if agent_say.user_spoke_since(db, user_id, at - QUESTION_PAUSE_SECONDS) or _reply_in_flight(db, user_id):
         return None
-    if not client.delete(_question_key(scope.key)):
-        return None  # a reply took it meanwhile
-    outcome = agent_say.deliver(db, user_id=user_id, text=question["text"],
-                                reasons=[f"question: {question.get('topic', '')}"[:300]],
-                                **source.speaking(db, scope))
-    if outcome.startswith("Said") and question.get("thought_id"):
-        row = db.get(MindThought, uuid.UUID(question["thought_id"]))
-        if row is not None:
-            row.said = question["text"]
-            db.commit()
+    from app.services import autonomous_speech
+    outcome = autonomous_speech.submit(
+        db, user_id=user_id, activity_id=scope.activity, source=scope.source,
+        event_id=question.get("thought_id") or f"question:{question.get('at')}", text=question["text"],
+        question=True, reasons=[f"question: {question.get('topic', '')}"[:300]],
+        **source.speaking(db, scope))
+    if outcome.startswith("Proposed"):
+        client.delete(_question_key(scope.key))
     return f"asked: {outcome}"
 
 

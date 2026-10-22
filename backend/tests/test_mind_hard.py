@@ -129,7 +129,11 @@ def test_a_landed_thought_is_saved_and_sent_on_unless_dropped(monkeypatch):
     assert saved == [] and sent == []
 
 
-def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis):  # noqa: F811
+def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis, monkeypatch):  # noqa: F811
+    from app.services import autonomous_speech
+    proposed = []
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(session()))
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: proposed.append(kw) or "Proposed.")
     def send_on(thought):
         return mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), failing_problem(), thought, goal="kill a sheep")
 
@@ -141,8 +145,8 @@ def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis):  # 
                      "keep in mind (your own intention): keep 5 planks"]
     assert [i["text"] for i in mind_hard.intentions(SID)] == ["keep 5 planks"]
     send_on(HardThought("question", "Does he want me up there?", question="Want me on top, or just the move?"))
-    question = mind_hard.take_question(SID)
-    assert question["text"] == "Want me on top, or just the move?" and question["goal"] == "kill a sheep"
+    assert proposed[-1]["text"] == "Want me on top, or just the move?"
+    assert proposed[-1]["question"] is True
     assert mind_hard.take_question(SID) is None  # her reply took it: never also asked at a pause
 
 
@@ -150,12 +154,13 @@ def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch): 
     said, spoke = [], {"recently": True}
     monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: spoke["recently"])
     monkeypatch.setattr(mind_hard, "_reply_in_flight", lambda db, uid: False)
-    monkeypatch.setattr(mind_hard.agent_say, "deliver", lambda db, **kw: said.append(kw) or "Said it.")
+    from app.services import autonomous_speech
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
     mind_hard.set_question(SID, {"text": "Want me on top?", "at": 1.0, "goal": "kill a sheep", "topic": "t"})
     db = Db(session())
     assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 100.0) is None and said == []  # they just spoke
     spoke["recently"] = False
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Said it."
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Proposed."
     assert said[0]["text"] == "Want me on top?" and said[0]["reasons"][0].startswith("question:")
     assert said[0]["commentary_mode"] == "occasional"
     assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 120.0) is None  # asked once

@@ -188,9 +188,16 @@ async def _generate(job: ChatJob) -> None:
             ChatMessage.role == "assistant",
         ))
         if existing is not None:
-            chat_service.finish_job(
-                db, job.id, "completed", claim_token=claim_token
-            )
+            chat_service.finish_job(db, job.id, "completed", claim_token=claim_token, commit=False)
+            if payload.get("phase") == "follow_up":
+                from app.db.models import CoordinatorOutput
+                output = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.chat_job_id == job.id))
+                if output is not None and output.status == "dispatched":
+                    coordinator.save_follow_up_receipt(db, job, existing,
+                        {"completed": "delivered", "partial": "partial", "cancelled": "cancelled"}.get(existing.status, "failed"))
+            db.commit()
+            if payload.get("phase") == "follow_up":
+                coordinator.announce_follow_up(uuid.UUID(payload["request_id"]))
             return
         # Setup steps that don't depend on each other run concurrently: the
         # memory lookup (an embedding API call) and the shadow capture each
@@ -404,7 +411,10 @@ async def _generate(job: ChatJob) -> None:
     first_token = True
     first_subagent = True
     # A follow-up has no new user message: a closing internal trigger (never persisted) asks for it.
-    messages = [*history, {"role": "user", "content": prompts.FOLLOW_UP_TRIGGER}] if follow_up else history
+    trigger_text = ("[INTERNAL TRIGGER: no new user message. Cognition authorized your autonomous proposal. "
+                    "Use the finished-thought context to phrase it for the user, and nothing else.]"
+                    if follow_up and info.get("autonomous") else prompts.FOLLOW_UP_TRIGGER)
+    messages = [*history, {"role": "user", "content": trigger_text}] if follow_up else history
     events = stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage))
     try:
         while True:
@@ -443,7 +453,7 @@ async def _generate(job: ChatJob) -> None:
             publish(turn_id, {"type": "audio_end", "turn_id": str(turn_id)})
         mark("generation_done", stopped=stopped, clauses=clauses_spoken,
              audio=audio_started, reply_chars=len(reply))
-        if context.channel == "whatsapp" and not stopped and not reply:
+        if (context.channel == "whatsapp" or follow_up) and not stopped and not reply:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
@@ -453,6 +463,17 @@ async def _generate(job: ChatJob) -> None:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
                                                           conversation_id=job.conversation_id)
             assistant = None
+            if follow_up:
+                # Fence autonomous output against changes during mouth generation. Lock the same
+                # conversation row used by message sequencing until the delivery commit.
+                from app.db.models import CoordinatorWork, Conversation
+                from app.services import autonomous_speech
+                work = db.get(CoordinatorWork, uuid.UUID(payload["work_id"]))
+                if work is not None and work.input.get("autonomous"):
+                    db.scalar(select(Conversation.id).where(Conversation.id == job.conversation_id).with_for_update())
+                    if not autonomous_speech.valid(db, work):
+                        reply, outcome, stopped = "", "cancelled", True
+                        conversation = None
             if conversation is not None and (reply or outcome == "cancelled"):
                 assistant = chat_service.add_message(
                     db, message_id=assistant_id, conversation=conversation,
@@ -488,6 +509,9 @@ async def _generate(job: ChatJob) -> None:
             if not finished:
                 db.rollback()
                 raise RuntimeError("chat job lease ownership was lost before commit")
+            if follow_up:
+                coordinator.save_follow_up_receipt(db, job, assistant,
+                    {"completed": "delivered", "partial": "partial", "cancelled": "cancelled"}[outcome])
             db.commit()
         if dialogue_scheduled:
             dialogue_memory.wake_worker()
@@ -499,14 +523,14 @@ async def _generate(job: ChatJob) -> None:
         shared_state.finish(fast, outcome=outcome, reply=reply,
                             assistant_message_id=assistant_id if (reply or outcome == "cancelled") else None)
         delivered = {"completed": "delivered", "partial": "partial", "cancelled": "cancelled"}[outcome]
-        stored = assistant_id if (reply or outcome == "cancelled") else None
+        stored = assistant.id if assistant is not None else None
         if fast is not None and fast.pending:
             coordinator.immediate_outcome(job.turn_id, status=delivered, assistant_message_id=stored)
         if follow_up:
             coordinator.follow_up_outcome(request_id, status=delivered, assistant_message_id=stored)
             if reply and outcome == "completed":
                 # Shown (and spoken on an idle live voice session) by the sockets: already stored above.
-                _announce(job, reply, assistant_id)
+                coordinator.announce_follow_up(request_id)
         if outcome == "completed":
             # The game may have moved on while she said it: she corrects herself if so.
             game_correction.start(job.user_id, reply, context.game_moment)
@@ -603,17 +627,28 @@ def _finish_silent(job: ChatJob, fast) -> None:
     shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
 
 
-def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> None:
+def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> bool:
     """Tell this user's sockets about a follow-up stored by this job: they show it like any unprompted
     message, and speak it only on an idle live voice session. Transport only: it went through cognition and
     the mouth, not through agent_say's own path."""
     r = _redis()
     if r is None:
-        return
-    with contextlib.suppress(Exception):
+        return False
+    try:
+        from app.db.models import CoordinatorWork
+        interrupt = False
+        with SessionLocal() as db:
+            work_id = (job.payload or {}).get("work_id")
+            work = db.get(CoordinatorWork, uuid.UUID(work_id)) if work_id else None
+            if work is not None and work.input.get("autonomous"):
+                interrupt = agent_say.interrupts(work.input["reasons"])
         r.publish(agent_say.channel(job.user_id), json.dumps({
             "conversation_id": str(job.conversation_id), "text": reply, "reason": "follow_up",
-            "message_id": str(message_id)}))
+            "message_id": str(message_id), "interrupt": interrupt}))
+        return True
+    except Exception:
+        logger.warning("Follow-up announcement will be retried: %s", message_id)
+        return False
 
 
 def run_once() -> bool:

@@ -88,6 +88,11 @@ class ResultInput:
     newer_user_messages: int  # since the trigger: the conversation moved on
     immediate_decision: str | None  # what the immediate phase did (respond / silent / ...)
     channel: str
+    phase: str = "thought_result"
+    user_id: str | None = None
+    activity_id: str | None = None
+    conversation_id: str | None = None
+    input_versions: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

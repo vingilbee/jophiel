@@ -101,6 +101,7 @@ export function ChatPage() {
   // assistant reply before the injected message starts against that history.
   const turnQueueRef = useRef<Promise<void>>(Promise.resolve())
   const nudgeMessageRef = useRef<string | null>(null)
+  const seenNudgesRef = useRef(new Set<string>())
   // Her mind's thoughts while playing: their own panel, never messages.
   const [thoughts, setThoughts] = useState<Thought[]>([])
   useEffect(() => {
@@ -204,22 +205,43 @@ export function ChatPage() {
     onAudioSegment: (segment, start, end) => voiceRef.current?.handleAudioSegment(segment, start, end),
     onBargeResolved: (action) => voiceRef.current?.handleBargeResolved(action),
     onReplyInterrupted: () => voiceRef.current?.yieldToEvent(),
+    onConversation: (id) => {
+      conversationIdRef.current = id
+      setConversationId(id)
+    },
     onHistory: ({ conversationId: historyConversationId, messages: historyMessages }) => {
+      if (wsHistoryReceivedRef.current && historyConversationId !== conversationIdRef.current) return
       wsHistoryReceivedRef.current = true
+      for (const message of historyMessages) {
+        if (message.role === 'assistant') seenNudgesRef.current.add(message.id)
+      }
+      while (seenNudgesRef.current.size > 200) seenNudgesRef.current.delete(seenNudgesRef.current.values().next().value!)
       setConversationId(historyConversationId)
-      setMessages(historyMessages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
-        role,
-        parts: content ? partsFromContent(content) : [],
-        turnId: turn_id ?? undefined,
-        status,
-        imageIds: image_ids ?? undefined,
-        assetIds: asset_ids ?? undefined,
-      })))
+      conversationIdRef.current = historyConversationId
+      setMessages(prev => {
+        const restored = historyMessages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
+          role, parts: content ? partsFromContent(content) : [], turnId: turn_id ?? undefined, status,
+          imageIds: image_ids ?? undefined, assetIds: asset_ids ?? undefined,
+          clientId: prev.find(m => m.role === role && m.turnId === turn_id)?.clientId,
+        }))
+        // Keep the pending callback's target bubble, clearing partial text before full replay.
+        const pending = prev.filter(m => m.role === 'assistant' && m.clientId && m.turnId &&
+          historyMessages.some(h => h.role === 'user' && h.turn_id === m.turnId) &&
+          !restored.some(h => h.role === 'assistant' && h.turnId === m.turnId))
+        return [...restored, ...pending.map(m => ({ ...m, parts: [] }))]
+      })
     },
     // The assistant speaking first. It opens its own bubble — there is no user
     // message before it, which is exactly what makes it worth marking.
-    onNudgeStart: ({ conversationId }) => {
-      setConversationId(conversationId)
+    onNudgeStart: ({ conversationId: target, messageId }) => {
+      nudgeMessageRef.current = null
+      // Background output never changes the selected conversation or its composer.
+      if (target !== conversationIdRef.current) return false
+      if (messageId && seenNudgesRef.current.has(messageId)) return false
+      if (messageId) {
+        seenNudgesRef.current.add(messageId)
+        if (seenNudgesRef.current.size > 200) seenNudgesRef.current.delete(seenNudgesRef.current.values().next().value!)
+      }
       const clientId = crypto.randomUUID()
       nudgeMessageRef.current = clientId
       setMessages((prev) => [
@@ -227,12 +249,13 @@ export function ChatPage() {
         { role: 'assistant', parts: [], unprompted: true, clientId },
       ])
     },
+    onNudgeEnd: () => { nudgeMessageRef.current = null },
     onThought: (thought) => setThoughts((prev) =>
       prev.some((t) => t.id === thought.id) ? prev : [...prev, thought].slice(-200)),
-    onNudgeToken: (chunk) => appendToken(chunk, nudgeMessageRef.current ?? undefined),
-    onNudgeSticker: (name) => appendSticker(name, nudgeMessageRef.current ?? undefined),
-    onNudgeSubagentStart: (agent) => startSubagent(agent, nudgeMessageRef.current ?? undefined),
-    onNudgeSubagentToken: (agent, chunk) => appendSubagentToken(agent, chunk, nudgeMessageRef.current ?? undefined),
+    onNudgeToken: (chunk) => { if (nudgeMessageRef.current) appendToken(chunk, nudgeMessageRef.current) },
+    onNudgeSticker: (name) => { if (nudgeMessageRef.current) appendSticker(name, nudgeMessageRef.current) },
+    onNudgeSubagentStart: (agent) => { if (nudgeMessageRef.current) startSubagent(agent, nudgeMessageRef.current) },
+    onNudgeSubagentToken: (agent, chunk) => { if (nudgeMessageRef.current) appendSubagentToken(agent, chunk, nudgeMessageRef.current) },
   })
 
   const { status, sendMessage, sendSense, dismissNudges, stop, awareness } = socket

@@ -2738,6 +2738,8 @@ class CoordinatorOutput(Base):
     missing_capability: Mapped[str | None] = mapped_column(Text, nullable=True)
     # decided -> dispatched -> delivered / partial / cancelled / failed; not_sent (silent, blocked, superseded)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="decided")
+    # Set atomically with the saved reply; cleared only after transport publication.
+    announcement_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     chat_job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_jobs.id", ondelete="SET NULL"),
                                                           nullable=True)
     assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
