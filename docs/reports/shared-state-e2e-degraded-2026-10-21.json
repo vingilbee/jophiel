@@ -1,0 +1,102 @@
+{
+  "started": "2026-10-22T01:01:16.733Z",
+  "mode": "degraded",
+  "turns": [
+    {
+      "label": "student_disabled",
+      "message": "Hi Columbina. Just a quick hello \u2014 how are you?",
+      "startMs": 1792630877313,
+      "reply": "Hi! I\u2019m doing well\u2014quiet and glad to share a little hello with you. How are you?",
+      "tokenFrames": 22,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "2b4835a9-a59d-40b0-a363-32b0f9ccfa72"
+        },
+        {
+          "type": "ack",
+          "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+          "user_message_id": "576d0c17-047d-4895-8fa0-b77cefa428b6",
+          "conversation_id": "2b4835a9-a59d-40b0-a363-32b0f9ccfa72"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "degraded",
+          "eligibility": "unassessed",
+          "degraded": [
+            "cognition_unavailable"
+          ],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+          "message_id": "89347ef5-eb81-524d-b951-f11309baa29c"
+        },
+        {
+          "type": "done",
+          "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+          "message_id": "89347ef5-eb81-524d-b951-f11309baa29c",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+        "content": "Hi Columbina. Just a quick hello \u2014 how are you?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "2b4835a9-a59d-40b0-a363-32b0f9ccfa72",
+      "firstTokenMs": 2158,
+      "terminal": "done",
+      "totalMs": 2572,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just a quick hello \u2014 how are you?\nColumbina\nHi! I\u2019m doing well\u2014quiet and glad to share a little hello with you. How are you?\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "2b4835a9-a59d-40b0-a363-32b0f9ccfa72",
+        "title": "Hi Columbina. Just a quick hello \u2014 how are you?",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T01:01:17.389558",
+        "updated_at": "2026-10-22T01:01:19.804808",
+        "messages": [
+          {
+            "id": "576d0c17-047d-4895-8fa0-b77cefa428b6",
+            "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+            "role": "user",
+            "content": "Hi Columbina. Just a quick hello \u2014 how are you?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:01:17.400809",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "89347ef5-eb81-524d-b951-f11309baa29c",
+            "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+            "role": "assistant",
+            "content": "Hi! I\u2019m doing well\u2014quiet and glad to share a little hello with you. How are you?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:01:19.804808",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    }
+  ],
+  "errors": [],
+  "user": {
+    "id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+    "name": "Shared State E2E",
+    "email": "shared-state-1792630762307@example.com",
+    "created_at": "2026-10-22T00:59:22.401297"
+  },
+  "finished": "2026-10-22T01:01:20.027Z"
+}

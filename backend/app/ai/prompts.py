@@ -355,6 +355,28 @@ said, not something the user told you; an earlier answer of yours can have been 
 "partial" means part of it couldn't be traced, not that it didn't happen."""
 
 
+_CACHED_MEMORY_PROMPT = """\
+
+## What you remember from your last answer (no memory search ran for this message)
+
+{memories}
+
+- These are only what your previous reply used, re-read now: "no longer current" entries are the past, and \
+"corrected" ones read as the user corrected them. Anything else you remember wasn't looked up.
+- So never say you don't remember something, or that it didn't happen, because it isn't here. If the \
+message needs something older, use search_memories, read_timeline or read_memory (up to 3 calls in all), \
+or say you'd have to check.
+- Ids in brackets are for your tools: never say them aloud, and never mention searching or scores."""
+
+_TURN_BOUNDARY_PROMPT = """\
+
+## What you had for this message
+
+{boundary}
+
+Answer from what you have. Where it falls short, say what you couldn't check rather than filling the gap."""
+
+
 _CHARACTER_PROMPT = """\
 
 ## Who you are
@@ -442,6 +464,26 @@ on the rest."""
 # The final turn of a nudge run. Close assistant-ended history with an explicit
 # synthetic instruction so the model starts a new proactive message. This is
 # never persisted and is clearly marked as internal rather than user speech.
+FOLLOW_UP_TRIGGER = (
+    "[INTERNAL TRIGGER: this is not the user. They have said nothing new. Your background thinking on their "
+    "earlier message has finished: follow the 'You finished thinking' section of your system prompt and say "
+    "that now, and nothing else.]"
+)
+
+_THOUGHT_RESULT_PROMPT = """\
+
+## You finished thinking
+
+You told them you'd think about something they said, or took it away to think about. That thinking is done:
+
+{result}
+
+This is your own conclusion, not something they said. Bring it back into the conversation now in your own \
+voice, briefly, as a follow-up to what they asked. Don't repeat what you already said in your last reply. If \
+it's marked uncertain, say it as your best guess. If the thinking failed or found nothing, say so plainly \
+rather than inventing an answer."""
+
+
 NUDGE_TRIGGER = (
     "[INTERNAL TRIGGER — this is not the user. They have said nothing and are "
     "not waiting on you. Follow the 'You are speaking first' section of your "
@@ -713,7 +755,12 @@ def build_system_prompt(
         awareness = _with_activity(awareness, context.game_activity)
     if awareness:
         prompt += f"\n{_AWARENESS_PROMPT.format(facts=awareness)}"
-    if context.recall:
+    if context.cached_memory:
+        # The shared-state pipeline: what the last answer used, re-read; no search ran (replaces the recall block).
+        prompt += f"\n{_CACHED_MEMORY_PROMPT.format(memories=context.cached_memory)}"
+        if context.recall_turn is not None and get_settings().recall_history_enabled:
+            prompt += f"\n{_RECALL_HISTORY_PROMPT}"
+    elif context.recall:
         # Shared recall replaces the long-term block (it holds the same facts and episodes, with ids).
         prompt += f"\n{_RECALL_PROMPT.format(recall=context.recall)}"
         if context.recall_turn is not None and get_settings().recall_history_enabled:
@@ -729,6 +776,10 @@ def build_system_prompt(
         prompt += f"\n{_WORKING_MEMORY_PROMPT.format(memory=context.working_memory)}"
     if context.conversation_notes:
         prompt += f"\n{_NOTES_PROMPT.format(notes=context.conversation_notes)}"
+    if context.thought_result:
+        prompt += f"\n{_THOUGHT_RESULT_PROMPT.format(result=context.thought_result)}"
+    if context.turn_boundary:
+        prompt += f"\n{_TURN_BOUNDARY_PROMPT.format(boundary=context.turn_boundary)}"
     # Only when sharing is actually on — describing a sense the user hasn't
     # granted would just invite the model to reach for a tool it doesn't have.
     if context.vision_enabled:

@@ -1,0 +1,712 @@
+{
+  "fixture": "remaining",
+  "started": "2026-10-22T13:53:18.722Z",
+  "turns": [
+    {
+      "label": "decision_thinking",
+      "message": "I need to choose between two venues for a 30-person workshop. A costs $200 and fits 40 but is 45 minutes away. B costs $350 and fits 30 but is 10 minutes away. My budget is $400 and several attendees cannot drive. Weigh the tradeoffs, identify any missing constraints, and recommend a defensible choice.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "required"
+      },
+      "startMs": 1792677199194,
+      "reply": "**I’d lean toward B**, provided its “fits 30” means 30 people can participate comfortably—not merely that the room’s legal capacity is 30—and the $350 includes all required fees.\n\nThe key tradeoff is that A saves **$150**, but adds **35 minutes each way** compared with B. For attendees who can’t drive, that extra distance could mean a harder transit journey, more coordination, or fewer workable ways to get there. B is within your $400 budget and is much closer. Its capacity is exact, though, leaving no room for a facilitator, support person, or last-minute attendee.\n\n**A is the better choice** if the savings are important and you can confirm that non-drivers have a practical, reliable way to reach it—such as accessible public transit, arranged rides, or a shuttle—and that 40 seats allow a comfortable workshop setup.\n\nBefore booking, check:\n- Whether the stated prices include taxes, deposits, and equipment or room fees.\n- Whether “30-person capacity” includes organizers and staff, and whether the room layout works for your activities.\n- Actual door-to-door travel time and accessibility for attendees who cannot drive.\n- Whether the venue is reachable at the workshop’s start and end times, including any evening or weekend transit gaps.\n\n**Defensible recommendation:** choose B if attendees’ access and convenience are priorities and the room is genuinely workable for the full group. Choose A only if you verify transport and the tighter access burden is acceptable to those attendees.",
+      "tokenFrames": 305,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "0842be1d-f38f-47d9-a8c0-f10a5da47428"
+        },
+        {
+          "type": "ack",
+          "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+          "user_message_id": "f242a376-3293-4098-addc-49b1a3bf62e8",
+          "conversation_id": "0842be1d-f38f-47d9-a8c0-f10a5da47428"
+        },
+        {
+          "type": "route",
+          "route": "mind",
+          "outcome": "mind",
+          "eligibility": "not_eligible",
+          "recall": "not_required",
+          "thinking": "required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+          "message_id": "d83b1d3a-e8a2-581e-a743-8b43debd4dcb"
+        },
+        {
+          "type": "done",
+          "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+          "message_id": "d83b1d3a-e8a2-581e-a743-8b43debd4dcb",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+        "content": "I need to choose between two venues for a 30-person workshop. A costs $200 and fits 40 but is 45 minutes away. B costs $350 and fits 30 but is 10 minutes away. My budget is $400 and several attendees cannot drive. Weigh the tradeoffs, identify any missing constraints, and recommend a defensible choice.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "0842be1d-f38f-47d9-a8c0-f10a5da47428",
+      "firstTokenMs": 1131,
+      "terminal": "done",
+      "immediateMs": 4328,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nI need to choose between two venues for a 30-person workshop. A costs $200 and fits 40 but is 45 minutes away. B costs $350 and fits 30 but is 10 minutes away. My budget is $400 and several attendees cannot drive. Weigh the tradeoffs, identify any missing constraints, and recommend a defensible choice.\nColumbina\n**I’d lean toward B**, provided its “fits 30” means 30 people can participate comfortably—not merely that the room’s legal capacity is 30—and the $350 includes all required fees.\n\nThe key tradeoff is that A saves **$150**, but adds **35 minutes each way** compared with B. For attendees who can’t drive, that extra distance could mean a harder transit journey, more coordination, or fewer workable ways to get there. B is within your $400 budget and is much closer. Its capacity is exact, though, leaving no room for a facilitator, support person, or last-minute attendee.\n\n**A is the better choice** if the savings are important and you can confirm that non-drivers have a practical, reliable way to reach it—such as accessible public transit, arranged rides, or a shuttle—and that 40 seats allow a comfortable workshop setup.\n\nBefore booking, check:\n- Whether the stated prices include taxes, deposits, and equipment or room fees.\n- Whether “30-person capacity” includes organizers and staff, and whether the room layout works for your activities.\n- Actual door-to-door travel time and accessibility for attendees who cannot drive.\n- Whether the venue is reachable at the workshop’s start and end times, including any evening or weekend transit gaps.\n\n**Defensible recommendation:** choose B if attendees’ access and convenience are priorities and the room is genuinely workable for the full group. Choose A only if you verify transport and the tighter access burden is acceptable to those attendees.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677204.264846,
+            "work": [
+              {
+                "id": "5dbf518f-a8bc-4b9c-98cc-ba3733505240",
+                "kind": "mind",
+                "status": "running",
+                "attempt": 1
+              }
+            ],
+            "outputs": [
+              {
+                "phase": "immediate",
+                "decision": "respond",
+                "status": "delivered"
+              }
+            ]
+          },
+          {
+            "at": 1792677204.776166,
+            "work": [
+              {
+                "id": "5dbf518f-a8bc-4b9c-98cc-ba3733505240",
+                "kind": "mind",
+                "status": "completed",
+                "attempt": 1
+              }
+            ],
+            "outputs": [
+              {
+                "phase": "immediate",
+                "decision": "respond",
+                "status": "delivered"
+              },
+              {
+                "phase": "follow_up",
+                "decision": "blocked",
+                "status": "not_sent"
+              }
+            ]
+          }
+        ],
+        "jobs": [
+          {
+            "id": "47c695a1-b3da-4596-a31f-ddd190c88da2",
+            "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "f242a376-3293-4098-addc-49b1a3bf62e8",
+            "role": "user",
+            "content": "I need to choose between two venues for a 30-person workshop. A costs $200 and fits 40 but is 45 minutes away. B costs $350 and fits 30 but is 10 minutes away. My budget is $400 and several attendees cannot drive. Weigh the tradeoffs, identify any missing constraints, and recommend a defensible choice.",
+            "status": "completed"
+          },
+          {
+            "id": "d83b1d3a-e8a2-581e-a743-8b43debd4dcb",
+            "role": "assistant",
+            "content": "**I’d lean toward B**, provided its “fits 30” means 30 people can participate comfortably—not merely that the room’s legal capacity is 30—and the $350 includes all required fees.\n\nThe key tradeoff is that A saves **$150**, but adds **35 minutes each way** compared with B. For attendees who can’t drive, that extra distance could mean a harder transit journey, more coordination, or fewer workable ways to get there. B is within your $400 budget and is much closer. Its capacity is exact, though, leaving no room for a facilitator, support person, or last-minute attendee.\n\n**A is the better choice** if the savings are important and you can confirm that non-drivers have a practical, reliable way to reach it—such as accessible public transit, arranged rides, or a shuttle—and that 40 seats allow a comfortable workshop setup.\n\nBefore booking, check:\n- Whether the stated prices include taxes, deposits, and equipment or room fees.\n- Whether “30-person capacity” includes organizers and staff, and whether the room layout works for your activities.\n- Actual door-to-door travel time and accessibility for attendees who cannot drive.\n- Whether the venue is reachable at the workshop’s start and end times, including any evening or weekend transit gaps.\n\n**Defensible recommendation:** choose B if attendees’ access and convenience are priorities and the room is genuinely workable for the full group. Choose A only if you verify transport and the tighter access burden is acceptable to those attendees.",
+            "status": "completed"
+          }
+        ],
+        "work": [
+          {
+            "id": "5dbf518f-a8bc-4b9c-98cc-ba3733505240",
+            "request_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+            "kind": "mind",
+            "status": "completed",
+            "dependency_ids": [],
+            "attempt": 1,
+            "cancellation_generation": 0,
+            "error_code": null,
+            "input_versions": {
+              "personality": "6f34fd7338cf2daf",
+              "trigger_message": "f242a376-3293-4098-addc-49b1a3bf62e8",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080",
+              "conversation_revision": "1",
+              "cognition.memory_cache": "e3b0c44298fc1c14"
+            },
+            "created_at": "2026-10-22 13:53:19.479952+00:00",
+            "updated_at": "2026-10-22 13:53:24.289045+00:00",
+            "result": {
+              "kind": "question",
+              "error": null,
+              "question": "Can the attendees who can’t drive reliably get to either venue by transit or arranged transport?",
+              "conclusion": "I need to know whether attendees who cannot drive can reliably reach either venue.",
+              "latency_ms": 4772.4,
+              "evidence_refs": [],
+              "evidence_status": null
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "phase": "immediate",
+            "decision": "respond",
+            "decision_origin": "policy_fallback",
+            "missing_capability": "Student 1/2 have no input for 'a thought of hers is pending' and no output for acknowledge / partial / silent (Student 2's 20 move groups have no silence or hold option).",
+            "status": "delivered",
+            "chat_job_id": null,
+            "assistant_message_id": "d83b1d3a-e8a2-581e-a743-8b43debd4dcb",
+            "created_at": "2026-10-22 13:53:19.495322+00:00",
+            "updated_at": "2026-10-22 13:53:23.431370+00:00"
+          },
+          {
+            "phase": "follow_up",
+            "decision": "blocked",
+            "decision_origin": "unsupported",
+            "missing_capability": "Student 1/2 read only a user message: no input slot for a finished thought, and no output for respond / ask / defer / silent about it.",
+            "status": "not_sent",
+            "chat_job_id": null,
+            "assistant_message_id": null,
+            "created_at": "2026-10-22 13:53:24.307969+00:00",
+            "updated_at": "2026-10-22 13:53:24.307969+00:00"
+          }
+        ],
+        "receipts": [
+          {
+            "id": 61,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:53:19.493355+00:00",
+            "component": "coordinator",
+            "op": "scheduled",
+            "work": "5dbf518f-a8bc-4b9c-98cc-ba3733505240",
+            "kind": "mind",
+            "request": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+            "deps": []
+          },
+          {
+            "at": "2026-10-22T13:53:19.503258+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+            "phase": "immediate",
+            "decision": "respond",
+            "origin": "policy_fallback",
+            "status": "decided"
+          },
+          {
+            "at": "2026-10-22T13:53:23.429640+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "0842be1d-f38f-47d9-a8c0-f10a5da47428",
+            "event": "message:f242a376-3293-4098-addc-49b1a3bf62e8",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "f242a376-3293-4098-addc-49b1a3bf62e8",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "sharing"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": true,
+              "decider": "jev",
+              "choice": "required"
+            },
+            "assessment": {
+              "id": "91857d76-bcc2-4626-a439-a2191e7396bd",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0,
+                  "required": 1,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 75.5,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "mind",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "mind",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "pending"
+            },
+            "work": {
+              "id": "47c695a1-b3da-4596-a31f-ddd190c88da2",
+              "attempt": 1,
+              "background": [
+                {
+                  "id": "5dbf518f-a8bc-4b9c-98cc-ba3733505240",
+                  "kind": "mind",
+                  "status": "queued"
+                }
+              ]
+            },
+            "immediate": {
+              "action": "respond",
+              "origin": "policy_fallback"
+            },
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 1,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "d83b1d3a-e8a2-581e-a743-8b43debd4dcb",
+              "reply_chars": 1502,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 6,
+              "memory_cache_ms": 6,
+              "cognition_ms": 50,
+              "assessment_ms": 76,
+              "schedule_ms": 26,
+              "prepare_ms": 164,
+              "total_ms": 4091
+            }
+          },
+          {
+            "at": "2026-10-22T13:53:24.313138+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+            "phase": "follow_up",
+            "decision": "blocked",
+            "origin": "unsupported",
+            "status": "not_sent"
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nI need to choose between two venues for a 30-person workshop. A costs $200 and fits 40 but is 45 minutes away. B costs $350 and fits 30 but is 10 minutes away. My budget is $400 and several attendees cannot drive. Weigh the tradeoffs, identify any missing constraints, and recommend a defensible choice.\nColumbina\n**I’d lean toward B**, provided its “fits 30” means 30 people can participate comfortably—not merely that the room’s legal capacity is 30—and the $350 includes all required fees.\n\nThe key tradeoff is that A saves **$150**, but adds **35 minutes each way** compared with B. For attendees who can’t drive, that extra distance could mean a harder transit journey, more coordination, or fewer workable ways to get there. B is within your $400 budget and is much closer. Its capacity is exact, though, leaving no room for a facilitator, support person, or last-minute attendee.\n\n**A is the better choice** if the savings are important and you can confirm that non-drivers have a practical, reliable way to reach it—such as accessible public transit, arranged rides, or a shuttle—and that 40 seats allow a comfortable workshop setup.\n\nBefore booking, check:\n- Whether the stated prices include taxes, deposits, and equipment or room fees.\n- Whether “30-person capacity” includes organizers and staff, and whether the room layout works for your activities.\n- Actual door-to-door travel time and accessibility for attendees who cannot drive.\n- Whether the venue is reachable at the workshop’s start and end times, including any evening or weekend transit gaps.\n\n**Defensible recommendation:** choose B if attendees’ access and convenience are priorities and the room is genuinely workable for the full group. Choose A only if you verify transport and the tighter access burden is acceptable to those attendees.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "91857d76-bcc2-4626-a439-a2191e7396bd",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0,
+              "required": 1,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 75.5,
+          "error": null
+        },
+        "route": {
+          "route": "mind",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "mind",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 1,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "f242a376-3293-4098-addc-49b1a3bf62e8",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "synthetic_teaching",
+      "message": "Please remember these fictional QA facts for our test story: my Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion. I must bring the blue atlas to its next meeting. These are invented test details, not real personal information.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677205055,
+      "reply": "Got it: these are fictional test details. The Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and you need to bring the blue atlas to its next meeting. I can keep them in mind in this chat, but I can’t save them to persistent memory from here.",
+      "tokenFrames": 60,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "54967ef7-cf47-437e-91d9-c9329f2f0951"
+        },
+        {
+          "type": "ack",
+          "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+          "user_message_id": "14950781-218a-4bd2-a39e-a93faded08a2",
+          "conversation_id": "54967ef7-cf47-437e-91d9-c9329f2f0951"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+          "message_id": "7174d405-e14b-5510-956d-4c2ea1bf88b3"
+        },
+        {
+          "type": "done",
+          "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+          "message_id": "7174d405-e14b-5510-956d-4c2ea1bf88b3",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+        "content": "Please remember these fictional QA facts for our test story: my Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion. I must bring the blue atlas to its next meeting. These are invented test details, not real personal information.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "54967ef7-cf47-437e-91d9-c9329f2f0951",
+      "firstTokenMs": 5504,
+      "terminal": "done",
+      "immediateMs": 6076,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nPlease remember these fictional QA facts for our test story: my Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion. I must bring the blue atlas to its next meeting. These are invented test details, not real personal information.\nColumbina\nGot it: these are fictional test details. The Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and you need to bring the blue atlas to its next meeting. I can keep them in mind in this chat, but I can’t save them to persistent memory from here.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677211.8415911,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "bb547693-b694-4a8a-9a9e-b6f7787dae8d",
+            "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "14950781-218a-4bd2-a39e-a93faded08a2",
+            "role": "user",
+            "content": "Please remember these fictional QA facts for our test story: my Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion. I must bring the blue atlas to its next meeting. These are invented test details, not real personal information.",
+            "status": "completed"
+          },
+          {
+            "id": "7174d405-e14b-5510-956d-4c2ea1bf88b3",
+            "role": "assistant",
+            "content": "Got it: these are fictional test details. The Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and you need to bring the blue atlas to its next meeting. I can keep them in mind in this chat, but I can’t save them to persistent memory from here.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 62,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 3,
+              "tool_statuses": [
+                "no_match",
+                "no_match",
+                "no_match"
+              ]
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:53:31.014639+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "54967ef7-cf47-437e-91d9-c9329f2f0951",
+            "event": "message:14950781-218a-4bd2-a39e-a93faded08a2",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "14950781-218a-4bd2-a39e-a93faded08a2",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "03885913-22b8-4687-b864-775475e579a0",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.95,
+                  "required": 0.05,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.96,
+                  "required": 0.04,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 78.8,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "bb547693-b694-4a8a-9a9e-b6f7787dae8d",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 3
+            },
+            "mouth_escalated": [
+              "searched_memory"
+            ],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "7174d405-e14b-5510-956d-4c2ea1bf88b3",
+              "reply_chars": 264,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 6,
+              "memory_cache_ms": 5,
+              "cognition_ms": 33,
+              "assessment_ms": 79,
+              "prepare_ms": 123,
+              "total_ms": 5864
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nPlease remember these fictional QA facts for our test story: my Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion. I must bring the blue atlas to its next meeting. These are invented test details, not real personal information.\nColumbina\nGot it: these are fictional test details. The Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and you need to bring the blue atlas to its next meeting. I can keep them in mind in this chat, but I can’t save them to persistent memory from here.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "03885913-22b8-4687-b864-775475e579a0",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.95,
+              "required": 0.05,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.96,
+              "required": 0.04,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 78.8,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 3
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "14950781-218a-4bd2-a39e-a93faded08a2",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    }
+  ],
+  "errors": [],
+  "outOfTurnFrames": [],
+  "user": {
+    "id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+    "name": "Step Four E2E",
+    "email": "step-four-1792677024261@example.com",
+    "created_at": "2026-10-22T13:50:24.358628"
+  },
+  "finished": "2026-10-22T13:53:32.217Z"
+}

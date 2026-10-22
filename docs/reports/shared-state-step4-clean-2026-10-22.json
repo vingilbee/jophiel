@@ -1,0 +1,2380 @@
+{
+  "fixture": "clean",
+  "started": "2026-10-22T13:50:23.871Z",
+  "turns": [
+    {
+      "label": "greeting",
+      "message": "Hi Columbina. Just stopping by to say hello.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677024561,
+      "reply": "Hi. I\u2019m glad you stopped by. \ud83c\udf3f",
+      "tokenFrames": 10,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+          "user_message_id": "a8ea800d-eb0b-46c6-a299-4711c5808ec1",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+          "message_id": "492c0485-f38b-53fa-aa30-576ab7a2df79"
+        },
+        {
+          "type": "done",
+          "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+          "message_id": "492c0485-f38b-53fa-aa30-576ab7a2df79",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+        "content": "Hi Columbina. Just stopping by to say hello.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 5764,
+      "terminal": "done",
+      "immediateMs": 5942,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677031.180962,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "a29b073e-3d48-4d72-b521-b5e63fc5cd74",
+            "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "a8ea800d-eb0b-46c6-a299-4711c5808ec1",
+            "role": "user",
+            "content": "Hi Columbina. Just stopping by to say hello.",
+            "status": "completed"
+          },
+          {
+            "id": "492c0485-f38b-53fa-aa30-576ab7a2df79",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you stopped by. \ud83c\udf3f",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 53,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:30.441383+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:a8ea800d-eb0b-46c6-a299-4711c5808ec1",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "a8ea800d-eb0b-46c6-a299-4711c5808ec1",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "friendly",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "95e29de5-fa81-4ef9-8c3b-ccb3cad2b1f9",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 139.1,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "a29b073e-3d48-4d72-b521-b5e63fc5cd74",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "492c0485-f38b-53fa-aa30-576ab7a2df79",
+              "reply_chars": 30,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 9,
+              "memory_cache_ms": 9,
+              "cognition_ms": 3251,
+              "assessment_ms": 140,
+              "prepare_ms": 3411,
+              "total_ms": 5686
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "95e29de5-fa81-4ef9-8c3b-ccb3cad2b1f9",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 139.1,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "a8ea800d-eb0b-46c6-a299-4711c5808ec1",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "general_knowledge",
+      "message": "What is the capital of France?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677031350,
+      "reply": "Paris.",
+      "tokenFrames": 2,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+          "user_message_id": "6a1175aa-d0de-461f-bebe-dd825631af61",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+          "message_id": "23774649-1eb0-580a-8629-45eaefc81fce"
+        },
+        {
+          "type": "done",
+          "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+          "message_id": "23774649-1eb0-580a-8629-45eaefc81fce",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+        "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+        "content": "What is the capital of France?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 1227,
+      "terminal": "done",
+      "immediateMs": 1310,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677033.186093,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "6d8bd324-d74b-49f3-b29b-657608129a8a",
+            "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "6a1175aa-d0de-461f-bebe-dd825631af61",
+            "role": "user",
+            "content": "What is the capital of France?",
+            "status": "completed"
+          },
+          {
+            "id": "23774649-1eb0-580a-8629-45eaefc81fce",
+            "role": "assistant",
+            "content": "Paris.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 54,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:32.640663+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:6a1175aa-d0de-461f-bebe-dd825631af61",
+            "revision": 3,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "3",
+              "trigger_message": "6a1175aa-d0de-461f-bebe-dd825631af61",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "a3e5e841-fd4e-454f-8dbb-1429cf611350",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 101.1,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "6d8bd324-d74b-49f3-b29b-657608129a8a",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "23774649-1eb0-580a-8629-45eaefc81fce",
+              "reply_chars": 6,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 5,
+              "memory_cache_ms": 7,
+              "cognition_ms": 44,
+              "assessment_ms": 101,
+              "prepare_ms": 158,
+              "total_ms": 1191
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "a3e5e841-fd4e-454f-8dbb-1429cf611350",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 101.1,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "3",
+          "trigger_message": "6a1175aa-d0de-461f-bebe-dd825631af61",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "context_setup",
+      "message": "For a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677033323,
+      "reply": "Silver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.",
+      "tokenFrames": 41,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+          "user_message_id": "9d11ecd0-af1f-47c0-a7cb-cdb774ca68ef",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+          "message_id": "ce242b59-9f3e-55dc-ad47-5b684bda243c"
+        },
+        {
+          "type": "done",
+          "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+          "message_id": "ce242b59-9f3e-55dc-ad47-5b684bda243c",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+        "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+        "content": "For a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 2009,
+      "terminal": "done",
+      "immediateMs": 2571,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677036.425396,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "e5e25bd4-2ff1-4593-9d54-37d0acc090f6",
+            "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "9d11ecd0-af1f-47c0-a7cb-cdb774ca68ef",
+            "role": "user",
+            "content": "For a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.",
+            "status": "completed"
+          },
+          {
+            "id": "ce242b59-9f3e-55dc-ad47-5b684bda243c",
+            "role": "assistant",
+            "content": "Silver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 55,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:35.726781+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:9d11ecd0-af1f-47c0-a7cb-cdb774ca68ef",
+            "revision": 5,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "5",
+              "trigger_message": "9d11ecd0-af1f-47c0-a7cb-cdb774ca68ef",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "c8c71b5c-9b4e-4226-9ab8-cbf06f66cffe",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 359.2,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "e5e25bd4-2ff1-4593-9d54-37d0acc090f6",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "ce242b59-9f3e-55dc-ad47-5b684bda243c",
+              "reply_chars": 172,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 9,
+              "memory_cache_ms": 8,
+              "cognition_ms": 46,
+              "assessment_ms": 359,
+              "prepare_ms": 422,
+              "total_ms": 2122
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "c8c71b5c-9b4e-4226-9ab8-cbf06f66cffe",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 359.2,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "5",
+          "trigger_message": "9d11ecd0-af1f-47c0-a7cb-cdb774ca68ef",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "context_followup",
+      "message": "What did I name the lighthouse, and why?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677036604,
+      "reply": "You named it **Silver Wren** because the name feels lively.",
+      "tokenFrames": 14,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+          "user_message_id": "5a2364f6-57bc-46af-aa39-e1021edf9dd9",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+          "message_id": "80eb8d90-bf26-5cda-90e9-505929a139c7"
+        },
+        {
+          "type": "done",
+          "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+          "message_id": "80eb8d90-bf26-5cda-90e9-505929a139c7",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+        "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+        "content": "What did I name the lighthouse, and why?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 1223,
+      "terminal": "done",
+      "immediateMs": 1556,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677038.673723,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "0bbb01c3-0210-4414-9c03-bc1ee73de222",
+            "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "5a2364f6-57bc-46af-aa39-e1021edf9dd9",
+            "role": "user",
+            "content": "What did I name the lighthouse, and why?",
+            "status": "completed"
+          },
+          {
+            "id": "80eb8d90-bf26-5cda-90e9-505929a139c7",
+            "role": "assistant",
+            "content": "You named it **Silver Wren** because the name feels lively.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 56,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:37.973855+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:5a2364f6-57bc-46af-aa39-e1021edf9dd9",
+            "revision": 7,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "7",
+              "trigger_message": "5a2364f6-57bc-46af-aa39-e1021edf9dd9",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking",
+                "requesting"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "b363bed3-1920-43de-a94c-36496c3eb58a",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.89,
+                  "required": 0.11,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.99,
+                  "required": 0.01,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 111.2,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "0bbb01c3-0210-4414-9c03-bc1ee73de222",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "80eb8d90-bf26-5cda-90e9-505929a139c7",
+              "reply_chars": 59,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 7,
+              "memory_cache_ms": 5,
+              "cognition_ms": 33,
+              "assessment_ms": 111,
+              "prepare_ms": 158,
+              "total_ms": 1264
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "b363bed3-1920-43de-a94c-36496c3eb58a",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.89,
+              "required": 0.11,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.99,
+              "required": 0.01,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 111.2,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "7",
+          "trigger_message": "5a2364f6-57bc-46af-aa39-e1021edf9dd9",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "context_correction",
+      "message": "I changed my mind: the lighthouse is called Quiet Harbor now.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677038813,
+      "reply": "Quiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.",
+      "tokenFrames": 22,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+          "user_message_id": "b52d00df-1a64-4a2f-ace2-067c4240f335",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+          "message_id": "c6b1c2a5-22ae-5360-a16d-f334e5ac4998"
+        },
+        {
+          "type": "done",
+          "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+          "message_id": "c6b1c2a5-22ae-5360-a16d-f334e5ac4998",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+        "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+        "content": "I changed my mind: the lighthouse is called Quiet Harbor now.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 1067,
+      "terminal": "done",
+      "immediateMs": 1559,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nI changed my mind: the lighthouse is called Quiet Harbor now.\nColumbina\nQuiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677040.9317849,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "6b080945-79fd-4c91-aadc-243d30aeed63",
+            "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "b52d00df-1a64-4a2f-ace2-067c4240f335",
+            "role": "user",
+            "content": "I changed my mind: the lighthouse is called Quiet Harbor now.",
+            "status": "completed"
+          },
+          {
+            "id": "c6b1c2a5-22ae-5360-a16d-f334e5ac4998",
+            "role": "assistant",
+            "content": "Quiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 57,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:40.147400+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:b52d00df-1a64-4a2f-ace2-067c4240f335",
+            "revision": 9,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "9",
+              "trigger_message": "b52d00df-1a64-4a2f-ace2-067c4240f335",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "abe98218-3620-4b52-8266-aa9f268895e6",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.97,
+                  "required": 0.03,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.99,
+                  "required": 0.01,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 92.8,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "6b080945-79fd-4c91-aadc-243d30aeed63",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "c6b1c2a5-22ae-5360-a16d-f334e5ac4998",
+              "reply_chars": 100,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 11,
+              "memory_cache_ms": 10,
+              "cognition_ms": 59,
+              "assessment_ms": 93,
+              "prepare_ms": 174,
+              "total_ms": 1222
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nI changed my mind: the lighthouse is called Quiet Harbor now.\nColumbina\nQuiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "abe98218-3620-4b52-8266-aa9f268895e6",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.97,
+              "required": 0.03,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.99,
+              "required": 0.01,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 92.8,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "9",
+          "trigger_message": "b52d00df-1a64-4a2f-ace2-067c4240f335",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "corrected_followup",
+      "message": "What is its name now?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677041066,
+      "reply": "Its name is **Quiet Harbor**.",
+      "tokenFrames": 8,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+          "user_message_id": "a912fcbe-83a1-4261-8b2d-85c2ed325036",
+          "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+          "message_id": "e2069c98-458b-598b-8653-fbfb79fc918a"
+        },
+        {
+          "type": "done",
+          "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+          "message_id": "e2069c98-458b-598b-8653-fbfb79fc918a",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+        "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+        "content": "What is its name now?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "de203edc-7483-472d-a87f-be648bc10d6b",
+      "firstTokenMs": 1820,
+      "terminal": "done",
+      "immediateMs": 2104,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nI changed my mind: the lighthouse is called Quiet Harbor now.\nColumbina\nQuiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.\nWhat is its name now?\nColumbina\nIts name is **Quiet Harbor**.\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677043.749241,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "e4416b1a-7018-4dc8-82c6-8d0b18f18d29",
+            "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "e2069c98-458b-598b-8653-fbfb79fc918a",
+            "role": "assistant",
+            "content": "Its name is **Quiet Harbor**.",
+            "status": "completed"
+          },
+          {
+            "id": "a912fcbe-83a1-4261-8b2d-85c2ed325036",
+            "role": "user",
+            "content": "What is its name now?",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 58,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:42.964149+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "de203edc-7483-472d-a87f-be648bc10d6b",
+            "event": "message:a912fcbe-83a1-4261-8b2d-85c2ed325036",
+            "revision": 11,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "11",
+              "trigger_message": "a912fcbe-83a1-4261-8b2d-85c2ed325036",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking",
+                "requesting"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "7d0f56b0-0ee0-48c8-b063-2c575d3cf67a",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.99,
+                  "required": 0.01,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 51.3,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "e4416b1a-7018-4dc8-82c6-8d0b18f18d29",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "e2069c98-458b-598b-8653-fbfb79fc918a",
+              "reply_chars": 29,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 11,
+              "memory_cache_ms": 9,
+              "cognition_ms": 46,
+              "assessment_ms": 52,
+              "prepare_ms": 118,
+              "total_ms": 1180
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. Just stopping by to say hello.\nColumbina\nHi. I\u2019m glad you stopped by. \ud83c\udf3f\nWhat is the capital of France?\nColumbina\nParis.\nFor a fictional story, my lighthouse is named Silver Wren. I chose it because the name feels lively.\nColumbina\nSilver Wren does feel lively\u2014small, bright, and quick, with a hint of song in it. I like that a lighthouse can carry a name that feels more like a creature than a monument.\nWhat did I name the lighthouse, and why?\nColumbina\nYou named it **Silver Wren** because the name feels lively.\nI changed my mind: the lighthouse is called Quiet Harbor now.\nColumbina\nQuiet Harbor, then. It sounds calm and sheltered\u2014a lovely change from the liveliness of Silver Wren.\nWhat is its name now?\nColumbina\nIts name is **Quiet Harbor**.\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "7d0f56b0-0ee0-48c8-b063-2c575d3cf67a",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.99,
+              "required": 0.01,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 51.3,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "11",
+          "trigger_message": "a912fcbe-83a1-4261-8b2d-85c2ed325036",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "ambiguous_referent",
+      "message": "Could you send it to her?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677043927,
+      "reply": "I can help, but I\u2019m not sure what \u201cit\u201d is or who you mean by \u201cher.\u201d What would you like sent, and to whom?",
+      "tokenFrames": 32,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "a6c86097-8d42-4bff-8ee3-a460bde8731b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+          "user_message_id": "5f501670-e944-4d7a-83b1-781ce001853f",
+          "conversation_id": "a6c86097-8d42-4bff-8ee3-a460bde8731b"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+          "message_id": "90112e69-0243-57c4-ad75-3c2605402fdd"
+        },
+        {
+          "type": "done",
+          "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+          "message_id": "90112e69-0243-57c4-ad75-3c2605402fdd",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+        "content": "Could you send it to her?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "a6c86097-8d42-4bff-8ee3-a460bde8731b",
+      "firstTokenMs": 1054,
+      "terminal": "done",
+      "immediateMs": 1563,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nCould you send it to her?\nColumbina\nI can help, but I\u2019m not sure what \u201cit\u201d is or who you mean by \u201cher.\u201d What would you like sent, and to whom?\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677046.0757241,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "ee8d02db-583b-4f79-9af7-64387057d10b",
+            "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "90112e69-0243-57c4-ad75-3c2605402fdd",
+            "role": "assistant",
+            "content": "I can help, but I\u2019m not sure what \u201cit\u201d is or who you mean by \u201cher.\u201d What would you like sent, and to whom?",
+            "status": "completed"
+          },
+          {
+            "id": "5f501670-e944-4d7a-83b1-781ce001853f",
+            "role": "user",
+            "content": "Could you send it to her?",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 59,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:45.282484+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "a6c86097-8d42-4bff-8ee3-a460bde8731b",
+            "event": "message:5f501670-e944-4d7a-83b1-781ce001853f",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "5f501670-e944-4d7a-83b1-781ce001853f",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking",
+                "requesting"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "ba07a2c4-2bf8-4e8e-b99a-60cb48548db3",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.61,
+                  "required": 0.36,
+                  "uncertain": 0.03
+                },
+                "thinking": {
+                  "not_required": 0.76,
+                  "required": 0.04,
+                  "uncertain": 0.2
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 80.7,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "ee8d02db-583b-4f79-9af7-64387057d10b",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "90112e69-0243-57c4-ad75-3c2605402fdd",
+              "reply_chars": 106,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 7,
+              "memory_cache_ms": 4,
+              "cognition_ms": 20,
+              "assessment_ms": 81,
+              "prepare_ms": 112,
+              "total_ms": 1238
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nCould you send it to her?\nColumbina\nI can help, but I\u2019m not sure what \u201cit\u201d is or who you mean by \u201cher.\u201d What would you like sent, and to whom?\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "ba07a2c4-2bf8-4e8e-b99a-60cb48548db3",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.61,
+              "required": 0.36,
+              "uncertain": 0.03
+            },
+            "thinking": {
+              "not_required": 0.76,
+              "required": 0.04,
+              "uncertain": 0.2
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 80.7,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "5f501670-e944-4d7a-83b1-781ce001853f",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "explicit_thinking",
+      "message": "Please think carefully before answering this logic problem. Three boxes are labelled APPLES, ORANGES and MIXED. Every label is wrong. You can draw one fruit from only one box. Which box should you choose, and how can you then identify all three boxes?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "required"
+      },
+      "startMs": 1792677046393,
+      "reply": "Choose the box labelled **MIXED**. Since every label is wrong, it can\u2019t contain a mix\u2014it must contain only apples or only oranges.\n\n- If you draw an **apple**, that box is the **APPLES** box. The box labelled **ORANGES** can\u2019t be oranges, and it can\u2019t be apples (already identified), so it\u2019s **MIXED**. The remaining box, labelled **APPLES**, is **ORANGES**.\n- If you draw an **orange**, that box is the **ORANGES** box. The box labelled **APPLES** must then be **MIXED**, leaving the box labelled **ORANGES** as **APPLES**.",
+      "tokenFrames": 142,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1444c1c2-afbd-447c-95e3-ed359f2b39ed"
+        },
+        {
+          "type": "ack",
+          "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+          "user_message_id": "58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+          "conversation_id": "1444c1c2-afbd-447c-95e3-ed359f2b39ed"
+        },
+        {
+          "type": "route",
+          "route": "mind",
+          "outcome": "mind",
+          "eligibility": "not_eligible",
+          "recall": "not_required",
+          "thinking": "required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+          "message_id": "e9ebc47c-2fe6-52b5-89de-59ebf6b6ea42"
+        },
+        {
+          "type": "done",
+          "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+          "message_id": "e9ebc47c-2fe6-52b5-89de-59ebf6b6ea42",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+        "content": "Please think carefully before answering this logic problem. Three boxes are labelled APPLES, ORANGES and MIXED. Every label is wrong. You can draw one fruit from only one box. Which box should you choose, and how can you then identify all three boxes?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1444c1c2-afbd-447c-95e3-ed359f2b39ed",
+      "firstTokenMs": 1255,
+      "terminal": "done",
+      "immediateMs": 4325,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nPlease think carefully before answering this logic problem. Three boxes are labelled APPLES, ORANGES and MIXED. Every label is wrong. You can draw one fruit from only one box. Which box should you choose, and how can you then identify all three boxes?\nColumbina\nChoose the box labelled **MIXED**. Since every label is wrong, it can\u2019t contain a mix\u2014it must contain only apples or only oranges.\n\n- If you draw an **apple**, that box is the **APPLES** box. The box labelled **ORANGES** can\u2019t be oranges, and it can\u2019t be apples (already identified), so it\u2019s **MIXED**. The remaining box, labelled **APPLES**, is **ORANGES**.\n- If you draw an **orange**, that box is the **ORANGES** box. The box labelled **APPLES** must then be **MIXED**, leaving the box labelled **ORANGES** as **APPLES**.\nMood\nmood content or happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677156.98898,
+            "work": [
+              {
+                "id": "281cbaca-70ac-4f8c-93a4-5b5c07575492",
+                "kind": "mind",
+                "status": "completed",
+                "attempt": 1
+              }
+            ],
+            "outputs": [
+              {
+                "phase": "immediate",
+                "decision": "respond",
+                "status": "delivered"
+              },
+              {
+                "phase": "follow_up",
+                "decision": "blocked",
+                "status": "not_sent"
+              }
+            ]
+          }
+        ],
+        "jobs": [
+          {
+            "id": "28edc7f6-3bc5-4549-8cfa-5794cacac91d",
+            "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "e9ebc47c-2fe6-52b5-89de-59ebf6b6ea42",
+            "role": "assistant",
+            "content": "Choose the box labelled **MIXED**. Since every label is wrong, it can\u2019t contain a mix\u2014it must contain only apples or only oranges.\n\n- If you draw an **apple**, that box is the **APPLES** box. The box labelled **ORANGES** can\u2019t be oranges, and it can\u2019t be apples (already identified), so it\u2019s **MIXED**. The remaining box, labelled **APPLES**, is **ORANGES**.\n- If you draw an **orange**, that box is the **ORANGES** box. The box labelled **APPLES** must then be **MIXED**, leaving the box labelled **ORANGES** as **APPLES**.",
+            "status": "completed"
+          },
+          {
+            "id": "58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+            "role": "user",
+            "content": "Please think carefully before answering this logic problem. Three boxes are labelled APPLES, ORANGES and MIXED. Every label is wrong. You can draw one fruit from only one box. Which box should you choose, and how can you then identify all three boxes?",
+            "status": "completed"
+          }
+        ],
+        "work": [
+          {
+            "id": "281cbaca-70ac-4f8c-93a4-5b5c07575492",
+            "request_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+            "kind": "mind",
+            "status": "completed",
+            "dependency_ids": [],
+            "attempt": 1,
+            "cancellation_generation": 0,
+            "error_code": null,
+            "input_versions": {
+              "personality": "6f34fd7338cf2daf",
+              "trigger_message": "58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080",
+              "conversation_revision": "1",
+              "cognition.memory_cache": "e3b0c44298fc1c14"
+            },
+            "created_at": "2026-10-22 13:50:46.671660+00:00",
+            "updated_at": "2026-10-22 13:50:52.632357+00:00",
+            "result": {
+              "kind": "decision",
+              "error": null,
+              "question": null,
+              "conclusion": "I\u2019d draw from MIXED: its fruit tells me which pure box it is; the remaining wrong labels then identify the other pure box and the mixed box.",
+              "latency_ms": 5915.0,
+              "evidence_refs": [],
+              "evidence_status": null
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "phase": "immediate",
+            "decision": "respond",
+            "decision_origin": "policy_fallback",
+            "missing_capability": "Student 1/2 have no input for 'a thought of hers is pending' and no output for acknowledge / partial / silent (Student 2's 20 move groups have no silence or hold option).",
+            "status": "delivered",
+            "chat_job_id": null,
+            "assistant_message_id": "e9ebc47c-2fe6-52b5-89de-59ebf6b6ea42",
+            "created_at": "2026-10-22 13:50:46.691568+00:00",
+            "updated_at": "2026-10-22 13:50:50.539222+00:00"
+          },
+          {
+            "phase": "follow_up",
+            "decision": "blocked",
+            "decision_origin": "unsupported",
+            "missing_capability": "Student 1/2 read only a user message: no input slot for a finished thought, and no output for respond / ask / defer / silent about it.",
+            "status": "not_sent",
+            "chat_job_id": null,
+            "assistant_message_id": null,
+            "created_at": "2026-10-22 13:50:52.661480+00:00",
+            "updated_at": "2026-10-22 13:50:52.661480+00:00"
+          }
+        ],
+        "receipts": [
+          {
+            "id": 60,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:50:46.689939+00:00",
+            "component": "coordinator",
+            "op": "scheduled",
+            "work": "281cbaca-70ac-4f8c-93a4-5b5c07575492",
+            "kind": "mind",
+            "request": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+            "deps": []
+          },
+          {
+            "at": "2026-10-22T13:50:46.699916+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+            "phase": "immediate",
+            "decision": "respond",
+            "origin": "policy_fallback",
+            "status": "decided"
+          },
+          {
+            "at": "2026-10-22T13:50:50.535784+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "1444c1c2-afbd-447c-95e3-ed359f2b39ed",
+            "event": "message:58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm reading",
+              "acts": [
+                "asking",
+                "requesting"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": true,
+              "decider": "jev",
+              "choice": "required"
+            },
+            "assessment": {
+              "id": "6d1e77aa-0479-4bc0-9ccc-a4ac684f28d6",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1.0,
+                  "required": 0.0,
+                  "uncertain": 0.0
+                },
+                "thinking": {
+                  "not_required": 0.0,
+                  "required": 1.0,
+                  "uncertain": 0.0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 130.7,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "mind",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "mind",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "pending"
+            },
+            "work": {
+              "id": "28edc7f6-3bc5-4549-8cfa-5794cacac91d",
+              "attempt": 1,
+              "background": [
+                {
+                  "id": "281cbaca-70ac-4f8c-93a4-5b5c07575492",
+                  "kind": "mind",
+                  "status": "queued"
+                }
+              ]
+            },
+            "immediate": {
+              "action": "respond",
+              "origin": "policy_fallback"
+            },
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 1,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "e9ebc47c-2fe6-52b5-89de-59ebf6b6ea42",
+              "reply_chars": 524,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 5,
+              "memory_cache_ms": 3,
+              "cognition_ms": 39,
+              "assessment_ms": 131,
+              "schedule_ms": 32,
+              "prepare_ms": 210,
+              "total_ms": 4046
+            }
+          },
+          {
+            "at": "2026-10-22T13:50:52.666500+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+            "phase": "follow_up",
+            "decision": "blocked",
+            "origin": "unsupported",
+            "status": "not_sent"
+          }
+        ]
+      },
+      "actual": {
+        "assessment": {
+          "id": "6d1e77aa-0479-4bc0-9ccc-a4ac684f28d6",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1.0,
+              "required": 0.0,
+              "uncertain": 0.0
+            },
+            "thinking": {
+              "not_required": 0.0,
+              "required": 1.0,
+              "uncertain": 0.0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 130.7,
+          "error": null
+        },
+        "route": {
+          "route": "mind",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "mind",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 1,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "58ac1fbe-4465-4e71-9a93-148adcecf0d6",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true,
+      "transportPass": true
+    }
+  ],
+  "errors": [],
+  "outOfTurnFrames": [],
+  "user": {
+    "id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+    "name": "Step Four E2E",
+    "email": "step-four-1792677024261@example.com",
+    "created_at": "2026-10-22T13:50:24.358628"
+  },
+  "finished": "2026-10-22T13:50:53.175Z",
+  "harnessInterruption": "Error: Command failed: /Users/vincentgilbert/.local/bin/uv run python ../docs/reports/shared-state-step4-observe-2026-10-22.py 7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b --wait\nTraceback (most recent call last):\n  File \"/Users/vincentgilbert/Desktop/NutritionDetection/app-cognitive/backend/../docs/reports/shared-state-step4-observe-2026-10-22.py\", line 31, in <module>\n    data['traces']=[r for line in trace.read_text().splitlines() if (r:=json.loads(line)).get('work',{}).get('id') in {str(j.id) for j in jobs} or r.get('request')==str(turn)]\n                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'str' object has no attribute 'get'\n"
+}

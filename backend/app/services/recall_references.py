@@ -86,6 +86,14 @@ def _focus(db: Session, user_id: uuid.UUID) -> uuid.UUID | None:
 def prior_references(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID,
                      before_message_id: uuid.UUID | None) -> tuple[list[MemoryRef], str | None]:
     """The memories the answer before this message referred to, and how sure that is."""
+    refs, note, _ = _prior(db, user_id, conversation_id, before_message_id)
+    return refs, note
+
+
+def _prior(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID,
+           before_message_id: uuid.UUID | None) -> tuple[list[MemoryRef], str | None, int]:
+    """``prior_references`` plus how many memories that answer was given have since been deleted (their
+    reference rows went with them, so only the receipt's count still knows)."""
     query = select(ChatMessage).where(ChatMessage.conversation_id == conversation_id, ChatMessage.role == "assistant")
     if before_message_id is not None:
         before = db.get(ChatMessage, before_message_id)
@@ -93,11 +101,11 @@ def prior_references(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID
             query = query.where(ChatMessage.conversation_sequence < before.conversation_sequence)
     answer = db.scalar(query.order_by(ChatMessage.conversation_sequence.desc()).limit(1))
     if answer is None:
-        return [], None
+        return [], None, 0
     receipt = db.scalar(select(RecallReceipt).where(RecallReceipt.assistant_message_id == answer.id,
                                                     RecallReceipt.user_id == user_id))
     if receipt is None:
-        return [], None
+        return [], None, 0
     rows = list(db.scalars(select(RecallReference).where(RecallReference.receipt_id == receipt.id)
                            .order_by(RecallReference.id)))
     heard_upto = heard.heard_cut(answer.content or "", answer.heard_chars)
@@ -118,7 +126,7 @@ def prior_references(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID
         refs, note = [], None
     if gone > 0:
         note = (note + "; " if note else "") + f"{gone} memory used then has since been removed"
-    return refs[:PRIOR_REFS], note
+    return refs[:PRIOR_REFS], note, max(gone, 0)
 
 
 def _unique(rows: list[RecallReference]) -> list[MemoryRef]:
@@ -167,6 +175,46 @@ def for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messag
                       recall.render_legacy(result), prior_note=note,
                       tool_budget=get_settings().recall_tool_calls_per_reply)
     turn.supply(result.records)
+    return turn
+
+
+def cached_for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
+                     zone: str | None) -> TurnRecall:
+    """A reply's memory without a search (the shared-state pipeline, docs/SHARED_STATE_REFACTOR_SPEC.md): only
+    the answer before's references, re-read now, so a correction or deletion since is seen, never an old copy.
+    The turn carries the same tool budget, and its receipt supplies them again, so follow-ups keep working.
+    Never raises: a failed reread is ``failed``, not an empty cache."""
+    now = datetime.now(timezone.utc)
+    zone = zone or "UTC"
+    note, deleted = None, 0
+    try:
+        with SessionLocal() as db:
+            refs, note, deleted = (_prior(db, user_id, conversation_id, user_message_id)
+                                   if conversation_id else ([], None, 0))
+            result = recall.reread(db, user_id, refs)
+        if deleted:
+            # Deleted since: no reference row is left to reread, so the count is all the cache can say.
+            result.coverage["references_deleted"] = deleted
+    except Exception:  # noqa: BLE001
+        log.exception("recall: reading the cached references failed")
+        result, note = RecallResult.failed("read_failed"), None
+    if result.status == "failed":
+        lines = ["Memories from your last answer: couldn't be read just now. Don't say nothing is recorded."]
+    elif not result.records:
+        lines = ["Memories from your last answer: none."]
+    else:
+        lines = ["Memories from your last answer, re-read now:"]
+        lines += recall.render_records(result.records, now=now, zone=zone)
+    if (result.coverage.get("references_gone") or deleted) and not note:
+        lines.append("(Something your last answer used has since been removed or changed.)")
+    if note:
+        lines.append(f"(About these: {note}.)")
+    turn = TurnRecall(user_id, conversation_id, zone, now, None, result, "\n".join(lines),
+                      recall.render_legacy(result), prior_note=note,
+                      tool_budget=get_settings().recall_tool_calls_per_reply)
+    turn.supply(result.records)
+    recall._log({"op": "cache_reread", "status": result.status, "refs": [str(r) for r in result.refs()],
+                 "gone": len(result.coverage.get("references_gone", [])) + deleted})
     return turn
 
 

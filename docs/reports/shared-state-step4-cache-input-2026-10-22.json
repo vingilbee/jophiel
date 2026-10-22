@@ -1,0 +1,34 @@
+{
+  "note": "Reconstructed data shaping with current production adapter; no provider call made. Interpretation omitted because only evidence-line selection is under inspection. Synthetic QA account only.",
+  "checks": {
+    "cached_record_count": 1,
+    "full_cache_contains_answer": true,
+    "jev_memories_contain_answer": false,
+    "clipped_recent_contains_answer": false
+  },
+  "cache_rendered": "Memories from your last answer, re-read now:\n- [fact:becc183a-9856-414e-8c36-2fb76fb53b87] fact \u00b7 in: no context recorded (older memory) \u00b7 recorded Thu 22 Oct 2026, 06:53 (America/Vancouver; 3 min ago) (when it was written down, not when it happened) \u00b7 reported \u00b7 from your last answer\n  For the user's fictional QA test story (not real personal information): the Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; the narrator must bring the blue atlas to its next meeting.\n(About these: given to your last answer; which of them it was about is unclear.)",
+  "selected_evidence_lines": [
+    "- [fact:becc183a-9856-414e-8c36-2fb76fb53b87] fact \u00b7 in: no context recorded (older memory) \u00b7 recorded Thu 22 Oct 2026, 06:53 (America/Vancouver; 3 min ago) (when it was written down, not when it happened) \u00b7 reported \u00b7 from your last answer"
+  ],
+  "shaped_state": {
+    "latest_user_message": "What day, time and place is my Cobalt reading circle?",
+    "recent_conversation": [
+      {
+        "from": "user",
+        "text": "Write a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence."
+      },
+      {
+        "from": "columbina",
+        "text": "Rain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slip\u2026"
+      }
+    ],
+    "quick_reading": "unavailable",
+    "memories_supplied": [
+      "- [fact:becc183a-9856-414e-8c36-2fb76fb53b87] fact \u00b7 in: no context recorded (older memory) \u00b7 recorded Thu 22 Oct 2026, 06:53 (America/Vancouver; 3 min ago) (when it was written down, not when it happened) \u00b7 reported \u00b7 from your last answer"
+    ],
+    "capabilities": [
+      "conversation",
+      "memory_search"
+    ]
+  }
+}

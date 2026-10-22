@@ -1,0 +1,310 @@
+{
+ "status": "DRAFT: proposed labels, reviewed by Claude Code against the agreed design (Jev decides recall and thinking only); awaiting the user's review. Ambiguous cases are listed under 'ambiguous'.",
+ "policy_version": "conversation-assessment-policy-v1",
+ "cases": [
+  {
+   "id": "greet-1",
+   "message": "hey! how's your day going?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "greet-2",
+   "message": "morning :)",
+   "recent": [
+    {
+     "role": "assistant",
+     "content": "Night! Sleep well."
+    }
+   ],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "chat-1",
+   "message": "honestly I just want to talk for a bit",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "opinion-1",
+   "message": "do you prefer rain or snow?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "followup-1",
+   "message": "why that one?",
+   "recent": [
+    {
+     "role": "user",
+     "content": "rain or snow?"
+    },
+    {
+     "role": "assistant",
+     "content": "Rain, I think."
+    }
+   ],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "cached-1",
+   "message": "and what's her name again?",
+   "recent": [
+    {
+     "role": "user",
+     "content": "my sister is visiting"
+    },
+    {
+     "role": "assistant",
+     "content": "Oh nice, Juniper's coming?"
+    }
+   ],
+   "memories": [
+    "- [fact] preference \u00b7 Their sister is called Juniper"
+   ],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "cached-2",
+   "message": "how strong do I like my tea?",
+   "recent": [],
+   "memories": [
+    "- [fact] preference \u00b7 Likes their tea very strong"
+   ],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-1",
+   "message": "what was the name of the caf\u00e9 we talked about last month?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-2",
+   "message": "what did we build in minecraft last time?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-3",
+   "message": "remember what I told you about my interview?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-4",
+   "message": "what order did I change the meeting time in?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "unclear-ref-1",
+   "message": "send it to her",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "unclear-ref-2",
+   "message": "which one did you mean?",
+   "recent": [
+    {
+     "role": "assistant",
+     "content": "You could try the blue one or the red one."
+    }
+   ],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "earlier-plan-1",
+   "message": "do the thing we said",
+   "recent": [
+    {
+     "role": "user",
+     "content": "hi"
+    },
+    {
+     "role": "assistant",
+     "content": "Hey!"
+    }
+   ],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "outside-info-1",
+   "message": "what's the weather in Jakarta right now?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "outside-info-2",
+   "message": "check my email for the flight confirmation",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "outside-info-3",
+   "message": "what's bitcoin at today?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "think-1",
+   "message": "Can you think carefully about whether I should take the job in Berlin or stay? Pay is 20% more but I'd leave my friends.",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "required"
+  },
+  {
+   "id": "think-2",
+   "message": "help me plan a week of studying for three exams, with the hardest on Friday",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "required"
+  },
+  {
+   "id": "think-3",
+   "message": "take your time and work out the best way to split the rent: I earn 60k, she earns 40k, the flat is 2000",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "required"
+  },
+  {
+   "id": "think-recall-1",
+   "message": "given everything I've told you about my job over the past months, should I quit?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "required"
+  },
+  {
+   "id": "think-recall-2",
+   "message": "look back at how our last few games went and figure out what we keep getting wrong",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "required"
+  },
+  {
+   "id": "simple-q-1",
+   "message": "what's 15% of 80?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "correction-1",
+   "message": "no, it's Tuesday, not Monday",
+   "recent": [
+    {
+     "role": "assistant",
+     "content": "So Monday it is!"
+    }
+   ],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "feeling-1",
+   "message": "ugh, I had a really rough day",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recent-1",
+   "message": "wait, what did I just say?",
+   "recent": [
+    {
+     "role": "user",
+     "content": "I think I'll paint the room green"
+    },
+    {
+     "role": "assistant",
+     "content": "Green sounds calm!"
+    }
+   ],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-5",
+   "message": "do you remember my dog's name?",
+   "recent": [],
+   "memories": [],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "recall-6",
+   "message": "what's my sister's name?",
+   "recent": [],
+   "memories": [
+    "- [fact] preference \u00b7 Likes their tea very strong"
+   ],
+   "recall": "required",
+   "thinking": "not_required"
+  },
+  {
+   "id": "think-4",
+   "message": "think it over: is waking up at 5 every day realistic for me if I go to bed at midnight?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "required"
+  },
+  {
+   "id": "general-1",
+   "message": "how far is the moon?",
+   "recent": [],
+   "memories": [],
+   "recall": "not_required",
+   "thinking": "not_required"
+  }
+ ],
+ "ambiguous": {
+  "unclear-ref-1": "'send it to her' with nothing before it: labelled no recall (the spec's own example). It could also be read as needing memory to find out who 'her' is.",
+  "think-1": "Berlin job: labelled thinking required, no recall. A better answer might use what she remembers about their job or friends, but nothing in it asks about the past.",
+  "earlier-plan-1": "'do the thing we said': relabelled recall required (it points at an earlier conversation she doesn't have). The earlier draft said not required.",
+  "think-3": "Rent split: labelled thinking required because they said 'take your time'. The arithmetic itself is simple.",
+  "simple-q-1": "15% of 80: labelled no thinking. A normal reply can do it; if you'd count any calculation as deliberate thinking, flip it."
+ }
+}

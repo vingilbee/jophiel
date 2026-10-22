@@ -1,0 +1,100 @@
+{
+  "started": "2026-10-22T01:00:44.418Z",
+  "mode": "reading",
+  "turns": [
+    {
+      "label": "reading_arm",
+      "message": "Hi Columbina. I feel like a quiet chat about rainy evenings.",
+      "startMs": 1792630845086,
+      "reply": "Hi. Rainy evenings have a way of making the world feel smaller and softer, don\u2019t they? I like the thought of rain tapping at the windows while everything else grows quiet. We can just linger there for a bit. [[sticker:tea]]",
+      "tokenFrames": 52,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "225b13e4-f95a-449c-82c3-5fdc64ea0e7a"
+        },
+        {
+          "type": "ack",
+          "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+          "user_message_id": "b2cb416e-2e4f-4f2f-8e51-5057dc321417",
+          "conversation_id": "225b13e4-f95a-449c-82c3-5fdc64ea0e7a"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+          "message_id": "58c6684e-1b5d-57ee-bcc8-1079b861ca2e"
+        },
+        {
+          "type": "done",
+          "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+          "message_id": "58c6684e-1b5d-57ee-bcc8-1079b861ca2e",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+        "content": "Hi Columbina. I feel like a quiet chat about rainy evenings.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "225b13e4-f95a-449c-82c3-5fdc64ea0e7a",
+      "firstTokenMs": 6620,
+      "terminal": "done",
+      "totalMs": 7360,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I feel like a quiet chat about rainy evenings.\nColumbina\nHi. Rainy evenings have a way of making the world feel smaller and softer, don\u2019t they? I like the thought of rain tapping at the windows while everything else grows quiet. We can just linger there for a bit. \nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "225b13e4-f95a-449c-82c3-5fdc64ea0e7a",
+        "title": "Hi Columbina. I feel like a quiet chat about rainy evenings.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T01:00:45.156148",
+        "updated_at": "2026-10-22T01:00:52.251648",
+        "messages": [
+          {
+            "id": "b2cb416e-2e4f-4f2f-8e51-5057dc321417",
+            "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+            "role": "user",
+            "content": "Hi Columbina. I feel like a quiet chat about rainy evenings.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:45.168182",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "58c6684e-1b5d-57ee-bcc8-1079b861ca2e",
+            "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+            "role": "assistant",
+            "content": "Hi. Rainy evenings have a way of making the world feel smaller and softer, don\u2019t they? I like the thought of rain tapping at the windows while everything else grows quiet. We can just linger there for a bit. [[sticker:tea]]",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:52.251648",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": false,
+      "renderedTextVisible": true
+    }
+  ],
+  "errors": [],
+  "user": {
+    "id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+    "name": "Shared State E2E",
+    "email": "shared-state-1792630762307@example.com",
+    "created_at": "2026-10-22T00:59:22.401297"
+  },
+  "finished": "2026-10-22T01:00:52.616Z"
+}

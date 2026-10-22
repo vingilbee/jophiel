@@ -1,0 +1,344 @@
+{
+  "started": "2026-10-22T01:00:12.486Z",
+  "mode": "cache",
+  "turns": [
+    {
+      "label": "memory_tool",
+      "message": "Please use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.",
+      "startMs": 1792630812977,
+      "reply": "The saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.",
+      "tokenFrames": 37,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "ack",
+          "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+          "user_message_id": "0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+          "message_id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b"
+        },
+        {
+          "type": "done",
+          "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+          "message_id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+        "content": "Please use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "firstTokenMs": 2927,
+      "terminal": "done",
+      "totalMs": 3327,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nPlease use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.\nColumbina\nThe saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+        "title": "Please use search_memories to check the current meeting time",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T01:00:13.039363",
+        "updated_at": "2026-10-22T01:00:16.215469",
+        "messages": [
+          {
+            "id": "0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "user",
+            "content": "Please use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:13.049339",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "assistant",
+            "content": "The saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:16.215469",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "cached_follow_up",
+      "message": "Repeat that time and place from the context you already have; no new search is needed.",
+      "startMs": 1792630816319,
+      "reply": "6 pm in the library courtyard.",
+      "tokenFrames": 7,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "ack",
+          "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+          "user_message_id": "809abb60-27b3-4885-83e3-b1b906c0f3f0",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+          "message_id": "5055e186-a167-5030-beb6-68026bab1b88"
+        },
+        {
+          "type": "done",
+          "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+          "message_id": "5055e186-a167-5030-beb6-68026bab1b88",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+        "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+        "content": "Repeat that time and place from the context you already have; no new search is needed.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "firstTokenMs": 1586,
+      "terminal": "done",
+      "totalMs": 1798,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nPlease use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.\nColumbina\nThe saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.\nRepeat that time and place from the context you already have; no new search is needed.\nColumbina\n6 pm in the library courtyard.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+        "title": "Please use search_memories to check the current meeting time",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T01:00:13.039363",
+        "updated_at": "2026-10-22T01:00:17.940313",
+        "messages": [
+          {
+            "id": "0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "user",
+            "content": "Please use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:13.049339",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "assistant",
+            "content": "The saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:16.215469",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "809abb60-27b3-4885-83e3-b1b906c0f3f0",
+            "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+            "role": "user",
+            "content": "Repeat that time and place from the context you already have; no new search is needed.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:16.370299",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "5055e186-a167-5030-beb6-68026bab1b88",
+            "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+            "role": "assistant",
+            "content": "6 pm in the library courtyard.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:17.940313",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "cached_follow_up_again",
+      "message": "And the meeting day? Use the same context, without searching again.",
+      "startMs": 1792630818138,
+      "reply": "Saturday.",
+      "tokenFrames": 2,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "ack",
+          "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+          "user_message_id": "65f23a74-383b-4e4b-9284-cb2b7fa0f923",
+          "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+          "message_id": "cc2e0da3-aaea-57e2-89d0-5c90a28c9e47"
+        },
+        {
+          "type": "done",
+          "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+          "message_id": "cc2e0da3-aaea-57e2-89d0-5c90a28c9e47",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+        "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+        "content": "And the meeting day? Use the same context, without searching again.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "firstTokenMs": 1357,
+      "terminal": "done",
+      "totalMs": 1573,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nPlease use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.\nColumbina\nThe saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.\nRepeat that time and place from the context you already have; no new search is needed.\nColumbina\n6 pm in the library courtyard.\nAnd the meeting day? Use the same context, without searching again.\nColumbina\nSaturday.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+        "title": "Please use search_memories to check the current meeting time",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T01:00:13.039363",
+        "updated_at": "2026-10-22T01:00:19.545580",
+        "messages": [
+          {
+            "id": "0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "user",
+            "content": "Please use search_memories to check the current meeting time and place for the Lantern astronomy club. Tell me only what your saved memory supports.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:13.049339",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b",
+            "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+            "role": "assistant",
+            "content": "The saved memory says Lantern\u2019s Saturday **book club** meets at **6 pm in the library courtyard**. I don\u2019t see a meeting time or place saved for an astronomy club.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:16.215469",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "809abb60-27b3-4885-83e3-b1b906c0f3f0",
+            "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+            "role": "user",
+            "content": "Repeat that time and place from the context you already have; no new search is needed.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:16.370299",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "5055e186-a167-5030-beb6-68026bab1b88",
+            "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+            "role": "assistant",
+            "content": "6 pm in the library courtyard.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:17.940313",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "65f23a74-383b-4e4b-9284-cb2b7fa0f923",
+            "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+            "role": "user",
+            "content": "And the meeting day? Use the same context, without searching again.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:18.207291",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cc2e0da3-aaea-57e2-89d0-5c90a28c9e47",
+            "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+            "role": "assistant",
+            "content": "Saturday.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T01:00:19.545580",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    }
+  ],
+  "errors": [],
+  "user": {
+    "id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+    "name": "Memory Retest",
+    "email": "memory-retest-20261020@example.com",
+    "created_at": "2026-10-21T05:11:12.558578"
+  },
+  "finished": "2026-10-22T01:00:19.855Z"
+}

@@ -258,6 +258,25 @@ class Settings(BaseSettings):
     # Reads her actual reply after it's sent, for the notes (offered / committed / answered). None = subagent_model.
     cognitive_live_events_model: str | None = None
     cognitive_live_log_path: str = "var/cognitive_live.jsonl"
+    # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md step 3; services/shared_state.py). A migration and
+    # rollback switch, not a second architecture: the old preparation branch goes once cutover passes. Each reply
+    # is built from one scoped view: recent conversation + the last answer's memories re-read (no fresh
+    # search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is named
+    # to her and in the trace. Needs COGNITIVE_LIVE_STUDENT on or ab, else every turn is a degraded one.
+    shared_state_pipeline_enabled: bool = False
+    shared_state_log_path: str = "var/shared_state.jsonl"
+    # Step 4 (docs/SHARED_STATE_STEP4_SPEC.md; services/jev_assessment.py): one Jev call per message decides
+    # evidence need (sufficient / recall / clarification / external / uncertain) and thinking need. Needs the
+    # pipeline and TYPESAFE_API_KEY. Off: turns stay "unassessed" as in step 3. Sends the message, recent turns
+    # (clipped) and the cached memory lines to TypeSafe.
+    shared_state_assessment_enabled: bool = False
+    shared_state_assessment_model: str = "jev-latest"
+    shared_state_assessment_timeout_seconds: float = Field(default=1.5, gt=0, le=10)
+    # Background work for requests that need thinking (services/coordinator.py, `coordinator` worker thread):
+    # a mind item (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when recall is needed too. The
+    # deadline ends unfinished work as expired. Follow-ups are said only when cognition decides to.
+    shared_state_work_deadline_seconds: int = Field(default=180, ge=10, le=3600)
+    coordinator_queue_name: str = "macrovision:coordinator:wakeups"
     # Deterministic per-turn sample over hash(sampling policy version, turn_id).
     cognitive_live_shadow_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     cognitive_live_shadow_sampling_policy_version: str = Field(

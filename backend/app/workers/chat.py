@@ -30,6 +30,9 @@ from app.services import dialogue_memory, memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
+from app.services import coordinator, shared_state
+from app.services import agent_say
+from app.ai import prompts
 from app.services import stickers
 from app.services import tts as tts_service
 from app.services import voice_latency
@@ -149,14 +152,17 @@ def _start_setup_tasks(job: ChatJob, payload: dict) -> list[asyncio.Task]:
                 source_channel=cognitive_shadow.source_channel_for(payload),
             )
 
-    if recall_references.enabled():
+    if payload.get("phase") == "follow_up" or shared_state.enabled():
+        # The shared-state pipeline runs no search before the reply: its memory is the last answer's, re-read later.
+        lookup = asyncio.sleep(0, result=None)
+    elif recall_references.enabled():
         # Shared recall: a TurnRecall (never raises; a failure is a "failed" result she's told about).
         lookup = asyncio.to_thread(recall_references.for_reply, job.user_id, job.conversation_id,
                                    job.user_message_id, payload["content"], payload.get("zone"))
     else:
         # Fails open inside the service (returns None), like before.
         lookup = asyncio.to_thread(memory_service.retrieve_for_prompt, job.user_id, payload["content"])
-    return [asyncio.create_task(lookup), asyncio.create_task(capture())]
+    return [asyncio.ensure_future(lookup), asyncio.create_task(capture())]
 
 
 async def _generate(job: ChatJob) -> None:
@@ -211,14 +217,43 @@ async def _generate(job: ChatJob) -> None:
             raise
 
     looked_up, _ = await asyncio.gather(*background)
-    recall_turn = looked_up if isinstance(looked_up, recall_references.TurnRecall) else None
-    # The cognitive layer still reads the old fact/episode block as text: the same records, rendered so.
-    long_term_memory = recall_turn.legacy if recall_turn is not None else looked_up
-    # Simple cognition, live: None (nothing changes) unless enabled in settings.
-    live = (await asyncio.to_thread(
-        cognitive_live.prepare, user_id=job.user_id, conversation_id=job.conversation_id, history=history,
-        message=payload["content"], long_term_memory=long_term_memory,
-    ) if cognitive_live.enabled() else None)
+    assistant_id = uuid.uuid5(job.turn_id, "assistant")
+    fast = None
+    follow_up = payload.get("phase") == "follow_up"
+    thought_text = None
+    if follow_up:
+        # A follow-up after background thinking (services/coordinator.py). Checked again right before the
+        # mouth: a newer user message or a superseded item means the thought stays private.
+        request_id = uuid.UUID(payload["request_id"])
+        valid, info = await asyncio.to_thread(coordinator.follow_up_still_valid, uuid.UUID(payload["work_id"]))
+        if not valid:
+            with SessionLocal() as db:
+                chat_service.finish_job(db, job.id, "cancelled", claim_token=claim_token)
+            coordinator.follow_up_outcome(request_id, status="cancelled", assistant_message_id=None)
+            return
+        thought_text = coordinator.render_result(info)
+        recall_turn, long_term_memory, live = None, None, None
+    elif shared_state.enabled():
+        # One scoped view -> Student 1 -> her (docs/SHARED_STATE_REFACTOR_SPEC.md step 3).
+        fast = await asyncio.to_thread(
+            shared_state.prepare, user_id=job.user_id, conversation_id=job.conversation_id,
+            user_message_id=job.user_message_id, history=history, message=payload["content"],
+            zone=payload.get("zone"), turn_id=job.turn_id, reply_message_id=assistant_id,
+            channel=payload.get("channel", "web"), voice=bool(payload.get("voice", False)), job=job,
+            user_name=user.name if user else None)
+        recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
+        if fast.silent:
+            await asyncio.to_thread(_finish_silent, job, fast)
+            return
+    else:
+        recall_turn = looked_up if isinstance(looked_up, recall_references.TurnRecall) else None
+        # The cognitive layer still reads the old fact/episode block as text: the same records, rendered so.
+        long_term_memory = recall_turn.legacy if recall_turn is not None else looked_up
+        # Simple cognition, live: None (nothing changes) unless enabled in settings.
+        live = (await asyncio.to_thread(
+            cognitive_live.prepare, user_id=job.user_id, conversation_id=job.conversation_id, history=history,
+            message=payload["content"], long_term_memory=long_term_memory,
+        ) if cognitive_live.enabled() else None)
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     working_memory = await asyncio.to_thread(memory_manager.view_for, job.user_id,
                                              user_name=user.name if user else None)
@@ -245,8 +280,11 @@ async def _generate(job: ChatJob) -> None:
         cognitive_reading=live.reading if live else None,
         conversation_notes=live.notes if live else None,
         working_memory=working_memory,
-        recall=recall_turn.rendered if recall_turn is not None else None,
+        recall=fast.recall_rendered if fast else recall_turn.rendered if recall_turn is not None else None,
         recall_turn=recall_turn,
+        cached_memory=fast.cached_memory if fast else None,
+        turn_boundary=fast.boundary if fast else None,
+        thought_result=thought_text,
         memory_tools=memory_manager.enabled(),
         source_message_id=job.user_message_id if memory_manager.enabled() else None,
         vision_enabled=bool(payload.get("vision_enabled", False)),
@@ -262,7 +300,6 @@ async def _generate(job: ChatJob) -> None:
     )
     mark("context_ready", model=settings.voice_chat_model or settings.chat_model)
     turn_id = job.turn_id
-    assistant_id = uuid.uuid5(job.turn_id, "assistant")
     reply = ""
     feed, flush = tts_service.clause_chunker()
     audio_started = False
@@ -332,6 +369,9 @@ async def _generate(job: ChatJob) -> None:
                     mark("redis_first_audio")
     publish(turn_id, {"type": "start", "turn_id": str(turn_id),
                       "message_id": str(assistant_id)})
+    if fast is not None:
+        # How this reply was routed, degraded or not: visible on the turn's stream, never silent.
+        publish(turn_id, {**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_id)})
     lost_claim = asyncio.Event()
 
     async def keep_lease() -> None:
@@ -363,7 +403,9 @@ async def _generate(job: ChatJob) -> None:
     sticker_buffer = ""
     first_token = True
     first_subagent = True
-    events = stream_chat(messages=history, context=context, on_stage=lambda stage: mark(stage))
+    # A follow-up has no new user message: a closing internal trigger (never persisted) asks for it.
+    messages = [*history, {"role": "user", "content": prompts.FOLLOW_UP_TRIGGER}] if follow_up else history
+    events = stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage))
     try:
         while True:
             # Wait for the model only while the turn isn't stopped: a tool call
@@ -454,6 +496,17 @@ async def _generate(job: ChatJob) -> None:
         publish(turn_id, {"type": "stopped" if stopped else "done",
                           "turn_id": str(turn_id), "message_id": str(assistant_id),
                           "status": outcome})
+        shared_state.finish(fast, outcome=outcome, reply=reply,
+                            assistant_message_id=assistant_id if (reply or outcome == "cancelled") else None)
+        delivered = {"completed": "delivered", "partial": "partial", "cancelled": "cancelled"}[outcome]
+        stored = assistant_id if (reply or outcome == "cancelled") else None
+        if fast is not None and fast.pending:
+            coordinator.immediate_outcome(job.turn_id, status=delivered, assistant_message_id=stored)
+        if follow_up:
+            coordinator.follow_up_outcome(request_id, status=delivered, assistant_message_id=stored)
+            if reply and outcome == "completed":
+                # Shown (and spoken on an idle live voice session) by the sockets: already stored above.
+                _announce(job, reply, assistant_id)
         if outcome == "completed":
             # The game may have moved on while she said it: she corrects herself if so.
             game_correction.start(job.user_id, reply, context.game_moment)
@@ -463,7 +516,7 @@ async def _generate(job: ChatJob) -> None:
             # After the reply is delivered: notes follow what she actually said. Never fails the turn.
             await asyncio.to_thread(cognitive_live.after_reply, live, user_id=job.user_id,
                                     conversation_id=job.conversation_id, message=payload["content"], reply=reply)
-        if outcome == "completed":
+        if outcome == "completed" and not follow_up:
             # Her inner state reads the exchange on its own thread (off unless enabled; no influence).
             inner_state_live.observe(user_id=job.user_id, conversation_id=job.conversation_id, history=history,
                                      message=payload["content"], reply=reply)
@@ -482,7 +535,8 @@ async def _generate(job: ChatJob) -> None:
                 ))
                 failure_text = reply or "I couldn't complete that response. Please try again."
                 failure_scheduled = False
-                if conversation is not None and existing is None:
+                # A follow-up nobody asked for that failed says nothing (its output row records the failure).
+                if conversation is not None and existing is None and not (follow_up and not reply):
                     assistant = chat_service.add_message(
                         db, message_id=assistant_id, conversation=conversation,
                         role="assistant", content=failure_text, turn_id=turn_id,
@@ -504,6 +558,12 @@ async def _generate(job: ChatJob) -> None:
                 )
                 if finished:
                     db.commit()
+                    shared_state.finish(fast, outcome="failed", reply=failure_text,
+                                        assistant_message_id=assistant_id if existing is None else None)
+                    if fast is not None and fast.pending:
+                        coordinator.immediate_outcome(job.turn_id, status="failed", assistant_message_id=None)
+                    if follow_up:
+                        coordinator.follow_up_outcome(request_id, status="failed", assistant_message_id=None)
                     if context.channel == "whatsapp":
                         whatsapp_service.wake_worker()
                     if failure_scheduled:
@@ -522,6 +582,38 @@ async def _generate(job: ChatJob) -> None:
             await heartbeat
         except asyncio.CancelledError:
             pass
+
+
+def _finish_silent(job: ChatJob, fast) -> None:
+    """Cognition chose silence for the immediate phase: no assistant message, the background work stays
+    tracked, and the user's message still advances dialogue memory. Recorded as ``not_sent``, never as an
+    empty reply."""
+    with SessionLocal() as db:
+        scheduled = dialogue_memory.schedule_update(
+            db, user_id=job.user_id, conversation_id=job.conversation_id, trigger_message_id=job.user_message_id,
+        ) if job.user_message_id else False
+        if not chat_service.finish_job(db, job.id, "completed", claim_token=job.claim_token, commit=False):
+            db.rollback()
+            raise RuntimeError("chat job lease ownership was lost before commit")
+        db.commit()
+    if scheduled:
+        dialogue_memory.wake_worker()
+    coordinator.immediate_outcome(job.turn_id, status="not_sent", assistant_message_id=None)
+    publish(job.turn_id, {"type": "done", "turn_id": str(job.turn_id), "status": "silent"})
+    shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
+
+
+def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> None:
+    """Tell this user's sockets about a follow-up stored by this job: they show it like any unprompted
+    message, and speak it only on an idle live voice session. Transport only: it went through cognition and
+    the mouth, not through agent_say's own path."""
+    r = _redis()
+    if r is None:
+        return
+    with contextlib.suppress(Exception):
+        r.publish(agent_say.channel(job.user_id), json.dumps({
+            "conversation_id": str(job.conversation_id), "text": reply, "reason": "follow_up",
+            "message_id": str(message_id)}))
 
 
 def run_once() -> bool:

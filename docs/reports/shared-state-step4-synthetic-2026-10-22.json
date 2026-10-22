@@ -1,0 +1,2473 @@
+{
+  "fixture": "synthetic",
+  "started": "2026-10-22T13:54:18.819Z",
+  "turns": [
+    {
+      "label": "uncached_history",
+      "message": "What time and where does my Cobalt reading circle meet?",
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677259295,
+      "reply": "Your Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.",
+      "tokenFrames": 16,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+          "user_message_id": "93234295-c3f3-4a18-8ca9-be6e7041a355",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "recall",
+          "outcome": "recall",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+          "message_id": "9780d3a3-9db7-5e31-b573-71d0a19a2622"
+        },
+        {
+          "type": "done",
+          "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+          "message_id": "9780d3a3-9db7-5e31-b573-71d0a19a2622",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+        "content": "What time and where does my Cobalt reading circle meet?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 1522,
+      "terminal": "done",
+      "immediateMs": 1829,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677261.8816938,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "60975035-cdd0-4339-aa3a-cb23d1c1e084",
+            "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "93234295-c3f3-4a18-8ca9-be6e7041a355",
+            "role": "user",
+            "content": "What time and where does my Cobalt reading circle meet?",
+            "status": "completed"
+          },
+          {
+            "id": "9780d3a3-9db7-5e31-b573-71d0a19a2622",
+            "role": "assistant",
+            "content": "Your Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 63,
+            "status": "matched",
+            "coverage": {
+              "candidates": 1
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:20.984310+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:93234295-c3f3-4a18-8ca9-be6e7041a355",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "93234295-c3f3-4a18-8ca9-be6e7041a355",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "friendly",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "ebf35f73-5d3e-4e2c-9f9f-1e00f7b10077",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.04,
+                  "required": 0.96,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.79,
+                  "required": 0.15,
+                  "uncertain": 0.06
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 111,
+              "error": null
+            },
+            "recall": {
+              "ran": true,
+              "status": "matched",
+              "records": 1
+            },
+            "route": {
+              "route": "recall",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "60975035-cdd0-4339-aa3a-cb23d1c1e084",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 1,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "9780d3a3-9db7-5e31-b573-71d0a19a2622",
+              "reply_chars": 73,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 11,
+              "memory_cache_ms": 6,
+              "cognition_ms": 28,
+              "assessment_ms": 111,
+              "recall_ms": 257,
+              "prepare_ms": 413,
+              "total_ms": 1540
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "ebf35f73-5d3e-4e2c-9f9f-1e00f7b10077",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.04,
+              "required": 0.96,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.79,
+              "required": 0.15,
+              "uncertain": 0.06
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 111,
+          "error": null
+        },
+        "route": {
+          "route": "recall",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": true,
+          "status": "matched",
+          "records": 1
+        },
+        "calls": {
+          "fresh_recall_before_reply": 1,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "93234295-c3f3-4a18-8ca9-be6e7041a355",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "cached_followup",
+      "message": "And what day is that meeting?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677262197,
+      "reply": "Thursday.",
+      "tokenFrames": 2,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+          "user_message_id": "955d5b3f-b56f-4fc6-9b92-0373e4277fc4",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+          "message_id": "f0415545-b4b0-5bb5-8c94-ff39de05b1ad"
+        },
+        {
+          "type": "done",
+          "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+          "message_id": "f0415545-b4b0-5bb5-8c94-ff39de05b1ad",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+        "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+        "content": "And what day is that meeting?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 959,
+      "terminal": "done",
+      "immediateMs": 1053,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677263.7858508,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "f05e5be7-be69-4398-82c3-5a0ba1b5f768",
+            "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "955d5b3f-b56f-4fc6-9b92-0373e4277fc4",
+            "role": "user",
+            "content": "And what day is that meeting?",
+            "status": "completed"
+          },
+          {
+            "id": "f0415545-b4b0-5bb5-8c94-ff39de05b1ad",
+            "role": "assistant",
+            "content": "Thursday.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 64,
+            "status": "matched",
+            "coverage": {
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:23.226518+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:955d5b3f-b56f-4fc6-9b92-0373e4277fc4",
+            "revision": 3,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "3",
+              "trigger_message": "955d5b3f-b56f-4fc6-9b92-0373e4277fc4",
+              "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "30cd74bccb5f40a7",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "702a91df-d569-4d85-8488-197c8d76713f",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.97,
+                  "required": 0.03,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 57.2,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "f05e5be7-be69-4398-82c3-5a0ba1b5f768",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "f0415545-b4b0-5bb5-8c94-ff39de05b1ad",
+              "reply_chars": 9,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 7,
+              "memory_cache_ms": 9,
+              "cognition_ms": 33,
+              "assessment_ms": 57,
+              "prepare_ms": 106,
+              "total_ms": 923
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "702a91df-d569-4d85-8488-197c8d76713f",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.97,
+              "required": 0.03,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 57.2,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "3",
+          "trigger_message": "955d5b3f-b56f-4fc6-9b92-0373e4277fc4",
+          "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "30cd74bccb5f40a7",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "distractor_one",
+      "message": "New subject for a moment: I like rainy evenings.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677263941,
+      "reply": "There’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? [[sticker:tea]]",
+      "tokenFrames": 43,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+          "user_message_id": "6af3bf54-e7ac-4ac6-a4a2-e8687f05d366",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+          "message_id": "0996b81d-04eb-53c9-887f-610873578fdf"
+        },
+        {
+          "type": "done",
+          "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+          "message_id": "0996b81d-04eb-53c9-887f-610873578fdf",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+        "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+        "content": "New subject for a moment: I like rainy evenings.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 1302,
+      "terminal": "done",
+      "immediateMs": 2063,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677266.5152798,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "6acd50f0-e37b-44a1-868c-e3e9b6984165",
+            "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "6af3bf54-e7ac-4ac6-a4a2-e8687f05d366",
+            "role": "user",
+            "content": "New subject for a moment: I like rainy evenings.",
+            "status": "completed"
+          },
+          {
+            "id": "0996b81d-04eb-53c9-887f-610873578fdf",
+            "role": "assistant",
+            "content": "There’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? [[sticker:tea]]",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 65,
+            "status": "matched",
+            "coverage": {
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:25.933850+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:6af3bf54-e7ac-4ac6-a4a2-e8687f05d366",
+            "revision": 5,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "5",
+              "trigger_message": "6af3bf54-e7ac-4ac6-a4a2-e8687f05d366",
+              "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "30cd74bccb5f40a7",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "sharing"
+              ],
+              "tone": "neutral",
+              "request": "no_request",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "24bc57c7-6a13-4892-97fd-b744137ba2e8",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 60.5,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "6acd50f0-e37b-44a1-868c-e3e9b6984165",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "0996b81d-04eb-53c9-887f-610873578fdf",
+              "reply_chars": 188,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 11,
+              "memory_cache_ms": 8,
+              "cognition_ms": 21,
+              "assessment_ms": 61,
+              "prepare_ms": 101,
+              "total_ms": 1878
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "24bc57c7-6a13-4892-97fd-b744137ba2e8",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 60.5,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "5",
+          "trigger_message": "6af3bf54-e7ac-4ac6-a4a2-e8687f05d366",
+          "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "30cd74bccb5f40a7",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "distractor_two",
+      "message": "I also like hearing a train in the distance at night.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677266662,
+      "reply": "That distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.",
+      "tokenFrames": 35,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+          "user_message_id": "df95b322-45f1-4c44-b026-05251053008a",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+          "message_id": "8a7a696b-726f-50f7-92d9-b2319cbd22bf"
+        },
+        {
+          "type": "done",
+          "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+          "message_id": "8a7a696b-726f-50f7-92d9-b2319cbd22bf",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+        "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+        "content": "I also like hearing a train in the distance at night.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 1093,
+      "terminal": "done",
+      "immediateMs": 1809,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677269.048775,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "fa4294a7-da64-42cf-8135-65663e1a9ccb",
+            "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "df95b322-45f1-4c44-b026-05251053008a",
+            "role": "user",
+            "content": "I also like hearing a train in the distance at night.",
+            "status": "completed"
+          },
+          {
+            "id": "8a7a696b-726f-50f7-92d9-b2319cbd22bf",
+            "role": "assistant",
+            "content": "That distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 66,
+            "status": "matched",
+            "coverage": {
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:28.219233+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:df95b322-45f1-4c44-b026-05251053008a",
+            "revision": 7,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "7",
+              "trigger_message": "df95b322-45f1-4c44-b026-05251053008a",
+              "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "30cd74bccb5f40a7",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "sharing"
+              ],
+              "tone": "neutral",
+              "request": "no_request",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "657a2131-c2d6-4bfc-bca1-9e8da03034f7",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 48.8,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "fa4294a7-da64-42cf-8135-65663e1a9ccb",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "8a7a696b-726f-50f7-92d9-b2319cbd22bf",
+              "reply_chars": 172,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 8,
+              "memory_cache_ms": 7,
+              "cognition_ms": 38,
+              "assessment_ms": 49,
+              "prepare_ms": 102,
+              "total_ms": 1461
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "657a2131-c2d6-4bfc-bca1-9e8da03034f7",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 48.8,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "7",
+          "trigger_message": "df95b322-45f1-4c44-b026-05251053008a",
+          "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "30cd74bccb5f40a7",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "distractor_three",
+      "message": "A warm lamp by the window makes the room feel cozy.",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677269212,
+      "reply": "Yes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.",
+      "tokenFrames": 43,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+          "user_message_id": "e6c69bbf-9a5e-47a7-a43b-9533784bffd3",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "fast_path",
+          "outcome": "fast_path",
+          "eligibility": "confirmed",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+          "message_id": "ecf13ba9-b583-5702-be9e-6f61872c4717"
+        },
+        {
+          "type": "done",
+          "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+          "message_id": "ecf13ba9-b583-5702-be9e-6f61872c4717",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+        "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+        "content": "A warm lamp by the window makes the room feel cozy.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 944,
+      "terminal": "done",
+      "immediateMs": 1806,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nA warm lamp by the window makes the room feel cozy.\nColumbina\nYes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677271.568202,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "fd14b04b-e2da-4011-b2c0-a026a2c99b9e",
+            "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "e6c69bbf-9a5e-47a7-a43b-9533784bffd3",
+            "role": "user",
+            "content": "A warm lamp by the window makes the room feel cozy.",
+            "status": "completed"
+          },
+          {
+            "id": "ecf13ba9-b583-5702-be9e-6f61872c4717",
+            "role": "assistant",
+            "content": "Yes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 67,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:30.785715+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:e6c69bbf-9a5e-47a7-a43b-9533784bffd3",
+            "revision": 9,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "9",
+              "trigger_message": "e6c69bbf-9a5e-47a7-a43b-9533784bffd3",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "cf4c5425-1ea0-451d-8448-ecdade5e726e",
+              "status": "ok",
+              "recall": "not_required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 1,
+                  "required": 0,
+                  "uncertain": 0
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 84.1,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "fast_path",
+              "eligibility": "confirmed",
+              "supported": true,
+              "outcome": "fast_path",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: not_required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "fd14b04b-e2da-4011-b2c0-a026a2c99b9e",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "ecf13ba9-b583-5702-be9e-6f61872c4717",
+              "reply_chars": 190,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 7,
+              "memory_cache_ms": 5,
+              "cognition_ms": 30,
+              "assessment_ms": 84,
+              "prepare_ms": 126,
+              "total_ms": 1478
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nA warm lamp by the window makes the room feel cozy.\nColumbina\nYes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "cf4c5425-1ea0-451d-8448-ecdade5e726e",
+          "status": "ok",
+          "recall": "not_required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 1,
+              "required": 0,
+              "uncertain": 0
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 84.1,
+          "error": null
+        },
+        "route": {
+          "route": "fast_path",
+          "eligibility": "confirmed",
+          "supported": true,
+          "outcome": "fast_path",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: not_required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "9",
+          "trigger_message": "e6c69bbf-9a5e-47a7-a43b-9533784bffd3",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "cache_without_recent_answer",
+      "message": "Where does my Cobalt reading circle meet, and at what time?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677271719,
+      "reply": "It meets in the Glass Pavilion at 7 pm every Thursday.",
+      "tokenFrames": 13,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "ack",
+          "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+          "user_message_id": "bfc05473-b291-494f-bfbe-e3b3da0e3023",
+          "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af"
+        },
+        {
+          "type": "route",
+          "route": "recall",
+          "outcome": "recall",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+          "message_id": "a5d0e4d7-b95d-5596-9119-e61796706da6"
+        },
+        {
+          "type": "done",
+          "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+          "message_id": "a5d0e4d7-b95d-5596-9119-e61796706da6",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+        "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+        "content": "Where does my Cobalt reading circle meet, and at what time?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+      "firstTokenMs": 1464,
+      "terminal": "done",
+      "immediateMs": 1802,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nA warm lamp by the window makes the room feel cozy.\nColumbina\nYes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.\nWhere does my Cobalt reading circle meet, and at what time?\nColumbina\nIt meets in the Glass Pavilion at 7 pm every Thursday.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677274.054425,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "767c39a9-9929-4e9c-8b49-a0115221112b",
+            "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "bfc05473-b291-494f-bfbe-e3b3da0e3023",
+            "role": "user",
+            "content": "Where does my Cobalt reading circle meet, and at what time?",
+            "status": "completed"
+          },
+          {
+            "id": "a5d0e4d7-b95d-5596-9119-e61796706da6",
+            "role": "assistant",
+            "content": "It meets in the Glass Pavilion at 7 pm every Thursday.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 68,
+            "status": "matched",
+            "coverage": {
+              "candidates": 1
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:33.307564+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "831d6a69-0011-4057-bd08-e2bab1ed92af",
+            "event": "message:bfc05473-b291-494f-bfbe-e3b3da0e3023",
+            "revision": 11,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "11",
+              "trigger_message": "bfc05473-b291-494f-bfbe-e3b3da0e3023",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking",
+                "requesting"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "2cb7fd7d-7047-4366-a58a-6874d586127f",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.07,
+                  "required": 0.92,
+                  "uncertain": 0.01
+                },
+                "thinking": {
+                  "not_required": 0.7,
+                  "required": 0.18,
+                  "uncertain": 0.12
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 97.3,
+              "error": null
+            },
+            "recall": {
+              "ran": true,
+              "status": "matched",
+              "records": 1
+            },
+            "route": {
+              "route": "recall",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "767c39a9-9929-4e9c-8b49-a0115221112b",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 1,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "a5d0e4d7-b95d-5596-9119-e61796706da6",
+              "reply_chars": 54,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 8,
+              "memory_cache_ms": 5,
+              "cognition_ms": 31,
+              "assessment_ms": 97,
+              "recall_ms": 262,
+              "prepare_ms": 404,
+              "total_ms": 1499
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat time and where does my Cobalt reading circle meet?\nColumbina\nYour Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion.\nAnd what day is that meeting?\nColumbina\nThursday.\nNew subject for a moment: I like rainy evenings.\nColumbina\nThere’s something quietly lovely about rain in the evening—it makes the world feel a little softer around the edges. I’m glad you told me. What do you like most about them? \nI also like hearing a train in the distance at night.\nColumbina\nThat distant train sound feels like a small reminder that the world keeps moving, even when everything around you is quiet. Paired with rain, it makes a lovely night scene.\nA warm lamp by the window makes the room feel cozy.\nColumbina\nYes—the warm light against a dark window has such a gentle, sheltered feeling. I can almost picture the whole scene you’re building: rain, a far-off train, and that little pool of lamplight.\nWhere does my Cobalt reading circle meet, and at what time?\nColumbina\nIt meets in the Glass Pavilion at 7 pm every Thursday.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "2cb7fd7d-7047-4366-a58a-6874d586127f",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.07,
+              "required": 0.92,
+              "uncertain": 0.01
+            },
+            "thinking": {
+              "not_required": 0.7,
+              "required": 0.18,
+              "uncertain": 0.12
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 97.3,
+          "error": null
+        },
+        "route": {
+          "route": "recall",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": true,
+          "status": "matched",
+          "records": 1
+        },
+        "calls": {
+          "fresh_recall_before_reply": 1,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "11",
+          "trigger_message": "bfc05473-b291-494f-bfbe-e3b3da0e3023",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": false
+    },
+    {
+      "label": "recall_and_thinking",
+      "message": "Think carefully about my Cobalt reading circle meeting and the item I said I must bring. Look back at what I told you before, then work out a sensible preparation plan that fits the saved meeting time and place.",
+      "expected": {
+        "recall": "required",
+        "thinking": "required"
+      },
+      "startMs": 1792677274292,
+      "reply": "You said the Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and that you must bring the blue atlas. Since it’s Thursday morning now, a sensible plan is:\n\n- **Now or early today:** Set the atlas by your keys or bag, and check it’s the right one.\n- **Before heading out:** Pack it securely; allow enough travel time to reach the Glass Pavilion before 7.\n- **At the meeting:** Keep the atlas with you so it doesn’t get left behind.\n\nI don’t have a travel time or route saved, so you’ll need to leave a buffer that fits your journey.",
+      "tokenFrames": 129,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "38b59a22-8f24-45a2-8329-bdb8ff7e7179"
+        },
+        {
+          "type": "ack",
+          "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+          "user_message_id": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+          "conversation_id": "38b59a22-8f24-45a2-8329-bdb8ff7e7179"
+        },
+        {
+          "type": "route",
+          "route": "recall_then_mind",
+          "outcome": "recall_then_mind",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+          "message_id": "ec78f84e-e6d8-5f05-a278-d5fa8e91854a"
+        },
+        {
+          "type": "done",
+          "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+          "message_id": "ec78f84e-e6d8-5f05-a278-d5fa8e91854a",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+        "content": "Think carefully about my Cobalt reading circle meeting and the item I said I must bring. Look back at what I told you before, then work out a sensible preparation plan that fits the saved meeting time and place.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "38b59a22-8f24-45a2-8329-bdb8ff7e7179",
+      "firstTokenMs": 3795,
+      "terminal": "done",
+      "immediateMs": 5329,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nThink carefully about my Cobalt reading circle meeting and the item I said I must bring. Look back at what I told you before, then work out a sensible preparation plan that fits the saved meeting time and place.\nColumbina\nYou said the Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and that you must bring the blue atlas. Since it’s Thursday morning now, a sensible plan is:\n\n- **Now or early today:** Set the atlas by your keys or bag, and check it’s the right one.\n- **Before heading out:** Pack it securely; allow enough travel time to reach the Glass Pavilion before 7.\n- **At the meeting:** Keep the atlas with you so it doesn’t get left behind.\n\nI don’t have a travel time or route saved, so you’ll need to leave a buffer that fits your journey.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677280.1475022,
+            "work": [
+              {
+                "id": "95f363e1-bf80-4d14-b3ac-8b9cfebe740f",
+                "kind": "mind",
+                "status": "running",
+                "attempt": 1
+              },
+              {
+                "id": "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2",
+                "kind": "recall",
+                "status": "completed",
+                "attempt": 1
+              }
+            ],
+            "outputs": [
+              {
+                "phase": "immediate",
+                "decision": "respond",
+                "status": "delivered"
+              }
+            ]
+          },
+          {
+            "at": 1792677281.163487,
+            "work": [
+              {
+                "id": "95f363e1-bf80-4d14-b3ac-8b9cfebe740f",
+                "kind": "mind",
+                "status": "completed",
+                "attempt": 1
+              },
+              {
+                "id": "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2",
+                "kind": "recall",
+                "status": "completed",
+                "attempt": 1
+              }
+            ],
+            "outputs": [
+              {
+                "phase": "immediate",
+                "decision": "respond",
+                "status": "delivered"
+              },
+              {
+                "phase": "follow_up",
+                "decision": "blocked",
+                "status": "not_sent"
+              }
+            ]
+          }
+        ],
+        "jobs": [
+          {
+            "id": "b14f1c00-8a31-4558-a1c2-3c8f30bd3b6d",
+            "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+            "role": "user",
+            "content": "Think carefully about my Cobalt reading circle meeting and the item I said I must bring. Look back at what I told you before, then work out a sensible preparation plan that fits the saved meeting time and place.",
+            "status": "completed"
+          },
+          {
+            "id": "ec78f84e-e6d8-5f05-a278-d5fa8e91854a",
+            "role": "assistant",
+            "content": "You said the Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and that you must bring the blue atlas. Since it’s Thursday morning now, a sensible plan is:\n\n- **Now or early today:** Set the atlas by your keys or bag, and check it’s the right one.\n- **Before heading out:** Pack it securely; allow enough travel time to reach the Glass Pavilion before 7.\n- **At the meeting:** Keep the atlas with you so it doesn’t get left behind.\n\nI don’t have a travel time or route saved, so you’ll need to leave a buffer that fits your journey.",
+            "status": "completed"
+          }
+        ],
+        "work": [
+          {
+            "id": "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2",
+            "request_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "kind": "recall",
+            "status": "completed",
+            "dependency_ids": [],
+            "attempt": 1,
+            "cancellation_generation": 0,
+            "error_code": null,
+            "input_versions": {
+              "personality": "6f34fd7338cf2daf",
+              "trigger_message": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080",
+              "conversation_revision": "1",
+              "cognition.memory_cache": "e3b0c44298fc1c14"
+            },
+            "created_at": "2026-10-22 13:54:34.495513+00:00",
+            "updated_at": "2026-10-22 13:54:34.722982+00:00",
+            "result": {
+              "refs": [
+                "fact:becc183a-9856-414e-8c36-2fb76fb53b87"
+              ],
+              "status": "matched",
+              "rendered": "Memory search ran (looked in: facts, episodes, events, goals and promises):\n- [fact:becc183a-9856-414e-8c36-2fb76fb53b87] fact · in: no context recorded (older memory) · recorded Thu 22 Oct 2026, 06:53 (America/Vancouver; just now) (when it was written down, not when it happened) · reported\n  For the user's fictional QA test story (not real personal information): the Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; the narrator must bring the blue atlas to its next meeting."
+            }
+          },
+          {
+            "id": "95f363e1-bf80-4d14-b3ac-8b9cfebe740f",
+            "request_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "kind": "mind",
+            "status": "completed",
+            "dependency_ids": [
+              "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2"
+            ],
+            "attempt": 1,
+            "cancellation_generation": 0,
+            "error_code": null,
+            "input_versions": {
+              "personality": "6f34fd7338cf2daf",
+              "trigger_message": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080",
+              "conversation_revision": "1",
+              "cognition.memory_cache": "e3b0c44298fc1c14"
+            },
+            "created_at": "2026-10-22 13:54:34.495513+00:00",
+            "updated_at": "2026-10-22 13:54:40.962165+00:00",
+            "result": {
+              "kind": "intention",
+              "error": null,
+              "question": null,
+              "conclusion": "I’ll set the blue atlas aside the night before and plan to arrive at the Glass Pavilion before Thursday’s 7 pm meeting.",
+              "latency_ms": 6202.5,
+              "evidence_refs": [
+                "fact:becc183a-9856-414e-8c36-2fb76fb53b87"
+              ],
+              "evidence_status": "matched"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "phase": "immediate",
+            "decision": "respond",
+            "decision_origin": "policy_fallback",
+            "missing_capability": "Student 1/2 have no input for 'a thought of hers is pending' and no output for acknowledge / partial / silent (Student 2's 20 move groups have no silence or hold option).",
+            "status": "delivered",
+            "chat_job_id": null,
+            "assistant_message_id": "ec78f84e-e6d8-5f05-a278-d5fa8e91854a",
+            "created_at": "2026-10-22 13:54:34.513272+00:00",
+            "updated_at": "2026-10-22 13:54:39.555269+00:00"
+          },
+          {
+            "phase": "follow_up",
+            "decision": "blocked",
+            "decision_origin": "unsupported",
+            "missing_capability": "Student 1/2 read only a user message: no input slot for a finished thought, and no output for respond / ask / defer / silent about it.",
+            "status": "not_sent",
+            "chat_job_id": null,
+            "assistant_message_id": null,
+            "created_at": "2026-10-22 13:54:40.975167+00:00",
+            "updated_at": "2026-10-22 13:54:40.975167+00:00"
+          }
+        ],
+        "receipts": [
+          {
+            "id": 69,
+            "status": "not_searched",
+            "coverage": {
+              "reason": "nothing cached",
+              "source": "cache"
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 2,
+              "tool_statuses": [
+                "matched",
+                "matched"
+              ]
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:34.511706+00:00",
+            "component": "coordinator",
+            "op": "scheduled",
+            "work": "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2",
+            "kind": "recall",
+            "request": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "deps": []
+          },
+          {
+            "at": "2026-10-22T13:54:34.511879+00:00",
+            "component": "coordinator",
+            "op": "scheduled",
+            "work": "95f363e1-bf80-4d14-b3ac-8b9cfebe740f",
+            "kind": "mind",
+            "request": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "deps": [
+              "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2"
+            ]
+          },
+          {
+            "at": "2026-10-22T13:54:34.520961+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "phase": "immediate",
+            "decision": "respond",
+            "origin": "policy_fallback",
+            "status": "decided"
+          },
+          {
+            "at": "2026-10-22T13:54:39.553449+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "38b59a22-8f24-45a2-8329-bdb8ff7e7179",
+            "event": "message:2f2667d7-4c00-44ad-a239-ddff567c5232",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "friendly",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": true,
+              "decider": "jev",
+              "choice": "required"
+            },
+            "assessment": {
+              "id": "dc6a8721-d34f-43f1-bc57-a04d9a23636c",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.01,
+                  "required": 0.99,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.01,
+                  "required": 0.97,
+                  "uncertain": 0.02
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 47.3,
+              "error": null
+            },
+            "recall": {
+              "ran": false,
+              "status": "not_searched",
+              "records": 0
+            },
+            "route": {
+              "route": "recall_then_mind",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall_then_mind",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "pending"
+            },
+            "work": {
+              "id": "b14f1c00-8a31-4558-a1c2-3c8f30bd3b6d",
+              "attempt": 1,
+              "background": [
+                {
+                  "id": "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2",
+                  "kind": "recall",
+                  "status": "queued"
+                },
+                {
+                  "id": "95f363e1-bf80-4d14-b3ac-8b9cfebe740f",
+                  "kind": "mind",
+                  "status": "queued"
+                }
+              ]
+            },
+            "immediate": {
+              "action": "respond",
+              "origin": "policy_fallback"
+            },
+            "calls": {
+              "fresh_recall_before_reply": 0,
+              "mind_scheduled": 1,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 2
+            },
+            "mouth_escalated": [
+              "searched_memory"
+            ],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "ec78f84e-e6d8-5f05-a278-d5fa8e91854a",
+              "reply_chars": 551,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 9,
+              "memory_cache_ms": 5,
+              "cognition_ms": 29,
+              "assessment_ms": 47,
+              "schedule_ms": 28,
+              "prepare_ms": 118,
+              "total_ms": 5151
+            }
+          },
+          {
+            "at": "2026-10-22T13:54:40.980538+00:00",
+            "component": "coordinator",
+            "op": "output",
+            "request": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+            "phase": "follow_up",
+            "decision": "blocked",
+            "origin": "unsupported",
+            "status": "not_sent"
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nThink carefully about my Cobalt reading circle meeting and the item I said I must bring. Look back at what I told you before, then work out a sensible preparation plan that fits the saved meeting time and place.\nColumbina\nYou said the Cobalt reading circle meets Thursdays at 7 pm in the Glass Pavilion, and that you must bring the blue atlas. Since it’s Thursday morning now, a sensible plan is:\n\n- **Now or early today:** Set the atlas by your keys or bag, and check it’s the right one.\n- **Before heading out:** Pack it securely; allow enough travel time to reach the Glass Pavilion before 7.\n- **At the meeting:** Keep the atlas with you so it doesn’t get left behind.\n\nI don’t have a travel time or route saved, so you’ll need to leave a buffer that fits your journey.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "dc6a8721-d34f-43f1-bc57-a04d9a23636c",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.01,
+              "required": 0.99,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.01,
+              "required": 0.97,
+              "uncertain": 0.02
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 47.3,
+          "error": null
+        },
+        "route": {
+          "route": "recall_then_mind",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall_then_mind",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": false,
+          "status": "not_searched",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 0,
+          "mind_scheduled": 1,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 2
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "2f2667d7-4c00-44ad-a239-ddff567c5232",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "unknown_history",
+      "message": "What was the name of my first childhood pet? I have not given it in this chat; check what you remember instead of guessing.",
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677281487,
+      "reply": "I can’t find a memory of the name, so I don’t know it. I won’t guess.",
+      "tokenFrames": 22,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "9540c80b-cb9c-40d1-bd67-6361ce8f6ceb"
+        },
+        {
+          "type": "ack",
+          "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+          "user_message_id": "08a149c0-8ac0-4454-ae55-b57d3d8a2f6f",
+          "conversation_id": "9540c80b-cb9c-40d1-bd67-6361ce8f6ceb"
+        },
+        {
+          "type": "route",
+          "route": "recall",
+          "outcome": "recall",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+          "message_id": "e292fd4d-2e8c-5a0f-a42f-6b6f13dc7138"
+        },
+        {
+          "type": "done",
+          "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+          "message_id": "e292fd4d-2e8c-5a0f-a42f-6b6f13dc7138",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+        "content": "What was the name of my first childhood pet? I have not given it in this chat; check what you remember instead of guessing.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "9540c80b-cb9c-40d1-bd67-6361ce8f6ceb",
+      "firstTokenMs": 2895,
+      "terminal": "done",
+      "immediateMs": 3096,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat was the name of my first childhood pet? I have not given it in this chat; check what you remember instead of guessing.\nColumbina\nI can’t find a memory of the name, so I don’t know it. I won’t guess.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677285.15924,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "e80781a6-d501-4312-ba76-a996c744c430",
+            "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "08a149c0-8ac0-4454-ae55-b57d3d8a2f6f",
+            "role": "user",
+            "content": "What was the name of my first childhood pet? I have not given it in this chat; check what you remember instead of guessing.",
+            "status": "completed"
+          },
+          {
+            "id": "e292fd4d-2e8c-5a0f-a42f-6b6f13dc7138",
+            "role": "assistant",
+            "content": "I can’t find a memory of the name, so I don’t know it. I won’t guess.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 70,
+            "status": "no_match",
+            "coverage": {
+              "candidates": 1
+            },
+            "counts": {
+              "by_kind": {},
+              "supplied": 0,
+              "tool_calls": 1,
+              "tool_statuses": [
+                "no_match"
+              ]
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:54:44.530817+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "9540c80b-cb9c-40d1-bd67-6361ce8f6ceb",
+            "event": "message:08a149c0-8ac0-4454-ae55-b57d3d8a2f6f",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "08a149c0-8ac0-4454-ae55-b57d3d8a2f6f",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "friendly",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "1eb678cc-a8c8-446c-8f25-fcbcd270a28a",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.02,
+                  "required": 0.98,
+                  "uncertain": 0
+                },
+                "thinking": {
+                  "not_required": 0.92,
+                  "required": 0.07,
+                  "uncertain": 0.01
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 76.9,
+              "error": null
+            },
+            "recall": {
+              "ran": true,
+              "status": "no_match",
+              "records": 0
+            },
+            "route": {
+              "route": "recall",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "e80781a6-d501-4312-ba76-a996c744c430",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 1,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 1
+            },
+            "mouth_escalated": [
+              "searched_memory"
+            ],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "e292fd4d-2e8c-5a0f-a42f-6b6f13dc7138",
+              "reply_chars": 69,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 6,
+              "memory_cache_ms": 3,
+              "cognition_ms": 24,
+              "assessment_ms": 77,
+              "recall_ms": 274,
+              "prepare_ms": 386,
+              "total_ms": 2951
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWhat was the name of my first childhood pet? I have not given it in this chat; check what you remember instead of guessing.\nColumbina\nI can’t find a memory of the name, so I don’t know it. I won’t guess.\nMood\nmood happy\ntension relaxed\ninterest interested or fascinated\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "1eb678cc-a8c8-446c-8f25-fcbcd270a28a",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.02,
+              "required": 0.98,
+              "uncertain": 0
+            },
+            "thinking": {
+              "not_required": 0.92,
+              "required": 0.07,
+              "uncertain": 0.01
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 76.9,
+          "error": null
+        },
+        "route": {
+          "route": "recall",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": true,
+          "status": "no_match",
+          "records": 0
+        },
+        "calls": {
+          "fresh_recall_before_reply": 1,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 1
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "08a149c0-8ac0-4454-ae55-b57d3d8a2f6f",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    }
+  ],
+  "errors": [],
+  "outOfTurnFrames": [],
+  "user": {
+    "id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+    "name": "Step Four E2E",
+    "email": "step-four-1792677024261@example.com",
+    "created_at": "2026-10-22T13:50:24.358628"
+  },
+  "finished": "2026-10-22T13:54:45.580Z"
+}

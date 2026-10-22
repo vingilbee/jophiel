@@ -679,6 +679,36 @@ def read(db: Session, user_id: uuid.UUID, ref: MemoryRef | str, *, include_evide
     return RecallResult("matched", [record], (ref.kind,))
 
 
+def reread(db: Session, user_id: uuid.UUID, refs: list[MemoryRef]) -> RecallResult:
+    """Memories already in hand (an answer's references), each at its latest version, without a search: the
+    cache check. Gone or not-yours drop out and are counted (``references_gone``); a correction since shows as
+    on every read path. ``matched`` with the records, else ``not_searched`` (a cache is never "no match")."""
+    try:
+        s = _Search(db, RecallRequest(user_id=user_id, query="", purpose="explicit_search",
+                                      now=datetime.now(timezone.utc)))
+        records, gone = [], []
+        for ref in refs:
+            record = _read_one(db, user_id, ref, s)
+            if record is None:
+                gone.append(str(ref))
+            else:
+                records.append(replace(record, matched=("direct_reference",)))
+    except Exception:  # noqa: BLE001
+        log.exception("recall: rereading %d references failed", len(refs))
+        return RecallResult.failed("read_failed", tuple(sorted({r.kind for r in refs})))
+    coverage = {"source": "cache"} | ({"references_gone": gone} if gone else {})
+    kinds = tuple(sorted({r.kind for r in refs}))
+    if not records:
+        return RecallResult("not_searched", searched_kinds=kinds, coverage=coverage | {"reason": "nothing cached"})
+    return RecallResult("matched", records, kinds, coverage=coverage)
+
+
+def render_records(records: list[MemoryRecord], *, now: datetime, zone: str | None) -> list[str]:
+    """One line per record, as ``render`` writes them, without its search status line."""
+    tz = _zone(zone)
+    return [_record_line(record, now, tz) for record in records]
+
+
 def timeline(db: Session, user_id: uuid.UUID, context_id: uuid.UUID, *, time_range: TimeRange | None = None,
              page_token: str | None = None, limit: int = TIMELINE_LIMIT) -> RecallResult:
     """What happened in one context, oldest first by when it happened (ties by when it was written), with

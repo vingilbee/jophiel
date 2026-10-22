@@ -1,0 +1,976 @@
+{
+  "started": "2026-10-22T00:59:21.884Z",
+  "mode": "normal",
+  "turns": [
+    {
+      "label": "greeting",
+      "message": "Hi Columbina. I have a little time to chat.",
+      "startMs": 1792630762609,
+      "reply": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+      "tokenFrames": 35,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+          "user_message_id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+          "message_id": "7a59fb43-a977-5d62-8b20-040ec382ce5b"
+        },
+        {
+          "type": "done",
+          "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+          "message_id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+        "content": "Hi Columbina. I have a little time to chat.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 3857,
+      "terminal": "done",
+      "totalMs": 4328,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:26.773691",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "recent_context",
+      "message": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+      "startMs": 1792630766961,
+      "reply": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+      "tokenFrames": 59,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+          "user_message_id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+          "message_id": "998066cd-44bb-5c7d-9d1d-562b745cb85c"
+        },
+        {
+          "type": "done",
+          "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+          "message_id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+        "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 1910,
+      "terminal": "done",
+      "totalMs": 2567,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nI am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.\nColumbina\nI can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:29.398392",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "user",
+            "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:27.020791",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "assistant",
+            "content": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.398392",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "follow_up",
+      "message": "Which one did I lean toward, and why?",
+      "startMs": 1792630769553,
+      "reply": "You leaned toward **Silver Wren** because it sounds livelier.",
+      "tokenFrames": 14,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+          "user_message_id": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+          "message_id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036"
+        },
+        {
+          "type": "done",
+          "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+          "message_id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+        "content": "Which one did I lean toward, and why?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 1576,
+      "terminal": "done",
+      "totalMs": 2048,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nI am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.\nColumbina\nI can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.\nWhich one did I lean toward, and why?\nColumbina\nYou leaned toward **Silver Wren** because it sounds livelier.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:31.320279",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "user",
+            "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:27.020791",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "assistant",
+            "content": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.398392",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "user",
+            "content": "Which one did I lean toward, and why?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.605870",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "assistant",
+            "content": "You leaned toward **Silver Wren** because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.320279",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "correction",
+      "message": "Actually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.",
+      "startMs": 1792630771642,
+      "reply": "Ah, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.",
+      "tokenFrames": 41,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+          "user_message_id": "cd3e1790-d9b9-43a4-a535-401a9de19abf",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+          "message_id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5"
+        },
+        {
+          "type": "done",
+          "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+          "message_id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+        "content": "Actually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 2233,
+      "terminal": "done",
+      "totalMs": 2845,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nI am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.\nColumbina\nI can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.\nWhich one did I lean toward, and why?\nColumbina\nYou leaned toward **Silver Wren** because it sounds livelier.\nActually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.\nColumbina\nAh, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:34.235355",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "user",
+            "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:27.020791",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "assistant",
+            "content": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.398392",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "user",
+            "content": "Which one did I lean toward, and why?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.605870",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "assistant",
+            "content": "You leaned toward **Silver Wren** because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.320279",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cd3e1790-d9b9-43a4-a535-401a9de19abf",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "user",
+            "content": "Actually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.736505",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "assistant",
+            "content": "Ah, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:34.235355",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "corrected_follow_up",
+      "message": "What name have I settled on now?",
+      "startMs": 1792630774525,
+      "reply": "You\u2019ve settled on **Quiet Harbor**.",
+      "tokenFrames": 9,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+          "user_message_id": "cdc7a1c7-c60d-468e-8db2-03dc6e9a95c1",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+          "message_id": "f14707ff-e33a-5ef4-bcc6-3c724f541e4d"
+        },
+        {
+          "type": "done",
+          "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+          "message_id": "f14707ff-e33a-5ef4-bcc6-3c724f541e4d",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+        "content": "What name have I settled on now?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 1664,
+      "terminal": "done",
+      "totalMs": 1810,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nI am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.\nColumbina\nI can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.\nWhich one did I lean toward, and why?\nColumbina\nYou leaned toward **Silver Wren** because it sounds livelier.\nActually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.\nColumbina\nAh, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.\nWhat name have I settled on now?\nColumbina\nYou\u2019ve settled on **Quiet Harbor**.\nMood\nmood content\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:36.251241",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "user",
+            "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:27.020791",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "assistant",
+            "content": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.398392",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "user",
+            "content": "Which one did I lean toward, and why?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.605870",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "assistant",
+            "content": "You leaned toward **Silver Wren** because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.320279",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cd3e1790-d9b9-43a4-a535-401a9de19abf",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "user",
+            "content": "Actually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.736505",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "assistant",
+            "content": "Ah, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:34.235355",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cdc7a1c7-c60d-468e-8db2-03dc6e9a95c1",
+            "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+            "role": "user",
+            "content": "What name have I settled on now?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:34.584256",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "f14707ff-e33a-5ef4-bcc6-3c724f541e4d",
+            "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+            "role": "assistant",
+            "content": "You\u2019ve settled on **Quiet Harbor**.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:36.251241",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "topic_change",
+      "message": "Different topic: I like the sound of rain on windows. There is something cozy about it.",
+      "startMs": 1792630776356,
+      "reply": "I can understand that. Rain on a window makes the outside feel far away for a while, while you get to stay tucked in the quiet. I like that contrast in the image.",
+      "tokenFrames": 37,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "ack",
+          "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+          "user_message_id": "108b1dc1-65a2-4844-8f0e-f526df36f95b",
+          "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+          "message_id": "cc2bbfc2-d4c9-562d-abd2-1166a775e613"
+        },
+        {
+          "type": "done",
+          "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+          "message_id": "cc2bbfc2-d4c9-562d-abd2-1166a775e613",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+        "content": "Different topic: I like the sound of rain on windows. There is something cozy about it.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "firstTokenMs": 1886,
+      "terminal": "done",
+      "totalMs": 2317,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHi Columbina. I have a little time to chat.\nColumbina\nHi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?\nI am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.\nColumbina\nI can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.\nWhich one did I lean toward, and why?\nColumbina\nYou leaned toward **Silver Wren** because it sounds livelier.\nActually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.\nColumbina\nAh, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.\nWhat name have I settled on now?\nColumbina\nYou\u2019ve settled on **Quiet Harbor**.\nDifferent topic: I like the sound of rain on windows. There is something cozy about it.\nColumbina\nI can understand that. Rain on a window makes the outside feel far away for a while, while you get to stay tucked in the quiet. I like that contrast in the image.\nMood\nmood happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+        "title": "Hi Columbina. I have a little time to chat.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:22.672327",
+        "updated_at": "2026-10-22T00:59:38.604547",
+        "messages": [
+          {
+            "id": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "user",
+            "content": "Hi Columbina. I have a little time to chat.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:22.679657",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+            "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+            "role": "assistant",
+            "content": "Hi. I\u2019m glad you have a little time. We can let it be an easy chat\u2014anything on your mind, or shall we just see where it wanders?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:26.773691",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "user",
+            "content": "I am choosing a name for a fictional lighthouse: Silver Wren or Quiet Harbor. I like Silver Wren because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:27.020791",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+            "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+            "role": "assistant",
+            "content": "I can see why\u2014**Silver Wren** has a little flash and motion to it, like a small bird crossing a grey coast. **Quiet Harbor** feels more still and sheltered. For a lighthouse, I\u2019d lean Silver Wren too; it feels distinctive without losing that coastal hush.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.398392",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "user",
+            "content": "Which one did I lean toward, and why?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:29.605870",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+            "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+            "role": "assistant",
+            "content": "You leaned toward **Silver Wren** because it sounds livelier.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.320279",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cd3e1790-d9b9-43a4-a535-401a9de19abf",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "user",
+            "content": "Actually, I changed my mind: Quiet Harbor is the one I want. Silver Wren feels too busy.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:31.736505",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5",
+            "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+            "role": "assistant",
+            "content": "Ah, Quiet Harbor, then. I can see the shift: Silver Wren has more flutter and bustle, while **Quiet Harbor** feels calm and settled. I\u2019ll go with that as your choice.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:34.235355",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cdc7a1c7-c60d-468e-8db2-03dc6e9a95c1",
+            "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+            "role": "user",
+            "content": "What name have I settled on now?",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:34.584256",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "f14707ff-e33a-5ef4-bcc6-3c724f541e4d",
+            "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+            "role": "assistant",
+            "content": "You\u2019ve settled on **Quiet Harbor**.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:36.251241",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "108b1dc1-65a2-4844-8f0e-f526df36f95b",
+            "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+            "role": "user",
+            "content": "Different topic: I like the sound of rain on windows. There is something cozy about it.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:36.421810",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "cc2bbfc2-d4c9-562d-abd2-1166a775e613",
+            "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+            "role": "assistant",
+            "content": "I can understand that. Rain on a window makes the outside feel far away for a while, while you get to stay tucked in the quiet. I like that contrast in the image.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:38.604547",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": true,
+      "renderedTextVisible": true
+    },
+    {
+      "label": "new_conversation",
+      "message": "Hello again. A fresh chat and a quick hello.",
+      "startMs": 1792630778723,
+      "reply": "Hello again. I\u2019m glad you came by. How\u2019s your evening going? [[sticker:shy]]",
+      "tokenFrames": 23,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "e1b2d761-024a-49de-b8e5-bc0d71ec2645"
+        },
+        {
+          "type": "ack",
+          "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+          "user_message_id": "24304b7a-16a5-42cc-8298-b4730e686384",
+          "conversation_id": "e1b2d761-024a-49de-b8e5-bc0d71ec2645"
+        },
+        {
+          "type": "route",
+          "route": "unassessed",
+          "outcome": "unassessed",
+          "eligibility": "unassessed",
+          "degraded": [],
+          "limits": [
+            "evidence_need_not_assessed",
+            "thinking_need_not_assessed"
+          ],
+          "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+          "message_id": "a1f11851-1832-5340-820e-92ea85dbbb1f"
+        },
+        {
+          "type": "done",
+          "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+          "message_id": "a1f11851-1832-5340-820e-92ea85dbbb1f",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+        "content": "Hello again. A fresh chat and a quick hello.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "e1b2d761-024a-49de-b8e5-bc0d71ec2645",
+      "firstTokenMs": 1431,
+      "terminal": "done",
+      "totalMs": 1816,
+      "body": "\u2726\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion \u00b7 chat, talk, or play\n\nhere with you\nHello again. A fresh chat and a quick hello.\nColumbina\nHello again. I\u2019m glad you came by. How\u2019s your evening going? \nMood\nmood happy\ntension relaxed\ninterest interested\ncloseness neutral\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send \u00b7 Shift+Enter for newline \u00b7 Attach images, documents, or 3D assets",
+      "persisted": {
+        "id": "e1b2d761-024a-49de-b8e5-bc0d71ec2645",
+        "title": "Hello again. A fresh chat and a quick hello.",
+        "origin_channel": "web",
+        "created_at": "2026-10-22T00:59:38.789198",
+        "updated_at": "2026-10-22T00:59:40.332005",
+        "messages": [
+          {
+            "id": "24304b7a-16a5-42cc-8298-b4730e686384",
+            "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+            "role": "user",
+            "content": "Hello again. A fresh chat and a quick hello.",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:38.796665",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          },
+          {
+            "id": "a1f11851-1832-5340-820e-92ea85dbbb1f",
+            "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+            "role": "assistant",
+            "content": "Hello again. I\u2019m glad you came by. How\u2019s your evening going? [[sticker:shy]]",
+            "status": "completed",
+            "source_channel": "web",
+            "created_at": "2026-10-22T00:59:40.332005",
+            "image_ids": null,
+            "asset_ids": null,
+            "heard_chars": null
+          }
+        ]
+      },
+      "rawReplyExactTextMatch": false,
+      "renderedTextVisible": true
+    }
+  ],
+  "errors": [],
+  "user": {
+    "id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+    "name": "Shared State E2E",
+    "email": "shared-state-1792630762307@example.com",
+    "created_at": "2026-10-22T00:59:22.401297"
+  },
+  "finished": "2026-10-22T00:59:40.711Z"
+}

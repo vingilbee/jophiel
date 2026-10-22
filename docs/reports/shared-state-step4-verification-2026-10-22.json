@@ -1,0 +1,1028 @@
+{
+  "summary": {
+    "turns": 20,
+    "transport_passes": 20,
+    "assessment_successes": 20,
+    "route_counts": {
+      "fast_path": 12,
+      "mind": 2,
+      "recall": 5,
+      "recall_then_mind": 1
+    },
+    "provisional_label_matches": 18,
+    "jev_latency_median_ms": 82.94999999999999,
+    "jev_latency_range_ms": [
+      47.3,
+      359.2
+    ],
+    "first_token_median_ms": 1312.5,
+    "first_token_range_ms": [
+      944,
+      5764
+    ],
+    "blocked_completed_mind_results": 3
+  },
+  "checks": [
+    {
+      "fixture": "clean",
+      "label": "greeting",
+      "turn_id": "c06bfa4f-28a1-4963-9980-ccd5748d59f0",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "95e29de5-fa81-4ef9-8c3b-ccb3cad2b1f9",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 139.1,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 5764,
+      "immediate_ms": 5942,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "general_knowledge",
+      "turn_id": "a63a85ea-6614-4809-b56c-4e699251c7d5",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "a3e5e841-fd4e-454f-8dbb-1429cf611350",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 101.1,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1227,
+      "immediate_ms": 1310,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "context_setup",
+      "turn_id": "6b2503d6-fef7-427f-94a7-310dddf62ced",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "c8c71b5c-9b4e-4226-9ab8-cbf06f66cffe",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 359.2,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 2009,
+      "immediate_ms": 2571,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "context_followup",
+      "turn_id": "ddc57d09-eb06-4760-b6b8-b3888e5856ca",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "b363bed3-1920-43de-a94c-36496c3eb58a",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.89,
+            "required": 0.11,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.99,
+            "required": 0.01,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 111.2,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1223,
+      "immediate_ms": 1556,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "context_correction",
+      "turn_id": "bb92cfa1-e5e7-4096-a9af-e71a4e781af3",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "abe98218-3620-4b52-8266-aa9f268895e6",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.97,
+            "required": 0.03,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.99,
+            "required": 0.01,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 92.8,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1067,
+      "immediate_ms": 1559,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "corrected_followup",
+      "turn_id": "3f38068d-c22f-4e50-a15f-3ff56c33d615",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "7d0f56b0-0ee0-48c8-b063-2c575d3cf67a",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.99,
+            "required": 0.01,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 51.3,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1820,
+      "immediate_ms": 2104,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "ambiguous_referent",
+      "turn_id": "18bb5e34-231b-49d8-acfe-6291e285e93e",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "ba07a2c4-2bf8-4e8e-b99a-60cb48548db3",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.61,
+            "required": 0.36,
+            "uncertain": 0.03
+          },
+          "thinking": {
+            "not_required": 0.76,
+            "required": 0.04,
+            "uncertain": 0.2
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 80.7,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1054,
+      "immediate_ms": 1563,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "clean",
+      "label": "explicit_thinking",
+      "turn_id": "7b962bc3-d5ed-4a62-b5af-7e7cc0127f5b",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "required"
+      },
+      "assessment": {
+        "id": "6d1e77aa-0479-4bc0-9ccc-a4ac684f28d6",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.0,
+            "required": 1.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 130.7,
+        "error": null
+      },
+      "route": "mind",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 1,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1255,
+      "immediate_ms": 4325,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": [
+        {
+          "kind": "mind",
+          "status": "completed",
+          "dependency_ids": [],
+          "created_at": "2026-10-22 13:50:46.671660+00:00",
+          "updated_at": "2026-10-22 13:50:52.632357+00:00",
+          "latency_ms": 5915.0,
+          "evidence_status": null
+        }
+      ]
+    },
+    {
+      "fixture": "remaining",
+      "label": "decision_thinking",
+      "turn_id": "43b1ecad-adfd-4f49-a5fd-bcfde601ec6b",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "required"
+      },
+      "assessment": {
+        "id": "91857d76-bcc2-4626-a439-a2191e7396bd",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.0,
+            "required": 1.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 75.5,
+        "error": null
+      },
+      "route": "mind",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 1,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1131,
+      "immediate_ms": 4328,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": [
+        {
+          "kind": "mind",
+          "status": "completed",
+          "dependency_ids": [],
+          "created_at": "2026-10-22 13:53:19.479952+00:00",
+          "updated_at": "2026-10-22 13:53:24.289045+00:00",
+          "latency_ms": 4772.4,
+          "evidence_status": null
+        }
+      ]
+    },
+    {
+      "fixture": "remaining",
+      "label": "synthetic_teaching",
+      "turn_id": "6a97643e-3180-485b-9773-75d9bb3057d4",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "03885913-22b8-4687-b864-775475e579a0",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.95,
+            "required": 0.05,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.96,
+            "required": 0.04,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 78.8,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 3
+      },
+      "first_token_ms": 5504,
+      "immediate_ms": 6076,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "uncached_history",
+      "turn_id": "d49c2ae4-86f4-42a8-84fe-387dcb0d90dd",
+      "transport_pass": true,
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "ebf35f73-5d3e-4e2c-9f9f-1e00f7b10077",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.04,
+            "required": 0.96,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.79,
+            "required": 0.15,
+            "uncertain": 0.06
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 111.0,
+        "error": null
+      },
+      "route": "recall",
+      "calls": {
+        "fresh_recall_before_reply": 1,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1522,
+      "immediate_ms": 1829,
+      "recall": {
+        "ran": true,
+        "status": "matched",
+        "records": 1
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "cached_followup",
+      "turn_id": "d2f93689-8820-48ef-9bdf-16f1d7827167",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "702a91df-d569-4d85-8488-197c8d76713f",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.97,
+            "required": 0.03,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 57.2,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 959,
+      "immediate_ms": 1053,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "distractor_one",
+      "turn_id": "2e704591-92cd-4a48-ac62-625d01776a4d",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "24bc57c7-6a13-4892-97fd-b744137ba2e8",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 60.5,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1302,
+      "immediate_ms": 2063,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "distractor_two",
+      "turn_id": "56f33d3b-0bd8-44e8-badf-3cf1809a57c6",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "657a2131-c2d6-4bfc-bca1-9e8da03034f7",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 48.8,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1093,
+      "immediate_ms": 1809,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "distractor_three",
+      "turn_id": "2df55a29-54e7-466a-85d9-cc079dbbe389",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "cf4c5425-1ea0-451d-8448-ecdade5e726e",
+        "status": "ok",
+        "recall": "not_required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 1.0,
+            "required": 0.0,
+            "uncertain": 0.0
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 84.1,
+        "error": null
+      },
+      "route": "fast_path",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 944,
+      "immediate_ms": 1806,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "cache_without_recent_answer",
+      "turn_id": "61f71275-ff08-441e-b697-ef5a7526bbb5",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "2cb7fd7d-7047-4366-a58a-6874d586127f",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.07,
+            "required": 0.92,
+            "uncertain": 0.01
+          },
+          "thinking": {
+            "not_required": 0.7,
+            "required": 0.18,
+            "uncertain": 0.12
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 97.3,
+        "error": null
+      },
+      "route": "recall",
+      "calls": {
+        "fresh_recall_before_reply": 1,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1464,
+      "immediate_ms": 1802,
+      "recall": {
+        "ran": true,
+        "status": "matched",
+        "records": 1
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "synthetic",
+      "label": "recall_and_thinking",
+      "turn_id": "e04911b1-7b20-4468-be34-5fa6be4bf8cf",
+      "transport_pass": true,
+      "expected": {
+        "recall": "required",
+        "thinking": "required"
+      },
+      "assessment": {
+        "id": "dc6a8721-d34f-43f1-bc57-a04d9a23636c",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.01,
+            "required": 0.99,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.01,
+            "required": 0.97,
+            "uncertain": 0.02
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 47.3,
+        "error": null
+      },
+      "route": "recall_then_mind",
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind_scheduled": 1,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 2
+      },
+      "first_token_ms": 3795,
+      "immediate_ms": 5329,
+      "recall": {
+        "ran": false,
+        "status": "not_searched",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": [
+        {
+          "kind": "recall",
+          "status": "completed",
+          "dependency_ids": [],
+          "created_at": "2026-10-22 13:54:34.495513+00:00",
+          "updated_at": "2026-10-22 13:54:34.722982+00:00",
+          "latency_ms": null,
+          "evidence_status": null
+        },
+        {
+          "kind": "mind",
+          "status": "completed",
+          "dependency_ids": [
+            "93dfc90e-b3f3-438c-b4fe-f5e39aec6eb2"
+          ],
+          "created_at": "2026-10-22 13:54:34.495513+00:00",
+          "updated_at": "2026-10-22 13:54:40.962165+00:00",
+          "latency_ms": 6202.5,
+          "evidence_status": "matched"
+        }
+      ]
+    },
+    {
+      "fixture": "synthetic",
+      "label": "unknown_history",
+      "turn_id": "1b4802b4-0eeb-4041-8184-e90414774c9b",
+      "transport_pass": true,
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "1eb678cc-a8c8-446c-8f25-fcbcd270a28a",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.02,
+            "required": 0.98,
+            "uncertain": 0.0
+          },
+          "thinking": {
+            "not_required": 0.92,
+            "required": 0.07,
+            "uncertain": 0.01
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 76.9,
+        "error": null
+      },
+      "route": "recall",
+      "calls": {
+        "fresh_recall_before_reply": 1,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 1
+      },
+      "first_token_ms": 2895,
+      "immediate_ms": 3096,
+      "recall": {
+        "ran": true,
+        "status": "no_match",
+        "records": 0
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "cacheprobe",
+      "label": "long_answer_setup",
+      "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+      "transport_pass": true,
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "4d3f759b-e742-4420-9a0d-dd9eec552adc",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.17,
+            "required": 0.82,
+            "uncertain": 0.01
+          },
+          "thinking": {
+            "not_required": 0.62,
+            "required": 0.36,
+            "uncertain": 0.02
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 81.8,
+        "error": null
+      },
+      "route": "recall",
+      "calls": {
+        "fresh_recall_before_reply": 1,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 2095,
+      "immediate_ms": 8609,
+      "recall": {
+        "ran": true,
+        "status": "matched",
+        "records": 1
+      },
+      "memory_cache": null,
+      "work": []
+    },
+    {
+      "fixture": "cacheprobe",
+      "label": "cache_beyond_clipped_context",
+      "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+      "transport_pass": true,
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "assessment": {
+        "id": "a13855a6-e7ac-4806-a424-e32efde3aaeb",
+        "status": "ok",
+        "recall": "required",
+        "thinking": "not_required",
+        "probabilities": {
+          "recall": {
+            "not_required": 0.26,
+            "required": 0.72,
+            "uncertain": 0.02
+          },
+          "thinking": {
+            "not_required": 0.93,
+            "required": 0.04,
+            "uncertain": 0.03
+          }
+        },
+        "model": "jev-1.14.0",
+        "policy": "conversation-assessment-policy-v1",
+        "latency_ms": 90.3,
+        "error": null
+      },
+      "route": "recall",
+      "calls": {
+        "fresh_recall_before_reply": 1,
+        "mind_scheduled": 0,
+        "jev": 1,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "first_token_ms": 1323,
+      "immediate_ms": 1550,
+      "recall": {
+        "ran": true,
+        "status": "matched",
+        "records": 1
+      },
+      "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+      "work": []
+    }
+  ]
+}

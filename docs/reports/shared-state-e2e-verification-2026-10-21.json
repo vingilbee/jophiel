@@ -1,0 +1,1950 @@
+{
+  "checks": [
+    {
+      "mode": "normal",
+      "label": "greeting",
+      "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+      "pass": true,
+      "first_token_ms": 3857,
+      "total_ms": 4328,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "recent_context",
+      "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+      "pass": true,
+      "first_token_ms": 1910,
+      "total_ms": 2567,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "follow_up",
+      "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+      "pass": true,
+      "first_token_ms": 1576,
+      "total_ms": 2048,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "correction",
+      "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+      "pass": true,
+      "first_token_ms": 2233,
+      "total_ms": 2845,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "corrected_follow_up",
+      "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+      "pass": true,
+      "first_token_ms": 1664,
+      "total_ms": 1810,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "topic_change",
+      "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+      "pass": true,
+      "first_token_ms": 1886,
+      "total_ms": 2317,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "normal",
+      "label": "new_conversation",
+      "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+      "pass": true,
+      "first_token_ms": 1431,
+      "total_ms": 1816,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 0
+    },
+    {
+      "mode": "cache",
+      "label": "memory_tool",
+      "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+      "pass": true,
+      "first_token_ms": 2927,
+      "total_ms": 3327,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 1
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 12
+    },
+    {
+      "mode": "cache",
+      "label": "cached_follow_up",
+      "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+      "pass": true,
+      "first_token_ms": 1586,
+      "total_ms": 1798,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 7
+    },
+    {
+      "mode": "cache",
+      "label": "cached_follow_up_again",
+      "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+      "pass": true,
+      "first_token_ms": 1357,
+      "total_ms": 1573,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm page_only",
+      "references": 5
+    },
+    {
+      "mode": "reading",
+      "label": "reading_arm",
+      "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+      "pass": true,
+      "first_token_ms": 6620,
+      "total_ms": 7360,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "available",
+      "arm": "arm reading",
+      "references": 0
+    },
+    {
+      "mode": "degraded",
+      "label": "student_disabled",
+      "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+      "pass": true,
+      "first_token_ms": 2158,
+      "total_ms": 2572,
+      "rendered_text_visible": true,
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "cognition": "disabled",
+      "arm": "COGNITIVE_LIVE_STUDENT is off: no reading",
+      "references": 0
+    }
+  ],
+  "traces": [
+    {
+      "at": "2026-10-22T00:59:26.797047+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+      "revision": 1,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "1",
+        "trigger_message": "d918cfe1-6744-4bb0-8e8c-398e4a8bda05",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "asking",
+          "sharing"
+        ],
+        "tone": "friendly",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "077c587d-c30c-4211-b374-5a9f54042f4f",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "7a59fb43-a977-5d62-8b20-040ec382ce5b",
+        "reply_chars": 128,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 6,
+        "memory_cache_ms": 5,
+        "cognition_ms": 2277,
+        "prepare_ms": 2289,
+        "total_ms": 4020
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:29.425017+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+      "revision": 3,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "3",
+        "trigger_message": "df5849a1-35db-4e24-8ec0-8df1e1f7bded",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "sharing"
+        ],
+        "tone": "friendly",
+        "request": "no_request",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "54407426-d4a9-4fa9-bdf7-ad360fdc471d",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "998066cd-44bb-5c7d-9d1d-562b745cb85c",
+        "reply_chars": 255,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 6,
+        "memory_cache_ms": 11,
+        "cognition_ms": 37,
+        "prepare_ms": 54,
+        "total_ms": 1327
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:31.402518+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:e8d6ea7c-354e-4779-aa67-c528a483a49a",
+      "revision": 5,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "5",
+        "trigger_message": "e8d6ea7c-354e-4779-aa67-c528a483a49a",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "asking"
+        ],
+        "tone": "neutral",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "b14acd6e-66a5-417c-8ece-d71c46f55734",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "c0d1cdef-9e66-54a2-b97c-6ede5b2d5036",
+        "reply_chars": 61,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 7,
+        "memory_cache_ms": 14,
+        "cognition_ms": 67,
+        "prepare_ms": 89,
+        "total_ms": 1196
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:34.261239+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:cd3e1790-d9b9-43a4-a535-401a9de19abf",
+      "revision": 7,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "7",
+        "trigger_message": "cd3e1790-d9b9-43a4-a535-401a9de19abf",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "sharing"
+        ],
+        "tone": "playful",
+        "request": "no_request",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "d1b55f71-3de3-49c1-9037-403ce51e109b",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "9f6f73f8-04d3-57f5-bee4-fdb6ff0686e5",
+        "reply_chars": 166,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 6,
+        "memory_cache_ms": 8,
+        "cognition_ms": 44,
+        "prepare_ms": 59,
+        "total_ms": 1736
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:36.268594+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:cdc7a1c7-c60d-468e-8db2-03dc6e9a95c1",
+      "revision": 9,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "9",
+        "trigger_message": "cdc7a1c7-c60d-468e-8db2-03dc6e9a95c1",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "asking"
+        ],
+        "tone": "neutral",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "06a6c975-6216-48d0-98f9-be5b2504f6a1",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "f14707ff-e33a-5ef4-bcc6-3c724f541e4d",
+        "reply_chars": 35,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 9,
+        "memory_cache_ms": 14,
+        "cognition_ms": 53,
+        "prepare_ms": 75,
+        "total_ms": 1271
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:38.625495+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "1c4b8263-95bf-43a3-92c3-982a75a14b6b",
+      "event": "message:108b1dc1-65a2-4844-8f0e-f526df36f95b",
+      "revision": 11,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "11",
+        "trigger_message": "108b1dc1-65a2-4844-8f0e-f526df36f95b",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "sharing"
+        ],
+        "tone": "friendly",
+        "request": "no_request",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "94f835bb-74a4-4f8c-af87-472a948b1fba",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "cc2bbfc2-d4c9-562d-abd2-1166a775e613",
+        "reply_chars": 162,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 15,
+        "memory_cache_ms": 19,
+        "cognition_ms": 41,
+        "prepare_ms": 76,
+        "total_ms": 1642
+      }
+    },
+    {
+      "at": "2026-10-22T00:59:40.346831+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "e1b2d761-024a-49de-b8e5-bc0d71ec2645",
+      "event": "message:24304b7a-16a5-42cc-8298-b4730e686384",
+      "revision": 1,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "1",
+        "trigger_message": "24304b7a-16a5-42cc-8298-b4730e686384",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "sharing"
+        ],
+        "tone": "friendly",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "c3cf3e29-f337-4699-ab31-e78118319b51",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "a1f11851-1832-5340-820e-92ea85dbbb1f",
+        "reply_chars": 76,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 13,
+        "memory_cache_ms": 12,
+        "cognition_ms": 45,
+        "prepare_ms": 70,
+        "total_ms": 939
+      }
+    },
+    {
+      "at": "2026-10-22T01:00:16.240142+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "event": "message:0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+      "revision": 1,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "1",
+        "trigger_message": "0972fa4d-07d0-44e6-847a-c37f89c8fe08",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "asking"
+        ],
+        "tone": "playful",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "13fcc055-4809-4c8e-a8bf-2af2a9d9de85",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 1
+      },
+      "mouth_escalated": [
+        "searched_memory"
+      ],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "f68f4f31-e5ea-52fb-8e8a-52e9ebb7385b",
+        "reply_chars": 163,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 24,
+        "memory_cache_ms": 4,
+        "cognition_ms": 41,
+        "prepare_ms": 69,
+        "total_ms": 3131
+      }
+    },
+    {
+      "at": "2026-10-22T01:00:17.960504+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "event": "message:809abb60-27b3-4885-83e3-b1b906c0f3f0",
+      "revision": 3,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "3",
+        "trigger_message": "809abb60-27b3-4885-83e3-b1b906c0f3f0",
+        "memory_cache": "event:28#b67fc82d06ca,event:22#3e6af8ff8858,event:23#342082a3d074,event:19#bf2a65bf9141",
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "f4df105b624440f5",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [],
+        "tone": "neutral",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "13cdcb20-3b9c-4c17-9971-a4da257c02a6",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "5055e186-a167-5030-beb6-68026bab1b88",
+        "reply_chars": 30,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 9,
+        "memory_cache_ms": 32,
+        "cognition_ms": 50,
+        "prepare_ms": 91,
+        "total_ms": 918
+      }
+    },
+    {
+      "at": "2026-10-22T01:00:19.568055+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "conversation_id": "41f154fd-35e5-409e-87d4-32a141ee078a",
+      "event": "message:65f23a74-383b-4e4b-9284-cb2b7fa0f923",
+      "revision": 5,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "5",
+        "trigger_message": "65f23a74-383b-4e4b-9284-cb2b7fa0f923",
+        "memory_cache": "event:28#b67fc82d06ca,event:22#3e6af8ff8858,event:23#342082a3d074,event:19#bf2a65bf9141",
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "f4df105b624440f5",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm page_only",
+        "acts": [
+          "asking"
+        ],
+        "tone": "neutral",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "a9121c26-c448-4d37-814d-6c1baa6ef73c",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "cc2e0da3-aaea-57e2-89d0-5c90a28c9e47",
+        "reply_chars": 9,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 5,
+        "memory_cache_ms": 15,
+        "cognition_ms": 18,
+        "prepare_ms": 38,
+        "total_ms": 898
+      }
+    },
+    {
+      "at": "2026-10-22T01:00:52.287699+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "225b13e4-f95a-449c-82c3-5fdc64ea0e7a",
+      "event": "message:b2cb416e-2e4f-4f2f-8e51-5057dc321417",
+      "revision": 1,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "1",
+        "trigger_message": "b2cb416e-2e4f-4f2f-8e51-5057dc321417",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14",
+        "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+      },
+      "cognition": {
+        "status": "available",
+        "reason": "arm reading",
+        "acts": [
+          "asking",
+          "sharing"
+        ],
+        "tone": "friendly",
+        "request": "talk_only",
+        "action": {
+          "value": "respond",
+          "origin": "policy",
+          "reason": "a user message is answered"
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "unassessed",
+        "degraded": [],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "evidence need not assessed: Student 1 has no output for whether older memory is needed",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "available",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "3850e245-ccdc-4244-a152-c196538f7944",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "58c6684e-1b5d-57ee-bcc8-1079b861ca2e",
+        "reply_chars": 223,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 8,
+        "memory_cache_ms": 7,
+        "cognition_ms": 2535,
+        "prepare_ms": 2550,
+        "total_ms": 4727
+      }
+    },
+    {
+      "at": "2026-10-22T01:01:19.838421+00:00",
+      "schema": "shared-view-v0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "conversation_id": "2b4835a9-a59d-40b0-a363-32b0f9ccfa72",
+      "event": "message:576d0c17-047d-4895-8fa0-b77cefa428b6",
+      "revision": 1,
+      "newer_than_trigger": 0,
+      "dependencies": {
+        "conversation_revision": "1",
+        "trigger_message": "576d0c17-047d-4895-8fa0-b77cefa428b6",
+        "memory_cache": null,
+        "personality": "6f34fd7338cf2daf",
+        "cognition.memory_cache": "e3b0c44298fc1c14"
+      },
+      "cognition": {
+        "status": "disabled",
+        "reason": "COGNITIVE_LIVE_STUDENT is off: no reading",
+        "acts": null,
+        "tone": null,
+        "request": null,
+        "action": {
+          "value": null,
+          "origin": "not_assessed",
+          "reason": null
+        },
+        "missing_evidence": "not_assessed"
+      },
+      "thinking": {
+        "required": null,
+        "decider": "none"
+      },
+      "route": {
+        "route": "unassessed",
+        "eligibility": "unassessed",
+        "supported": true,
+        "outcome": "degraded",
+        "degraded": [
+          "cognition_unavailable"
+        ],
+        "limits": [
+          "evidence_need_not_assessed",
+          "thinking_need_not_assessed"
+        ],
+        "reasons": [
+          "cognition disabled: COGNITIVE_LIVE_STUDENT is off: no reading",
+          "evidence need not assessed: no signal",
+          "thinking need not assessed: no thinking decider on this path yet"
+        ]
+      },
+      "sections": {
+        "personality": "available",
+        "conversation": "available",
+        "memory": "available",
+        "cognition": "disabled",
+        "thinking": "disabled",
+        "work": "available",
+        "output": "available",
+        "inner_state": "disabled",
+        "activities": "unavailable",
+        "situation": "unavailable",
+        "mind": "disabled"
+      },
+      "work": {
+        "id": "76dd3758-9adb-4133-a437-1cbeda086529",
+        "attempt": 1
+      },
+      "calls": {
+        "fresh_recall_before_reply": 0,
+        "mind": 0,
+        "memory_tool_calls_by_mouth": 0
+      },
+      "mouth_escalated": [],
+      "delivery": {
+        "outcome": "completed",
+        "assistant_message_id": "89347ef5-eb81-524d-b951-f11309baa29c",
+        "reply_chars": 80,
+        "heard_chars": null
+      },
+      "timings": {
+        "conversation_ms": 8,
+        "memory_cache_ms": 8,
+        "cognition_ms": 1,
+        "prepare_ms": 18,
+        "total_ms": 1657
+      }
+    }
+  ],
+  "jobs": [
+    {
+      "id": "077c587d-c30c-4211-b374-5a9f54042f4f",
+      "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "54407426-d4a9-4fa9-bdf7-ad360fdc471d",
+      "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "b14acd6e-66a5-417c-8ece-d71c46f55734",
+      "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "d1b55f71-3de3-49c1-9037-403ce51e109b",
+      "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "06a6c975-6216-48d0-98f9-be5b2504f6a1",
+      "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "94f835bb-74a4-4f8c-af87-472a948b1fba",
+      "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "c3cf3e29-f337-4699-ab31-e78118319b51",
+      "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "13fcc055-4809-4c8e-a8bf-2af2a9d9de85",
+      "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "13cdcb20-3b9c-4c17-9971-a4da257c02a6",
+      "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "a9121c26-c448-4d37-814d-6c1baa6ef73c",
+      "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "3850e245-ccdc-4244-a152-c196538f7944",
+      "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    },
+    {
+      "id": "76dd3758-9adb-4133-a437-1cbeda086529",
+      "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+      "user_id": "5891ec9a-3e52-4daa-b2e9-3eaaa00fa15a",
+      "status": "completed",
+      "attempts": 1,
+      "last_error": null
+    }
+  ],
+  "receipts": [
+    {
+      "id": 41,
+      "turn_id": "ffdcec1a-21b8-469b-8318-408394c5b88f",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 42,
+      "turn_id": "00fcd21d-738a-4e88-8897-096f9d1442a7",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 43,
+      "turn_id": "82c807c0-7d66-44b4-861d-79fdab8ae0e0",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 44,
+      "turn_id": "ee3eeb55-f8f5-4afd-83ac-aeeaf6172b50",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 45,
+      "turn_id": "889b0b0b-ba41-459d-a78d-88abd2e5d054",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 46,
+      "turn_id": "72dd106c-67ae-4824-b5bc-d2c87bffd3e8",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 47,
+      "turn_id": "89c6e646-503d-4328-8e09-dece355bf415",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 48,
+      "turn_id": "c6ea3a45-008e-4624-bfc0-0a80e7bdf1df",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {
+          "fact": 1,
+          "event": 11
+        },
+        "supplied": 12,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "matched"
+        ]
+      },
+      "references": [
+        {
+          "id": "407",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "28",
+          "item_id": "None",
+          "fingerprint": "b67fc82d06cab2a0",
+          "target_recorded_at": "2026-10-21 05:19:13.942108+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "408",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "22",
+          "item_id": "None",
+          "fingerprint": "3e6af8ff88581aa3",
+          "target_recorded_at": "2026-10-21 05:15:52.209212+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "409",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "23",
+          "item_id": "None",
+          "fingerprint": "342082a3d0747887",
+          "target_recorded_at": "2026-10-21 05:15:57.418619+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "410",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "19",
+          "item_id": "None",
+          "fingerprint": "bf2a65bf9141e0c7",
+          "target_recorded_at": "2026-10-21 05:15:08.706384+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "411",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "31",
+          "item_id": "None",
+          "fingerprint": "d813190164af9de2",
+          "target_recorded_at": "2026-10-21 05:20:18.892117+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "412",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "24",
+          "item_id": "None",
+          "fingerprint": "62dba95f3000f287",
+          "target_recorded_at": "2026-10-21 05:16:15.419289+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "413",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "18",
+          "item_id": "None",
+          "fingerprint": "86f35a0646ca0ddc",
+          "target_recorded_at": "2026-10-21 05:15:06.588062+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "414",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "17",
+          "item_id": "None",
+          "fingerprint": "03fd8a6e0bf54ceb",
+          "target_recorded_at": "2026-10-21 05:15:06.588062+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "415",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "27",
+          "item_id": "None",
+          "fingerprint": "937b097679ef616a",
+          "target_recorded_at": "2026-10-21 05:17:15.939594+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "416",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "25",
+          "item_id": "None",
+          "fingerprint": "0bff3c3217346ef0",
+          "target_recorded_at": "2026-10-21 05:16:55.547848+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "417",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "f982b188-3a3c-43e3-9ebb-fbc1d6718212",
+          "episode_id": "None",
+          "event_id": "None",
+          "item_id": "None",
+          "fingerprint": "1a1d6f9a449b8066",
+          "target_recorded_at": "2026-10-21 05:16:04.646149+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        },
+        {
+          "id": "418",
+          "receipt_id": "48",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "20",
+          "item_id": "None",
+          "fingerprint": "31f1349a2f2c723d",
+          "target_recorded_at": "2026-10-21 05:15:10.549053+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:16.215469+00:00"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "turn_id": "3d306d5f-eefd-4e45-b96d-649cef01438d",
+      "status": "matched",
+      "coverage": {
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {
+          "event": 4
+        },
+        "supplied": 4,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": [
+        {
+          "id": "419",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "28",
+          "item_id": "None",
+          "fingerprint": "b67fc82d06cab2a0",
+          "target_recorded_at": "2026-10-21 05:19:13.942108+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:17.940313+00:00"
+        },
+        {
+          "id": "420",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "22",
+          "item_id": "None",
+          "fingerprint": "3e6af8ff88581aa3",
+          "target_recorded_at": "2026-10-21 05:15:52.209212+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:17.940313+00:00"
+        },
+        {
+          "id": "421",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "23",
+          "item_id": "None",
+          "fingerprint": "342082a3d0747887",
+          "target_recorded_at": "2026-10-21 05:15:57.418619+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:17.940313+00:00"
+        },
+        {
+          "id": "422",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "19",
+          "item_id": "None",
+          "fingerprint": "bf2a65bf9141e0c7",
+          "target_recorded_at": "2026-10-21 05:15:08.706384+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:17.940313+00:00"
+        },
+        {
+          "id": "423",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "referenced",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "28",
+          "item_id": "None",
+          "fingerprint": "b67fc82d06cab2a0",
+          "target_recorded_at": "2026-10-21 05:19:13.942108+00:00",
+          "span_start": "0",
+          "span_end": "30",
+          "method": "post_reply",
+          "created_at": "2026-10-22 01:00:19.043235+00:00"
+        },
+        {
+          "id": "424",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "referenced",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "22",
+          "item_id": "None",
+          "fingerprint": "3e6af8ff88581aa3",
+          "target_recorded_at": "2026-10-21 05:15:52.209212+00:00",
+          "span_start": "0",
+          "span_end": "30",
+          "method": "post_reply",
+          "created_at": "2026-10-22 01:00:19.043235+00:00"
+        },
+        {
+          "id": "425",
+          "receipt_id": "49",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "referenced",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "23",
+          "item_id": "None",
+          "fingerprint": "342082a3d0747887",
+          "target_recorded_at": "2026-10-21 05:15:57.418619+00:00",
+          "span_start": "0",
+          "span_end": "30",
+          "method": "post_reply",
+          "created_at": "2026-10-22 01:00:19.043235+00:00"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "turn_id": "ab9bce50-0911-4330-99a3-bd500ae229fe",
+      "status": "matched",
+      "coverage": {
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {
+          "event": 4
+        },
+        "supplied": 4,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": [
+        {
+          "id": "426",
+          "receipt_id": "50",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "28",
+          "item_id": "None",
+          "fingerprint": "b67fc82d06cab2a0",
+          "target_recorded_at": "2026-10-21 05:19:13.942108+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:19.545580+00:00"
+        },
+        {
+          "id": "427",
+          "receipt_id": "50",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "22",
+          "item_id": "None",
+          "fingerprint": "3e6af8ff88581aa3",
+          "target_recorded_at": "2026-10-21 05:15:52.209212+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:19.545580+00:00"
+        },
+        {
+          "id": "428",
+          "receipt_id": "50",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "23",
+          "item_id": "None",
+          "fingerprint": "342082a3d0747887",
+          "target_recorded_at": "2026-10-21 05:15:57.418619+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:19.545580+00:00"
+        },
+        {
+          "id": "429",
+          "receipt_id": "50",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "supplied",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "19",
+          "item_id": "None",
+          "fingerprint": "bf2a65bf9141e0c7",
+          "target_recorded_at": "2026-10-21 05:15:08.706384+00:00",
+          "span_start": "None",
+          "span_end": "None",
+          "method": "structured",
+          "created_at": "2026-10-22 01:00:19.545580+00:00"
+        },
+        {
+          "id": "430",
+          "receipt_id": "50",
+          "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+          "relation": "referenced",
+          "fact_id": "None",
+          "episode_id": "None",
+          "event_id": "28",
+          "item_id": "None",
+          "fingerprint": "b67fc82d06cab2a0",
+          "target_recorded_at": "2026-10-21 05:19:13.942108+00:00",
+          "span_start": "0",
+          "span_end": "9",
+          "method": "post_reply",
+          "created_at": "2026-10-22 01:00:20.340354+00:00"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "turn_id": "b8d01fdc-4710-4b7c-8daa-3cd98a082c4b",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    },
+    {
+      "id": 52,
+      "turn_id": "e7fc14c5-1adf-493e-be14-82a47882329c",
+      "status": "not_searched",
+      "coverage": {
+        "reason": "nothing cached",
+        "source": "cache"
+      },
+      "counts": {
+        "by_kind": {},
+        "supplied": 0,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "references": []
+    }
+  ],
+  "summary": {
+    "turns": 12,
+    "all_pass": true,
+    "normal_first_token_median_ms": 1886,
+    "normal_first_token_min_ms": 1431,
+    "normal_first_token_max_ms": 3857,
+    "normal_total_median_ms": 2317
+  }
+}

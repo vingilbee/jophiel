@@ -21,6 +21,17 @@ from cognitive_shadow_support import create_conversation, create_user, database,
 REPLY = ("Two large eggs ", "have about ", "12 g of protein.")
 
 
+@pytest.fixture(autouse=True)
+def _legacy_preparation(monkeypatch):
+    """These tests pin the old reply preparation without shared recall: a local .env with
+    SHARED_STATE_PIPELINE_ENABLED or RECALL_ENABLED must not change what they compare (a recall result carries
+    its own time and the test's fresh user ids, so two runs can never be equal). Both have their own tests.
+    Module-local, so importers of ``live_turn`` aren't affected."""
+    from app.services import recall_references, shared_state
+    monkeypatch.setattr(shared_state, "enabled", lambda: False)
+    monkeypatch.setattr(recall_references, "enabled", lambda: False)
+
+
 @pytest.fixture
 def live_turn(shadow_env, monkeypatch):
     """Run the real chat-worker `_generate` with a deterministic mocked agent."""

@@ -1,0 +1,583 @@
+{
+  "fixture": "cacheprobe",
+  "started": "2026-10-22T13:56:02.566Z",
+  "turns": [
+    {
+      "label": "long_answer_setup",
+      "message": "Write a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.",
+      "expected": {
+        "recall": "required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677363041,
+      "reply": "Rain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.",
+      "tokenFrames": 259,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4"
+        },
+        {
+          "type": "ack",
+          "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+          "user_message_id": "107e1e0f-d1e7-4f8f-91a5-7554c3bdc507",
+          "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4"
+        },
+        {
+          "type": "route",
+          "route": "recall",
+          "outcome": "recall",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+          "message_id": "848393a5-375b-59e5-98f1-96b7c6849ad2"
+        },
+        {
+          "type": "done",
+          "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+          "message_id": "848393a5-375b-59e5-98f1-96b7c6849ad2",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": null,
+        "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+        "content": "Write a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4",
+      "firstTokenMs": 2095,
+      "terminal": "done",
+      "immediateMs": 8609,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWrite a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.\nColumbina\nRain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral or warm\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677372.422382,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "91353c6f-42e9-42e9-ba7b-bb3a0b4d24f5",
+            "turn_id": "71eac75c-26f5-4bc0-9352-709a0efbb6ca",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "107e1e0f-d1e7-4f8f-91a5-7554c3bdc507",
+            "role": "user",
+            "content": "Write a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.",
+            "status": "completed"
+          },
+          {
+            "id": "848393a5-375b-59e5-98f1-96b7c6849ad2",
+            "role": "assistant",
+            "content": "Rain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 71,
+            "status": "matched",
+            "coverage": {
+              "candidates": 1
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:56:11.419183+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4",
+            "event": "message:107e1e0f-d1e7-4f8f-91a5-7554c3bdc507",
+            "revision": 1,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "1",
+              "trigger_message": "107e1e0f-d1e7-4f8f-91a5-7554c3bdc507",
+              "memory_cache": null,
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "e3b0c44298fc1c14",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "4d3f759b-e742-4420-9a0d-dd9eec552adc",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.17,
+                  "required": 0.82,
+                  "uncertain": 0.01
+                },
+                "thinking": {
+                  "not_required": 0.62,
+                  "required": 0.36,
+                  "uncertain": 0.02
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 81.8,
+              "error": null
+            },
+            "recall": {
+              "ran": true,
+              "status": "matched",
+              "records": 1
+            },
+            "route": {
+              "route": "recall",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "91353c6f-42e9-42e9-ba7b-bb3a0b4d24f5",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 1,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "848393a5-375b-59e5-98f1-96b7c6849ad2",
+              "reply_chars": 1250,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 8,
+              "memory_cache_ms": 7,
+              "cognition_ms": 38,
+              "assessment_ms": 82,
+              "recall_ms": 386,
+              "prepare_ms": 521,
+              "total_ms": 8233
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWrite a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.\nColumbina\nRain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral or warm\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "4d3f759b-e742-4420-9a0d-dd9eec552adc",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.17,
+              "required": 0.82,
+              "uncertain": 0.01
+            },
+            "thinking": {
+              "not_required": 0.62,
+              "required": 0.36,
+              "uncertain": 0.02
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 81.8,
+          "error": null
+        },
+        "route": {
+          "route": "recall",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": true,
+          "status": "matched",
+          "records": 1
+        },
+        "calls": {
+          "fresh_recall_before_reply": 1,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "1",
+          "trigger_message": "107e1e0f-d1e7-4f8f-91a5-7554c3bdc507",
+          "memory_cache": null,
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "e3b0c44298fc1c14",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": true
+    },
+    {
+      "label": "cache_beyond_clipped_context",
+      "message": "What day, time and place is my Cobalt reading circle?",
+      "expected": {
+        "recall": "not_required",
+        "thinking": "not_required"
+      },
+      "startMs": 1792677372666,
+      "reply": "Your Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion.",
+      "tokenFrames": 17,
+      "frames": [
+        {
+          "type": "meta",
+          "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4"
+        },
+        {
+          "type": "ack",
+          "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+          "user_message_id": "e2f00ef5-edfc-4c4c-9f28-b314eded1196",
+          "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4"
+        },
+        {
+          "type": "route",
+          "route": "recall",
+          "outcome": "recall",
+          "eligibility": "not_eligible",
+          "recall": "required",
+          "thinking": "not_required",
+          "degraded": [],
+          "limits": [],
+          "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+          "message_id": "aad3c7ce-ea02-517f-b4ed-ff15e4e90835"
+        },
+        {
+          "type": "done",
+          "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+          "message_id": "aad3c7ce-ea02-517f-b4ed-ff15e4e90835",
+          "status": "completed"
+        }
+      ],
+      "sent": {
+        "type": "run",
+        "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4",
+        "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+        "content": "What day, time and place is my Cobalt reading circle?",
+        "image_ids": [],
+        "asset_ids": []
+      },
+      "conversationId": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4",
+      "firstTokenMs": 1323,
+      "terminal": "done",
+      "immediateMs": 1550,
+      "body": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWrite a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.\nColumbina\nRain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.\nWhat day, time and place is my Cobalt reading circle?\nColumbina\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral or warm\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "renderedTextVisible": true,
+      "observed": {
+        "samples": [
+          {
+            "at": 1792677374.7299788,
+            "work": [],
+            "outputs": []
+          }
+        ],
+        "jobs": [
+          {
+            "id": "aa905edc-723d-4425-99f2-b854777a4ef5",
+            "turn_id": "a8502f76-1d5a-4bd4-8887-be309488bb42",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "status": "completed",
+            "attempts": 1,
+            "error": null
+          }
+        ],
+        "messages": [
+          {
+            "id": "e2f00ef5-edfc-4c4c-9f28-b314eded1196",
+            "role": "user",
+            "content": "What day, time and place is my Cobalt reading circle?",
+            "status": "completed"
+          },
+          {
+            "id": "aad3c7ce-ea02-517f-b4ed-ff15e4e90835",
+            "role": "assistant",
+            "content": "Your Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion.",
+            "status": "completed"
+          }
+        ],
+        "work": [],
+        "outputs": [],
+        "receipts": [
+          {
+            "id": 72,
+            "status": "matched",
+            "coverage": {
+              "candidates": 1
+            },
+            "counts": {
+              "by_kind": {
+                "fact": 1
+              },
+              "supplied": 1,
+              "tool_calls": 0,
+              "tool_statuses": []
+            }
+          }
+        ],
+        "traces": [
+          {
+            "at": "2026-10-22T13:56:14.080232+00:00",
+            "schema": "shared-view-v0",
+            "user_id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+            "conversation_id": "ed90354c-f2bd-4e66-92a1-a95b430f9cb4",
+            "event": "message:e2f00ef5-edfc-4c4c-9f28-b314eded1196",
+            "revision": 3,
+            "newer_than_trigger": 0,
+            "dependencies": {
+              "conversation_revision": "3",
+              "trigger_message": "e2f00ef5-edfc-4c4c-9f28-b314eded1196",
+              "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+              "personality": "6f34fd7338cf2daf",
+              "cognition.memory_cache": "30cd74bccb5f40a7",
+              "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+            },
+            "cognition": {
+              "status": "available",
+              "reason": "arm page_only",
+              "acts": [
+                "asking"
+              ],
+              "tone": "neutral",
+              "request": "talk_only",
+              "action": {
+                "value": "respond",
+                "origin": "policy",
+                "reason": "a user message is answered"
+              },
+              "missing_evidence": "not_assessed"
+            },
+            "thinking": {
+              "required": false,
+              "decider": "jev",
+              "choice": "not_required"
+            },
+            "assessment": {
+              "id": "a13855a6-e7ac-4806-a424-e32efde3aaeb",
+              "status": "ok",
+              "recall": "required",
+              "thinking": "not_required",
+              "probabilities": {
+                "recall": {
+                  "not_required": 0.26,
+                  "required": 0.72,
+                  "uncertain": 0.02
+                },
+                "thinking": {
+                  "not_required": 0.93,
+                  "required": 0.04,
+                  "uncertain": 0.03
+                }
+              },
+              "model": "jev-1.14.0",
+              "policy": "conversation-assessment-policy-v1",
+              "latency_ms": 90.3,
+              "error": null
+            },
+            "recall": {
+              "ran": true,
+              "status": "matched",
+              "records": 1
+            },
+            "route": {
+              "route": "recall",
+              "eligibility": "not_eligible",
+              "supported": true,
+              "outcome": "recall",
+              "degraded": [],
+              "limits": [],
+              "reasons": [
+                "recall: required (jev)",
+                "thinking: not_required (jev)"
+              ]
+            },
+            "sections": {
+              "personality": "available",
+              "conversation": "available",
+              "memory": "available",
+              "cognition": "available",
+              "thinking": "available",
+              "work": "available",
+              "output": "available",
+              "inner_state": "disabled",
+              "activities": "unavailable",
+              "situation": "unavailable",
+              "mind": "disabled"
+            },
+            "work": {
+              "id": "aa905edc-723d-4425-99f2-b854777a4ef5",
+              "attempt": 1,
+              "background": []
+            },
+            "immediate": null,
+            "calls": {
+              "fresh_recall_before_reply": 1,
+              "mind_scheduled": 0,
+              "jev": 1,
+              "memory_tool_calls_by_mouth": 0
+            },
+            "mouth_escalated": [],
+            "delivery": {
+              "outcome": "completed",
+              "assistant_message_id": "aad3c7ce-ea02-517f-b4ed-ff15e4e90835",
+              "reply_chars": 78,
+              "heard_chars": null
+            },
+            "timings": {
+              "conversation_ms": 9,
+              "memory_cache_ms": 8,
+              "cognition_ms": 135,
+              "assessment_ms": 90,
+              "recall_ms": 34,
+              "prepare_ms": 277,
+              "total_ms": 1309
+            }
+          }
+        ]
+      },
+      "afterWorkBody": "✦\nColumbina\n\nYour nutrition companion\n\nChat\nScan Meal\nIntegrations\n\nPROFILE\n\nVincent\n\nCognitive test\nNew chat\nColumbina\n\nYour quiet companion · chat, talk, or play\n\nhere with you\nWrite a gentle fictional paragraph of at least 180 words about rain falling over an empty harbor. After that paragraph, finish with one separate sentence giving the saved day, time and place of my Cobalt reading circle. Keep all meeting details out of the rain paragraph; put them only in the final sentence.\nColumbina\nRain began as a soft hush over the empty harbor, touching the water so lightly that the first rings seemed to vanish before they could meet. Then it settled in, silvering the ropes and darkening the wooden boards along the quay. The boats rested without voices or passengers, their hulls rising and falling with the patient tide. Farther out, the channel blurred into a pale veil, and the opposite shore became only a suggestion of trees and low roofs. A small lamp above the pier glowed warmly through the drizzle, keeping its quiet watch over the mooring posts. Rain gathered on the railings, slipped down in shining threads, and tapped against a forgotten bucket near the fish shed. Nothing hurried. Even the gulls had taken shelter somewhere beyond sight, leaving the harbor to its slow breathing and the delicate music of water on water. The storm did not feel lonely so much as restful, as if the whole place had been given permission to pause. By the time the clouds thinned, the boats would still be there, the tide would have turned, and every wet plank would hold a faint, wavering copy of the sky.\n\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; for its next meeting, the narrator must bring the blue atlas.\nWhat day, time and place is my Cobalt reading circle?\nColumbina\nYour Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion.\nMood\nmood happy\ntension relaxed\ninterest fascinated\ncloseness neutral or warm\nenergy steady\nWhy\nEyes: Closed\nEars: Closed\nGame session\nTap to talk\nVoice\n\nEnter to send · Shift+Enter for newline · Attach images, documents, or 3D assets",
+      "transportPass": true,
+      "actual": {
+        "assessment": {
+          "id": "a13855a6-e7ac-4806-a424-e32efde3aaeb",
+          "status": "ok",
+          "recall": "required",
+          "thinking": "not_required",
+          "probabilities": {
+            "recall": {
+              "not_required": 0.26,
+              "required": 0.72,
+              "uncertain": 0.02
+            },
+            "thinking": {
+              "not_required": 0.93,
+              "required": 0.04,
+              "uncertain": 0.03
+            }
+          },
+          "model": "jev-1.14.0",
+          "policy": "conversation-assessment-policy-v1",
+          "latency_ms": 90.3,
+          "error": null
+        },
+        "route": {
+          "route": "recall",
+          "eligibility": "not_eligible",
+          "supported": true,
+          "outcome": "recall",
+          "degraded": [],
+          "limits": [],
+          "reasons": [
+            "recall: required (jev)",
+            "thinking: not_required (jev)"
+          ]
+        },
+        "recall": {
+          "ran": true,
+          "status": "matched",
+          "records": 1
+        },
+        "calls": {
+          "fresh_recall_before_reply": 1,
+          "mind_scheduled": 0,
+          "jev": 1,
+          "memory_tool_calls_by_mouth": 0
+        },
+        "dependencies": {
+          "conversation_revision": "3",
+          "trigger_message": "e2f00ef5-edfc-4c4c-9f28-b314eded1196",
+          "memory_cache": "fact:becc183a-9856-414e-8c36-2fb76fb53b87#ffa0baf9daf6",
+          "personality": "6f34fd7338cf2daf",
+          "cognition.memory_cache": "30cd74bccb5f40a7",
+          "cognition.student_1": "simple-cognition-v1:models-1.0:1792442080"
+        }
+      },
+      "processingMatch": false
+    }
+  ],
+  "errors": [],
+  "outOfTurnFrames": [],
+  "user": {
+    "id": "be1b4884-9fc7-4120-bf88-5bc9ff6ebff6",
+    "name": "Step Four E2E",
+    "email": "step-four-1792677024261@example.com",
+    "created_at": "2026-10-22T13:50:24.358628"
+  },
+  "finished": "2026-10-22T13:56:14.965Z"
+}
