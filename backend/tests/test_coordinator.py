@@ -90,7 +90,7 @@ def env(shadow_env, monkeypatch, tmp_path):
     monkeypatch.setattr(chat_worker, "stream_chat", fake_stream_chat)
     monkeypatch.setattr(chat_worker, "publish", lambda turn_id, event: published.append(event))
     monkeypatch.setattr(chat_worker, "_cancelled", lambda turn_id: False)
-    monkeypatch.setattr(chat_worker, "_announce", lambda job, reply, mid: announced.append((job.turn_id, reply)))
+    monkeypatch.setattr(chat_worker, "_announce", lambda job, reply, mid: announced.append((job.turn_id, reply)) or True)
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", lambda *a, **k: None)
     with shadow_env.db() as db:

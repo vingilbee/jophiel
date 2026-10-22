@@ -474,12 +474,12 @@ _THOUGHT_RESULT_PROMPT = """\
 
 ## You finished thinking
 
-You told them you'd think about something they said, or took it away to think about. That thinking is done:
+A completed thought is available. The context below identifies whether it follows their request or is an autonomous proposal:
 
 {result}
 
 This is your own conclusion, not something they said. Bring it back into the conversation now in your own \
-voice, briefly, as a follow-up to what they asked. Don't repeat what you already said in your last reply. If \
+voice, briefly. For an autonomous proposal, do not imply they asked for it or that you promised to think. Don't repeat what you already said in your last reply. If \
 it's marked uncertain, say it as your best guess. If the thinking failed or found nothing, say so plainly \
 rather than inventing an answer."""
 

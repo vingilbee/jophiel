@@ -73,7 +73,7 @@ def test_needs_text_says_the_chain_in_order():
 from app.ai.desktop import pack_client  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.db.models import AgentEventJob, DesktopEnvironment, DesktopSession, MindThought  # noqa: E402
-from app.services import agent_say, desktop_game, desktop_sessions, game_pack, mind  # noqa: E402
+from app.services import autonomous_speech, desktop_game, desktop_sessions, game_pack, mind, mind_minecraft  # noqa: E402
 from tests.cognitive_shadow_support import database  # noqa: E402,F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: E402,F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, db  # noqa: E402,F401  (fixtures)
@@ -114,7 +114,7 @@ def planning(monkeypatch, database, alice):
     settings = get_settings().model_copy(update={
         "desktop_agent_enabled": True, "mind_enabled": True, "mind_planner_enabled": True,
         "minecraft_pack_owner_email": alice.email, "redis_url": ""})
-    for module in (game_planning, mind, desktop_game, game_pack):
+    for module in (game_planning, mind, mind_minecraft, desktop_game, game_pack):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(game_planning, "SessionLocal", database)
     monkeypatch.setattr(mind, "SessionLocal", database, raising=False)
@@ -125,10 +125,10 @@ def planning(monkeypatch, database, alice):
     monkeypatch.setattr(pack_client.PackClient, "from_settings", classmethod(lambda cls: fake))
     said: list[dict] = []
 
-    def deliver(db, *, user_id, text, reasons, commentary_mode):
+    def deliver(db, *, user_id, text, reasons, commentary_mode, **proposal):
         said.append({"text": text, "reasons": reasons})
-        return "Said it."
-    monkeypatch.setattr(agent_say, "deliver", deliver)
+        return "Proposed."
+    monkeypatch.setattr(autonomous_speech, "submit", deliver)
     fake.said = said
     return fake
 

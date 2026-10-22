@@ -143,6 +143,10 @@ def immediate_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
                                                             CoordinatorOutput.phase == "immediate"))
             if row is not None:
                 row.status, row.assistant_message_id = status, assistant_message_id
+                work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
+                if status == "delivered" and work and work.input.get("autonomous"):
+                    from app.services import autonomous_speech
+                    autonomous_speech.delivered(work)
                 db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("coordinator: recording the immediate outcome failed")
@@ -176,12 +180,23 @@ def _claim(db, token: str) -> tuple[CoordinatorWork | None, str | None]:
 
 
 def run_once() -> bool:
+    repaired = recover_follow_up()
+    # Recover every terminal mind result committed before its conclusion decision.
+    with SessionLocal() as db:
+        orphan = db.scalar(select(CoordinatorWork.id).where(
+            CoordinatorWork.kind == "mind", CoordinatorWork.status.in_(("completed", "failed", "expired")),
+            ~select(CoordinatorOutput.id).where(CoordinatorOutput.work_id == CoordinatorWork.id,
+                                                CoordinatorOutput.phase == "follow_up").exists()
+        ).order_by(CoordinatorWork.created_at).limit(1))
+    if orphan is not None:
+        _conclude(orphan)
+        return True
     token = uuid.uuid4().hex
     with SessionLocal() as db:
         work, ended = _claim(db, token)
         db.commit()
         if work is None:
-            return False
+            return repaired
         db.expunge(work)
     if ended == "expired":
         _log({"op": "expired", "work": str(work.id), "kind": work.kind})
@@ -190,7 +205,9 @@ def run_once() -> bool:
         return True
     generation = work.cancellation_generation
     try:
-        if work.kind == "recall":
+        if work.input.get("autonomous"):
+            result, status, error = work.result, "completed", None
+        elif work.kind == "recall":
             result, status, error = _run_recall(work)
         else:
             result, status, error = _run_mind(work)
@@ -313,6 +330,12 @@ def _conclude(work_id: uuid.UUID) -> None:
         db.expunge(work)
     common = dict(request_id=work.request_id, user_id=work.user_id, conversation_id=work.conversation_id,
                   phase="follow_up", work_id=work.id)
+    if work.input.get("autonomous"):
+        from app.services import autonomous_speech
+        with SessionLocal() as db:
+            if not autonomous_speech.valid(db, work):
+                _record(**common, decision="rejected", origin="coordinator", missing=None, status="not_sent")
+                return
     if work.status == "superseded" or newer:
         # The conversation moved on: the thought stays private; it can't answer a newer message.
         _record(**common, decision="superseded", origin="coordinator", missing=None, status="not_sent")
@@ -324,8 +347,12 @@ def _conclude(work_id: uuid.UUID) -> None:
         evidence_refs=tuple(r.get("evidence_refs") or ()), evidence_status=r.get("evidence_status"),
         failed=None if work.status == "completed" else (work.error_code or work.status))
     decision = cognition_decisions.decide_result(ResultInput(
-        str(work.request_id), f"message:{work.trigger_message_id}", result, work.input.get("interpretation"),
-        newer, immediate, work.input.get("channel", "web")))
+        str(work.request_id), (f"event:{work.input['event_id']}" if work.input.get("autonomous")
+                               else f"message:{work.trigger_message_id}"), result, work.input.get("interpretation"),
+        newer, immediate, work.input.get("channel", "web"),
+        phase="autonomous_event" if work.input.get("autonomous") else "thought_result",
+        user_id=str(work.user_id), activity_id=str(work.activity_id) if work.activity_id else None,
+        conversation_id=str(work.conversation_id), input_versions=work.input_versions))
     if not decision.supported or not decision.action:
         _record(**common, decision="blocked", origin=decision.origin, missing=decision.missing_capability,
                 status="not_sent")
@@ -373,6 +400,10 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
         work = db.get(CoordinatorWork, work_id)
         if work is None or work.status == "superseded":
             return False, None
+        if work.input.get("autonomous"):
+            from app.services import autonomous_speech
+            if not autonomous_speech.valid(db, work):
+                return False, None
         trigger = _trigger(db, work)
         if trigger is not None and trigger.conversation_sequence is not None:
             newer = db.scalar(select(func.count()).select_from(ChatMessage).where(
@@ -381,7 +412,7 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
             if newer:
                 return False, None
         return True, {"result": work.result, "status": work.status, "error": work.error_code,
-                      "message": work.input.get("message", "")}
+                      "message": work.input.get("message", ""), "autonomous": work.input.get("autonomous", False)}
 
 
 _EVIDENCE_WORDS = {"matched": "memory had something on it", "partial": "memory was only partly readable",
@@ -394,7 +425,8 @@ def render_result(info: dict) -> str:
     """The finished thought as the mouth reads it: what it was about, the conclusion and how sure, what memory
     gave it. Her private reasoning (``thinking``) is never shown."""
     r = info.get("result") or {}
-    lines = [f'What they said: "{info.get("message", "")}"']
+    lines = (["Your autonomous thought (not a user request):"] if info.get("autonomous") else
+             [f'What they said: "{info.get("message", "")}"'])
     if info.get("status") != "completed" or not r.get("conclusion"):
         why = info.get("error") or info.get("status")
         lines.append(f"Your thinking didn't reach a conclusion ({why}).")
@@ -408,6 +440,67 @@ def render_result(info: dict) -> str:
     return "\n".join(lines)
 
 
+def save_follow_up_receipt(db, job, message, status: str) -> None:
+    """Same transaction as the assistant row and terminal job. Publication is recoverable."""
+    row = db.scalar(select(CoordinatorOutput).where(
+        CoordinatorOutput.chat_job_id == job.id).with_for_update())
+    if row is None:
+        return
+    row.status = status
+    row.assistant_message_id = message.id if message else None
+    row.announcement_pending = bool(status == "delivered" and message and message.content)
+
+
+def announce_follow_up(request_id: uuid.UUID) -> bool:
+    from app.workers import chat as worker
+
+    with SessionLocal() as db:
+        row = db.scalar(select(CoordinatorOutput).where(
+            CoordinatorOutput.request_id == request_id, CoordinatorOutput.phase == "follow_up",
+            CoordinatorOutput.announcement_pending.is_(True)).with_for_update(skip_locked=True))
+        if row is None:
+            return False
+        job = db.get(ChatJob, row.chat_job_id)
+        message = db.get(ChatMessage, row.assistant_message_id)
+        if job is None or message is None:
+            row.announcement_pending = False
+            db.commit()
+            return True
+        # Publish before clearing: a crash can repeat this ID, never regenerate the reply.
+        if not worker._announce(job, message.content, message.id):
+            return False
+        row.announcement_pending = False
+        work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
+        if work and work.input.get("autonomous"):
+            from app.services import autonomous_speech
+            autonomous_speech.delivered(work)
+        db.commit()
+        return True
+
+
+def recover_follow_up() -> bool:
+    """Repair pre-outbox crash windows and drain durable pending announcements."""
+    repaired = False
+    with SessionLocal() as db:
+        row = db.scalar(select(CoordinatorOutput).join(ChatJob, ChatJob.id == CoordinatorOutput.chat_job_id).where(
+            CoordinatorOutput.phase == "follow_up", CoordinatorOutput.status == "dispatched",
+            ChatJob.status.in_(("completed", "cancelled", "failed")))
+            .order_by(CoordinatorOutput.created_at).with_for_update(of=CoordinatorOutput, skip_locked=True).limit(1))
+        if row is not None:
+            job = db.get(ChatJob, row.chat_job_id)
+            message = db.scalar(select(ChatMessage).where(
+                ChatMessage.turn_id == job.turn_id, ChatMessage.role == "assistant"))
+            status = ({"completed": "delivered", "partial": "partial", "cancelled": "cancelled",
+                       "failed": "failed"}.get(message.status, "failed") if message else
+                      ("cancelled" if job.status == "cancelled" else "failed"))
+            save_follow_up_receipt(db, job, message, status)
+            db.commit()
+            repaired = True
+        request = db.scalar(select(CoordinatorOutput.request_id).where(
+            CoordinatorOutput.announcement_pending.is_(True)).order_by(CoordinatorOutput.updated_at).limit(1))
+    return (announce_follow_up(request) if request else False) or repaired
+
+
 def follow_up_outcome(request_id: uuid.UUID, *, status: str, assistant_message_id: uuid.UUID | None) -> None:
     try:
         with SessionLocal() as db:
@@ -415,6 +508,10 @@ def follow_up_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
                                                             CoordinatorOutput.phase == "follow_up"))
             if row is not None:
                 row.status, row.assistant_message_id = status, assistant_message_id
+                work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
+                if status == "delivered" and work and work.input.get("autonomous"):
+                    from app.services import autonomous_speech
+                    autonomous_speech.delivered(work)
                 db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("coordinator: recording the follow-up outcome failed")

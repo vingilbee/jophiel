@@ -103,6 +103,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import AgentRuntimeContext, prompts, stream_chat, vision
@@ -111,7 +112,7 @@ from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.api.deps import get_current_user, validate_origin
 from app.core.config import get_settings
-from app.db.models import User
+from app.db.models import ChatJob, User
 from app.db.session import SessionLocal, get_db
 from app.schemas.chat import (
     ChatRunRequest,
@@ -498,11 +499,22 @@ async def chat_ws(websocket: WebSocket) -> None:
         except (WebSocketDisconnect, RuntimeError):
             connected = False
 
+    try:
+        resume_turn_id = uuid.UUID(websocket.query_params.get("resume_turn_id", ""))
+    except ValueError:
+        resume_turn_id = None
+
     def read_history() -> dict:
         db = SessionLocal()
         try:
-            conversations = chat_service.list_conversations(db, user_id=user_id)
-            conversation = conversations[0] if conversations else None
+            resume_job = db.scalar(select(ChatJob).where(
+                ChatJob.turn_id == resume_turn_id, ChatJob.user_id == user_id)) if resume_turn_id else None
+            if resume_job is not None:
+                conversation = chat_service.get_conversation(db, user_id=user_id,
+                                                             conversation_id=resume_job.conversation_id)
+            else:
+                conversations = chat_service.list_conversations(db, user_id=user_id)
+                conversation = conversations[0] if conversations else None
             detail = (
                 chat_service.get_conversation(
                     db, user_id=user_id, conversation_id=conversation.id
@@ -811,6 +823,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply to be generated *and* spoken, then is said.
         """
         last_interrupt = 0.0
+        seen_messages: dict[str, None] = {}
         url = settings.redis_url
         if not url:
             return
@@ -832,6 +845,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                     # and never a message, so it doesn't wait for a reply to finish.
                     await send_json({"type": "thought", "thought": data.get("thought")})
                     continue
+                message_id = data.get("message_id")
+                if message_id:
+                    if message_id in seen_messages:
+                        continue
+                    seen_messages[message_id] = None
+                    if len(seen_messages) > 200:
+                        del seen_messages[next(iter(seen_messages))]
                 # This socket's voice phase, as the browser last reported it.
                 def replying() -> bool:
                     return (current_task is not None and not current_task.done()) or \
@@ -860,7 +880,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                     and (interrupt or senses.voice_state in ("idle", "listening"))
                 )
                 await send_json({"type": "nudge_start", "conversation_id": data["conversation_id"],
-                                 "reason": data.get("reason", "game")})
+                                 "reason": data.get("reason", "game"), "message_id": data.get("message_id")})
                 await send_json({"type": "nudge_token", "content": data["text"]})
                 if speak_aloud:
                     clauses: asyncio.Queue[str | None] = asyncio.Queue()
