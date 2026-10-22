@@ -579,6 +579,20 @@ class Settings(BaseSettings):
     recall_association_model: str | None = None
     recall_embedding_batch: int = Field(default=32, ge=1, le=256)
     recall_log_path: str = "var/recall.jsonl"
+    # Source-backed history (docs/COLUMBINA_SOURCE_BACKED_RECALL.md; services/recall_history.py): her
+    # recall_history tool follows the evidence links from what search found to the user's own words and
+    # the memories they touched, across contexts, then one structured call rebuilds how the thing changed,
+    # every step citing exact words. Read-only toward memory. Needs RECALL_ENABLED. Off: no tool.
+    recall_history_enabled: bool = False
+    recall_history_model: str = "gpt-6-luna"
+    recall_history_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
+    # Expansion budgets: how far from what search found, how many records, how much source text, how long.
+    recall_history_max_depth: int = Field(default=6, ge=1, le=12)
+    recall_history_max_nodes: int = Field(default=128, ge=8, le=1000)
+    recall_history_max_fanout: int = Field(default=24, ge=2, le=200)  # records reached from one source
+    recall_history_max_chars: int = Field(default=16000, ge=1000, le=100000)
+    recall_history_passage_chars: int = Field(default=1500, ge=200, le=10000)
+    recall_history_seconds: float = Field(default=3.0, gt=0, le=30)
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.
     typesafe_api_key: str = ""

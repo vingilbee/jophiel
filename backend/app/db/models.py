@@ -2412,6 +2412,112 @@ class RecallReference(Base):
     )
 
 
+RECALL_HISTORY_STATUSES = ("complete", "partial", "no_history", "failed")
+RECALL_HISTORY_SPEAKERS = ("user", "columbina", "source", "memory")
+
+
+class RecallReconstruction(Base):
+    """One history her ``recall_history`` tool rebuilt for a reply (docs/COLUMBINA_SOURCE_BACKED_RECALL.md):
+    what was asked, the checked account (citations as spans into the passages, never copied text), how the
+    collection went, and the reader's model and input digest, so what generation received can be traced
+    later. Its passages are ``recall_reconstruction_sources``. Belongs to the reply's receipt."""
+
+    __tablename__ = "recall_reconstructions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    receipt_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)  # as the tool was asked, bounded
+    about: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reasoning_effort: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    input_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    account: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    coverage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(RECALL_HISTORY_STATUSES)})", name="ck_recall_reconstructions_status"),
+        UniqueConstraint("id", "user_id", name="uq_recall_reconstructions_id_user"),
+        ForeignKeyConstraint(["receipt_id", "user_id"], ["recall_receipts.id", "recall_receipts.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstructions_receipt"),
+        Index("ix_recall_reconstructions_receipt", "receipt_id"),
+    )
+
+
+class RecallReconstructionSource(Base):
+    """One passage a rebuilt history was shown: exactly one real target (a memory, or the message,
+    observation, experience, session event or thought it came from), its version then (``fingerprint``),
+    who asserted it, and whether the account cited it. No text: deleting the source deletes the row, and
+    the reconstruction keeps only its counts. A trigger checks a source row belongs to the owner."""
+
+    __tablename__ = "recall_reconstruction_sources"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    reconstruction_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    label: Mapped[str] = mapped_column(String(8), nullable=False)
+    speaker: Mapped[str] = mapped_column(String(16), nullable=False)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    cited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    in_scope: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    said_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    observation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), nullable=True)
+    experience_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_experiences.id", ondelete="CASCADE"), nullable=True)
+    session_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("desktop_session_events.id", ondelete="CASCADE"), nullable=True)
+    thought_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mind_thoughts.id", ondelete="CASCADE"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"speaker IN ({_in(RECALL_HISTORY_SPEAKERS)})", name="ck_recall_reconstruction_sources_speaker"),
+        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id, message_id, observation_id, "
+                        "experience_id, session_event_id, thought_id) = 1",
+                        name="ck_recall_reconstruction_sources_target"),
+        UniqueConstraint("reconstruction_id", "label", name="uq_recall_reconstruction_sources_label"),
+        ForeignKeyConstraint(["reconstruction_id", "user_id"],
+                             ["recall_reconstructions.id", "recall_reconstructions.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_reconstruction"),
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_fact"),
+        ForeignKeyConstraint(["episode_id", "user_id"], ["episodic_memories.id", "episodic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_episode"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_event"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_item"),
+        Index("ix_recall_reconstruction_sources_reconstruction", "reconstruction_id"),
+        Index("ix_recall_reconstruction_sources_message", "message_id", postgresql_where=sa_text("message_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_event", "event_id", postgresql_where=sa_text("event_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_episode", "episode_id",
+              postgresql_where=sa_text("episode_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_observation", "observation_id",
+              postgresql_where=sa_text("observation_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_experience", "experience_id",
+              postgresql_where=sa_text("experience_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_session_event", "session_event_id",
+              postgresql_where=sa_text("session_event_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_thought", "thought_id",
+              postgresql_where=sa_text("thought_id IS NOT NULL")),
+    )
+
+
 class MemoryEventEmbedding(Base):
     """A memory event's embedding, written in the background so writing an event stays code-only. Recall
     works without it (context, words, time); a result whose fingerprint no longer matches is discarded."""
@@ -2457,6 +2563,34 @@ CREATE TRIGGER recall_receipts_owner_check BEFORE INSERT OR UPDATE ON recall_rec
 """
 
 event.listen(RecallReceipt.__table__, "after_create", DDL(RECALL_RECEIPT_OWNER_DDL).execute_if(dialect="postgresql"))
+
+# A rebuilt history's source rows belong to its owner (memories are checked by their composite keys).
+RECALL_RECONSTRUCTION_SOURCE_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION recall_reconstruction_sources_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF (NEW.message_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = NEW.message_id AND c.user_id = NEW.user_id))
+       OR (NEW.observation_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM observations o WHERE o.id = NEW.observation_id AND o.user_id = NEW.user_id))
+       OR (NEW.experience_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM game_experiences g WHERE g.id = NEW.experience_id AND g.user_id = NEW.user_id))
+       OR (NEW.thought_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM mind_thoughts t WHERE t.id = NEW.thought_id AND t.user_id = NEW.user_id))
+       OR (NEW.session_event_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM desktop_session_events e JOIN desktop_sessions s ON s.id = e.session_id
+            WHERE e.id = NEW.session_event_id AND s.owner_user_id = NEW.user_id)) THEN
+        RAISE EXCEPTION 'a reconstruction source must belong to its owner' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER recall_reconstruction_sources_owner_check BEFORE INSERT OR UPDATE ON recall_reconstruction_sources
+    FOR EACH ROW EXECUTE FUNCTION recall_reconstruction_sources_owner_check();
+"""
+
+event.listen(RecallReconstructionSource.__table__, "after_create",
+             DDL(RECALL_RECONSTRUCTION_SOURCE_OWNER_DDL).execute_if(dialect="postgresql"))
 
 
 # --------------------------------------------------------------------------- #

@@ -337,27 +337,9 @@ def _events(db: Session, req: RecallRequest, s: _Search, pulled: set[uuid.UUID])
         rows.update({e.id: e for e in db.scalars(ranged.order_by(column.desc()).limit(200))})
     events = list(rows.values())
     vectors = _event_vectors(db, events, s)
-    later = _corrected_after(db, events)
-    out = []
-    for e in events:
-        record = _event_record(e, s)
-        if e.id in later:
-            # What the item said then: true history, but no longer what it says (docs/COLUMBINA_MEMORY_CORRECTIONS.md).
-            record = replace(record, applicability="no_longer_current",
-                             lifecycle=f"the user corrected it later; it now reads as in [item:{e.item_id}]")
-        out.append(_Candidate(record, vectors.get(e.id), echo_of=e.item_id if e.kind in _ITEM_ECHO else None))
-    return out
-
-
-def _corrected_after(db: Session, events: list[MemoryEvent]) -> set[int]:
-    """Events about an item that a correction revised after they were written (by its ``correction`` links)."""
-    about = {e.item_id for e in events if e.item_id is not None and e.kind in _ITEM_WORDING}
-    if not about:
-        return set()
-    latest = dict(db.execute(select(MemoryEvidence.item_id, func.max(MemoryEvidence.created_at)).where(
-        MemoryEvidence.item_id.in_(about), MemoryEvidence.role == "correction").group_by(MemoryEvidence.item_id)).all())
-    return {e.id for e in events if e.item_id in latest and e.kind in _ITEM_WORDING
-            and _utc(e.recorded_at) < _utc(latest[e.item_id])}
+    records = annotate(db, [_event_record(e, s) for e in events])
+    return [_Candidate(record, vectors.get(e.id), echo_of=e.item_id if e.kind in _ITEM_ECHO else None)
+            for e, record in zip(events, records)]
 
 
 def _items(db: Session, req: RecallRequest, s: _Search, pulled: set[uuid.UUID]) -> list[_Candidate]:
@@ -367,9 +349,11 @@ def _items(db: Session, req: RecallRequest, s: _Search, pulled: set[uuid.UUID]) 
     rows = {i.id: i for i in db.scalars(base.order_by(WorkingItem.updated_at.desc()).limit(200))}
     if pulled:
         rows.update({i.id: i for i in db.scalars(base.where(WorkingItem.context_id.in_(pulled)).limit(100))})
-    return [_Candidate(_item_record(entry, s)) for entry in rows.values()
-            # Open items of the focused context are already in her working view, with their ids.
-            if not (req.skip_open_items_of and entry.context_id == req.skip_open_items_of and entry.closed_at is None)]
+    records = annotate(db, [_item_record(entry, s) for entry in rows.values()
+                            # Open items of the focused context are already in her working view, with their ids.
+                            if not (req.skip_open_items_of and entry.context_id == req.skip_open_items_of
+                                    and entry.closed_at is None)])
+    return [_Candidate(record) for record in records]
 
 
 def _facts(db: Session, req: RecallRequest, s: _Search) -> list[_Candidate]:
@@ -557,6 +541,37 @@ def _count_access(db: Session, records: list[MemoryRecord]) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def annotate(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
+    """What a correction changed, the same on every read path (search, ``read``, ``timeline``, the reread of
+    an answer's references, history expansion): an event quoting an item's wording from before a correction
+    revised it is history, no longer what the item says (docs/COLUMBINA_MEMORY_CORRECTIONS.md); an item a
+    correction revised says so. Never applied twice: it reads only what's stored."""
+    wording = [int(r.ref.id) for r in records if r.ref.kind == "event" and r.subkind in _ITEM_WORDING]
+    items = {uuid.UUID(r.ref.id) for r in records if r.ref.kind == "item"}
+    about = dict(db.execute(select(MemoryEvent.id, MemoryEvent.item_id).where(
+        MemoryEvent.id.in_(wording), MemoryEvent.item_id.is_not(None))).all()) if wording else {}
+    targets = items | set(about.values())
+    if not targets:
+        return records
+    latest = dict(db.execute(select(MemoryEvidence.item_id, func.max(MemoryEvidence.created_at)).where(
+        MemoryEvidence.item_id.in_(targets), MemoryEvidence.role == "correction")
+        .group_by(MemoryEvidence.item_id)).all())
+    if not latest:
+        return records
+    out = []
+    for record in records:
+        if record.ref.kind == "item" and uuid.UUID(record.ref.id) in latest:
+            record = replace(record, corrected=True)
+        elif record.ref.kind == "event" and record.subkind in _ITEM_WORDING:
+            item_id = about.get(int(record.ref.id))
+            if item_id in latest and record.recorded_at < _utc(latest[item_id]):
+                # What the item said then: true history, but no longer what it says.
+                record = replace(record, applicability="no_longer_current",
+                                 lifecycle=f"the user corrected it later; it now reads as in [item:{item_id}]")
+        out.append(record)
+    return out
+
+
 def _with_evidence(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
     events = [int(r.ref.id) for r in records if r.ref.kind == "event"]
     items = [uuid.UUID(r.ref.id) for r in records if r.ref.kind == "item"]
@@ -642,7 +657,7 @@ def _read_one(db: Session, user_id: uuid.UUID, ref: MemoryRef, s: _Search | None
                                       now=datetime.now(timezone.utc)))
     if row.context_id not in s.contexts:
         s.contexts[row.context_id] = db.get(MemoryContext, row.context_id)
-    return _event_record(row, s) if ref.kind == "event" else _item_record(row, s)
+    return annotate(db, [_event_record(row, s) if ref.kind == "event" else _item_record(row, s)])[0]
 
 
 def read(db: Session, user_id: uuid.UUID, ref: MemoryRef | str, *, include_evidence: bool = False) -> RecallResult:
@@ -693,7 +708,7 @@ def timeline(db: Session, user_id: uuid.UUID, context_id: uuid.UUID, *, time_ran
                                                          WorkingItem.context_id == context_id)
                                .order_by(WorkingItem.created_at).limit(10))
             records += [replace(_item_record(entry, s), matched=("named_context",)) for entry in items]
-        records = _with_evidence(db, records)
+        records = _with_evidence(db, annotate(db, records))
     except Exception:  # noqa: BLE001
         log.exception("recall: timeline of %s failed", context_id)
         return RecallResult.failed("timeline_failed", ("event", "item"))
@@ -779,7 +794,7 @@ def _record_line(record: MemoryRecord, now: datetime, zone: ZoneInfo) -> str:
         parts.append("no longer current" + (f": {record.lifecycle}" if record.lifecycle else ""))
     elif record.lifecycle:
         parts.append(record.lifecycle)
-    if record.ref.kind == "item" and any(e.role == "correction" for e in record.evidence or ()):
+    if record.corrected:
         parts.append("corrected by the user since it was first noted")
     if "direct_reference" in record.matched:
         parts.append("from your last answer")
