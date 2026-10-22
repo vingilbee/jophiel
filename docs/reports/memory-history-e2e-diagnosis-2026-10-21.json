@@ -1,0 +1,569 @@
+{
+  "scope": "11 real frontend exchanges in 6 chats; existing isolated synthetic Memory Retest account; fresh Juniper subject plus stored regression cases",
+  "turns": [
+    {
+      "user_message_id": "28f1c5b2-656b-47d3-9807-bcfe0953526d",
+      "assistant_message_id": "0fa11568-d4d7-596c-86ca-5775745b6576",
+      "conversation_id": "d676adc5-7708-4ea0-a712-b24b0422c05a",
+      "question": "From memory, what's Lantern's confirmed meeting day, time and venue now? What was the sequence of meeting times I told you, including the earliest old plan? Was the west reading room ever confirmed, or just a possibility? Please check the recorded history and don't guess.",
+      "answer": "Lantern\u2019s confirmed meeting is **Saturday at 6 pm in the library courtyard**.\n\nThe meeting-time sequence you gave was:\n- **4 pm** \u2014 the earliest plan.\n- **5 pm** \u2014 moved from 4 pm.\n- **6 pm** \u2014 moved again from 5 pm; this is the current time.\n\nThe **west reading room was only a possibility** in case of heavy rain. You explicitly said nobody had decided to move there, and the courtyard remained the confirmed venue.",
+      "receipt_id": 30,
+      "counts": {
+        "by_kind": {
+          "fact": 3,
+          "item": 6,
+          "event": 14
+        },
+        "supplied": 23,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_complete"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        1
+      ]
+    },
+    {
+      "user_message_id": "9f9078aa-b777-4f9e-8244-974b954fccd6",
+      "assistant_message_id": "78b9728d-ace5-5e9c-8e49-c7c0c032a3ed",
+      "conversation_id": "d60fc2e8-a1eb-4714-b959-6d7c71841007",
+      "question": "Please check what I originally told you and any later corrections: what were Marble fox's original and current markers, and did Willow finch's marker change? Which card did I explicitly say was important because I would test you later? Also, was Mira's chamomile preference a real change from peppermint or a correction of my earlier mistake? Say what isn't supported.",
+      "answer": "- **Marble fox:** You first said its marker was a **purple square**. You later corrected it to a **red crescent**, which is the current marker.\n- **Willow finch:** Its marker is a **purple square**. You later said it **still** had that marker; there\u2019s no supported change.\n- **The card you said was important because you\u2019d test me later:** **Marble fox**.\n- **Mira\u2019s tea:** Chamomile was a **correction**, not a change in her preference. You said she had always preferred chamomile and that peppermint was your earlier mistake.\n\nWhat isn\u2019t supported: we can\u2019t tell whether Marble fox had any marker before the earliest recorded one, the purple square.",
+      "receipt_id": 31,
+      "counts": {
+        "by_kind": {
+          "fact": 8,
+          "item": 7,
+          "event": 15
+        },
+        "supplied": 30,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        2
+      ]
+    },
+    {
+      "user_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "assistant_message_id": "39d32a57-9d22-5317-98c7-2bf99eda673e",
+      "conversation_id": "e2fb8c78-4676-4f6e-806b-d8fd32b4ba66",
+      "question": "I'm starting the Juniper pottery circle. We meet Sundays at 2 pm in the north studio. I prefer ginger tea there, and Ada prefers oolong. I still need to bring my glaze notebook; I haven't brought it yet. Please remember these plans for next time.",
+      "answer": "I\u2019ll remember: Juniper pottery circle meets Sundays at 2 pm in the north studio; you like ginger tea there, Ada likes oolong, and you still need to bring your glaze notebook.",
+      "receipt_id": 32,
+      "counts": {
+        "by_kind": {
+          "fact": 1,
+          "event": 5
+        },
+        "supplied": 6,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "chat_job_status": "completed",
+      "histories": []
+    },
+    {
+      "user_message_id": "73d33224-407c-4bd3-a79b-fffbeb89e2f9",
+      "assistant_message_id": "8e43679b-9c6c-5538-98b1-ab8166b4b955",
+      "conversation_id": "e2fb8c78-4676-4f6e-806b-d8fd32b4ba66",
+      "question": "I've been enjoying making small bowls more than tall vases lately. What makes a handmade bowl feel comfortable to hold?",
+      "answer": "A bowl often feels comfortable when it settles naturally into your hands: a gently rounded underside, a rim that isn\u2019t sharp or bulky, and a size that lets your fingers find a steady place without stretching. A little variation can make it feel especially inviting, as long as the weight and balance still feel right.\n\nSince you\u2019ve been enjoying small bowls, you might notice how the foot and the curve into the sides affect the way one sits in your palm. Do you tend to hold yours with both hands, or cradle them in one?",
+      "receipt_id": 33,
+      "counts": {
+        "by_kind": {
+          "fact": 1,
+          "event": 3
+        },
+        "supplied": 4,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "chat_job_status": "completed",
+      "histories": []
+    },
+    {
+      "user_message_id": "c84b28e6-1058-44c6-93d3-c683f2262605",
+      "assistant_message_id": "7027d37b-0f0d-5d8d-9ad2-052d44b9087e",
+      "conversation_id": "e2fb8c78-4676-4f6e-806b-d8fd32b4ba66",
+      "question": "Usually with both hands. By the way, Juniper's Sunday meeting has moved from 2 pm to 3 pm. The north studio, people and tea preferences are unchanged.",
+      "answer": "Both hands\u2014it makes sense; a small bowl can feel like it\u2019s being held rather than just carried.\n\nAnd noted: Juniper now meets Sundays at **3 pm** in the north studio. The people and tea preferences are unchanged, and your glaze notebook is still on the bring-along list.",
+      "receipt_id": 34,
+      "counts": {
+        "by_kind": {
+          "fact": 4,
+          "item": 5,
+          "event": 11
+        },
+        "supplied": 20,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        3
+      ]
+    },
+    {
+      "user_message_id": "c46dfabe-77cc-4430-879f-8efe04f8862e",
+      "assistant_message_id": "007a8e62-ba56-5c2a-9da6-e9d82d339128",
+      "conversation_id": "9e9e1e97-b800-4c57-a4e5-3a99b5c7798d",
+      "question": "A further Juniper update: our Sunday pottery meeting has moved again, from 3 pm to 7 pm. The north studio is still the confirmed venue. Someone floated the rooftop room if it gets crowded, but nobody agreed to move there; that was only a possibility.",
+      "answer": "Got it: Juniper now meets Sundays at **7 pm** in the **north studio**. The rooftop room was only suggested as a backup possibility, not agreed on. Your ginger tea, Ada\u2019s oolong, and your glaze notebook reminder stay as before.",
+      "receipt_id": 35,
+      "counts": {
+        "by_kind": {
+          "fact": 5,
+          "item": 6,
+          "event": 14
+        },
+        "supplied": 25,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        4
+      ]
+    },
+    {
+      "user_message_id": "07c8bca2-e17c-43f9-93c7-5382274d59ba",
+      "assistant_message_id": "b43005ee-623e-5532-b68d-22b3dec79965",
+      "conversation_id": "9e9e1e97-b800-4c57-a4e5-3a99b5c7798d",
+      "question": "I need to correct something I told you about Ada: she has always preferred rooibos, not oolong. My earlier statement was mistaken; her taste hasn't changed. My own ginger tea preference is still the same.",
+      "answer": "Understood\u2014Ada has always preferred rooibos; the earlier oolong detail was mistaken. Your ginger tea preference is unchanged.",
+      "receipt_id": 36,
+      "counts": {
+        "by_kind": {
+          "fact": 5,
+          "item": 4,
+          "event": 13
+        },
+        "supplied": 22,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        5
+      ]
+    },
+    {
+      "user_message_id": "d47c32f2-30e5-45a6-bd45-5f485b32a6d8",
+      "assistant_message_id": "f0602bd2-c85d-539b-a62a-747e5d99afdf",
+      "conversation_id": "9e9e1e97-b800-4c57-a4e5-3a99b5c7798d",
+      "question": "Quick update: I brought my glaze notebook to Juniper today, so that bring-notebook task is done. The Sunday 7 pm meeting in the north studio is still the plan.",
+      "answer": "Glad you brought it. I\u2019ve marked the notebook reminder done; the Sunday 7 pm meeting in the north studio is still the plan.",
+      "receipt_id": 37,
+      "counts": {
+        "by_kind": {
+          "event": 6
+        },
+        "supplied": 6,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "chat_job_status": "completed",
+      "histories": []
+    },
+    {
+      "user_message_id": "3a1c3dee-3eaf-4f04-a2d4-06c5ce793969",
+      "assistant_message_id": "c805e5da-4d84-5c10-b1ba-ed94f925d022",
+      "conversation_id": "5af9d3b1-aba4-473a-b581-3eaa184bcdb1",
+      "question": "What do you remember about Juniper now: which day, time and venue are confirmed, what was the full order of meeting-time changes, and was the rooftop room an actual move or only a possibility? Which tea do Ada and I prefer, and was Ada's preference a real change or a correction of my earlier mistake? Do I still need to bring my glaze notebook, or have I already brought it? Also, did I ever tell you a studio room number? Please use the recorded history and say when something isn't known.",
+      "answer": "Juniper\u2019s confirmed plan is **Sundays at 7 pm in the north studio**. The meeting time changed in this order: **2 pm \u2192 3 pm \u2192 7 pm**. The rooftop room was only floated as a possibility if it got crowded; there was no agreed move.\n\nYou prefer **ginger tea** there, and **Ada prefers oolong**. The record doesn\u2019t show Ada\u2019s preference changing or being corrected\u2014it was stated as oolong from the beginning.\n\nYou\u2019ve **already brought your glaze notebook** to Juniper today, so you don\u2019t still need to bring it. I don\u2019t have a studio room number; the venue was only specified as the north studio.",
+      "receipt_id": 38,
+      "counts": {
+        "by_kind": {
+          "fact": 7,
+          "item": 8,
+          "event": 21
+        },
+        "supplied": 36,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        6
+      ]
+    },
+    {
+      "user_message_id": "e627c5f4-4467-4e8f-a18f-78928c0763c3",
+      "assistant_message_id": "5f34d8b2-ad92-5f93-a3f6-7275b219499e",
+      "conversation_id": "5af9d3b1-aba4-473a-b581-3eaa184bcdb1",
+      "question": "Please check the full recorded history specifically for Ada's tea preference, including corrections to earlier statements. What did I first say, what did I later correct, and what holds now? Distinguish the user's own statements from your earlier answers; don't guess.",
+      "answer": "The recorded history shows **one statement from you about Ada\u2019s tea**: \u201cAda prefers oolong,\u201d in your first Juniper plans message. Later, you updated the meeting time and said the tea preferences were unchanged, which supports oolong still being the preference. **I don\u2019t find a user correction to Ada\u2019s tea preference, or an earlier conflicting statement about Ada.**\n\nSo, what holds now is that **Ada prefers oolong**. I should correct my previous reply: I said there was no change or correction \u201cfrom the beginning,\u201d but the history only supports that oolong was the first recorded preference; it doesn\u2019t establish what came before that.",
+      "receipt_id": 39,
+      "counts": {
+        "by_kind": {
+          "fact": 7,
+          "item": 9,
+          "event": 21
+        },
+        "supplied": 37,
+        "histories": 1,
+        "tool_calls": 1,
+        "tool_statuses": [
+          "history_partial"
+        ]
+      },
+      "chat_job_status": "completed",
+      "histories": [
+        7
+      ]
+    },
+    {
+      "user_message_id": "8f0f7cb6-f1c9-43c1-8195-c435432e7fd8",
+      "assistant_message_id": "74fd8735-61f3-5032-81c3-beb429bdbcc0",
+      "conversation_id": "a6a0bb91-4d82-4c28-9455-b76d5b25fae3",
+      "question": "What's Juniper's current meeting day, time and confirmed venue? Which tea do Ada and I prefer there, and do I still need to bring my glaze notebook? Please keep this to the current facts.",
+      "answer": "Juniper meets Sundays at 7 pm in the north studio. You prefer ginger tea, and Ada prefers oolong. You still need to bring your glaze notebook.",
+      "receipt_id": 40,
+      "counts": {
+        "by_kind": {
+          "event": 6
+        },
+        "supplied": 6,
+        "tool_calls": 0,
+        "tool_statuses": []
+      },
+      "chat_job_status": "completed",
+      "histories": []
+    }
+  ],
+  "verified_user_source_citations": [
+    {
+      "history_id": 1,
+      "passage": "p1",
+      "source_message_id": "963183b3-c344-4932-bc58-797443685c82",
+      "fingerprint_matches": true,
+      "quote": "Our book club is called Lantern; we meet on Saturdays at 4 pm in the library courtyard."
+    },
+    {
+      "history_id": 1,
+      "passage": "p6",
+      "source_message_id": "8b722942-6252-402a-9d9d-edca4e4e98d7",
+      "fingerprint_matches": true,
+      "quote": "our Saturday book club meeting has moved from 4 pm to 5 pm. Same library courtyard"
+    },
+    {
+      "history_id": 1,
+      "passage": "p13",
+      "source_message_id": "929b0098-d2cd-4466-b4e3-f98fd2586ae2",
+      "fingerprint_matches": true,
+      "quote": "the Saturday meeting has moved again, from 5 pm to 6 pm. The library courtyard is still the place."
+    },
+    {
+      "history_id": 1,
+      "passage": "p18",
+      "source_message_id": "ff4c09c0-1e8f-4c75-acd7-59f723a92490",
+      "fingerprint_matches": true,
+      "quote": "if it rained heavily, we might move Lantern into the west reading room. Nobody has decided that"
+    },
+    {
+      "history_id": 1,
+      "passage": "p18",
+      "source_message_id": "ff4c09c0-1e8f-4c75-acd7-59f723a92490",
+      "fingerprint_matches": true,
+      "quote": "the confirmed venue is still the library courtyard."
+    },
+    {
+      "history_id": 2,
+      "passage": "p1",
+      "source_message_id": "764bbc31-79b7-45c2-99c3-d0df2a2dd2db",
+      "fingerprint_matches": true,
+      "quote": "Marble fox is my Factory and REST card: separate complicated object construction from the product; resource URIs are nouns; GET, PUT and DELETE are idempotent. Its marker is a purple square."
+    },
+    {
+      "history_id": 2,
+      "passage": "p14",
+      "source_message_id": "38a031c4-0501-4a4e-8d84-ab37fdfb4c85",
+      "fingerprint_matches": true,
+      "quote": "I changed Marble fox's marker from a purple square to a red crescent."
+    },
+    {
+      "history_id": 2,
+      "passage": "p14",
+      "source_message_id": "38a031c4-0501-4a4e-8d84-ab37fdfb4c85",
+      "fingerprint_matches": true,
+      "quote": "I changed Marble fox's marker from a purple square to a red crescent."
+    },
+    {
+      "history_id": 3,
+      "passage": "p18",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "We meet Sundays at 2 pm in the north studio."
+    },
+    {
+      "history_id": 4,
+      "passage": "p18",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "We meet Sundays at 2 pm in the north studio."
+    },
+    {
+      "history_id": 4,
+      "passage": "p28",
+      "source_message_id": "c84b28e6-1058-44c6-93d3-c683f2262605",
+      "fingerprint_matches": true,
+      "quote": "Juniper's Sunday meeting has moved from 2 pm to 3 pm."
+    },
+    {
+      "history_id": 4,
+      "passage": "p28",
+      "source_message_id": "c84b28e6-1058-44c6-93d3-c683f2262605",
+      "fingerprint_matches": true,
+      "quote": "The north studio, people and tea preferences are unchanged."
+    },
+    {
+      "history_id": 5,
+      "passage": "p7",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "I prefer ginger tea there, and Ada prefers oolong."
+    },
+    {
+      "history_id": 5,
+      "passage": "p14",
+      "source_message_id": "c84b28e6-1058-44c6-93d3-c683f2262605",
+      "fingerprint_matches": true,
+      "quote": "The north studio, people and tea preferences are unchanged."
+    },
+    {
+      "history_id": 6,
+      "passage": "p24",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "We meet Sundays at 2 pm in the north studio."
+    },
+    {
+      "history_id": 6,
+      "passage": "p33",
+      "source_message_id": "c84b28e6-1058-44c6-93d3-c683f2262605",
+      "fingerprint_matches": true,
+      "quote": "Juniper's Sunday meeting has moved from 2 pm to 3 pm."
+    },
+    {
+      "history_id": 6,
+      "passage": "p38",
+      "source_message_id": "c46dfabe-77cc-4430-879f-8efe04f8862e",
+      "fingerprint_matches": true,
+      "quote": "our Sunday pottery meeting has moved again, from 3 pm to 7 pm."
+    },
+    {
+      "history_id": 6,
+      "passage": "p45",
+      "source_message_id": "d47c32f2-30e5-45a6-bd45-5f485b32a6d8",
+      "fingerprint_matches": true,
+      "quote": "The Sunday 7 pm meeting in the north studio is still the plan."
+    },
+    {
+      "history_id": 6,
+      "passage": "p38",
+      "source_message_id": "c46dfabe-77cc-4430-879f-8efe04f8862e",
+      "fingerprint_matches": true,
+      "quote": "nobody agreed to move there; that was only a possibility."
+    },
+    {
+      "history_id": 7,
+      "passage": "p26",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "I prefer ginger tea there, and Ada prefers oolong."
+    },
+    {
+      "history_id": 7,
+      "passage": "p26",
+      "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+      "fingerprint_matches": true,
+      "quote": "I prefer ginger tea there, and Ada prefers oolong."
+    }
+  ],
+  "source_hashes_unchanged_during_run": true,
+  "ada": {
+    "correction_message_id": "07c8bca2-e17c-43f9-93c7-5382274d59ba",
+    "consolidation_job": {
+      "id": "15d348c2-8214-4f13-810f-2f01888b2e37",
+      "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+      "conversation_id": "9e9e1e97-b800-4c57-a4e5-3a99b5c7798d",
+      "assistant_message_id": "b43005ee-623e-5532-b68d-22b3dec79965",
+      "status": "completed",
+      "attempts": 1,
+      "lease_expires_at": null,
+      "last_error": null,
+      "processed_at": "2026-10-21 17:31:57.117082",
+      "created_at": "2026-10-21 17:31:48.309071"
+    },
+    "retained_correction_rows": [],
+    "source_evidence_links": [],
+    "history_source_rows": [],
+    "observations": [
+      {
+        "id": 72,
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "context_id": null,
+        "source": "conversation",
+        "source_instance": "9e9e1e97-b800-4c57-a4e5-3a99b5c7798d",
+        "source_event_key": "message:3",
+        "kind": "user_message",
+        "schema_version": 1,
+        "actor": "user",
+        "epistemic": "observed",
+        "content_origin": "user",
+        "occurred_at": "2026-10-21 17:31:38.364779+00:00",
+        "received_at": "2026-10-21 17:31:39.328946+00:00",
+        "summary": "The user sent a message (204 characters) on web",
+        "salience": "routine",
+        "caused_by_id": null,
+        "outcome_of_id": null,
+        "message_id": "07c8bca2-e17c-43f9-93c7-5382274d59ba",
+        "delivery_id": null,
+        "experience_id": null,
+        "session_id": null
+      }
+    ],
+    "observation_processing": [
+      {
+        "observation_id": 72,
+        "consumer": "memory",
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "status": "skipped",
+        "attempts": 1,
+        "next_attempt_at": "2026-10-21 17:32:09.366176+00:00",
+        "processed_at": "2026-10-21 17:32:09.737068+00:00",
+        "reason": "kept in the conversation history",
+        "rule_version": "observation-memory-v1"
+      }
+    ],
+    "active_preference_facts": [
+      {
+        "id": "1640cd5f-afe7-4230-bd42-f75df0ffff2f",
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "kind": "fact",
+        "normalized_key": "person:ada_tea_preference",
+        "content": "Ada prefers oolong tea.",
+        "importance": 0.4,
+        "confidence": 0.99,
+        "status": "active",
+        "source_conversation_id": "e2fb8c78-4676-4f6e-806b-d8fd32b4ba66",
+        "source_message_id": "9ab63256-87a9-4ae5-b8d6-b4d234125487",
+        "last_confirmed_at": "2026-10-21 17:29:56.372424",
+        "last_accessed_at": "2026-10-21 17:33:10.280715",
+        "access_count": 1,
+        "expires_at": null,
+        "supporting_episode_ids": [],
+        "contradicting_episode_ids": [],
+        "evidence_count": 1,
+        "revision": 1,
+        "metadata": null,
+        "created_at": "2026-10-21 17:29:51.615450"
+      }
+    ]
+  },
+  "notebook": {
+    "completion_message_id": "d47c32f2-30e5-45a6-bd45-5f485b32a6d8",
+    "completion_event_id": 45,
+    "history_quiz_receipt": 38,
+    "current_only_receipt": 40,
+    "current_only_supplied_event_ids": [
+      43,
+      38,
+      39,
+      44,
+      33,
+      42
+    ],
+    "related_items": [
+      {
+        "id": "0b4e971f-b38a-458c-947a-962a3f4a528e",
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "context_id": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3",
+        "kind": "goal",
+        "parent_id": null,
+        "owner": "user",
+        "owed_to": null,
+        "text": "Remember the Juniper pottery circle plans: meet Sundays at 7 pm in the north studio; rooftop room was only floated as a possibility, not agreed. User prefers ginger tea there; Ada prefers oolong; user still needs to bring their glaze notebook.",
+        "done_when": "The user brings the glaze notebook or updates the plans.",
+        "status": "active",
+        "status_reason": null,
+        "epistemic": "reported",
+        "due_at": null,
+        "closed_at": null,
+        "revision": 1,
+        "created_at": "2026-10-21 17:31:22.551711+00:00",
+        "updated_at": "2026-10-21 17:31:22.551711+00:00"
+      },
+      {
+        "id": "6b8be08d-5e51-44af-ae52-9d35f8f42c59",
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "context_id": "50ae6b2b-a485-467e-bed9-f5c98fb31ad3",
+        "kind": "goal",
+        "parent_id": null,
+        "owner": "user",
+        "owed_to": null,
+        "text": "Remember the Juniper pottery circle plans: meet Sundays at 3 pm in the north studio; user prefers ginger tea there; Ada prefers oolong; user still needs to bring their glaze notebook.",
+        "done_when": "The user brings the glaze notebook or updates the plans.",
+        "status": "completed",
+        "status_reason": "The user updated the Juniper meeting time and clarified the venue possibility.",
+        "epistemic": "reported",
+        "due_at": null,
+        "closed_at": "2026-10-21 17:31:23.775790+00:00",
+        "revision": 2,
+        "created_at": "2026-10-21 17:30:45.974915+00:00",
+        "updated_at": "2026-10-21 17:31:23.775790+00:00"
+      },
+      {
+        "id": "b20bcc01-14d7-43eb-b68f-1336f077b731",
+        "user_id": "0eb0b4e3-0ecb-4f43-90e6-4266fa6df7e9",
+        "context_id": "a64aa8bc-5151-4690-9199-6bbc6a8ef2e9",
+        "kind": "goal",
+        "parent_id": null,
+        "owner": "user",
+        "owed_to": null,
+        "text": "Remember the Juniper pottery circle plans: meet Sundays at 7 pm in the north studio; user prefers ginger tea there; Ada prefers oolong; user still needs to bring their glaze notebook.",
+        "done_when": "The user brings the glaze notebook or updates the plans.",
+        "status": "completed",
+        "status_reason": "The user said they brought their glaze notebook to Juniper today.",
+        "epistemic": "reported",
+        "due_at": null,
+        "closed_at": "2026-10-21 17:32:02.169645+00:00",
+        "revision": 4,
+        "created_at": "2026-10-21 17:29:46.016563+00:00",
+        "updated_at": "2026-10-21 17:32:02.169645+00:00"
+      }
+    ]
+  },
+  "history_reader_latency_ms": {
+    "minimum": 3715.1,
+    "maximum": 6772.9,
+    "median": 3945.6
+  },
+  "limitations": [
+    "Exploratory single run, not an accuracy-rate estimate or a history-tool on/off comparison.",
+    "Existing isolated test account reused; Juniper was new but unrelated prior test memories remained.",
+    "Completed consolidation jobs do not log extraction outputs, so the exact cause of missing Ada correction cannot be established.",
+    "Current-only versus history question differed in wording and tools used; this demonstrates divergent outcomes, not a controlled causal ablation.",
+    "No game-driving or voice E2E was run."
+  ]
+}

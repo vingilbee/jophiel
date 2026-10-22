@@ -61,6 +61,7 @@ class TurnRecall:
     tool_calls: int = 0
     tool_budget: int = TOOL_CALLS_PER_REPLY
     tool_statuses: list[str] = field(default_factory=list)
+    histories: list = field(default_factory=list)  # recall_history.HistoryRun, kept with the receipt
 
     def supply(self, records: list[MemoryRecord]) -> None:
         for record in records:
@@ -224,17 +225,36 @@ def save_receipt(db: Session, turn: TurnRecall | None, *, assistant_message_id: 
                 coverage={k: v for k, v in turn.result.coverage.items() if k != "ms"} | (
                     {"errors": turn.result.errors} if turn.result.errors else {}),
                 counts={"supplied": len(supplied), "by_kind": by_kind, "tool_calls": turn.tool_calls,
-                        "tool_statuses": turn.tool_statuses},
+                        "tool_statuses": turn.tool_statuses}
+                | ({"histories": len(turn.histories)} if turn.histories else {}),
                 association_status=association)
             db.add(receipt)
             db.flush()
             for record in supplied:
                 db.add(_reference(receipt, record, relation="supplied", method="structured"))
             db.flush()
+            _save_histories(db, receipt, turn.histories)
             return receipt.id if association == "pending" else None
     except Exception:  # noqa: BLE001
         log.exception("recall: saving the receipt for %s failed", assistant_message_id)
         return None
+
+
+def _save_histories(db: Session, receipt: RecallReceipt, runs: list) -> None:
+    """Each history rebuilt for this reply, in its own savepoint: a source deleted meanwhile loses that
+    history's provenance (counted on the receipt), never the receipt."""
+    from app.services import recall_history
+
+    lost = 0
+    for run in runs:
+        try:
+            with db.begin_nested():
+                recall_history.save(db, receipt_id=receipt.id, user_id=receipt.user_id, run=run)
+        except Exception:  # noqa: BLE001
+            log.exception("recall: saving a rebuilt history for receipt %s failed", receipt.id)
+            lost += 1
+    if lost:
+        receipt.counts = {**(receipt.counts or {}), "histories_unsaved": lost}
 
 
 def _reference(receipt: RecallReceipt, record: MemoryRecord, *, relation: str, method: str,
@@ -345,5 +365,27 @@ def inspect(db: Session, user_id: uuid.UUID, limit: int = 10) -> dict:
     for receipt in receipts:
         rows = list(db.scalars(select(RecallReference).where(RecallReference.receipt_id == receipt.id)))
         out.append((receipt, {"supplied": [str(_ref_of(r)) for r in rows if r.relation == "supplied"],
-                              "referenced": [str(_ref_of(r)) for r in rows if r.relation == "referenced"]}))
+                              "referenced": [str(_ref_of(r)) for r in rows if r.relation == "referenced"],
+                              "histories": _histories(db, receipt.id)}))
     return {"embeddings": recall_embeddings.progress(db, user_id), "receipts": out}
+
+
+def _histories(db: Session, receipt_id: int) -> list[dict]:
+    from app.db.models import RecallReconstruction, RecallReconstructionSource
+
+    out = []
+    for row in db.scalars(select(RecallReconstruction).where(RecallReconstruction.receipt_id == receipt_id)
+                          .order_by(RecallReconstruction.id)):
+        sources = []
+        for source in db.scalars(select(RecallReconstructionSource).where(
+                RecallReconstructionSource.reconstruction_id == row.id).order_by(RecallReconstructionSource.id)):
+            target = next(f"{column.removesuffix('_id')}:{getattr(source, column)}" for column in (
+                "fact_id", "episode_id", "event_id", "item_id", "message_id", "observation_id", "experience_id",
+                "session_event_id", "thought_id") if getattr(source, column) is not None)
+            sources.append({"label": source.label, "source": target, "speaker": source.speaker,
+                            "cited": source.cited, "in_scope": source.in_scope, "depth": source.depth,
+                            "fingerprint": source.fingerprint})
+        out.append({"id": row.id, "status": row.status, "question": row.question, "about": row.about,
+                    "scope": row.scope, "model": row.model, "input_digest": row.input_digest, "account": row.account,
+                    "coverage": row.coverage, "sources": sources})
+    return out

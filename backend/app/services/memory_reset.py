@@ -19,7 +19,8 @@ from app.db.models import (
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryCorrection,
     MemoryEvent,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
-    ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReference, SemanticMemory, WorkingItem,
+    ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
+    RecallReference, SemanticMemory, WorkingItem,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
@@ -37,9 +38,10 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md §12): the stream, its receipts and bindings, and
     # source state; capture then starts again from now, so nothing already seen comes back.
     "observation": (ObservationBinding, ObservationProcessing, Observation, ObservationSource),
-    # Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what replies were given, and event embeddings
-    # (rebuilt in the background). Deleting memories elsewhere already removes their references.
-    "recall": (RecallReference, RecallReceipt, MemoryEventEmbedding),
+    # Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what replies were given (with the histories
+    # rebuilt for them), and event embeddings (rebuilt in the background). Deleting memories or their
+    # sources elsewhere already removes their references.
+    "recall": (RecallReconstructionSource, RecallReconstruction, RecallReference, RecallReceipt, MemoryEventEmbedding),
 }
 
 

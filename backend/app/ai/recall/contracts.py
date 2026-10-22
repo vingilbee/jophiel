@@ -148,6 +148,7 @@ class MemoryRecord:
     applicability: Applicability
     lifecycle: str | None = None  # e.g. "its game session has ended", "its context is closed"
     source_label: str | None = None  # the source whose words it quotes, e.g. "Minecraft"
+    corrected: bool = False  # an item a user's correction revised since it was first noted
     score: float = 0.0
 
 

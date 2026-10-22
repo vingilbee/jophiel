@@ -174,6 +174,7 @@ class RecallReceiptOut(BaseModel):
     association_note: str | None = None
     referenced: list[str] = []
     supplied: list[str] = []
+    histories: list[dict] = []  # rebuilt histories: status, account (spans only), coverage, passage sources
     created_at: datetime
 
 

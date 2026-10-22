@@ -366,9 +366,10 @@ def test_successive_corrections_apply_in_turn_and_keep_both_in_history(db, alice
     assert [h["content"] for h in history] == [FACT_OLD, FACT_NEW]
     # The first revision is history now too.
     first = [e for e in _events(db, alice, "item_revised") if "-> \"red crescent\"" in e.text]
-    later = recall._corrected_after(db, _events(db, alice))
-    assert first and all(e.id in later for e in first)
-    assert all(e.id not in later for e in _events(db, alice, "corrected"))
+    def later(event):
+        return recall.read(db, alice.id, f"event:{event.id}").records[0].applicability == "no_longer_current"
+    assert first and all(later(e) for e in first)
+    assert not any(later(e) for e in _events(db, alice, "corrected"))
 
 
 def test_a_late_consolidation_job_waits_its_turn_and_never_overwrites_a_newer_statement(db, alice, monkeypatch):
