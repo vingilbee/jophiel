@@ -2668,3 +2668,80 @@ CREATE TRIGGER memory_corrections_owner_check BEFORE INSERT OR UPDATE OF source_
 
 event.listen(MemoryCorrection.__table__, "after_create",
              DDL(MEMORY_CORRECTION_OWNER_DDL).execute_if(dialect="postgresql"))
+
+
+class CoordinatorWork(Base):
+    """Background work for one user request (docs/SHARED_STATE_STEP4_SPEC.md, "Shared-state additions"): a recall
+    or a mind job the coordinator scheduled, kept apart from the disposable per-turn view and projected into
+    it. Leased like ``chat_jobs``. ``completed`` never means its result was said: that's
+    ``coordinator_outputs``. A new user message in the conversation supersedes unfinished work it raises
+    ``cancellation_generation`` on; the worker checks it before accepting a result and before any delivery."""
+
+    __tablename__ = "coordinator_work"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_coordinator_work_idempotency"),
+        CheckConstraint("kind IN ('recall', 'mind')", name="ck_coordinator_work_kind"),
+        CheckConstraint("status IN ('queued', 'waiting_for_memory', 'running', 'completed', 'failed', "
+                        "'cancelled', 'expired', 'superseded')", name="ck_coordinator_work_status"),
+        Index("ix_coordinator_work_claim", "status", "lease_expires_at"),
+        Index("ix_coordinator_work_conversation", "conversation_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)  # the turn
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                       nullable=False)
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    trigger_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    dependency_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    input: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # what the work reads (ids, labels)
+    input_versions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    cancellation_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class CoordinatorOutput(Base):
+    """One output decision per phase of a request (immediate reply, result follow-up): what cognition decided
+    (respond / acknowledge / partial / silent / ask / defer), or that it couldn't (``blocked``), and what
+    actually happened. Unique per (request, phase), so a retry or restart never repeats a phase. Silence is
+    a row here, never an empty assistant message."""
+
+    __tablename__ = "coordinator_outputs"
+    __table_args__ = (
+        UniqueConstraint("request_id", "phase", name="uq_coordinator_outputs_phase"),
+        CheckConstraint("phase IN ('immediate', 'follow_up')", name="ck_coordinator_outputs_phase"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                       nullable=False)
+    work_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("coordinator_work.id", ondelete="SET NULL"),
+                                                      nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision_origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    missing_capability: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # decided -> dispatched -> delivered / partial / cancelled / failed; not_sent (silent, blocked, superseded)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="decided")
+    chat_job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_jobs.id", ondelete="SET NULL"),
+                                                          nullable=True)
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())

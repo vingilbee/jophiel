@@ -139,6 +139,7 @@ from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
+from app.services import coordinator, shared_state
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -978,20 +979,37 @@ async def chat_ws(websocket: WebSocket) -> None:
         # Retrieval may make one embedding API call. Keep that blocking client
         # off the WebSocket event loop, and fail open inside the service.
         recall_turn = None
-        if recall_references.enabled():
-            # Shared recall (never raises; a failure is a "failed" result she's told about).
-            recall_turn = await asyncio.to_thread(
-                recall_references.for_reply, user_id, resolved_id, user_message.id, content, state.zone_name)
-            long_term_memory = recall_turn.legacy
+        fast = None
+        assistant_message_id = uuid.uuid4()
+        if shared_state.enabled():
+            # One scoped view -> Student 1 -> her; no search before the reply (docs/SHARED_STATE_REFACTOR_SPEC.md).
+            fast = await asyncio.to_thread(
+                shared_state.prepare, user_id=user_id, conversation_id=resolved_id,
+                user_message_id=user_message.id, history=history, message=content, zone=state.zone_name,
+                turn_id=turn_id, reply_message_id=assistant_message_id, voice=voice, user_name=user_name)
+            recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
+            if fast.silent:
+                # Cognition chose silence while she thinks: no reply, recorded as not sent. (Follow-ups need
+                # the external chat worker: this local path has no job for them to run in.)
+                coordinator.immediate_outcome(turn_id, status="not_sent", assistant_message_id=None)
+                await emit_event({"type": "done", "turn_id": str(turn_id), "status": "silent"})
+                shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
+                return
         else:
-            long_term_memory = await asyncio.to_thread(
-                memory_service.retrieve_for_prompt, user_id, content
-            )
-        # Simple cognition, live: None (nothing changes) unless enabled in settings.
-        live = (await asyncio.to_thread(
-            cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
-            message=content, long_term_memory=long_term_memory,
-        ) if cognitive_live.enabled() else None)
+            if recall_references.enabled():
+                # Shared recall (never raises; a failure is a "failed" result she's told about).
+                recall_turn = await asyncio.to_thread(
+                    recall_references.for_reply, user_id, resolved_id, user_message.id, content, state.zone_name)
+                long_term_memory = recall_turn.legacy
+            else:
+                long_term_memory = await asyncio.to_thread(
+                    memory_service.retrieve_for_prompt, user_id, content
+                )
+            # Simple cognition, live: None (nothing changes) unless enabled in settings.
+            live = (await asyncio.to_thread(
+                cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
+                message=content, long_term_memory=long_term_memory,
+            ) if cognitive_live.enabled() else None)
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -1010,8 +1028,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             cognitive_reading=live.reading if live else None,
             conversation_notes=live.notes if live else None,
             working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
-            recall=recall_turn.rendered if recall_turn is not None else None,
+            recall=fast.recall_rendered if fast else recall_turn.rendered if recall_turn is not None else None,
             recall_turn=recall_turn,
+            cached_memory=fast.cached_memory if fast else None,
+            turn_boundary=fast.boundary if fast else None,
             memory_tools=memory_manager.enabled(),
             source_message_id=user_message.id if memory_manager.enabled() else None,
             vision_enabled=senses.vision_enabled,
@@ -1031,7 +1051,9 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply = ""
         stopped = False
         failed = False
-        assistant_message_id = uuid.uuid4()
+        if fast is not None:
+            # How this reply was routed, degraded or not: visible on the turn, never silent.
+            await emit_event({**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
         first_model_token = True
         sticker_buffer = ""
         try:
@@ -1164,6 +1186,12 @@ async def chat_ws(websocket: WebSocket) -> None:
             "message_id": str(assistant_message_id),
             "status": outcome_status,
         })
+        if fast is not None and fast.pending:
+            coordinator.immediate_outcome(turn_id, status={"completed": "delivered"}.get(outcome_status, outcome_status),
+                                          assistant_message_id=assistant_message_id if reply else None)
+        shared_state.finish(fast, outcome=outcome_status, reply=reply,
+                            assistant_message_id=assistant_message_id
+                            if reply or outcome_status in {"cancelled", "failed"} else None)
         if live is not None and outcome_status == "completed":
             # After the reply is delivered: notes follow what she actually said. Never fails the turn.
             await asyncio.to_thread(cognitive_live.after_reply, live, user_id=user_id,

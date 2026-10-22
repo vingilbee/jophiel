@@ -127,6 +127,11 @@ def run(stop: threading.Event | None = None) -> None:
             # Embedding memory events for recall: background, batched; recall works before it catches up.
             worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                                  "macrovision:recall-embeddings:wakeups", 5.0))
+        if getattr(settings, "shared_state_pipeline_enabled", False):
+            # Background recall and thinking for user requests (shared-state pipeline, step 4): its own thread,
+            # so a slow thought never sits in front of a reply.
+            from app.workers import coordinator
+            worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name, 1.0))
         if getattr(settings, "mind_enabled", False):
             # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only
             # with desktop mode, where it also records ticks when MIND_TICK_RECORDING_ENABLED), on its own

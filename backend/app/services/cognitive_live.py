@@ -99,15 +99,19 @@ def split_memories(block: str | None) -> tuple[list[str], list[str]]:
     return about, shared
 
 
-def typed_memory_text(block: str | None) -> str:
+def typed_memory_text(block: str | None, *, searched: bool = True) -> str:
+    """``searched=False``: memory wasn't looked up for this message (the shared-state pipeline), so an empty
+    section of theirs says so, never "nothing relevant"."""
     about, shared = split_memories(block)
+    unknown = 'not looked up for this message'
 
     def section(title: str, items: list[str] | tuple[str, ...], empty: str) -> str:
         return f'{title}:\n' + ('\n'.join(f'- {i}' for i in items) if items else f'- {empty}')
 
     return '\n\n'.join([
-        section("What you know about them (things they told you: their experiences, not yours)", about, 'nothing relevant'),
-        section('What the two of you have done together', shared, 'nothing recorded'),
+        section("What you know about them (things they told you: their experiences, not yours)", about,
+                'nothing relevant' if searched else unknown),
+        section('What the two of you have done together', shared, 'nothing recorded' if searched else unknown),
         section('Your own experiences (things you yourself did or thought)', [], 'none recorded yet'),
         section('What you like (your own preferences and interests)', her_preferences(), 'nothing recorded'),
     ])
@@ -163,6 +167,9 @@ class LivePrep:
     character_page: str | None = None
     typed_memory: str | None = None
     reading: str | None = None            # shown only in the 'reading' arm
+    # Student 1's reading as data, in every arm (the shared-state pipeline routes on it; the arm only
+    # decides whether its words reach the prompt). None when the student is off.
+    interpretation: dict[str, Any] | None = None
     notes: str | None = None
     arm: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
@@ -170,23 +177,28 @@ class LivePrep:
 
 
 def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID, history: list[dict[str, Any]], message: str,
-            long_term_memory: str | None, now: datetime | None = None) -> LivePrep | None:
+            long_term_memory: str | None, now: datetime | None = None,
+            memory_searched: bool = True) -> LivePrep | None:
+    """``memory_searched=False``: ``long_term_memory`` is only what was already in hand, not a search for
+    this message (the shared-state pipeline)."""
     if not enabled():
         return None
     try:
         return _prepare(user_id=user_id, conversation_id=conversation_id, history=history, message=message,
-                        long_term_memory=long_term_memory, now=now or datetime.now())
+                        long_term_memory=long_term_memory, now=now or datetime.now(),
+                        memory_searched=memory_searched)
     except Exception:
         logger.exception('cognitive_live.prepare failed; continuing without it')
         return None
 
 
-def _prepare(*, user_id, conversation_id, history, message, long_term_memory, now) -> LivePrep:
+def _prepare(*, user_id, conversation_id, history, message, long_term_memory, now,
+             memory_searched=True) -> LivePrep:
     s = get_settings()
     prep = LivePrep()
     if s.cognitive_live_character:
         prep.character_page = character_page()
-        prep.typed_memory = typed_memory_text(long_term_memory)
+        prep.typed_memory = typed_memory_text(long_term_memory, searched=memory_searched)
     prep.log = dict(at=datetime.now(timezone.utc).isoformat(), user_id=str(user_id),
                     conversation_id=str(conversation_id), character=s.cognitive_live_character,
                     student_mode=s.cognitive_live_student, message=message)
@@ -218,6 +230,8 @@ def _prepare(*, user_id, conversation_id, history, message, long_term_memory, no
     previous_reply = next((h['content'] for h in reversed(earlier) if h['role'] == 'assistant'), None)
     book.apply_message(turn=turn, message=message, understand=reading['understand'], previous_reply=previous_reply)
     prep.arm = arm
+    prep.interpretation = dict(acts=reading['acts'], tone=reading['tone'], request=reading['request'],
+                               understand={k: reading['understand'][k] for k in ('acts', 'tone', 'request')})
     prep.notes = notes_text(book.notes)
     if arm == 'reading':
         prep.reading = reading_text(reading)
