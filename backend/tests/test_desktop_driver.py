@@ -18,7 +18,7 @@ from app.ai.desktop.driver_loop import DriverDeps, DriverRun, screen_change
 from app.services import desktop_sessions as svc
 from app.services.desktop_preview import StoredFrame
 from app.services.desktop_sessions import DriverView
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import PLAN, _user, alice, db  # noqa: F401  (fixtures)
 

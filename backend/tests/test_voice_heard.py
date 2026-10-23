@@ -8,7 +8,7 @@ import pytest
 
 from app.services import chat as chat_service
 from app.services import heard
-from cognitive_shadow_support import create_conversation, create_user, database, shadow_env  # noqa: F401
+from db_support import create_conversation, create_user, database, db_env  # noqa: F401
 
 REPLY = "Two large eggs have twelve grams of protein. That is a solid breakfast. Add toast for carbs."
 
@@ -46,11 +46,11 @@ def test_clause_spans_map_back_onto_the_raw_reply() -> None:
     assert end == len(raw)
 
 
-def test_history_and_memory_use_the_heard_part(shadow_env) -> None:
+def test_history_and_memory_use_the_heard_part(db_env) -> None:
     from app.services.long_term_memory import _turn_for_job
     from types import SimpleNamespace
 
-    with shadow_env.db() as db:
+    with db_env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)
         turn_id = uuid.uuid4()
@@ -74,7 +74,7 @@ def test_history_and_memory_use_the_heard_part(shadow_env) -> None:
         assert _turn_for_job(db, job)[1] == expected
 
 
-def test_record_heard_waits_for_the_reply(shadow_env) -> None:
-    with shadow_env.db() as db:
+def test_record_heard_waits_for_the_reply(db_env) -> None:
+    with db_env.db() as db:
         user = create_user(db)
         assert not chat_service.record_heard(db, user_id=user.id, turn_id=uuid.uuid4(), heard_chars=3)

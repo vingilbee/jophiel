@@ -1,14 +1,13 @@
-"""Columbina speaking first from a background turn (plan §8.4).
+"""Restraint for Columbina speaking first (plan §8.4): *whether now*.
 
-``deliver`` is behind her ``say`` tool. It decides *whether now* (restraint:
-the session's commentary mode, a minimum gap between unprompted messages, at
-most one per turn), saves the message in the user's latest conversation (so a
-reply has context), and publishes it for every open socket of that user,
-which shows it as a nudge and speaks it if voice is live and idle.
+The rules every unprompted line passes: the session's commentary mode, a minimum gap between unprompted
+messages, a hush after the user's last message for her mind's own lines, and serious moments said once.
+Delivery itself is ``services/autonomous_speech.py`` (the activity's own conversation, one chat job per
+conversation behind any reply, the follow-up announcement on ``channel``); this module holds the rules and
+the receipts they read.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -20,8 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.models import ChatMessage, Conversation
-from app.services import chat as chat_service
-from app.services import desktop_preview, dialogue_memory
+from app.services import desktop_preview
 from app.services.game_event_kinds import QUIET, URGENT_GAP_SECONDS, kind_of, rules
 
 log = logging.getLogger(__name__)
@@ -114,60 +112,18 @@ def user_spoke_since(db: Session, user_id: uuid.UUID, at: float) -> bool:
     return _user_spoke_within(db, user_id, max(0.0, time.time() - at))
 
 
-def deliver(db: Session, *, user_id: uuid.UUID, text: str, reasons: list[str], commentary_mode: str) -> str:
-    """Say ``text`` to the user now, if restraint allows. Returns what happened,
-    for the model."""
-    text = " ".join(text.split())[:400]
-    if not text:
-        return "Nothing to say."
-    if from_mind(reasons) and _user_spoke_within(db, user_id, MIND_HUSH_SECONDS):
-        return "Not said: the user just spoke, and your reply to them answers it; keep this to yourself."
+def mark_said(user_id: uuid.UUID, reasons: list[str]) -> None:
+    """After a line was actually delivered: the receipts the gap and serious-moment rules read."""
     client = desktop_preview.redis_client()
-    last = None
-    if client is not None:
-        try:
-            raw = client.get(_last_key(user_id))
-            last = time.time() - float(raw) if raw else None
-        except (redis.RedisError, ValueError):
-            last = None
-    which = serious(reasons)
-    fresh = False
-    if which and client is not None:
-        try:
-            fresh = not client.exists(_serious_key(user_id, which))
-        except redis.RedisError:
-            fresh = False
-    ok, why = allowed(reasons, commentary_mode, last, serious_fresh=fresh)
-    if not ok:
-        return f"Not said: {why}."
-    conversations = chat_service.list_conversations(db, user_id=user_id)
-    if conversations:
-        conversation = conversations[0]
-    else:
-        conversation = chat_service.get_or_create_conversation(db, user_id=user_id, conversation_id=None)
-    message = chat_service.add_message(
-        db, conversation=conversation, role="assistant", content=text, commit=False,
-    )
-    # Like any delivered assistant message (see the nudge path).
-    scheduled = dialogue_memory.schedule_update(
-        db, user_id=user_id, conversation_id=conversation.id, trigger_message_id=message.id,
-    )
-    db.commit()
-    if scheduled:
-        dialogue_memory.wake_worker()
-    if client is not None:
-        try:
-            client.set(_last_key(user_id), str(time.time()), ex=24 * 3600)
-            if which:
-                client.set(_serious_key(user_id, which), "1", ex=SERIOUS_TTL[which])
-            client.publish(channel(user_id), json.dumps({
-                "conversation_id": str(conversation.id), "message_id": str(message.id),
-                "text": text, "reason": "game", "interrupt": interrupts(reasons),
-            }))
-        except redis.RedisError:
-            log.warning("agent say: saved but could not publish for user %s", user_id)
-    return "Said it. The user will see it (and hear it if voice is on)."
-
+    if client is None:
+        return
+    try:
+        client.set(_last_key(user_id), str(time.time()), ex=24 * 3600)
+        which = serious(reasons)
+        if which:
+            client.set(_serious_key(user_id, which), "1", ex=SERIOUS_TTL[which])
+    except redis.RedisError:
+        log.warning("agent say: delivery receipt unavailable for user %s", user_id)
 
 
 def interrupts(reasons: list[str]) -> bool:

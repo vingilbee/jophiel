@@ -1,5 +1,7 @@
 # Shared-state refactor: step 3 implementation report
 
+> **Superseded 2026-10-22** by the legacy cleanup (`LEGACY_CLEANUP_2026-10-22.md`): the shared-state pipeline is the only reply preparation, `SHARED_STATE_PIPELINE_ENABLED` and the old preparation branch are gone, and Cognitive V0, its shadow and dialogue memory are retired. The cutover criteria and removal plan below were explicitly superseded by that cleanup, not met. Kept as the record of what was built.
+
 Status: implemented 2026-10-21 behind `SHARED_STATE_PIPELINE_ENABLED` (off by default). Not audited, not tried
 live. Spec: `SHARED_STATE_REFACTOR_SPEC.md`. This report covers step 3 (with the step-2 contracts and adapters
 it needs) and nothing beyond it. **Steps 4, 5 and 6 are outstanding.**

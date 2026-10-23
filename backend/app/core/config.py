@@ -89,8 +89,6 @@ class Settings(BaseSettings):
     chat_model: str = "gpt-6-luna"
     # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*).
     chat_reasoning_effort: str | None = "none"
-    # Optional override for the isolated, single-call cognitive inspector.
-    cognitive_model: str | None = None
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
     # remains the complete transcript; this is the agent's bounded working
@@ -240,12 +238,6 @@ class Settings(BaseSettings):
     whatsapp_worker_poll_seconds: float = 1.0
     whatsapp_queue_name: str = "macrovision:whatsapp:wakeups"
 
-    # --- Cognitive live shadow (observational only; see
-    # app/ai/Cognitive/system/v0/DURABLE_LIVE_SHADOW_TRACE_V0_IMPLEMENTATION.md) ---
-    # Kill switch. False ⇒ no capture, no shadow worker thread. Existing
-    # captures and traces are retained untouched (pending jobs wait, unmodified,
-    # until the feature is re-enabled or retention/deletion removes them).
-    cognitive_live_shadow_enabled: bool = False
     # --- Simple cognition, live (docs/COLUMBINA_LIVE_INTENTION_PATH_DESIGN.md; services/cognitive_live.py) ---
     # Both off by default: with both off, chat is exactly as before.
     # Her character page (v0.6) and typed, scoped memories in the reply model's prompt.
@@ -258,16 +250,14 @@ class Settings(BaseSettings):
     # Reads her actual reply after it's sent, for the notes (offered / committed / answered). None = subagent_model.
     cognitive_live_events_model: str | None = None
     cognitive_live_log_path: str = "var/cognitive_live.jsonl"
-    # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md step 3; services/shared_state.py). A migration and
-    # rollback switch, not a second architecture: the old preparation branch goes once cutover passes. Each reply
-    # is built from one scoped view: recent conversation + the last answer's memories re-read (no fresh
-    # search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is named
-    # to her and in the trace. Needs COGNITIVE_LIVE_STUDENT on or ab, else every turn is a degraded one.
-    shared_state_pipeline_enabled: bool = False
+    # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
+    # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
+    # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is
+    # named to her and in the trace. Needs COGNITIVE_LIVE_STUDENT on or ab, else every turn is a degraded one.
     shared_state_log_path: str = "var/shared_state.jsonl"
     # Step 4 (docs/SHARED_STATE_STEP4_SPEC.md; services/jev_assessment.py): one Jev call per message decides
-    # evidence need (sufficient / recall / clarification / external / uncertain) and thinking need. Needs the
-    # pipeline and TYPESAFE_API_KEY. Off: turns stay "unassessed" as in step 3. Sends the message, recent turns
+    # evidence need (sufficient / recall / clarification / external / uncertain) and thinking need. Needs
+    # TYPESAFE_API_KEY. Off: turns stay "unassessed" as in step 3. Sends the message, recent turns
     # (clipped) and the cached memory lines to TypeSafe.
     shared_state_assessment_enabled: bool = False
     shared_state_assessment_model: str = "jev-latest"
@@ -283,114 +273,6 @@ class Settings(BaseSettings):
     coordinator_max_attempts: int = Field(default=3, ge=1, le=10)
     observation_preparation_enabled: bool = False  # adapter exists; production transformation unavailable
     coordinator_queue_name: str = "macrovision:coordinator:wakeups"
-    # Deterministic per-turn sample over hash(sampling policy version, turn_id).
-    cognitive_live_shadow_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
-    cognitive_live_shadow_sampling_policy_version: str = Field(
-        default="shadow-sampling-v0.1", min_length=1
-    )
-    cognitive_live_shadow_queue_name: str = "macrovision:cognitive-shadow:wakeups"
-    cognitive_live_shadow_worker_lease_seconds: int = Field(default=300, gt=0)
-    cognitive_live_shadow_worker_poll_seconds: float = Field(default=2.0, gt=0)
-    cognitive_live_shadow_max_attempts: int = Field(default=3, gt=0)
-    # True ⇒ `python -m app.workers` also runs a shadow thread (local/staging).
-    # For production isolation set False and run the shadow worker as its own
-    # process, `python -m app.workers.cognitive_shadow`, so shadow CPU work
-    # never competes with chat generation for the same interpreter.
-    cognitive_live_shadow_run_in_shared_worker: bool = True
-    # No default on purpose: captures are sensitive conversation data, and
-    # capture refuses to run until a reviewed retention period is configured.
-    cognitive_live_shadow_retention_days: int | None = Field(default=None, gt=0)
-    # The configured application locale recorded with each capture. Nothing
-    # detects language; V0 compiles only "en" and skips anything else.
-    cognitive_live_shadow_language_tag: str = Field(default="en", min_length=1)
-    # The core identity whose version lineage every personality projection
-    # must share.
-    cognitive_live_shadow_core_memory_name: str = "columbina"
-    # Where a capture's personality projection comes from. No automatic
-    # fallback between the two:
-    # - "runtime_mapper": compile the active CoreMemory with Personality
-    #   Runtime Mapper V0 at capture time (the normal source);
-    # - "reviewed_baseline": use only the reviewed baseline file below
-    #   (explicit compatibility / emergency staging rollback).
-    # Changing this does not enable capture; the kill switch above does.
-    cognitive_live_shadow_personality_source: Literal["runtime_mapper", "reviewed_baseline"] = "runtime_mapper"
-    # Reviewed baseline projection (JSON matching ShadowPersonalityProjection),
-    # read only in "reviewed_baseline" mode. It can never claim
-    # projection_kind=runtime_mapper.
-    cognitive_live_shadow_personality_baseline_path: str | None = None
-
-    # Required semantic parser for every live-shadow observation. There is no
-    # deterministic parser fallback. It never enters the live chat path. The
-    # provider receives bounded messages plus the code-owned predicate/evidence
-    # schema -- no memory, relationship, personality, biases, goals, actions,
-    # or runtime facts.
-    # Experimental shadow appraisal; deterministic remains the default.
-    # Opt-in combined shadow orchestration; legacy stages remain replayable.
-    cognitive_shadow_orchestration: Literal["staged", "two_call"] = "staged"
-    cognitive_shadow_two_call_protocol: Literal["legacy-v0.1", "context-conditioned-two-call-v0.1", "cognitive-two-call-v1"] = "context-conditioned-two-call-v0.1"
-    cognitive_shadow_orchestration_max_output_tokens: int = Field(default=6000, ge=1000, le=12000)
-    cognitive_shadow_appraisal_implementation: Literal["deterministic", "model"] = "deterministic"
-    cognitive_shadow_appraisal_model: str | None = "gpt-6-luna"
-    cognitive_shadow_appraisal_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    cognitive_shadow_semantic_parser_model: str = "gpt-6-luna"
-    cognitive_shadow_semantic_parser_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    # Two-call v1: reasoning for the reader (Call 1) only; "none" sends the model's default setting.
-    cognitive_shadow_call_one_reasoning_effort: Literal["none", "low", "medium"] = "none"
-
-    # --- Collaborative Content V0 inside the cognitive shadow (see
-    # app/ai/Cognitive/system/v0/CONVERSATIONAL_WORKSPACE_AND_COLLABORATIVE_CONTENT_V0_IMPLEMENTATION.md) ---
-    # Shadow-only structured proposals for conversational deliverables (meal
-    # plans, outlines, summaries). Proposals stay on the shadow trace and are
-    # never delivered. Disabled => every deliverable is a typed
-    # provider_not_configured failure that Action can only decline. An explicit
-    # model id is required; there is no fallback to any other model.
-    cognitive_shadow_collaboration_enabled: bool = False
-    cognitive_shadow_collaboration_model: str | None = None
-    cognitive_shadow_collaboration_timeout_seconds: int = Field(default=25, gt=0, le=120)
-
-    # --- Realization V0 inside the cognitive shadow (see
-    # app/ai/Cognitive/system/v0/REALIZATION_V0_IMPLEMENTATION.md) ---
-    # Shadow-only wording of the selected Action plan. Candidates are persisted
-    # on the shadow trace for review and are never delivered to chat; no
-    # setting permits delivery in V0. Enabling this does not enable live shadow
-    # (the kill switch above does), and disabling it leaves the core shadow
-    # trace unchanged.
-    cognitive_shadow_realization_enabled: bool = False
-    # Default cognitive model; an explicitly empty/missing id when enabled yields provider_unavailable.
-    # There is deliberately no fallback to chat_model, cognitive_model, or a
-    # sub-agent model. Uses `openai_api_key`.
-    cognitive_shadow_realization_model: str | None = "gpt-6-luna"
-    cognitive_shadow_realization_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    # At most two single-call generation attempts per turn (V0 ceiling).
-    cognitive_shadow_realization_max_attempts: int = Field(default=2, ge=1, le=2)
-    cognitive_shadow_realization_max_characters: int = Field(default=1200, gt=0, le=4000)
-
-    # --- Dialogue Working Memory V0 (see
-    # app/ai/Cognitive/system/v0/DIALOGUE_WORKING_MEMORY_V0_IMPLEMENTATION.md) ---
-    # Short-term, conversation-scoped dialogue state for the cognitive shadow.
-    # Shadow-only: enabling it never enables live shadow, Realization, or any
-    # live-response change, and it never writes long-term, relationship,
-    # episodic, core, or learning memory. False ⇒ no update jobs are scheduled
-    # and live-shadow captures stay at cognitive-shadow-capture-v0.2.
-    cognitive_dialogue_memory_enabled: bool = False
-    # Interpreted dialogue relationships (Call 1 registry v1.7): the shadow
-    # worker stores each turn's option sets, same-referent links and
-    # corrections, and later captures (cognitive-shadow-capture-v0.4) carry
-    # them. Needs dialogue memory; shadow-only like it.
-    cognitive_dialogue_interpretation_enabled: bool = False
-    # Newest contiguous messages a first-use bootstrap reconstructs; older
-    # history is an explicit omission, never presented as complete.
-    cognitive_dialogue_memory_bootstrap_messages: int = Field(default=30, ge=1, le=500)
-    # May lower, never raise, the contract cap of 200 items per snapshot.
-    cognitive_dialogue_memory_max_items: int = Field(default=200, ge=1, le=200)
-    # Optional acceleration only; PostgreSQL stays authoritative and every
-    # cache mode yields identical snapshots. Uses `redis_url`.
-    cognitive_dialogue_memory_cache_enabled: bool = False
-    cognitive_dialogue_memory_cache_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
-    cognitive_dialogue_memory_queue_name: str = "macrovision:dialogue-memory:wakeups"
-    cognitive_dialogue_memory_worker_lease_seconds: int = Field(default=120, gt=0)
-    cognitive_dialogue_memory_worker_poll_seconds: float = Field(default=2.0, gt=0)
-    cognitive_dialogue_memory_max_attempts: int = Field(default=5, gt=0)
 
     # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md) ---
     # Off by default: the /api/desktop routes answer 404 and the UI hides the

@@ -10,7 +10,7 @@ from sqlalchemy import delete
 from app.ai.recall.contracts import MemoryRef
 from app.db.models import MemoryEvent, WorkingItem
 from app.services import memory_manager, recall_references
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 from tests.test_recall import _answer, _conversation, _played, _quote_each, _say, on  # noqa: F401  (autouse)

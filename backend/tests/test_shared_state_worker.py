@@ -10,20 +10,19 @@ import pytest
 
 from app.services import cognitive_live, coordinator, recall_references, shared_state
 from app.workers import chat as chat_worker
-from cognitive_shadow_support import database, shadow_env  # noqa: F401  (fixtures)
-from test_cognitive_shadow_chat_isolation import REPLY, live_turn  # noqa: F401  (fixture)
+from db_support import database, db_env  # noqa: F401  (fixtures)
+from chat_turn_support import REPLY, live_turn  # noqa: F401  (fixture)
 
 
 @pytest.fixture
-def fast(shadow_env, monkeypatch, tmp_path):
-    shadow_env.configure(cognitive_live_shadow_enabled=False)
+def fast(db_env, monkeypatch, tmp_path):
     settings = SimpleNamespace(
-        shared_state_pipeline_enabled=True, shared_state_log_path=str(tmp_path / "shared.jsonl"),
+        shared_state_log_path=str(tmp_path / "shared.jsonl"),
         cognitive_live_student="on", cognitive_live_character=False, cognitive_live_student_dir=None,
         recall_enabled=False, mind_enabled=False, mind_inner_state_enabled=False, memory_manager_enabled=False)
     monkeypatch.setattr(shared_state, "get_settings", lambda: settings)
-    monkeypatch.setattr(shared_state, "SessionLocal", shadow_env.db)
-    monkeypatch.setattr(coordinator, "SessionLocal", shadow_env.db)  # supersession reads the test schema only
+    monkeypatch.setattr(shared_state, "SessionLocal", db_env.db)
+    monkeypatch.setattr(coordinator, "SessionLocal", db_env.db)  # supersession reads the test schema only
     shared_state._personality.cache_clear()
     monkeypatch.setattr(recall_references, "enabled", lambda: False)
     monkeypatch.setattr(recall_references, "for_reply", lambda *a, **k: pytest.fail("searched before the reply"))
@@ -73,12 +72,3 @@ def test_a_failed_reading_is_a_visibly_degraded_turn_that_still_answers(fast, li
     assert "didn't work this turn" in context.turn_boundary and context.cognitive_reading is None
     line = json.loads(fast.log.read_text().splitlines()[-1])
     assert line["route"]["outcome"] == "degraded" and line["cognition"]["status"] == "unavailable"
-
-
-def test_with_the_flag_off_the_turn_is_unchanged(fast, live_turn, monkeypatch):
-    fast.settings.shared_state_pipeline_enabled = False
-    monkeypatch.setattr(chat_worker.memory_service, "retrieve_for_prompt", lambda *a, **k: None)
-    monkeypatch.setattr(cognitive_live, "enabled", lambda: False)
-    turn = live_turn("hey")
-    assert [e["type"] for e in turn["events"]] == ["start", "token", "token", "token", "done"]
-    assert turn["agent_input"][1].turn_boundary is None and not fast.log.exists()

@@ -1,9 +1,0 @@
-
-
-Dialogue relationships (v1.7): dialogue_context.interpreted_links lists relationships read from earlier user messages. They are interpretations, not the user's words, and each part shows the exact user text it came from. A part marked superseded was replaced by a later correction; do not give it as the current value. Use these links to resolve references, then cite the original user passage with dialogue_span as usual. A part whose message_ref is null is outside the supplied messages and cannot be cited.
-
-dialogue_updates records relationships that the current user message establishes, so later turns can use them. Every update cites exact spans of user messages with dialogue_span, and at least one span must come from the current message. Leave it empty when the message establishes none; most messages establish none.
-- option_set: the user names two to four alternatives, cited in the order given. "Should I take the train or the bus?" gives option_set [train, bus].
-- same_referent: [mention, referent]. The mention is a description, ordinal, or pronoun, and the referent is the earlier or same-message name or option it means. "Juno is the older one" gives same_referent ["the older one", "Juno"]. "I'll go with the second one" after [train, bus] gives same_referent ["the second one", "bus"]. Only link when one referent clearly fits; a genuinely ambiguous pronoun gets no link.
-- correction: [replaced, replacement]. The user withdraws an earlier value and states a new one. "Actually I meant Thursday, not Tuesday" gives correction ["Tuesday" from the earlier message, "Thursday"]. Cite the replaced value where it was originally said when that message is supplied.
-Cite the smallest span that carries the value: "the bus", not the whole sentence.

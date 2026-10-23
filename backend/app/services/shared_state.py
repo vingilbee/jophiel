@@ -1,5 +1,5 @@
 """The shared-state pipeline: user message -> scoped view -> cognition -> mouth (docs/SHARED_STATE_REFACTOR_SPEC.md,
-step 3). Off unless ``SHARED_STATE_PIPELINE_ENABLED``; with it off nothing here runs.
+step 3). The only reply preparation: both reply paths (chat worker, WebSocket fallback) call ``prepare``.
 
 Adapters, one per owner, over the stores that already hold the truth (the view never replaces them):
 
@@ -55,10 +55,6 @@ logger = logging.getLogger(__name__)
 
 # Message refs kept in the view: the student's window plus the current message.
 RECENT_REFS = 8
-
-
-def enabled() -> bool:
-    return bool(get_settings().shared_state_pipeline_enabled)
 
 
 @dataclass

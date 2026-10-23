@@ -1,5 +1,7 @@
 # Step 5: autonomous speech routing
 
+> **Superseded 2026-10-22** by the legacy cleanup (`LEGACY_CLEANUP_2026-10-22.md`): the shared-state pipeline is the only reply preparation, `SHARED_STATE_PIPELINE_ENABLED` and the old preparation branch are gone, and Cognitive V0, its shadow and dialogue memory are retired. The two producers left out below were migrated then: `game_correction` now proposes through `autonomous_speech.submit`, and the background `say`/`offer_to_learn` tools deliver through `autonomous_speech.deliver_worded` (common delivery arbitration, no second cognition pass). Kept as the record of what was built.
+
 Implemented 2026-10-22. This changes wiring, not the trained cognition capabilities.
 
 ## Routes

@@ -1,6 +1,6 @@
 // Chat history REST client. The live streaming turn goes over the WebSocket
 // (see hooks/useChatSocket.ts); these endpoints load/manage stored history.
-import type { CognitiveInspection, CognitiveLLMInspection, Conversation, ConversationDetail } from '../types'
+import type { Conversation, ConversationDetail } from '../types'
 import { api } from './client'
 
 export const chatApi = {
@@ -14,13 +14,4 @@ export const chatApi = {
   /** Delete a conversation (and its messages). */
   deleteConversation: (id: string) =>
     api.delete<void>(`/chat/conversations/${id}`),
-
-  /** Inspect cognition without sending a chat turn or executing an action. */
-  inspectCognition: (input: {
-    mode?: 'rules' | 'llm'
-    message: string
-    recent_messages?: string[]
-    image_count?: number
-    asset_count?: number
-  }) => api.post<CognitiveInspection | CognitiveLLMInspection>('/cognitive/inspect', input),
 }

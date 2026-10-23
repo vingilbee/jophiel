@@ -304,7 +304,7 @@ def test_each_try_is_news_in_her_mind():
 from app.db.models import DesktopEnvironment, DesktopSession, GameLearnedSkill, GameSkillAttempt, User  # noqa: E402
 from app.services import desktop_sessions, game_practice, game_skills, memory_reset  # noqa: E402
 from app.services.desktop_sessions import DesktopError  # noqa: E402
-from tests.cognitive_shadow_support import database  # noqa: E402,F401  (fixture)
+from tests.db_support import database  # noqa: E402,F401  (fixture)
 
 
 @pytest.fixture

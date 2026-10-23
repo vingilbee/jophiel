@@ -20,7 +20,7 @@ from app.services import desktop_link as link_svc
 from app.services import desktop_sessions as svc
 from desktop_controller import connection
 from desktop_controller.fake import FakeInput
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis, real_redis  # noqa: F401  (fixtures)
 from tests.test_desktop_link import _env, _wait_for, relay  # noqa: F401  (fixtures/helpers)
 from tests.test_desktop_sessions import _user, alice, db  # noqa: F401  (fixtures)

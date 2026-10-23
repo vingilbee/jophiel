@@ -5,7 +5,7 @@ from pathlib import Path
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import inspect
-from cognitive_shadow_support import database  # noqa: F401
+from db_support import database  # noqa: F401
 
 
 def test_upgrade_from_step6_and_downgrade_when_empty(database):

@@ -25,7 +25,7 @@ from app.services import (
     chat as chat_service, desktop_sessions, game_learning, memory_manager, memory_reset, mind, observation,
     observation_memory, recall, recall_embeddings, recall_references,
 )
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 from tests.test_observation import PACK, _fail, _pack_session, _tick, _world

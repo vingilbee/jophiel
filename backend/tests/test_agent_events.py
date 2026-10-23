@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.db.models import AgentEventJob, ChatMessage, Conversation, DesktopSession
 from app.services import agent_events, agent_say, desktop_game
 from app.services import desktop_sessions as svc
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_driver import WALK, Script, _run
 from tests.test_desktop_game import _paired_env, enabled  # noqa: F401  (autouse fixture)
@@ -170,15 +170,47 @@ def test_a_fresh_serious_moment_skips_the_gap_but_not_quiet():
     assert agent_say.allowed(["danger: died"], "quiet", 5, serious_fresh=True)[0] is False
 
 
-def test_death_is_said_right_after_another_message_but_only_once(db, alice, isolated_redis):
-    db.add(Conversation(user_id=alice.id, title="chat"))
+@pytest.fixture
+def speaking(database, db, alice, isolated_redis, monkeypatch):
+    """Her own words through common delivery: queued for the session's conversation, then delivered by the
+    chat worker (``autonomous_speech.deliver_worded`` -> ``workers/chat._deliver_worded``)."""
+    from app.services import autonomous_speech, chat as chat_service, coordinator
+    from app.workers import chat as chat_worker
+
+    monkeypatch.setattr(chat_worker, "SessionLocal", database)
+    monkeypatch.setattr(coordinator, "SessionLocal", database)
+    monkeypatch.setattr(chat_worker, "_redis", lambda: isolated_redis)
+    session = _playing(db, alice)
+    conversation = Conversation(user_id=alice.id, title="chat")
+    db.add(conversation)
     db.commit()
-    say = lambda text, reasons: agent_say.deliver(db, user_id=alice.id, text=text, reasons=reasons,  # noqa: E731
-                                                  commentary_mode="occasional")
-    assert say("A spider!", ["danger: spider 6 m south"]).startswith("Said")
-    assert say("Ouch.", ["danger: took damage: 4 of 10 hearts left"]).startswith("Not said")
-    assert say("I died!", ["danger: died"]).startswith("Said")  # within the minute, still said
-    assert say("Died again?", ["danger: died"]).startswith("Not said")  # the same moment twice
+    session.conversation_id = conversation.id
+    db.commit()
+
+    def say(text, reasons, mode="occasional"):
+        result = autonomous_speech.deliver_worded(db, user_id=alice.id, activity_id=session.id, source="minecraft",
+                                                  text=text, reasons=reasons, commentary_mode=mode)
+        with database() as other:
+            job = chat_service.claim_next_job(other, lease_seconds=60)
+        if job is not None:
+            chat_worker._deliver_worded(job)
+        return result
+
+    def saved():
+        db.expire_all()
+        return [(m.role, m.content) for m in db.scalars(
+            select(ChatMessage).where(ChatMessage.conversation_id == conversation.id)
+            .order_by(ChatMessage.conversation_sequence))]
+    return type("Speaking", (), {"say": staticmethod(say), "saved": staticmethod(saved),
+                                 "conversation": conversation, "session": session})
+
+
+def test_death_is_said_right_after_another_message_but_only_once(speaking):
+    assert speaking.say("A spider!", ["danger: spider 6 m south"]).startswith("Queued")
+    assert speaking.say("Ouch.", ["danger: took damage: 4 of 10 hearts left"]).startswith("Not said")
+    assert speaking.say("I died!", ["danger: died"]).startswith("Queued")  # within the minute, still said
+    assert speaking.say("Died again?", ["danger: died"]).startswith("Not said")  # the same moment twice
+    assert speaking.saved() == [("assistant", "A spider!"), ("assistant", "I died!")]
 
 
 @pytest.mark.parametrize(("reasons", "cut"), [
@@ -193,48 +225,63 @@ def test_urgent_messages_cut_her_off(reasons, cut):
     assert agent_say.interrupts(reasons) is cut
 
 
-def test_published_message_says_whether_to_interrupt(db, alice, isolated_redis):
-    db.add(Conversation(user_id=alice.id, title="chat"))
-    db.commit()
-    agent_say.deliver(db, user_id=alice.id, text="Ow, zombie!", reasons=["danger: took damage: 2 of 10 hearts left"],
-                      commentary_mode="occasional")
+def test_published_message_says_whether_to_interrupt(speaking, isolated_redis):
+    speaking.say("Ow, zombie!", ["danger: took damage: 2 of 10 hearts left"])
     assert json.loads(isolated_redis.published[-1][1])["interrupt"] is True
 
 
-def test_saying_saves_the_message_and_publishes_it(db, alice, isolated_redis):
-    conversation = Conversation(user_id=alice.id, title="chat")
-    db.add(conversation)
+def test_saying_saves_the_message_in_the_sessions_conversation_and_publishes_it(speaking, db, alice,
+                                                                                 isolated_redis):
+    newer = Conversation(user_id=alice.id, title="a newer chat")  # never "the latest conversation"
+    db.add(newer)
     db.commit()
-    result = agent_say.deliver(db, user_id=alice.id, text="Got all five logs!", reasons=["goal_done"],
-                               commentary_mode="occasional")
-    assert result.startswith("Said")
-    saved = db.scalars(select(ChatMessage).where(ChatMessage.conversation_id == conversation.id)).all()
-    assert [(m.role, m.content) for m in saved] == [("assistant", "Got all five logs!")]
+    result = speaking.say("Got all five logs!", ["goal_done"])
+    assert result.startswith("Queued")
+    assert speaking.saved() == [("assistant", "Got all five logs!")]
+    assert db.scalars(select(ChatMessage).where(ChatMessage.conversation_id == newer.id)).all() == []
     channel, raw = isolated_redis.published[-1]
     assert channel == agent_say.channel(alice.id) and json.loads(raw)["text"] == "Got all five logs!"
-    again = agent_say.deliver(db, user_id=alice.id, text="And more!", reasons=["goal_done"],
-                              commentary_mode="occasional")
+    again = speaking.say("And more!", ["goal_done"])
     assert again.startswith("Not said")  # a minute hasn't passed
 
 
-def test_her_minds_own_lines_wait_while_the_user_has_just_spoken(db, alice, isolated_redis):
+def test_queued_words_wait_behind_a_reply_and_drop_if_the_user_speaks_first(speaking, database, db, alice):
+    from app.services import autonomous_speech, chat as chat_service
+    from app.workers import chat as chat_worker
+
+    reply_turn = uuid.uuid4()
+    chat_service.enqueue_job(db, user_id=alice.id, conversation=speaking.conversation, turn_id=reply_turn,
+                             payload={"content": "hi"}, commit=True)
+    with database() as other:
+        replying = chat_service.claim_next_job(other, lease_seconds=60)  # her reply is in flight
+    assert replying.turn_id == reply_turn
+    assert autonomous_speech.deliver_worded(db, user_id=alice.id, activity_id=speaking.session.id,
+                                            source="minecraft", text="Got the logs!", reasons=["goal_done"],
+                                            commentary_mode="occasional").startswith("Queued")
+    with database() as other:
+        assert chat_service.claim_next_job(other, lease_seconds=60) is None  # one job per conversation
+        chat_service.finish_job(other, replying.id, "completed", claim_token=replying.claim_token)
+    chat_service.add_message(db, conversation=speaking.conversation, role="user", content="wait, stop")
+    with database() as other:
+        queued = chat_service.claim_next_job(other, lease_seconds=60)
+    chat_worker._deliver_worded(queued)
+    assert speaking.saved() == [("user", "wait, stop")]  # the user spoke after it was queued: not said
+
+
+def test_her_minds_own_lines_wait_while_the_user_has_just_spoken(speaking, db):
     """Live: almost every message got two answers, a quick thought's and the reply."""
     from datetime import datetime, timedelta
 
-    conversation = Conversation(user_id=alice.id, title="chat")
-    db.add(conversation)
+    db.add(ChatMessage(conversation_id=speaking.conversation.id, role="user", content="can you climb that?"))
     db.commit()
-    db.add(ChatMessage(conversation_id=conversation.id, role="user", content="can you climb that?"))
-    db.commit()
-    say = lambda reasons: agent_say.deliver(db, user_id=alice.id, text="On it!", reasons=reasons,  # noqa: E731
-                                            commentary_mode="occasional")
-    assert say(["light: the peak is close"]).startswith("Not said: the user just spoke")
-    assert say(["thought: the user said: can you climb that?"]).startswith("Not said: the user just spoke")
-    assert say(["react: creeper behind me"]).startswith("Said")  # danger still speaks
+    assert speaking.say("On it!", ["light: the peak is close"]).startswith("Not said: the user just spoke")
+    assert speaking.say("On it!", ["thought: the user said: can you climb that?"]).startswith(
+        "Not said: the user just spoke")
+    assert speaking.say("On it!", ["react: creeper behind me"]).startswith("Queued")  # danger still speaks
     db.execute(ChatMessage.__table__.update().where(ChatMessage.role == "user").values(
         created_at=datetime.now() - timedelta(hours=12)))  # long ago, in any clock
     db.commit()
-    assert not agent_say._user_spoke_within(db, alice.id, agent_say.MIND_HUSH_SECONDS)
+    assert not agent_say._user_spoke_within(db, speaking.session.owner_user_id, agent_say.MIND_HUSH_SECONDS)
 
 
 def test_background_tools_plan_as_her_and_only_undo_her_own_pauses(database, alice, monkeypatch):

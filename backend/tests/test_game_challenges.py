@@ -12,7 +12,7 @@ from app.db.models import DesktopSession, GameChallenge, GameSkillAttempt
 from app.services import desktop_game, game_challenges, game_practice
 from app.services import desktop_sessions as svc
 from app.services.desktop_sessions import DesktopError
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_game_practice import _pack_session, db, user  # noqa: F401  (fixtures)
 

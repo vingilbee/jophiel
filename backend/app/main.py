@@ -11,7 +11,7 @@ from app.core.limiter import limiter
 
 from app.ai.tools.macrovision import macrovision_mcp_lifespan, mount_macrovision_mcp
 from app.api.routes import (
-    assets, auth, chat, cognitive, dashboard, desktop, images, integrations, learning, memory, mind, predict,
+    assets, auth, chat, dashboard, desktop, images, integrations, learning, memory, mind, predict,
     whatsapp,
 )
 from app.core.config import get_settings
@@ -74,7 +74,6 @@ app.include_router(predict.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
-app.include_router(cognitive.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(desktop.router, prefix="/api")
 app.include_router(learning.router, prefix="/api")

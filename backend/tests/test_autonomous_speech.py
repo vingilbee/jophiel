@@ -9,7 +9,7 @@ from app.db.models import ChatMessage, CoordinatorOutput, CoordinatorWork
 from app.services import autonomous_speech, cognition_decisions, coordinator
 from app.services import chat as chat_service
 from test_coordinator import env, _run_chat  # noqa: F401
-from cognitive_shadow_support import database, shadow_env  # noqa: F401
+from db_support import database, db_env  # noqa: F401
 
 
 def propose(env, monkeypatch, event=None):

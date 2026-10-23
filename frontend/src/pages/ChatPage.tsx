@@ -13,7 +13,6 @@ import { uploadAsset } from '../api/assets'
 import profileIcon from '../assets/profile_icon.jpg'
 import chatWallpaper from '../assets/chat-wallpaper.jpg'
 import { ChatContent, DocumentAttachment } from '../components/DocumentAttachment'
-import { CognitiveInspector } from '../components/CognitiveInspector'
 import { useAwareness } from '../hooks/useAwareness'
 import { useChatSocket } from '../hooks/useChatSocket'
 import { useVoiceSession, type VoiceSession } from '../hooks/useVoiceSession'
@@ -82,7 +81,6 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
-  const [cognitiveInspectorOpen, setCognitiveInspectorOpen] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [voiceStarting, setVoiceStarting] = useState(false)
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false)
@@ -551,13 +549,6 @@ export function ChatPage() {
         </div>
 
         <div className="mt-auto flex flex-col gap-2 px-2 text-[11px] text-[#7183A3]">
-          <button
-            type="button"
-            onClick={() => setCognitiveInspectorOpen((open) => !open)}
-            className="text-left transition-colors hover:text-[#8B3158]"
-          >
-            {cognitiveInspectorOpen ? 'Close cognitive test' : 'Cognitive test'}
-          </button>
           <button type="button" onClick={startNewChat} disabled={streaming || voiceBusy || voiceStarting} className="text-left transition-colors hover:text-[#8B3158] disabled:opacity-40">
             New chat
           </button>
@@ -635,20 +626,6 @@ export function ChatPage() {
           )}
           </div>
         </div>
-      </div>
-
-      <div className="fixed inset-y-0 right-0 z-50 pt-14">
-        <CognitiveInspector
-          open={cognitiveInspectorOpen}
-          draft={input}
-          recentMessages={messages
-            .map((message) => `${message.role}: ${message.parts
-              .filter((part): part is Extract<MessagePart, { kind: 'text' }> => part.kind === 'text')
-              .map((part) => part.content).join('\n')}`)}
-          imageCount={attachments.filter((attachment) => attachment.kind === 'image').length}
-          assetCount={attachments.filter((attachment) => attachment.kind === 'asset').length}
-          onClose={() => setCognitiveInspectorOpen(false)}
-        />
       </div>
 
       {/* composer */}

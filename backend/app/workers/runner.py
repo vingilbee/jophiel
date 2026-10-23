@@ -8,7 +8,7 @@ import redis
 
 from app.core.config import get_settings
 from app.workers import (
-    agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, game_practice,
+    agent_events, chat, desktop, file_deletion, game_learning, game_practice,
     memory, mind, mind_ticks, recall_embeddings, observation,
     whatsapp,
 )
@@ -97,26 +97,6 @@ def run(stop: threading.Event | None = None) -> None:
                 getattr(settings, "whatsapp_queue_name", "macrovision:whatsapp:wakeups"),
                 getattr(settings, "whatsapp_worker_poll_seconds", 1.0),
             ))
-        if getattr(settings, "cognitive_live_shadow_enabled", False) and getattr(
-            settings, "cognitive_live_shadow_run_in_shared_worker", True
-        ):
-            # A separate thread and queue: shadow cognition never shares the
-            # chat thread, so its CPU work cannot sit in front of a reply.
-            cognitive_shadow.check_semantic_parser_configuration(settings)
-            cognitive_shadow.check_realization_configuration(settings)
-            worker_specs.append((
-                "cognitive-shadow", cognitive_shadow.run_once,
-                getattr(settings, "cognitive_live_shadow_queue_name", "macrovision:cognitive-shadow:wakeups"),
-                getattr(settings, "cognitive_live_shadow_worker_poll_seconds", 2.0),
-            ))
-        if getattr(settings, "cognitive_dialogue_memory_enabled", False):
-            # Its own thread and queue: dialogue state updates never sit in
-            # front of a chat reply or a shadow observation.
-            worker_specs.append((
-                "dialogue-memory", dialogue_memory.run_once,
-                getattr(settings, "cognitive_dialogue_memory_queue_name", "macrovision:dialogue-memory:wakeups"),
-                getattr(settings, "cognitive_dialogue_memory_worker_poll_seconds", 2.0),
-            ))
         if getattr(settings, "desktop_agent_enabled", False):
             # The gameplay driver: its own thread (and one thread per playing
             # session), so a model call never sits in front of a chat reply.
@@ -139,13 +119,12 @@ def run(stop: threading.Event | None = None) -> None:
                                  "macrovision:recall-embeddings:wakeups", 5.0))
         if getattr(settings, "observation_enabled", False):
             worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
-        if any(getattr(settings, key, False) for key in (
-                "shared_state_pipeline_enabled", "memory_manager_enabled", "observation_preparation_enabled")):
-            # Background recall and thinking for user requests (shared-state pipeline, step 4): its own thread,
-            # so a slow thought never sits in front of a reply.
-            from app.workers import coordinator
-            worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name,
-                                 getattr(settings, "coordinator_heartbeat_seconds", 1.0)))
+        # Background recall and thinking for user requests (shared-state pipeline, step 4) and autonomous
+        # proposals (step 5): always on, since every reply goes through the pipeline. Its own thread, so a slow
+        # thought never sits in front of a reply.
+        from app.workers import coordinator
+        worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name,
+                             getattr(settings, "coordinator_heartbeat_seconds", 1.0)))
         if getattr(settings, "mind_enabled", False):
             # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only
             # with desktop mode, where it also records ticks when MIND_TICK_RECORDING_ENABLED), on its own

@@ -25,7 +25,7 @@ from app.services import (
 from app.services.memory_corrections import Decision, Judgement
 from app.services.memory_manager import Source
 from app.workers import memory as memory_worker
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 

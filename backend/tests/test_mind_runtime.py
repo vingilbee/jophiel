@@ -175,7 +175,9 @@ def thinking(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "mind_hard_log_path", str(tmp_path / "hard.jsonl"))
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw) or SimpleNamespace(id=uuid.uuid4()))
     monkeypatch.setattr(mind, "_set_thinking", lambda key, topic: None)
-    monkeypatch.setattr(mind.agent_say, "deliver", lambda db, **kw: said.append(kw) or "Said it.")
+    from app.services import autonomous_speech
+
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
     monkeypatch.setattr(mind_hard, "conversation", lambda db, uid, now, cid=None: ())
     monkeypatch.setattr(mind_hard, "_character", lambda db: ())
     monkeypatch.setattr(mind_hard, "_earlier", lambda db, sid, topic, now: ())

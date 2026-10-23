@@ -88,7 +88,6 @@ def _finish_delivery(
             )
             .values(**values)
         )
-        scheduled = False
         if status == "failed" and result.rowcount and delivery is not None:
             db.execute(
                 update(MessageDelivery)
@@ -104,15 +103,7 @@ def _finish_delivery(
                     claim_token=None,
                 )
             )
-            # A terminal delivery failure settles the message's exposure.
-            scheduled = whatsapp.schedule_exposure_update(
-                db, assistant_message_id=delivery.assistant_message_id
-            )
         db.commit()
-    if scheduled:
-        from app.services import dialogue_memory
-
-        dialogue_memory.wake_worker()
 
 
 def _send_one(
