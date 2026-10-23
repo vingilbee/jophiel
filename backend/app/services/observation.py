@@ -11,7 +11,7 @@ transaction, so a report that commits late is still processed: progress is never
 
 - ``services/observation_adapters.py`` turns source records into reports (and recovers missed ones).
 - ``services/observation_memory.py`` is the memory consumer: binding, promotion, the pending view.
-- ``tick`` runs both from the mind loop (``services/mind.run_once``, so it needs MIND_ENABLED);
+- The observation worker runs capture/recovery; the coordinator schedules memory consumption;
   capture needs OBSERVATION_ENABLED, promotion MEMORY_MANAGER_ENABLED.
 
 Nothing here calls a model.
@@ -119,6 +119,11 @@ def record(db: Session, report: Report) -> int | None:
         return None
     for consumer in CONSUMERS:
         db.add(ObservationProcessing(observation_id=new_id, consumer=consumer, user_id=report.user_id))
+    from app.services import background_components, background_wake
+    if (getattr(get_settings(), "observation_preparation_enabled", False)
+            and report.kind in background_components.ELIGIBLE):
+        db.add(ObservationProcessing(observation_id=new_id, consumer="preparation", user_id=report.user_id))
+    background_wake.mark(db)
     note_source(db, report.user_id, report.source, report.source_instance, received=True)
     return new_id
 
@@ -197,11 +202,11 @@ def lookback(now: datetime) -> datetime:
 
 
 # --------------------------------------------------------------------------- #
-# The tick (from the mind loop)
+# Capture/recovery tick
 # --------------------------------------------------------------------------- #
 
 
-def tick(db: Session, now: datetime | None = None) -> dict:
+def tick(db: Session, now: datetime | None = None, *, consume_memory: bool = True) -> dict:
     """Capture what's new, recover what was missed (every OBSERVATION_SWEEP_SECONDS), prune, and let the
     memory consumer process what's due, all within the tick's time budget. Code only. Returns what it did."""
     global _last_sweep
@@ -224,7 +229,7 @@ def tick(db: Session, now: datetime | None = None) -> dict:
             run.last_decision = {"at": now.isoformat(), "decision": "apply" if any(done.values()) else "skip",
                                  **{k: v for k, v in done.items() if k != "memory"}}
             db.commit()
-    if memory_manager.enabled():
+    if consume_memory and memory_manager.enabled():
         # A fresh clock: what this tick just captured is due from its insert time, after ``now``.
         done["memory"] = observation_memory.process(db, max(now, _now()), deadline)
     if any(done.values()):

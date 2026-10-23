@@ -276,6 +276,12 @@ class Settings(BaseSettings):
     # a mind item (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when recall is needed too. The
     # deadline ends unfinished work as expired. Follow-ups are said only when cognition decides to.
     shared_state_work_deadline_seconds: int = Field(default=180, ge=10, le=3600)
+    coordinator_heartbeat_seconds: float = Field(default=1.0, ge=1, le=60)
+    coordinator_executor_slots: int = Field(default=2, ge=1, le=16)  # per component; no local waiting queue
+    coordinator_max_pending: int = Field(default=1000, ge=10, le=100000)
+    coordinator_receipt_retention_days: int = Field(default=30, ge=1, le=3650)
+    coordinator_max_attempts: int = Field(default=3, ge=1, le=10)
+    observation_preparation_enabled: bool = False  # adapter exists; production transformation unavailable
     coordinator_queue_name: str = "macrovision:coordinator:wakeups"
     # Deterministic per-turn sample over hash(sampling policy version, turn_id).
     cognitive_live_shadow_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)

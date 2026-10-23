@@ -430,8 +430,14 @@ def test_instructions_in_game_text_stay_quoted_data(db, alice):
 # --- 11. a tick with no game and no socket ------------------------------------------------------
 
 
-def test_the_mind_loop_processes_conversation_without_a_game_or_socket_and_then_skips(database, alice, monkeypatch, on):
-    mind_settings = on.model_copy(update={"mind_enabled": True})
+def test_independent_workers_process_conversation_with_mind_disabled_and_then_skip(database, alice, monkeypatch, on):
+    from app.services import background_components, coordinator
+    from app.workers import observation as capture
+    mind_settings = on.model_copy(update={"mind_enabled": False, "redis_url": None})
+    for module in (background_components, coordinator):
+        monkeypatch.setattr(module, "SessionLocal", database)
+        monkeypatch.setattr(module, "get_settings", lambda: mind_settings)
+    monkeypatch.setattr(capture, "SessionLocal", database)
     monkeypatch.setattr(mind, "get_settings", lambda: mind_settings)
     monkeypatch.setattr(mind, "SessionLocal", database)
     with database() as db:
@@ -443,6 +449,16 @@ def test_the_mind_loop_processes_conversation_without_a_game_or_socket_and_then_
                                          turn_id=turn)
         chat_service.record_heard(db, user_id=alice.id, turn_id=turn, heard_chars=3)
     mind.run_once()
+    with database() as db:
+        assert not _observations(db, alice)  # the removed trigger stays removed
+    capture.run_once()
+    background_components.schedule_due()
+    with database() as db:
+        work, ended = coordinator._claim(db, "memory-test", ("memory",))
+        db.commit()
+        db.expunge(work)
+    assert ended is None
+    coordinator.execute_claim(work, "memory-test")
     with database() as db:
         kinds = sorted(o.kind for o in _observations(db, alice))
         assert kinds == ["reply_interrupted", "reply_recorded", "user_message"]

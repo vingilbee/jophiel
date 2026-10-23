@@ -34,7 +34,7 @@ def test_proposal_cognition_mouth_and_receipt(env, monkeypatch, action):
                               missing_capability=None if action else RESULT_GAP)
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", decide)
     work = propose(env, monkeypatch)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     assert len(calls) == 1 and calls[0].trigger_ref.startswith("event:")
     assert env.calls["think"] == []
     if action in ("respond", "ask"):
@@ -47,7 +47,7 @@ def test_proposal_cognition_mouth_and_receipt(env, monkeypatch, action):
         output = db.scalar(select(CoordinatorOutput))
         assert output.decision == (action or "blocked")
         assert output.status == ("delivered" if action in ("respond", "ask") else "not_sent")
-    assert not coordinator.run_once()
+    assert not coordinator.execute_once()
 
 
 def test_duplicate_proposal_and_new_user_fence(env, monkeypatch):
@@ -55,7 +55,7 @@ def test_duplicate_proposal_and_new_user_fence(env, monkeypatch):
     event = uuid.uuid4()
     work = propose(env, monkeypatch, event)
     assert propose(env, monkeypatch, event).id == work.id
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     with env.db() as db:
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
         chat_service.add_message(db, conversation=conversation, role="user", content="Different topic now")
@@ -72,7 +72,7 @@ def test_recover_accepted_proposal_after_restart(env, monkeypatch):
     with env.db() as db:
         db.get(CoordinatorWork, work.id).status = "completed"
         db.commit()
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     with env.db() as db:
         assert db.scalar(select(CoordinatorOutput)).decision == "blocked"
 
@@ -81,7 +81,7 @@ def test_new_message_during_mouth_generation_prevents_announcement(env, monkeypa
     from app.workers import chat as worker
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("respond", "stub", True))
     propose(env, monkeypatch)
-    coordinator.run_once()
+    coordinator.execute_once()
     async def mouth(**kwargs):
         yield {"type": "token", "content": "An obsolete thought"}
         with env.db() as db:
@@ -107,7 +107,7 @@ def test_delivery_guards_keep_proposal_private(env, monkeypatch, guard):
         monkeypatch.setattr(autonomous_speech.agent_say, "allowed", lambda *a, **k: (False, "quiet"))
     else:
         monkeypatch.setattr(autonomous_speech.agent_say, "user_spoke_since", lambda *a: True)
-    coordinator.run_once()
+    coordinator.execute_once()
     assert not _run_chat(env)
     with env.db() as db:
         assert db.scalar(select(CoordinatorOutput)).decision == "rejected"

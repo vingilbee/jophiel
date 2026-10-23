@@ -213,7 +213,11 @@ def test_a_cancelled_thought_is_dropped_with_why_and_never_sent_on(monkeypatch, 
     assert thinking.saved[0]["dropped_reason"] == "the goal changed" and routed == []
 
 
-def test_a_body_that_cannot_take_a_tip_says_so():
+def test_a_body_that_cannot_take_a_tip_says_so(monkeypatch):
+    from app.services import autonomous_speech
+    monkeypatch.setattr(FakeSource, "speaking", lambda *a: {}, raising=False)
+    monkeypatch.setattr(autonomous_speech, "submit", lambda *a, **k: None)
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db())
     routed = mind_hard.route(FakeSource("chat"), Scope(UID, "chat", uuid.uuid4()), uuid.uuid4(), problem(),
                              HardThought("decision", "Ask first.", for_hands="ask first"), goal=None)
     assert routed["tip"].status == "unsupported"

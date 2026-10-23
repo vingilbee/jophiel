@@ -18,7 +18,7 @@ from app.ai.state.decisions import PENDING_GAP, RESULT_GAP, PendingDecision, Res
 from app.db.models import ChatJob, ChatMessage, CoordinatorOutput, CoordinatorWork
 from app.services import chat as chat_service
 from app.services import cognition_decisions, cognitive_live, coordinator, jev_assessment, recall_references
-from app.services import shared_state
+from app.services import shared_state, background_components
 from app.workers import chat as chat_worker
 from cognitive_shadow_support import create_conversation, create_user, database, shadow_env  # noqa: F401
 
@@ -36,9 +36,9 @@ def env(shadow_env, monkeypatch, tmp_path):
         shared_state_assessment_model="jev-latest", shared_state_assessment_timeout_seconds=1.5,
         shared_state_work_deadline_seconds=180, coordinator_queue_name="q", redis_url=None,
         recall_tool_calls_per_reply=3)
-    for module in (shared_state, coordinator, jev_assessment):
+    for module in (shared_state, coordinator, jev_assessment, background_components):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
-    for module in (shared_state, coordinator, chat_worker):
+    for module in (shared_state, coordinator, chat_worker, background_components):
         monkeypatch.setattr(module, "SessionLocal", shadow_env.db)
     shared_state._personality.cache_clear()
     monkeypatch.setattr(recall_references, "enabled", lambda: True)
@@ -175,7 +175,7 @@ def test_cognition_choosing_silence_sends_nothing_and_keeps_the_work(env, monkey
 
 def test_a_finished_thought_is_blocked_while_cognition_cannot_judge_it(env):
     turn, _ = _say(env)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     work = _work(env, turn)["mind"]
     assert work.status == "completed" and work.result["conclusion"].startswith("Stay in Berlin")
     follow = _outputs(env, turn)["follow_up"]
@@ -188,7 +188,7 @@ def test_a_finished_thought_is_blocked_while_cognition_cannot_judge_it(env):
 def test_a_thought_cognition_says_to_respond_is_followed_up_once_through_the_mouth(env, monkeypatch):
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
     turn, _ = _say(env)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     coordinator._conclude(_work(env, turn)["mind"].id)  # a retried conclusion dispatches nothing new
     with env.db() as db:
         jobs = list(db.scalars(select(ChatJob).where(ChatJob.turn_id == coordinator.follow_up_turn(turn))))
@@ -217,7 +217,7 @@ def test_recall_then_thinking_waits_for_memory_and_says_what_it_found(env, monke
         kind = claimed.kind
         db.rollback()
     assert kind == "recall"
-    assert coordinator.run_once() and coordinator.run_once()
+    assert coordinator.execute_once() and coordinator.execute_once()
     work = _work(env, turn)
     assert work["recall"].status == "completed" and work["recall"].result["status"] == "no_match"
     assert "found nothing" in env.calls["think"][0].memories
@@ -236,14 +236,14 @@ def test_a_new_message_supersedes_the_thought_and_it_never_answers_the_new_one(e
     env.calls["jev"] = ("not_required", "not_required")
     _say(env, "actually never mind, how's your day?")
     assert _work(env, first)["mind"].status == "superseded"
-    assert not coordinator.run_once()  # nothing left to run
+    assert not coordinator.execute_once()  # nothing left to run
     coordinator._conclude(_work(env, first)["mind"].id)
     assert _outputs(env, first)["follow_up"].decision == "superseded"
     with env.db() as db:
         assert db.scalar(select(ChatJob).where(ChatJob.turn_id == coordinator.follow_up_turn(first))) is None
 
 
-def test_a_result_arriving_after_supersession_is_kept_private_not_accepted(env, monkeypatch):
+def test_a_result_arriving_after_supersession_cannot_populate_authoritative_result(env, monkeypatch):
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
     turn, message = _say(env)
 
@@ -253,16 +253,16 @@ def test_a_result_arriving_after_supersession_is_kept_private_not_accepted(env, 
         return HardThought("decision", "Too late.", thinking="x")
 
     monkeypatch.setattr(coordinator, "_think", think_then_interrupted)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     work = _work(env, turn)["mind"]
-    assert work.status == "superseded" and work.result["conclusion"] == "Too late."  # kept, not accepted
+    assert work.status == "superseded" and work.result is None  # a stale executor cannot populate the authoritative result
     assert _outputs(env, turn)["follow_up"].decision == "superseded"
 
 
 def test_a_follow_up_is_rechecked_at_dispatch_and_dropped_after_new_input(env, monkeypatch):
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
     turn, _ = _say(env)
-    assert coordinator.run_once()  # follow-up queued
+    assert coordinator.execute_once()  # follow-up queued
     with env.db() as db:  # the user speaks before the follow-up job runs (no chat job: just the message)
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
         chat_service.add_message(db, conversation=conversation, role="user", content="wait", turn_id=uuid.uuid4())
@@ -280,7 +280,7 @@ def test_expired_work_ends_and_still_reaches_cognition(env, monkeypatch):
         work = db.get(CoordinatorWork, _work(env, turn)["mind"].id)
         work.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db.commit()
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     assert _work(env, turn)["mind"].status == "expired" and env.calls["think"] == []
     assert seen[0].result.failed == "deadline"
     assert _run_chat(env)
@@ -299,7 +299,7 @@ def test_restart_reclaims_a_lost_lease_and_scheduling_twice_adds_nothing(env):
         row.status, row.lease_owner = "running", "dead"
         row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db.commit()
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     mind = _work(env, turn)["mind"]
     assert mind.status == "completed" and mind.attempt == 1
 
@@ -307,7 +307,7 @@ def test_restart_reclaims_a_lost_lease_and_scheduling_twice_adds_nothing(env):
 def test_lifecycle_trace_holds_ids_and_statuses_not_text(env, monkeypatch):
     monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
     turn, _ = _say(env)
-    coordinator.run_once()
+    coordinator.execute_once()
     lines = [json.loads(x) for x in env.log.read_text().splitlines()]
     ops = [x.get("op") for x in lines if x.get("component") == "coordinator"]
     assert ops[:3] == ["scheduled", "output", "finished"] and "follow_up_dispatched" in ops

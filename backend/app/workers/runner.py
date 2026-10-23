@@ -9,7 +9,7 @@ import redis
 from app.core.config import get_settings
 from app.workers import (
     agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, game_practice,
-    memory, mind, mind_ticks, recall_embeddings,
+    memory, mind, mind_ticks, recall_embeddings, observation,
     whatsapp,
 )
 
@@ -35,6 +35,10 @@ def _work_loop(
         while not stop.is_set():
             try:
                 # run_once creates/closes its own DB sessions in this thread.
+                if name in ("coordinator", "observation"):
+                    from app.services import coordinator_runtime
+                    wake = coordinator_runtime.wake if name == "coordinator" else coordinator_runtime.capture_wake
+                    wake.clear()
                 worked = run_once()
             except Exception:
                 logger.exception("%s job processing failed; will retry", name)
@@ -52,8 +56,14 @@ def _work_loop(
                     continue
                 except Exception:
                     logger.warning("%s Redis wake-up failed; polling PostgreSQL", name)
-            stop.wait(interval)
+            if name in ("coordinator", "observation"):
+                wake.wait(interval)
+            else:
+                stop.wait(interval)
     finally:
+        if name == "coordinator":
+            from app.services.coordinator_runtime import close
+            close()
         if wakeups is not None:
             wakeups.close()
         logger.info("%s worker thread stopped", name)
@@ -127,11 +137,15 @@ def run(stop: threading.Event | None = None) -> None:
             # Embedding memory events for recall: background, batched; recall works before it catches up.
             worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                                  "macrovision:recall-embeddings:wakeups", 5.0))
-        if getattr(settings, "shared_state_pipeline_enabled", False):
+        if getattr(settings, "observation_enabled", False):
+            worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
+        if any(getattr(settings, key, False) for key in (
+                "shared_state_pipeline_enabled", "memory_manager_enabled", "observation_preparation_enabled")):
             # Background recall and thinking for user requests (shared-state pipeline, step 4): its own thread,
             # so a slow thought never sits in front of a reply.
             from app.workers import coordinator
-            worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name, 1.0))
+            worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name,
+                                 getattr(settings, "coordinator_heartbeat_seconds", 1.0)))
         if getattr(settings, "mind_enabled", False):
             # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only
             # with desktop mode, where it also records ticks when MIND_TICK_RECORDING_ENABLED), on its own

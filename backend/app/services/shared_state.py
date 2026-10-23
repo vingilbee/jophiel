@@ -359,6 +359,8 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
         mind=Projection.off("mind", "not routed to yet (asynchronous thinking: later in step 4)"),
         health=_health(cognition, memory),
     )
+    from app.services import background_components
+    view = replace(view, components=background_components.projections(user_id, conversation_id))
     decision = route(view)
     searched = False
     if decision.runs_recall:
@@ -380,7 +382,8 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
             user_id=user_id, conversation_id=conversation_id, request_id=turn_id, trigger_message_id=user_message_id,
             with_recall=decision.route == "recall_then_mind",
             work_input={"message": message, "interpretation": reading, "zone": zone, "channel": channel,
-                        "user_name": user_name, "cached_memory": view.memory.rendered},
+                        "user_name": user_name, "cached_memory": view.memory.rendered,
+                        "evidence_versions": {e.ref: f"{e.fingerprint}:{e.applicability}:{int(e.corrected)}" for e in view.memory.entries}},
             input_versions={k: v for k, v in view.dependencies().items() if v is not None})
         if committed is None:
             # No work exists, so nobody may say thinking started.

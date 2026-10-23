@@ -800,13 +800,15 @@ def pending(db: Session, user_id: uuid.UUID, now: datetime | None = None) -> lis
 
 
 # --------------------------------------------------------------------------- #
-# The tick (code only, from the mind loop; spec §8)
+# Due maintenance (code only, scheduled independently by the coordinator)
 # --------------------------------------------------------------------------- #
 
 
 def _schedule(db: Session, user_id: uuid.UUID, due_at: datetime | None) -> None:
     if due_at is None:
         return
+    from app.services import background_wake
+    background_wake.mark(db)
     db.execute(update(MemoryManagerState).where(MemoryManagerState.user_id == user_id,
                                                 MemoryManagerState.next_check_at > due_at)
                .values(next_check_at=due_at))

@@ -2680,9 +2680,9 @@ class CoordinatorWork(Base):
     __tablename__ = "coordinator_work"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_coordinator_work_idempotency"),
-        CheckConstraint("kind IN ('recall', 'mind')", name="ck_coordinator_work_kind"),
+        CheckConstraint("kind IN ('recall', 'mind', 'memory', 'observation', 'cognition')", name="ck_coordinator_work_kind"),
         CheckConstraint("status IN ('queued', 'waiting_for_memory', 'running', 'completed', 'failed', "
-                        "'cancelled', 'expired', 'superseded')", name="ck_coordinator_work_status"),
+                        "'cancelled', 'expired', 'superseded', 'blocked')", name="ck_coordinator_work_status"),
         Index("ix_coordinator_work_claim", "status", "lease_expires_at"),
         Index("ix_coordinator_work_conversation", "conversation_id", "status"),
     )
@@ -2690,8 +2690,8 @@ class CoordinatorWork(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)  # the turn
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
-                                                       nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                       nullable=True)
     activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     trigger_message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
@@ -2705,6 +2705,7 @@ class CoordinatorWork(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)

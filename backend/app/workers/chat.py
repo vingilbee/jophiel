@@ -469,6 +469,9 @@ async def _generate(job: ChatJob) -> None:
                 from app.db.models import CoordinatorWork, Conversation
                 from app.services import autonomous_speech
                 work = db.get(CoordinatorWork, uuid.UUID(payload["work_id"]))
+                if work is None or work.status not in ("completed", "failed", "expired") or not coordinator.evidence_current(db, work, lock=True):
+                    reply, outcome, stopped = "", "cancelled", True
+                    conversation = None
                 if work is not None and work.input.get("autonomous"):
                     db.scalar(select(Conversation.id).where(Conversation.id == job.conversation_id).with_for_update())
                     if not autonomous_speech.valid(db, work):

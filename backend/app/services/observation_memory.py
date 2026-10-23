@@ -48,13 +48,14 @@ MAX_BACKOFF = timedelta(hours=1)
 PENDING_SHOWN = 3
 
 
-def process(db: Session, now: datetime, deadline: float) -> dict:
+def process(db: Session, now: datetime, deadline: float, *, user_id: uuid.UUID | None = None) -> dict:
     """Process what's due, within the deadline. Commits. Returns counts per outcome."""
     settings = get_settings()
     rows = db.execute(
         select(ObservationProcessing, Observation)
         .join(Observation, Observation.id == ObservationProcessing.observation_id)
         .where(ObservationProcessing.consumer == CONSUMER,
+               True if user_id is None else ObservationProcessing.user_id == user_id,
                ObservationProcessing.status.in_(("pending", "retry")),
                ObservationProcessing.next_attempt_at <= now)
         .order_by(ObservationProcessing.next_attempt_at, ObservationProcessing.observation_id)
