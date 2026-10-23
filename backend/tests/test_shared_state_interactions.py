@@ -42,7 +42,7 @@ def test_autonomous_job_waits_for_active_normal_reply(responding, monkeypatch):
         chat_service.enqueue_job(db,user_id=e.user.id,conversation=c,turn_id=tid,user_message_id=m.id,payload={'content':'Hello'})
         normal=chat_service.claim_next_job(db,lease_seconds=60)
     w=propose(e,monkeypatch)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     with e.db() as db: assert chat_service.claim_next_job(db,lease_seconds=60) is None
     asyncio.run(worker._generate(normal))
     assert _run_chat(e)
@@ -70,7 +70,7 @@ def test_queued_autonomous_work_cannot_change_conversation_target(responding,mon
     e=responding;w=propose(e,monkeypatch)
     with e.db() as db:
         other=create_conversation(db,e.user)
-    assert coordinator.run_once() and _run_chat(e)
+    assert coordinator.execute_once() and _run_chat(e)
     with e.db() as db:
         replies=list(db.scalars(select(ChatMessage).where(ChatMessage.role=='assistant')))
         assert len(replies)==1 and replies[0].conversation_id==w.conversation_id!=other.id
@@ -86,7 +86,7 @@ def test_cross_user_conversation_target_is_rejected(responding):
 
 
 def test_voice_cancelled_autonomous_reply_is_partial_and_never_announced(responding,monkeypatch):
-    e=responding;w=propose(e,monkeypatch);assert coordinator.run_once()
+    e=responding;w=propose(e,monkeypatch);assert coordinator.execute_once()
     with e.db() as db:
         j=db.scalar(select(ChatJob));j.payload={**j.payload,'voice':True};db.commit()
     synthesized=[]
@@ -111,7 +111,7 @@ def test_voice_cancelled_autonomous_reply_is_partial_and_never_announced(respond
 
 
 def test_new_message_cancels_autonomous_reply_during_audio(responding,monkeypatch):
-    e=responding;propose(e,monkeypatch);assert coordinator.run_once()
+    e=responding;propose(e,monkeypatch);assert coordinator.execute_once()
     with e.db() as db:
         j=db.scalar(select(ChatJob));j.payload={**j.payload,'voice':True};db.commit()
     async def tts(_):
@@ -149,7 +149,7 @@ if sys.argv[1]=='accept_and_crash':
   work,_=coordinator._claim(db,'crashing-process');db.commit();db.expunge(work)
  coordinator._accept(work.id,'crashing-process',work.cancellation_generation,'completed',work.result or {'kind':'decision','conclusion':'Scripted completed conclusion'},None)
  os._exit(17)
-print(coordinator.run_once())
+print(coordinator.execute_once())
 '''
 
 
@@ -179,7 +179,7 @@ def test_conversation_result_survives_real_worker_process_exit(responding):
 
 
 def test_restart_repairs_receipt_after_reply_commit_before_output_update(responding,monkeypatch):
-    e=responding;propose(e,monkeypatch);assert coordinator.run_once()
+    e=responding;propose(e,monkeypatch);assert coordinator.execute_once()
     actual=coordinator.follow_up_outcome
     def crash(*a,**k):raise SystemExit('crash after reply commit, before coordinator receipt')
     monkeypatch.setattr(coordinator,'follow_up_outcome',crash)
@@ -195,7 +195,7 @@ def test_restart_repairs_receipt_after_reply_commit_before_output_update(respond
 
 
 def test_retry_after_completed_delivery_does_not_repeat_mouth(responding,monkeypatch):
-    e=responding;propose(e,monkeypatch);assert coordinator.run_once() and _run_chat(e)
+    e=responding;propose(e,monkeypatch);assert coordinator.execute_once() and _run_chat(e)
     calls=len(e.inputs)
     with e.db() as db:
         j=db.scalar(select(ChatJob));j.status='processing';j.lease_expires_at=coordinator._now()-timedelta(seconds=1);db.commit()
@@ -223,7 +223,7 @@ def test_activity_revision_change_fences_autonomous_speech(responding,monkeypatc
         with e.db() as db:
             row=db.get(DesktopSession,sid);setattr(row,revision,getattr(row,revision)+1);db.commit()
     if when=='before_cognition':change()
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     if when=='before_mouth':change()
     if when=='during_mouth':
         async def mouth(**_):
@@ -241,7 +241,7 @@ def test_activity_revision_change_fences_autonomous_speech(responding,monkeypatc
 
 def test_quiet_mode_enabled_during_mouth_cancels_proposal(responding,monkeypatch):
     from app.services import autonomous_speech
-    e=responding;propose(e,monkeypatch);assert coordinator.run_once()
+    e=responding;propose(e,monkeypatch);assert coordinator.execute_once()
     async def mouth(**_):
         yield {'type':'token','content':'Queued commentary.'}
         monkeypatch.setattr(autonomous_speech.agent_say,'allowed',lambda *a,**k:(False,'quiet'))
@@ -255,7 +255,7 @@ def test_quiet_mode_enabled_during_mouth_cancels_proposal(responding,monkeypatch
 def test_pending_announcement_retries_without_regenerating(responding, monkeypatch):
     e = responding
     propose(e, monkeypatch)
-    coordinator.run_once()
+    coordinator.execute_once()
     monkeypatch.setattr(worker, '_announce', lambda *a: False)
     assert _run_chat(e)
     calls = len(e.inputs)
@@ -265,8 +265,8 @@ def test_pending_announcement_retries_without_regenerating(responding, monkeypat
         message_id = output.assistant_message_id
     published = []
     monkeypatch.setattr(worker, '_announce', lambda job, reply, mid: published.append(mid) or True)
-    assert coordinator.run_once()
-    assert not coordinator.run_once()
+    assert coordinator.execute_once()
+    assert not coordinator.execute_once()
     assert published == [message_id] and len(e.inputs) == calls
     with e.db() as db:
         assert not db.scalar(select(CoordinatorOutput)).announcement_pending
@@ -275,7 +275,7 @@ def test_pending_announcement_retries_without_regenerating(responding, monkeypat
 def test_legacy_dispatched_receipt_is_reconciled_and_announced(responding, monkeypatch):
     e = responding
     propose(e, monkeypatch)
-    coordinator.run_once()
+    coordinator.execute_once()
     assert _run_chat(e)
     with e.db() as db:
         output = db.scalar(select(CoordinatorOutput))
@@ -284,7 +284,7 @@ def test_legacy_dispatched_receipt_is_reconciled_and_announced(responding, monke
         db.commit()
     announced = []
     monkeypatch.setattr(worker, '_announce', lambda job, reply, mid: announced.append(mid) or True)
-    assert coordinator.run_once()
+    assert coordinator.execute_once()
     assert announced == [mid]
     with e.db() as db:
         output = db.scalar(select(CoordinatorOutput))

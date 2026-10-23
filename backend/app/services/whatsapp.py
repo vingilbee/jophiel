@@ -332,6 +332,8 @@ def apply_delivery_status(
     delivery.status = status
     delivery.last_error = error if status == "failed" else None
     if status in {"delivered", "read", "failed"}:
+        from app.services import background_wake
+        background_wake.mark(db)
         return schedule_exposure_update(db, assistant_message_id=delivery.assistant_message_id)
     return False
 

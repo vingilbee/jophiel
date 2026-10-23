@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import ChatMessage, Conversation, CoordinatorWork, DesktopSession
@@ -32,6 +32,13 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     trigger = db.scalar(select(ChatMessage).where(ChatMessage.conversation_id == target,
                         ChatMessage.role == "user").order_by(ChatMessage.conversation_sequence.desc()).limit(1))
     request = uuid.uuid5(user_id, f"autonomous:{source}:{activity_id}:{event}")
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtext("coordinator:request-admission"))))
+    if db.get(CoordinatorWork, request) is None:
+        pending = db.scalar(select(func.count()).select_from(CoordinatorWork).where(
+            CoordinatorWork.kind == "mind", CoordinatorWork.status.in_(coordinator.ACTIVE)))
+        if pending >= getattr(coordinator.get_settings(), "coordinator_max_pending", 1000):
+            db.commit()
+            return "Rejected: mind queue capacity; source thought retained privately."
     versions = {"conversation": conversation.last_message_sequence}
     if session:
         versions.update(plan=session.plan_revision, execution=session.execution_generation,
@@ -43,7 +50,7 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
         trigger_message_id=trigger.id if trigger else None, kind="mind", status="queued",
         dependency_ids=[], input_versions=versions, deadline_at=coordinator._now() + timedelta(seconds=ttl),
         idempotency_key=f"autonomous:{request}", result=result,
-        input={"autonomous": True, "source": source, "event_id": event, "reasons": reasons,
+        input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "source": source, "event_id": event, "reasons": reasons,
                "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal"},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
     db.commit()

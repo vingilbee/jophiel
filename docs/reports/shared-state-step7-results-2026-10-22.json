@@ -1,0 +1,178 @@
+{
+  "backend": {
+    "total": 289,
+    "failed": 0,
+    "skipped": 0
+  },
+  "browser": {
+    "passed": 5,
+    "failed": 0
+  },
+  "audio_units": {
+    "passed": 21,
+    "failed": 0
+  },
+  "migration": "b3e7f9a1c5d2 applied on disposable database",
+  "systems": [
+    {
+      "mode": "scripted_success",
+      "timeline": [
+        {
+          "event": "mind_started",
+          "elapsed_ms": 101
+        },
+        {
+          "event": "first_immediate_reply_completed",
+          "elapsed_ms": 135
+        },
+        {
+          "event": "independent_chat_completed",
+          "elapsed_ms": 5275
+        },
+        {
+          "event": "memory_and_capture_preparation_progressed",
+          "elapsed_ms": 5281
+        },
+        {
+          "event": "mind_released",
+          "elapsed_ms": 5291
+        },
+        {
+          "event": "mind_completed",
+          "elapsed_ms": 5321
+        },
+        {
+          "event": "typed_mind_handoff_settled",
+          "elapsed_ms": 5322
+        },
+        {
+          "event": "unchanged_heartbeat_did_not_duplicate_source_work",
+          "elapsed_ms": 6537
+        }
+      ],
+      "observations": 4,
+      "work_statuses": [
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "cognition",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "mind",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "observation",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "cognition",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "observation",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "cognition",
+          "status": "completed",
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "mode": "unavailable",
+      "timeline": [
+        {
+          "event": "mind_started",
+          "elapsed_ms": 91
+        },
+        {
+          "event": "first_immediate_reply_completed",
+          "elapsed_ms": 126
+        },
+        {
+          "event": "independent_chat_completed",
+          "elapsed_ms": 5230
+        },
+        {
+          "event": "memory_and_capture_preparation_progressed",
+          "elapsed_ms": 5237
+        },
+        {
+          "event": "mind_released",
+          "elapsed_ms": 5248
+        },
+        {
+          "event": "mind_completed",
+          "elapsed_ms": 5279
+        },
+        {
+          "event": "typed_mind_handoff_settled",
+          "elapsed_ms": 5282
+        },
+        {
+          "event": "unchanged_heartbeat_did_not_duplicate_source_work",
+          "elapsed_ms": 6495
+        }
+      ],
+      "observations": 4,
+      "work_statuses": [
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "mind",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "cognition",
+          "status": "blocked",
+          "attempt": 1
+        },
+        {
+          "kind": "observation",
+          "status": "blocked",
+          "attempt": 1
+        },
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "memory",
+          "status": "completed",
+          "attempt": 1
+        },
+        {
+          "kind": "observation",
+          "status": "blocked",
+          "attempt": 1
+        }
+      ]
+    }
+  ]
+}

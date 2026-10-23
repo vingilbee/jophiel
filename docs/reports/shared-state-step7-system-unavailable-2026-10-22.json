@@ -1,0 +1,246 @@
+{
+  "views": {
+    "mind": {
+      "meta": {
+        "owner": "mind",
+        "status": "available",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": null
+      },
+      "component": "mind",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": "6e1ca488-f20d-4bfa-a72a-f592a2032c7b",
+      "status": "running",
+      "pending_refs": [
+        "work:e7e7b159-d792-47e6-8578-2679ac2a33ca"
+      ],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    },
+    "memory": {
+      "meta": {
+        "owner": "memory",
+        "status": "available",
+        "version": "3",
+        "updated_at": "2026-10-23 01:09:39.606377+00:00",
+        "source_refs": [
+          {
+            "kind": "work",
+            "id": "7bc9bf63-df3f-4211-9661-688e8fc0a5ea",
+            "version": null
+          }
+        ],
+        "reason": null
+      },
+      "component": "memory",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": null,
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": "work:7bc9bf63-df3f-4211-9661-688e8fc0a5ea",
+      "last_input_versions": {
+        "due": "2026-10-23 01:08:39.524900+00:00",
+        "receipt": "2:2026-10-23 01:09:39.507780+00:00"
+      },
+      "next_due_at": "2026-10-23 01:19:39.606233+00:00"
+    },
+    "observation": {
+      "meta": {
+        "owner": "observation",
+        "status": "available",
+        "version": "2026-10-23T01:09:39.560834+00:00",
+        "updated_at": "2026-10-23 01:09:39.560834+00:00",
+        "source_refs": [
+          {
+            "kind": "work",
+            "id": "db039175-a0b6-4e92-a3d4-f85172566a27",
+            "version": null
+          }
+        ],
+        "reason": "conversation/experience learning-preparation transformer not implemented"
+      },
+      "component": "observation",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": null,
+      "status": "blocked",
+      "pending_refs": [],
+      "last_result_ref": "work:db039175-a0b6-4e92-a3d4-f85172566a27",
+      "last_input_versions": {
+        "source": "2@1",
+        "delivery": "completed:None"
+      },
+      "next_due_at": null
+    },
+    "cognition": {
+      "meta": {
+        "owner": "cognition",
+        "status": "available",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": null
+      },
+      "component": "cognition",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": null,
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    },
+    "memory_ingestion": {
+      "meta": {
+        "owner": "memory_ingestion",
+        "status": "available",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": null
+      },
+      "component": "memory_ingestion",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": "6e1ca488-f20d-4bfa-a72a-f592a2032c7b",
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    },
+    "dialogue_memory": {
+      "meta": {
+        "owner": "dialogue_memory",
+        "status": "disabled",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": "owner disabled"
+      },
+      "component": "dialogue_memory",
+      "user_id": "9480f8d5-8248-4e1f-bada-2992aa1775fa",
+      "conversation_id": "6e1ca488-f20d-4bfa-a72a-f592a2032c7b",
+      "status": "disabled",
+      "pending_refs": [],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    }
+  },
+  "mind_work_id": "e7e7b159-d792-47e6-8578-2679ac2a33ca",
+  "work": [
+    {
+      "id": "0d39e2ea-c66d-44e4-b181-cd6d434c6251",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "e7e7b159-d792-47e6-8578-2679ac2a33ca",
+      "kind": "mind",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "1798f36f-343d-504c-9ba6-2c632382ceea",
+      "kind": "cognition",
+      "status": "blocked",
+      "attempt": 1
+    },
+    {
+      "id": "db039175-a0b6-4e92-a3d4-f85172566a27",
+      "kind": "observation",
+      "status": "blocked",
+      "attempt": 1
+    },
+    {
+      "id": "7bc9bf63-df3f-4211-9661-688e8fc0a5ea",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "e73e7647-49c3-4813-be35-57b4818a5f27",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "900eadbf-51e9-40eb-9fc4-85ce46627f31",
+      "kind": "observation",
+      "status": "blocked",
+      "attempt": 1
+    }
+  ],
+  "observation_count": 4,
+  "receipts": [
+    {
+      "consumer": "memory",
+      "status": "skipped",
+      "observation_id": 1
+    },
+    {
+      "consumer": "preparation",
+      "status": "failed",
+      "observation_id": 2
+    },
+    {
+      "consumer": "memory",
+      "status": "skipped",
+      "observation_id": 2
+    },
+    {
+      "consumer": "memory",
+      "status": "pending",
+      "observation_id": 3
+    },
+    {
+      "consumer": "memory",
+      "status": "skipped",
+      "observation_id": 4
+    },
+    {
+      "consumer": "preparation",
+      "status": "failed",
+      "observation_id": 4
+    }
+  ],
+  "adapters": "unavailable",
+  "timeline": [
+    {
+      "event": "mind_started",
+      "elapsed_ms": 91
+    },
+    {
+      "event": "first_immediate_reply_completed",
+      "elapsed_ms": 126
+    },
+    {
+      "event": "independent_chat_completed",
+      "elapsed_ms": 5230
+    },
+    {
+      "event": "memory_and_capture_preparation_progressed",
+      "elapsed_ms": 5237
+    },
+    {
+      "event": "mind_released",
+      "elapsed_ms": 5248
+    },
+    {
+      "event": "mind_completed",
+      "elapsed_ms": 5279
+    },
+    {
+      "event": "typed_mind_handoff_settled",
+      "elapsed_ms": 5282
+    },
+    {
+      "event": "unchanged_heartbeat_did_not_duplicate_source_work",
+      "elapsed_ms": 6495
+    }
+  ],
+  "mind_disabled_flag": false
+}

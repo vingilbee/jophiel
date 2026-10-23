@@ -1,0 +1,267 @@
+{
+  "views": {
+    "mind": {
+      "meta": {
+        "owner": "mind",
+        "status": "available",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": null
+      },
+      "component": "mind",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": "d92edf38-d866-43b5-aff2-297ac8ff592f",
+      "status": "running",
+      "pending_refs": [
+        "work:05e88902-29aa-4902-b584-540c65f3a6d9"
+      ],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    },
+    "memory": {
+      "meta": {
+        "owner": "memory",
+        "status": "available",
+        "version": "3",
+        "updated_at": "2026-10-23 01:09:32.741772+00:00",
+        "source_refs": [
+          {
+            "kind": "work",
+            "id": "c8a39e36-6d52-4eaf-9131-3e5eccd4345a",
+            "version": null
+          }
+        ],
+        "reason": null
+      },
+      "component": "memory",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": null,
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": "work:c8a39e36-6d52-4eaf-9131-3e5eccd4345a",
+      "last_input_versions": {
+        "due": "2026-10-23 01:08:32.637783+00:00",
+        "receipt": "2:2026-10-23 01:09:32.636716+00:00"
+      },
+      "next_due_at": "2026-10-23 01:19:32.741576+00:00"
+    },
+    "observation": {
+      "meta": {
+        "owner": "observation",
+        "status": "available",
+        "version": "2026-10-23T01:09:32.737759+00:00",
+        "updated_at": "2026-10-23 01:09:32.737759+00:00",
+        "source_refs": [
+          {
+            "kind": "work",
+            "id": "98cbfa3b-0e6a-47be-98be-12ccce37631f",
+            "version": null
+          }
+        ],
+        "reason": null
+      },
+      "component": "observation",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": null,
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": "work:98cbfa3b-0e6a-47be-98be-12ccce37631f",
+      "last_input_versions": {
+        "source": "2@1",
+        "delivery": "completed:None"
+      },
+      "next_due_at": null
+    },
+    "cognition": {
+      "meta": {
+        "owner": "cognition",
+        "status": "available",
+        "version": "2026-10-23T01:09:32.762300+00:00",
+        "updated_at": "2026-10-23 01:09:32.762300+00:00",
+        "source_refs": [
+          {
+            "kind": "work",
+            "id": "80f19f76-3d52-5b95-88f6-83c9c97ab068",
+            "version": null
+          }
+        ],
+        "reason": null
+      },
+      "component": "cognition",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": null,
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": "work:80f19f76-3d52-5b95-88f6-83c9c97ab068",
+      "last_input_versions": {
+        "source": "2@1",
+        "delivery": "completed:None"
+      },
+      "next_due_at": null
+    },
+    "memory_ingestion": {
+      "meta": {
+        "owner": "memory_ingestion",
+        "status": "available",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": null
+      },
+      "component": "memory_ingestion",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": "d92edf38-d866-43b5-aff2-297ac8ff592f",
+      "status": "idle",
+      "pending_refs": [],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    },
+    "dialogue_memory": {
+      "meta": {
+        "owner": "dialogue_memory",
+        "status": "disabled",
+        "version": null,
+        "updated_at": null,
+        "source_refs": [],
+        "reason": "owner disabled"
+      },
+      "component": "dialogue_memory",
+      "user_id": "87853f5e-75ea-41d5-a06b-b4fb89734f49",
+      "conversation_id": "d92edf38-d866-43b5-aff2-297ac8ff592f",
+      "status": "disabled",
+      "pending_refs": [],
+      "last_result_ref": null,
+      "last_input_versions": {},
+      "next_due_at": null
+    }
+  },
+  "mind_work_id": "05e88902-29aa-4902-b584-540c65f3a6d9",
+  "work": [
+    {
+      "id": "dbc5b34f-62bb-403a-bf15-ad87dee147e1",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "c8a39e36-6d52-4eaf-9131-3e5eccd4345a",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "80f19f76-3d52-5b95-88f6-83c9c97ab068",
+      "kind": "cognition",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "05e88902-29aa-4902-b584-540c65f3a6d9",
+      "kind": "mind",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "961adf5a-ed4a-48a5-a132-8fbd5a5f96bd",
+      "kind": "memory",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "98cbfa3b-0e6a-47be-98be-12ccce37631f",
+      "kind": "observation",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "13b3a39e-e604-5588-8117-c3dba8d54a44",
+      "kind": "cognition",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "1c024e52-b11c-4c0e-9904-6397acdb1306",
+      "kind": "observation",
+      "status": "completed",
+      "attempt": 1
+    },
+    {
+      "id": "97080578-f2de-5177-a51f-63b976ef106c",
+      "kind": "cognition",
+      "status": "completed",
+      "attempt": 1
+    }
+  ],
+  "observation_count": 4,
+  "receipts": [
+    {
+      "consumer": "memory",
+      "status": "pending",
+      "observation_id": 1
+    },
+    {
+      "consumer": "memory",
+      "status": "skipped",
+      "observation_id": 2
+    },
+    {
+      "consumer": "memory",
+      "status": "pending",
+      "observation_id": 3
+    },
+    {
+      "consumer": "preparation",
+      "status": "applied",
+      "observation_id": 2
+    },
+    {
+      "consumer": "memory",
+      "status": "skipped",
+      "observation_id": 4
+    },
+    {
+      "consumer": "preparation",
+      "status": "applied",
+      "observation_id": 4
+    }
+  ],
+  "adapters": "scripted_success",
+  "timeline": [
+    {
+      "event": "mind_started",
+      "elapsed_ms": 101
+    },
+    {
+      "event": "first_immediate_reply_completed",
+      "elapsed_ms": 135
+    },
+    {
+      "event": "independent_chat_completed",
+      "elapsed_ms": 5275
+    },
+    {
+      "event": "memory_and_capture_preparation_progressed",
+      "elapsed_ms": 5281
+    },
+    {
+      "event": "mind_released",
+      "elapsed_ms": 5291
+    },
+    {
+      "event": "mind_completed",
+      "elapsed_ms": 5321
+    },
+    {
+      "event": "typed_mind_handoff_settled",
+      "elapsed_ms": 5322
+    },
+    {
+      "event": "unchanged_heartbeat_did_not_duplicate_source_work",
+      "elapsed_ms": 6537
+    }
+  ],
+  "mind_disabled_flag": false
+}

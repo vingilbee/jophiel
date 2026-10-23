@@ -8,7 +8,7 @@ Lifecycle of a request that needs thinking:
 2. ``decide_immediate``: cognition decides acknowledge / partial / silent (``cognition_decisions``). The
    student can't decide it yet, so the labelled fallback is ``respond``: the mouth replies, told that the
    thinking is pending and not done. Recorded as the request's ``immediate`` output.
-3. The ``coordinator`` worker thread (``run_once``) claims ready work: recall through memory's own reply search,
+3. The ``coordinator`` heartbeat (``run_once``) dispatches leased work to bounded executors: recall through memory's own reply search,
    then the mind through ``app/ai/mind/hard.py``, which waits for its recall dependency. Every result is
    checked against the lease and the cancellation generation before it's accepted.
 4. ``_conclude``: a result for a conversation that moved on is kept private (``superseded``). Otherwise cognition
@@ -30,7 +30,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update, exists, cast, String
+from sqlalchemy.orm import aliased
 from sqlalchemy.dialects.postgresql import insert
 
 from app.ai.state.decisions import PendingDecision, PendingInput, PendingWork, ResultInput, ThoughtResult
@@ -42,7 +43,7 @@ from app.services import cognition_decisions
 logger = logging.getLogger(__name__)
 
 ACTIVE = ("queued", "waiting_for_memory", "running")
-TERMINAL = ("completed", "failed", "cancelled", "expired", "superseded")
+TERMINAL = ("completed", "failed", "cancelled", "expired", "superseded", "blocked")
 LEASE_SECONDS = 120
 
 
@@ -72,7 +73,7 @@ def supersede_older(user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigg
         with SessionLocal() as db:
             rows = list(db.scalars(select(CoordinatorWork).where(
                 CoordinatorWork.user_id == user_id, CoordinatorWork.conversation_id == conversation_id,
-                CoordinatorWork.status.in_(ACTIVE),
+                CoordinatorWork.status.in_(ACTIVE), CoordinatorWork.kind.in_(("mind", "recall")),
                 CoordinatorWork.trigger_message_id.is_distinct_from(trigger_message_id)).with_for_update()))
             for row in rows:
                 row.status, row.error_code = "superseded", "new_user_message"
@@ -95,6 +96,15 @@ def schedule(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid
     subject = (work_input.get("message") or "")[:200]
     try:
         with SessionLocal() as db:
+            # Admission is atomic for the request's recall/mind pair and bounded across schedulers.
+            db.execute(select(func.pg_advisory_xact_lock(func.hashtext("coordinator:request-admission"))))
+            already = db.scalar(select(CoordinatorWork.id).where(CoordinatorWork.request_id == request_id).limit(1))
+            if not already:
+                for component in (("recall", "mind") if with_recall else ("mind",)):
+                    queued = db.scalar(select(func.count()).select_from(CoordinatorWork).where(
+                        CoordinatorWork.kind == component, CoordinatorWork.status.in_(ACTIVE)))
+                    if queued >= getattr(get_settings(), "coordinator_max_pending", 1000):
+                        return None
             ids: dict[str, uuid.UUID] = {}
             for kind in (("recall", "mind") if with_recall else ("mind",)):
                 deps = [str(ids["recall"])] if kind == "mind" and with_recall else []
@@ -102,7 +112,8 @@ def schedule(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid
                 db.execute(insert(CoordinatorWork).values(
                     id=uuid.uuid4(), request_id=request_id, user_id=user_id, conversation_id=conversation_id,
                     trigger_message_id=trigger_message_id, kind=kind, dependency_ids=deps,
-                    status="queued", input=work_input, input_versions=input_versions, deadline_at=deadline,
+                    status="queued", input={"schema_version": 1, "source_refs": [f"message:{trigger_message_id}"]
+                        if trigger_message_id else [], **work_input}, input_versions=input_versions, deadline_at=deadline,
                     idempotency_key=key).on_conflict_do_nothing(index_elements=["idempotency_key"]))
                 ids[kind] = db.scalar(select(CoordinatorWork.id).where(CoordinatorWork.idempotency_key == key))
             db.commit()
@@ -157,87 +168,165 @@ def immediate_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
 # --------------------------------------------------------------------------- #
 
 
-def _claim(db, token: str) -> tuple[CoordinatorWork | None, str | None]:
-    """The next ready item, leased; or one past its deadline, returned to be ended (``expired``)."""
+def _claim(db, token: str, kinds: tuple[str, ...] = ("recall", "mind"), *, exclude_ids=()) -> tuple[CoordinatorWork | None, str | None]:
+    """Claim one ready job. Per-user/component advisory locking serializes competing schedulers."""
     now = _now()
+    busy = aliased(CoordinatorWork)
+    dependency = aliased(CoordinatorWork)
     candidates = list(db.scalars(select(CoordinatorWork).where(
+        ~exists().where(busy.id != CoordinatorWork.id, busy.user_id == CoordinatorWork.user_id,
+                        busy.kind == CoordinatorWork.kind, busy.status == "running", busy.lease_expires_at > now),
+        ~exists().where(func.jsonb_exists(CoordinatorWork.dependency_ids, cast(dependency.id, String)),
+                        dependency.status.in_(ACTIVE)),
+        CoordinatorWork.id.not_in(exclude_ids),
+        CoordinatorWork.kind.in_(kinds), CoordinatorWork.next_attempt_at <= now,
         (CoordinatorWork.status.in_(("queued", "waiting_for_memory")))
         | ((CoordinatorWork.status == "running") & (CoordinatorWork.lease_expires_at <= now)))
-        .order_by(CoordinatorWork.created_at, CoordinatorWork.id).with_for_update(skip_locked=True).limit(20)))
+        .order_by(CoordinatorWork.created_at, CoordinatorWork.id).with_for_update(skip_locked=True).limit(100)))
     for work in candidates:
+        if not db.scalar(select(func.pg_try_advisory_xact_lock(func.hashtext(f"work:{work.kind}:{work.user_id}")))):
+            continue
+        conflict = db.scalar(select(CoordinatorWork.id).where(
+            CoordinatorWork.id != work.id, CoordinatorWork.user_id == work.user_id,
+            CoordinatorWork.kind == work.kind, CoordinatorWork.status == "running",
+            CoordinatorWork.lease_expires_at > now).limit(1))
+        if conflict:
+            continue
         if work.deadline_at <= now:
             work.status, work.error_code, work.lease_owner = "expired", "deadline", None
             return work, "expired"
+        if work.attempt >= getattr(get_settings(), "coordinator_max_attempts", 3):
+            work.status, work.error_code, work.lease_owner = "failed", "attempts_exhausted", None
+            return work, "failed"
         deps = list(db.scalars(select(CoordinatorWork).where(
             CoordinatorWork.id.in_([uuid.UUID(d) for d in work.dependency_ids])))) if work.dependency_ids else []
         if any(d.status in ACTIVE for d in deps):
-            work.status = "waiting_for_memory"  # it can't start before the evidence it depends on
+            work.status = "waiting_for_memory"
             continue
         work.status, work.attempt = "running", work.attempt + 1
-        work.lease_owner, work.lease_expires_at = token, now + timedelta(seconds=LEASE_SECONDS)
+        work.lease_owner, work.lease_expires_at = token, min(work.deadline_at, now + timedelta(seconds=LEASE_SECONDS))
         return work, None
     return None, None
 
 
-def run_once() -> bool:
+def expire_due() -> int:
+    """Deadlines progress even when every executor is busy; late results cannot change them."""
+    with SessionLocal() as db:
+        ids = list(db.scalars(select(CoordinatorWork.id).where(CoordinatorWork.status.in_(ACTIVE),
+            CoordinatorWork.deadline_at <= _now()).with_for_update(skip_locked=True).limit(100)))
+        if ids:
+            db.execute(update(CoordinatorWork).where(CoordinatorWork.id.in_(ids)).values(
+                status="expired", error_code="deadline", lease_owner=None, lease_expires_at=None))
+        db.commit()
+    return len(ids)
+
+
+def renew(work_id, token, generation) -> bool:
+    now = _now()
+    with SessionLocal() as db:
+        result = db.execute(update(CoordinatorWork).where(
+            CoordinatorWork.id == work_id, CoordinatorWork.status == "running",
+            CoordinatorWork.lease_owner == token, CoordinatorWork.cancellation_generation == generation,
+            CoordinatorWork.lease_expires_at > now, CoordinatorWork.deadline_at > now).values(
+                lease_expires_at=func.least(CoordinatorWork.deadline_at, now + timedelta(seconds=LEASE_SECONDS))))
+        db.commit()
+        return result.rowcount == 1
+
+
+def execute_claim(work, token):
+    """Slow code runs only on an executor, outside the claim transaction."""
+    from app.services import background_components
+    try:
+        if work.input.get("autonomous"):
+            result, status, error = work.result, "completed", None
+        elif work.kind == "recall":
+            result, status, error = _run_recall(work)
+        elif work.kind == "mind":
+            result, status, error = _run_mind(work)
+        else:
+            result, status, error = background_components.execute(work)
+    except Exception as exc:  # recorded, bounded retry; a crash is recovered by lease expiry
+        logger.exception("coordinator: %s work %s failed", work.kind, work.id)
+        result, status, error = None, "failed", type(exc).__name__[:64]
+    accepted = _accept(work.id, token, work.cancellation_generation, status, result, error)
+    _log({"op": "finished", "work": str(work.id), "kind": work.kind, "status": status,
+          "accepted": accepted, "error": error})
+    _wake()
+
+
+def execute_once() -> bool:
+    """Synchronous single-job harness for scripts/tests. Production uses run_once's bounded scheduler."""
     repaired = recover_follow_up()
-    # Recover every terminal mind result committed before its conclusion decision.
     with SessionLocal() as db:
         orphan = db.scalar(select(CoordinatorWork.id).where(
             CoordinatorWork.kind == "mind", CoordinatorWork.status.in_(("completed", "failed", "expired")),
             ~select(CoordinatorOutput.id).where(CoordinatorOutput.work_id == CoordinatorWork.id,
-                                                CoordinatorOutput.phase == "follow_up").exists()
-        ).order_by(CoordinatorWork.created_at).limit(1))
-    if orphan is not None:
+                CoordinatorOutput.phase == "follow_up").exists()).order_by(CoordinatorWork.created_at).limit(1))
+    if orphan:
         _conclude(orphan)
         return True
     token = uuid.uuid4().hex
     with SessionLocal() as db:
         work, ended = _claim(db, token)
         db.commit()
-        if work is None:
+        if not work:
             return repaired
         db.expunge(work)
-    if ended == "expired":
-        _log({"op": "expired", "work": str(work.id), "kind": work.kind})
-        if work.kind == "mind":
-            _conclude(work.id)
-        return True
-    generation = work.cancellation_generation
-    try:
-        if work.input.get("autonomous"):
-            result, status, error = work.result, "completed", None
-        elif work.kind == "recall":
-            result, status, error = _run_recall(work)
-        else:
-            result, status, error = _run_mind(work)
-    except Exception as exc:  # noqa: BLE001 - a failed job is a recorded terminal outcome
-        logger.exception("coordinator: %s work %s failed", work.kind, work.id)
-        result, status, error = None, "failed", type(exc).__name__[:64]
-    accepted = _accept(work.id, token, generation, status, result, error)
-    _log({"op": "finished", "work": str(work.id), "kind": work.kind, "status": status, "accepted": accepted,
-          "error": error})
+    if not ended:
+        execute_claim(work, token)
     if work.kind == "mind":
         _conclude(work.id)
-    _wake()  # a dependent item may be ready now
+    return True
+
+
+def run_once() -> bool:
+    from app.services.coordinator_runtime import runtime
+    return runtime().tick()
+
+
+def evidence_version(record):
+    return f"{record.fingerprint}:{record.applicability}:{int(record.corrected)}"
+
+
+def evidence_current(db, work, result=None, *, lock=False) -> bool:
+    """Compare only referenced evidence; unrelated memory edits never invalidate a thought."""
+    from app.services import recall
+    versions = (result or work.result or {}).get("evidence_versions", work.input.get("evidence_versions", {}))
+    if not versions and (result or work.result or {}).get("evidence_refs"):
+        return False  # pre-migration evidence has no version proof
+    if lock and versions:
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"memory:{work.user_id}"))))
+    for ref, fingerprint in versions.items():
+        read = recall.read(db, work.user_id, ref)
+        if read.status != "matched" or not read.records or evidence_version(read.records[0]) != fingerprint:
+            return False
     return True
 
 
 def _accept(work_id: uuid.UUID, token: str, generation: int, status: str, result: dict | None,
             error: str | None) -> bool:
-    """Keep a result only while this worker still owns the item and nothing superseded it. A late result is
-    kept on the row as a private outcome, and the status stays what superseded it."""
+    """Only the current, unexpired owner can populate the authoritative result."""
+    from app.services import background_components
     with SessionLocal() as db:
         row = db.get(CoordinatorWork, work_id, with_for_update=True)
-        if row is None:
+        now = _now()
+        if (row is None or row.status != "running" or row.lease_owner != token
+                or row.cancellation_generation != generation or row.lease_expires_at <= now
+                or row.deadline_at <= now):
             return False
-        owned = row.status == "running" and row.lease_owner == token and row.cancellation_generation == generation
-        if row.result is None:
-            row.result = result
-        if owned:
-            row.status, row.error_code, row.lease_owner, row.lease_expires_at = status, error, None, None
+        if row.kind == "observation" and not background_components.source_current(db, row):
+            status, error = "superseded", "delivery_changed"
+        if row.kind == "mind" and not evidence_current(db, row, result, lock=True):
+            status, error = "superseded", "evidence_changed"
+        if status == "failed" and row.attempt < getattr(get_settings(), "coordinator_max_attempts", 3):
+            row.status, row.error_code = "queued", error
+            row.next_attempt_at = now + timedelta(seconds=min(30, 2 ** row.attempt))
+        else:
+            row.result, row.status, row.error_code = result, status, error
+            background_components.accepted(db, row)
+        row.lease_owner, row.lease_expires_at = None, None
         db.commit()
-        return owned
+        return True
 
 
 def _trigger(db, work: CoordinatorWork) -> ChatMessage | None:
@@ -253,8 +342,9 @@ def _run_recall(work: CoordinatorWork) -> tuple[dict, str, str | None]:
         return {"status": "unavailable"}, "failed", "recall_disabled"
     turn = recall_references.for_reply(work.user_id, work.conversation_id, work.trigger_message_id,
                                        work.input.get("message", ""), work.input.get("zone"))
-    result = {"status": turn.result.status, "refs": [str(r) for r in turn.result.refs()],
-              "rendered": turn.rendered[:6000]}
+    result = {"schema_version": 1, "status": turn.result.status, "refs": [str(r) for r in turn.result.refs()],
+              "rendered": turn.rendered[:6000],
+              "evidence_versions": {str(r.ref): evidence_version(r) for r in turn.result.records}}
     return result, ("failed" if turn.result.status == "failed" else "completed"), (
         "recall_failed" if turn.result.status == "failed" else None)
 
@@ -300,9 +390,11 @@ def _run_mind(work: CoordinatorWork) -> tuple[dict, str, str | None]:
         topic=message[:60], query=message)
     thought = _think(HardInput(problem=problem, user=work.input.get("user_name") or "the user",
                                conversation=conversation, memories=memories))
-    result = {"kind": thought.kind, "conclusion": thought.conclusion, "question": thought.question,
+    result = {"schema_version": 1, "kind": thought.kind, "conclusion": thought.conclusion, "question": thought.question,
               "thinking": thought.thinking, "evidence_status": evidence_status, "evidence_refs": refs,
-              "latency_ms": thought.latency_ms, "error": thought.error}
+              "latency_ms": thought.latency_ms, "error": thought.error,
+              "evidence_versions": (recall.result or {}).get("evidence_versions", {}) if recall else
+                  work.input.get("evidence_versions", {})}
     if thought.error:
         return result, "failed", "mind_error"
     return result, "completed", None
@@ -317,8 +409,11 @@ def _conclude(work_id: uuid.UUID) -> None:
     """Decide what happens to a mind item's outcome and dispatch it once. Never speaks directly."""
     with SessionLocal() as db:
         work = db.get(CoordinatorWork, work_id)
-        if work is None:
+        if work is None or work.status not in TERMINAL:
             return
+        if work.status == "completed" and not evidence_current(db, work):
+            work.status, work.error_code = "superseded", "evidence_changed"
+            db.commit()
         trigger = _trigger(db, work)
         newer = 0
         if trigger is not None and trigger.conversation_sequence is not None:
@@ -336,7 +431,7 @@ def _conclude(work_id: uuid.UUID) -> None:
             if not autonomous_speech.valid(db, work):
                 _record(**common, decision="rejected", origin="coordinator", missing=None, status="not_sent")
                 return
-    if work.status == "superseded" or newer:
+    if work.status in ("superseded", "cancelled", "blocked") or newer:
         # The conversation moved on: the thought stays private; it can't answer a newer message.
         _record(**common, decision="superseded", origin="coordinator", missing=None, status="not_sent")
         return
@@ -370,6 +465,14 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str) -> None
 
     turn = follow_up_turn(work.request_id)
     with SessionLocal() as db:
+        current = db.get(CoordinatorWork, work.id, with_for_update=True)
+        if current is None or current.status not in ("completed", "failed", "expired") or not evidence_current(db, current, lock=True):
+            return
+        trigger = _trigger(db, current)
+        if trigger and db.scalar(select(ChatMessage.id).where(
+                ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
+                ChatMessage.conversation_sequence > trigger.conversation_sequence).limit(1)):
+            return
         output = db.execute(insert(CoordinatorOutput).values(
             id=uuid.uuid4(), request_id=work.request_id, user_id=work.user_id, conversation_id=work.conversation_id,
             work_id=work.id, phase="follow_up", decision=action, decision_origin=origin, status="dispatched",
@@ -398,7 +501,7 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
     """Checked again by the chat worker right before the mouth speaks: no newer user message, not superseded."""
     with SessionLocal() as db:
         work = db.get(CoordinatorWork, work_id)
-        if work is None or work.status == "superseded":
+        if work is None or work.status not in ("completed", "failed", "expired") or not evidence_current(db, work):
             return False, None
         if work.input.get("autonomous"):
             from app.services import autonomous_speech
@@ -519,7 +622,8 @@ def follow_up_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
 
 def pending_for(request_id: uuid.UUID) -> tuple[PendingWork, ...]:
     with SessionLocal() as db:
-        rows = list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.request_id == request_id)))
+        rows = list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.request_id == request_id,
+            CoordinatorWork.kind.in_(("mind", "recall")))))
     return tuple(PendingWork(str(r.id), r.kind, r.status, (r.input.get("message") or "")[:200], "") for r in rows)
 
 
@@ -543,13 +647,19 @@ def _record(*, request_id, user_id, conversation_id, phase, decision, origin, mi
 
 
 def _wake() -> None:
+    from app.services.coordinator_runtime import wake
+    wake.set()
     s = get_settings()
     if not s.redis_url:
         return
     try:
         import redis
 
-        redis.from_url(s.redis_url).rpush(s.coordinator_queue_name, "wake")
+        with redis.from_url(s.redis_url, socket_connect_timeout=0.2, socket_timeout=0.2) as client:
+            with client.pipeline() as pipe:
+                pipe.rpush(s.coordinator_queue_name, "wake")
+                pipe.ltrim(s.coordinator_queue_name, -1, -1)
+                pipe.execute()
     except Exception:  # noqa: BLE001 - polling is the source of truth
         pass
 

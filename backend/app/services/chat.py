@@ -124,6 +124,8 @@ def add_message(
         external_message_id=external_message_id,
     )
     db.add(message)
+    from app.services import background_wake
+    background_wake.mark(db)
     # Backfill a title from the first user message if we don't have one yet.
     if conversation.title is None and role == "user":
         conversation.title = _derive_title(content)
@@ -161,6 +163,8 @@ def record_heard(
         message.heard_chars is None or heard_chars < message.heard_chars
     ):
         message.heard_chars = heard_chars
+        from app.services import background_wake
+        background_wake.mark(db)
         db.commit()
     return True
 

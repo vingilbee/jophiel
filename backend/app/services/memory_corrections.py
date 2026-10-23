@@ -554,6 +554,9 @@ def _apply(db: Session, correction_id: uuid.UUID, token: str, edits: list[Edit],
     row.status, row.applied_at, row.event_id = "applied", _now(), event.id
     row.claim_token, row.lease_expires_at, row.last_error = None, None, None
     row.result = {"candidates": candidates, "revised": outcome.revised, "unchanged": outcome.unchanged}
+    from app.services import background_components
+    background_components.memory_changed(db, user_id, row.id, event.id,
+                                         [change["ref"] for change in outcome.revised])
     db.commit()
     _log({"op": "applied", "user": str(user_id), "correction": str(row.id), "candidates": candidates,
           "revised": len(outcome.revised), "unchanged": len(outcome.unchanged)})

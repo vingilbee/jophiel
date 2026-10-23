@@ -247,6 +247,8 @@ class SharedView:
     recall: RecallDecision = field(default_factory=lambda: RecallDecision(
         Projection.off("jev", "no recall assessment")))
 
+    components: tuple[ComponentView, ...] = ()
+
     def dependencies(self) -> dict[str, str | None]:
         """The versions this turn's route rests on, for the trace."""
         return {
@@ -269,3 +271,17 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, (uuid.UUID, datetime)):
         return str(value) if isinstance(value, uuid.UUID) else value.isoformat()
     return value
+
+
+@dataclass(frozen=True)
+class ComponentView:
+    """Bounded scheduling projection; payloads remain with their existing owners."""
+    meta: Projection
+    component: str
+    user_id: str
+    conversation_id: str | None
+    status: str  # idle / queued / running / blocked / failed / disabled
+    pending_refs: tuple[str, ...] = ()
+    last_result_ref: str | None = None
+    last_input_versions: dict[str, str] = field(default_factory=dict)
+    next_due_at: datetime | None = None
