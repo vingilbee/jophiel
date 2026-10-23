@@ -74,7 +74,7 @@ from app.ai.desktop import pack_client  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.db.models import AgentEventJob, DesktopEnvironment, DesktopSession, MindThought  # noqa: E402
 from app.services import autonomous_speech, desktop_game, desktop_sessions, game_pack, mind, mind_minecraft  # noqa: E402
-from tests.cognitive_shadow_support import database  # noqa: E402,F401  (fixture)
+from tests.db_support import database  # noqa: E402,F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: E402,F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, db  # noqa: E402,F401  (fixtures)
 from tests.test_game_pack import FakePack  # noqa: E402

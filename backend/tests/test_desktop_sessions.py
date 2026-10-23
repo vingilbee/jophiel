@@ -25,7 +25,7 @@ from app.db.models import Conversation, DesktopSession, DesktopSessionEvent, Use
 from app.schemas.desktop import EnvironmentCreate, PlanAppend, PlanReplace, SessionCreate
 from app.services import desktop_sessions as svc
 from app.services.desktop_sessions import DesktopError
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 
 PLAN = {"goal": "collect wood", "steps": [{"do": "find a tree", "done_when": "a tree is centered"},

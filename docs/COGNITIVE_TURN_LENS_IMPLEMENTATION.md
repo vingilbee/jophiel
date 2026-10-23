@@ -1,5 +1,7 @@
 # Cognitive Turn Lens — End-to-End Implementation Brief
 
+> **Retired 2026-10-22, never built.** This brief exposes the Cognitive V0 live-shadow trace, which the legacy cleanup (`LEGACY_CLEANUP_2026-10-22.md`) removed along with every file it lists below. Kept only as history.
+
 Status: ready for implementation planning. This brief exposes the existing
 canonical cognitive live-shadow trace for local evaluation. It does not grant
 the cognitive pipeline authority over the live response.

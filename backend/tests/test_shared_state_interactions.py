@@ -20,7 +20,7 @@ from app.services import chat as chat_service, cognition_decisions, coordinator
 from app.workers import chat as worker
 from test_autonomous_speech import propose
 from test_coordinator import env, _run_chat, _say, _work  # noqa: F401
-from cognitive_shadow_support import database, shadow_env, create_conversation, create_user  # noqa: F401
+from db_support import database, db_env, create_conversation, create_user  # noqa: F401
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ from app.services import coordinator,cognition_decisions,autonomous_speech,chat
 from app.ai.state.decisions import ResultDecision
 engine=create_engine(os.environ['TEST_DATABASE_URL'],connect_args={'options':'-csearch_path='+os.environ['STEP6_SCHEMA']})
 coordinator.SessionLocal=sessionmaker(engine,expire_on_commit=False)
-s=get_settings().model_copy(update={'redis_url':None,'shared_state_pipeline_enabled':True,'shared_state_log_path':os.environ['STEP6_TRACE']})
+s=get_settings().model_copy(update={'redis_url':None,'shared_state_log_path':os.environ['STEP6_TRACE']})
 coordinator.get_settings=lambda:s
 chat.get_settings=lambda:s
 cognition_decisions.PROVIDERS['result']=lambda _:ResultDecision('respond','scripted-step6',True)

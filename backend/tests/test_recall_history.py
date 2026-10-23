@@ -30,7 +30,7 @@ from app.services import (
     chat as chat_service, memory_manager, recall, recall_expand, recall_history, recall_references,
 )
 from app.services.memory_manager import Source
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 
 NOW = datetime.now(timezone.utc)

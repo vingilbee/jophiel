@@ -103,7 +103,8 @@ def _tools(monkeypatch, event=None, *, changed=(), spoke=False):
     monkeypatch.setattr(desktop_tools.agent_say, "user_spoke_since", lambda db, uid, at: spoke)
     monkeypatch.setattr(desktop_tools.desktop_game, "tell_hands", lambda db, uid, **kw: "Told them.")
     said = []
-    monkeypatch.setattr(desktop_tools.agent_say, "deliver", lambda db, **kw: said.append(kw["text"]) or "Said it.")
+    monkeypatch.setattr(desktop_tools.autonomous_speech, "deliver_worded",
+                        lambda db, **kw: said.append(kw["text"]) or "Queued to say: it goes out soon.")
     built = {t.name: t for t in desktop_tools.build_desktop_tools(uuid.uuid4(), event, since=moment())}
     return built, said
 
@@ -128,7 +129,7 @@ def test_a_background_say_checks_its_words_after_the_game_moved(monkeypatch):
                          changed=['you learned how to "kill a sheep"'])
     first = asyncio.run(tools["say"].ainvoke({"text": "I still can't hit it."}))
     assert first.startswith("Not said yet.") and said == []
-    assert asyncio.run(tools["say"].ainvoke({"text": "Got it!"})).startswith("Said")
+    assert asyncio.run(tools["say"].ainvoke({"text": "Got it!"})).startswith("Queued")
     assert said == ["Got it!"]
 
 
@@ -146,21 +147,23 @@ def test_a_quick_thought_the_game_moved_past_is_not_said(monkeypatch):
 
     monkeypatch.setattr(mind, "SessionLocal", ThoughtDb)
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw))
-    monkeypatch.setattr(mind.agent_say, "deliver", lambda db, **kw: said.append(kw["text"]) or "Said it.")
+    from app.services import autonomous_speech
+
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw["text"]) or "Proposed.")
     monkeypatch.setattr(mind, "_log", lambda record: None)
     monkeypatch.setattr(mind.time, "time", lambda: 101.0)
     monkeypatch.setattr(mind_minecraft.game_moment, "since", lambda db, m, kinds=None: ["what you carry: mutton 0 -> 2"])
     sid = uuid.uuid4()
     mind._minds[sid] = mind.ActivityMind(quick_since=moment())
     mind._think_quick(mind_minecraft.SOURCE, Scope(uuid.uuid4(), "minecraft", sid), "light", "tick", 100.0, Thinker())
-    assert said == [] and saved[-1]["status"] == "stale" and saved[-1]["said"] is None
+    assert said == [] and saved[-1]["status"] == "stale"  # not even proposed
 
 
 def test_a_correction_is_said_only_when_the_game_moved(monkeypatch):
     delivered, written, logged = [], [], []
     monkeypatch.setattr(game_correction, "SessionLocal", Db)
-    monkeypatch.setattr(game_correction.agent_say, "deliver",
-                        lambda db, **kw: delivered.append(kw) or "Said it.")
+    monkeypatch.setattr(game_correction.autonomous_speech, "submit",
+                        lambda db, **kw: delivered.append(kw) or "Proposed: queued for cognition and mouth.")
     monkeypatch.setattr(mind, "_log", logged.append)
 
     def write(said, changed, user, voice=""):
@@ -174,8 +177,10 @@ def test_a_correction_is_said_only_when_the_game_moved(monkeypatch):
 
     learned = ['you learned how to "build up": your hands have it now as learned_build_up']
     monkeypatch.setattr(game_correction.game_moment, "since", lambda db, m, kinds=None: learned)
-    outcome = game_correction.check(uuid.uuid4(), "I haven't learned it yet. [[sticker:thinking]]", moment())
-    assert outcome == "Said it."
+    when = moment()
+    outcome = game_correction.check(uuid.uuid4(), "I haven't learned it yet. [[sticker:thinking]]", when)
+    assert outcome.startswith("Proposed")  # cognition decides whether it is said; no direct delivery
     assert written == [("I haven't learned it yet.", learned, "Vincent")]
     assert delivered[0]["text"].startswith("Oh wait") and delivered[0]["reasons"][0].startswith("correction:")
+    assert delivered[0]["activity_id"] == when.session_id and delivered[0]["source"] == "minecraft"
     assert logged[-1]["correction"].startswith("Oh wait")

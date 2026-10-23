@@ -47,10 +47,6 @@ TERMINAL = ("completed", "failed", "cancelled", "expired", "superseded", "blocke
 LEASE_SECONDS = 120
 
 
-def enabled() -> bool:
-    return bool(get_settings().shared_state_pipeline_enabled)
-
-
 def follow_up_turn(request_id: uuid.UUID) -> uuid.UUID:
     return uuid.uuid5(request_id, "follow_up")
 
@@ -577,6 +573,9 @@ def announce_follow_up(request_id: uuid.UUID) -> bool:
         if work and work.input.get("autonomous"):
             from app.services import autonomous_speech
             autonomous_speech.delivered(work)
+        elif (job.payload or {}).get("phase") == "deliver":
+            from app.services import agent_say
+            agent_say.mark_said(job.user_id, job.payload["reasons"])
         db.commit()
         return True
 

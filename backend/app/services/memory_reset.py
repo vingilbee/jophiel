@@ -3,8 +3,7 @@
 Never touches ``core_memory`` (her identity, not about any user), user accounts,
 logins, integrations, desktop environments, or calorie/weight logs. Deleting a
 conversation cascades to everything built on it: messages, chat/memory jobs,
-working memory, dialogue memory, interpreted dialogue relationships, and cognitive
-shadow jobs/traces.
+and working memory.
 """
 from __future__ import annotations
 
@@ -56,12 +55,6 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     unknown = set(chosen) - set(SCOPES)
     if unknown:
         raise ValueError(f"unknown scope(s): {', '.join(sorted(unknown))}")
-    conversation_ids: list[uuid.UUID] = []
-    if "conversations" in chosen:
-        query = select(Conversation.id)
-        if ids is not None:
-            query = query.where(Conversation.user_id.in_(ids))
-        conversation_ids = list(db.scalars(query))
     counts: dict[str, int] = {}
     for scope in chosen:
         if scope == "working":
@@ -80,11 +73,6 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
 
         observation.reset_restart(db, ids)
     db.commit()
-    if conversation_ids:
-        from app.services import dialogue_memory
-
-        for conversation_id in conversation_ids:
-            dialogue_memory.delete_cached_conversation(conversation_id)
     return counts
 
 

@@ -22,7 +22,7 @@ from app.db.models import (
 from app.schemas.game_learning import ReflectedLesson, ReflectedProposal, Reflection
 from app.services import desktop_game, desktop_sessions, game_learning, long_term_memory, memory_reset
 from app.services.game_learning import LearningError, build_timeline, lesson_status, resolve_refs
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_skill_driver import Harness, ScriptedModel, _decide
 

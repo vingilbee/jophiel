@@ -18,7 +18,7 @@ from app.services import background_components as components, coordinator, memor
 from app.services import observation_adapters, chat as chat_service
 from app.services.coordinator_runtime import Runtime
 from test_coordinator import env, _say, _work  # noqa: F401
-from cognitive_shadow_support import create_user, create_conversation, database, shadow_env  # noqa: F401
+from db_support import create_user, create_conversation, database, db_env  # noqa: F401
 
 
 @pytest.fixture
@@ -330,9 +330,11 @@ def test_busy_users_do_not_hide_unrelated_ready_work_behind_scan_limit(bg):
     assert work.id == ready
 
 
-def test_memory_and_preparation_run_with_entire_mind_pipeline_disabled(bg, monkeypatch):
-    settings = components.get_settings().model_copy(update={"shared_state_pipeline_enabled": False})
-    monkeypatch.setattr(components, "get_settings", lambda: settings)
+def test_memory_and_preparation_run_with_the_mind_component_unavailable(bg, monkeypatch):
+    # No setting disables the mind any more (the pipeline always runs); the component seam stands in for an
+    # unavailable mind, to show memory and observation don't depend on it.
+    enabled = components.enabled
+    monkeypatch.setattr(components, "enabled", lambda kind: kind != "mind" and enabled(kind))
     with bg.db() as db:
         memory_manager.state(db, bg.user.id)
         db.commit()

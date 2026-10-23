@@ -35,7 +35,7 @@ Relevant source files:
 - `backend/app/services/long_term_memory.py`
 - `backend/app/services/cognitive_live.py`
 - `backend/app/ai/Cognitive/simple/notes.py`
-- `backend/app/services/dialogue_memory.py`
+- `backend/app/services/dialogue_memory.py` (retired 2026-10-22, see `LEGACY_CLEANUP_2026-10-22.md`)
 - `backend/app/services/game_learning.py`
 - `backend/app/services/game_planning.py`
 - `backend/app/services/mind_hard.py`

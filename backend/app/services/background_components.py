@@ -38,8 +38,9 @@ cognition_sink = unavailable_cognition
 
 def enabled(kind: str) -> bool:
     s = get_settings()
-    return bool({"mind": getattr(s, "shared_state_pipeline_enabled", False),
-                 "recall": getattr(s, "shared_state_pipeline_enabled", False),
+    # Mind, recall and cognition belong to the shared-state pipeline, which always runs.
+    return bool({"mind": True,
+                 "recall": True,
                  "memory": getattr(s, "memory_manager_enabled", False),
                  "observation": getattr(s, "observation_preparation_enabled", False),
                  "cognition": True}.get(kind, False))
@@ -251,11 +252,10 @@ def projections(user_id, conversation_id):
 def owned_memory_projections(user_id, conversation_id):
     """Expose existing ingestion workers without scheduling duplicate copies of their work."""
     from app.ai.state.contracts import ComponentView, Projection, SourceRef
-    from app.db.models import MemoryJob, CognitiveDialogueMemoryJob
+    from app.db.models import MemoryJob
     result = []
     for name, model, flag, source_attr in (
         ("memory_ingestion", MemoryJob, "long_term_memory_enabled", "assistant_message_id"),
-        ("dialogue_memory", CognitiveDialogueMemoryJob, "cognitive_dialogue_memory_enabled", "trigger_message_id"),
     ):
         scope_id = str(conversation_id) if conversation_id else None
         if not getattr(get_settings(), flag, False):

@@ -1,10 +1,5 @@
 # React + TypeScript + Vite
 
-The Chat page includes a developer-facing **Cognitive test** panel. It calls the
-authenticated `/api/cognitive/inspect` endpoint to display the experimental
-local perception and interpretation results without sending a message to the
-chatbot or changing a conversation.
-
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

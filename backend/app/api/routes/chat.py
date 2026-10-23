@@ -107,7 +107,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import AgentRuntimeContext, prompts, stream_chat, vision
-from app.ai.Cognitive.system.v0.live_shadow.models import GenerationPath, ShadowSourceChannel
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.api.deps import get_current_user, validate_origin
@@ -135,9 +134,8 @@ from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import agent_say, memory_manager
-from app.services import cognitive_live, cognitive_shadow, inner_state_live
+from app.services import cognitive_live, inner_state_live
 from app.services import desktop_game
-from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
 from app.services import coordinator, shared_state
@@ -790,25 +788,14 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         if reply:
             db = SessionLocal()
-            scheduled = False
             try:
                 conversation = chat_service.get_conversation(
                     db, user_id=user_id, conversation_id=conversation_id
                 )
                 if conversation is not None:
-                    nudge_message = chat_service.add_message(
-                        db, conversation=conversation, role="assistant", content=reply, commit=False,
-                    )
-                    # An unprompted message is still a delivered dialogue event.
-                    scheduled = dialogue_memory.schedule_update(
-                        db, user_id=user_id, conversation_id=conversation_id,
-                        trigger_message_id=nudge_message.id,
-                    )
-                    db.commit()
+                    chat_service.add_message(db, conversation=conversation, role="assistant", content=reply)
             finally:
                 db.close()
-            if scheduled:
-                dialogue_memory.wake_worker()
 
         await send_json({"type": "nudge_end"})
 
@@ -975,19 +962,6 @@ async def chat_ws(websocket: WebSocket) -> None:
         finally:
             db.close()
 
-        # Local fallback has no ChatJob, so it calls the same shared capture
-        # owner as the chat worker, marked as the local-fallback path.
-        # Observational only: nothing below reads the result.
-        if cognitive_shadow.capture_enabled():
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(
-                    cognitive_shadow.capture_turn,
-                    user_id=user_id, conversation_id=resolved_id, turn_id=turn_id,
-                    user_message_id=user_message.id, chat_job_id=None,
-                    generation_path=GenerationPath.LOCAL_FALLBACK,
-                    source_channel=ShadowSourceChannel.VOICE if voice else ShadowSourceChannel.WEB,
-                )
-
         # Caption the screen lazily, here, rather than on a timer while the
         # user is idle — this is what makes an always-on eye free when nobody
         # is talking to it. Cached per frame id, so only the first turn after
@@ -996,40 +970,21 @@ async def chat_ws(websocket: WebSocket) -> None:
         if senses.vision_enabled and not session.captioned(senses.screen_image_id):
             state = await _caption_screen(state)
 
-        # Retrieval may make one embedding API call. Keep that blocking client
-        # off the WebSocket event loop, and fail open inside the service.
-        recall_turn = None
-        fast = None
+        # One scoped view -> Student 1 -> her; no search before the reply (docs/SHARED_STATE_REFACTOR_SPEC.md),
+        # the only preparation. Off the event loop: it reads the database and runs the student.
         assistant_message_id = uuid.uuid4()
-        if shared_state.enabled():
-            # One scoped view -> Student 1 -> her; no search before the reply (docs/SHARED_STATE_REFACTOR_SPEC.md).
-            fast = await asyncio.to_thread(
-                shared_state.prepare, user_id=user_id, conversation_id=resolved_id,
-                user_message_id=user_message.id, history=history, message=content, zone=state.zone_name,
-                turn_id=turn_id, reply_message_id=assistant_message_id, voice=voice, user_name=user_name)
-            recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
-            if fast.silent:
-                # Cognition chose silence while she thinks: no reply, recorded as not sent. (Follow-ups need
-                # the external chat worker: this local path has no job for them to run in.)
-                coordinator.immediate_outcome(turn_id, status="not_sent", assistant_message_id=None)
-                await emit_event({"type": "done", "turn_id": str(turn_id), "status": "silent"})
-                shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
-                return
-        else:
-            if recall_references.enabled():
-                # Shared recall (never raises; a failure is a "failed" result she's told about).
-                recall_turn = await asyncio.to_thread(
-                    recall_references.for_reply, user_id, resolved_id, user_message.id, content, state.zone_name)
-                long_term_memory = recall_turn.legacy
-            else:
-                long_term_memory = await asyncio.to_thread(
-                    memory_service.retrieve_for_prompt, user_id, content
-                )
-            # Simple cognition, live: None (nothing changes) unless enabled in settings.
-            live = (await asyncio.to_thread(
-                cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
-                message=content, long_term_memory=long_term_memory,
-            ) if cognitive_live.enabled() else None)
+        fast = await asyncio.to_thread(
+            shared_state.prepare, user_id=user_id, conversation_id=resolved_id,
+            user_message_id=user_message.id, history=history, message=content, zone=state.zone_name,
+            turn_id=turn_id, reply_message_id=assistant_message_id, voice=voice, user_name=user_name)
+        recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
+        if fast.silent:
+            # Cognition chose silence while she thinks: no reply, recorded as not sent. (Follow-ups need
+            # the external chat worker: this local path has no job for them to run in.)
+            coordinator.immediate_outcome(turn_id, status="not_sent", assistant_message_id=None)
+            await emit_event({"type": "done", "turn_id": str(turn_id), "status": "silent"})
+            shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
+            return
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -1048,10 +1003,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             cognitive_reading=live.reading if live else None,
             conversation_notes=live.notes if live else None,
             working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
-            recall=fast.recall_rendered if fast else recall_turn.rendered if recall_turn is not None else None,
+            recall=fast.recall_rendered,
             recall_turn=recall_turn,
-            cached_memory=fast.cached_memory if fast else None,
-            turn_boundary=fast.boundary if fast else None,
+            cached_memory=fast.cached_memory,
+            turn_boundary=fast.boundary,
             memory_tools=memory_manager.enabled(),
             source_message_id=user_message.id if memory_manager.enabled() else None,
             vision_enabled=senses.vision_enabled,
@@ -1071,9 +1026,8 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply = ""
         stopped = False
         failed = False
-        if fast is not None:
-            # How this reply was routed, degraded or not: visible on the turn, never silent.
-            await emit_event({**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
+        # How this reply was routed, degraded or not: visible on the turn, never silent.
+        await emit_event({**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
         first_model_token = True
         sticker_buffer = ""
         try:
@@ -1146,7 +1100,6 @@ async def chat_ws(websocket: WebSocket) -> None:
             "partial" if stopped else
             "completed"
         )
-        dialogue_scheduled = False
         if reply or outcome_status in {"cancelled", "failed"}:
             db = SessionLocal()
             try:
@@ -1167,12 +1120,6 @@ async def chat_ws(websocket: WebSocket) -> None:
                     receipt_id = recall_references.save_receipt(
                         db, recall_turn, assistant_message_id=assistant_message_id,
                         conversation_id=resolved_id, reply=reply)
-                    # The same scheduling service as the chat worker, in the
-                    # transaction that commits the terminal outcome.
-                    dialogue_scheduled = dialogue_memory.schedule_update(
-                        db, user_id=user_id, conversation_id=resolved_id,
-                        trigger_message_id=assistant_message_id,
-                    )
                     db.commit()
                     recall_references.start_association(receipt_id)
                     # A stopped reply is partial model output, not a completed
@@ -1186,19 +1133,6 @@ async def chat_ws(websocket: WebSocket) -> None:
                         )
             finally:
                 db.close()
-        elif dialogue_memory.enabled():
-            # A user-only terminal turn still advances dialogue memory over
-            # the persisted user message.
-            db = SessionLocal()
-            try:
-                dialogue_scheduled = dialogue_memory.schedule_update(
-                    db, user_id=user_id, conversation_id=resolved_id, trigger_message_id=user_message.id,
-                )
-                db.commit()
-            finally:
-                db.close()
-        if dialogue_scheduled:
-            dialogue_memory.wake_worker()
 
         await emit_event({
             "type": "stopped" if stopped else "done",
@@ -1206,7 +1140,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             "message_id": str(assistant_message_id),
             "status": outcome_status,
         })
-        if fast is not None and fast.pending:
+        if fast.pending:
             coordinator.immediate_outcome(turn_id, status={"completed": "delivered"}.get(outcome_status, outcome_status),
                                           assistant_message_id=assistant_message_id if reply else None)
         shared_state.finish(fast, outcome=outcome_status, reply=reply,

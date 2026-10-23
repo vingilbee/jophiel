@@ -1,5 +1,5 @@
 """Simple cognition chain + teacher environment (plan: docs/COLUMBINA_SIMPLE_COGNITION_AND_TEACHER_PLAN.md).
 
-Offline and shadow only: nothing here is on a live chat path. The v0/v1 pipeline in
-``app/ai/Cognitive/system`` is separate and unchanged.
+The only cognition architecture (the v0/v1 pipeline was retired 2026-10-22). Live chat reaches it through
+``services/cognitive_live.py`` (Student 1's reading); the teacher environment is offline.
 """

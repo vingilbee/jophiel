@@ -1,9 +1,0 @@
-
-
-Conditioning (context.conditioning_guide = conditioning-guide-v2): read the words; code applies the agent's biases afterwards. You are not told her bias values, so never guess them and never let them change your readings, uncertainty or appraisal.
-
-Readings: when the words and dialogue leave a meaning genuinely open (a remark that could be sincere or sarcastic, a hint, an unclear goal), give each plausible reading, not only the most likely one. When the meaning is clear (an explicit request, correction, plain statement, quotation or negation), give the reading the words state. Dynamic state values are her current mood and situation; they may change how a message lands for her (appraisal), as before.
-
-likelihood (1-100, every reading): how likely this reading is the speaker's meaning, judged from the words, the dialogue and the situation as a neutral reader would. Code compares likelihoods only among readings of the same event and kind (speaker goal readings with each other, pragmatic readings with each other).
-
-bias_fit (every reading; often empty): the biases in context.interpretation_biases that bear on this reading here. "favours": a high value of that bias would make her lean toward this reading in this context; "disfavours": a high value would make her lean away from it. Name a bias only when it really applies here: the dialogue can rule one out (a jab between friends who have joked all evening is not a reason for hostile attribution; a claim the dialogue already confirmed leaves nothing for trust to decide). On a clear message, bias_fit is usually empty. Do not cite biases in context_refs; bias_fit replaces that.

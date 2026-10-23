@@ -20,16 +20,15 @@ from app.services import chat as chat_service
 from app.services import cognition_decisions, cognitive_live, coordinator, jev_assessment, recall_references
 from app.services import shared_state, background_components
 from app.workers import chat as chat_worker
-from cognitive_shadow_support import create_conversation, create_user, database, shadow_env  # noqa: F401
+from db_support import create_conversation, create_user, database, db_env  # noqa: F401
 
 REPLY = ("Let me think ", "about that.")
 
 
 @pytest.fixture
-def env(shadow_env, monkeypatch, tmp_path):
-    shadow_env.configure(cognitive_live_shadow_enabled=False)
+def env(db_env, monkeypatch, tmp_path):
     settings = SimpleNamespace(
-        shared_state_pipeline_enabled=True, shared_state_log_path=str(tmp_path / "shared.jsonl"),
+        shared_state_log_path=str(tmp_path / "shared.jsonl"),
         cognitive_live_student="on", cognitive_live_character=False, cognitive_live_student_dir=None,
         recall_enabled=True, mind_enabled=False, mind_inner_state_enabled=False, memory_manager_enabled=False,
         shared_state_assessment_enabled=True, typesafe_api_key="k", typesafe_base_url="https://jev.test/v1",
@@ -39,7 +38,7 @@ def env(shadow_env, monkeypatch, tmp_path):
     for module in (shared_state, coordinator, jev_assessment, background_components):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     for module in (shared_state, coordinator, chat_worker, background_components):
-        monkeypatch.setattr(module, "SessionLocal", shadow_env.db)
+        monkeypatch.setattr(module, "SessionLocal", db_env.db)
     shared_state._personality.cache_clear()
     monkeypatch.setattr(recall_references, "enabled", lambda: True)
     empty = SimpleNamespace(result=SimpleNamespace(status="not_searched", records=[], coverage={}, refs=lambda: []),
@@ -93,10 +92,10 @@ def env(shadow_env, monkeypatch, tmp_path):
     monkeypatch.setattr(chat_worker, "_announce", lambda job, reply, mid: announced.append((job.turn_id, reply)) or True)
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", lambda *a, **k: None)
-    with shadow_env.db() as db:
+    with db_env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)
-    return SimpleNamespace(db=shadow_env.db, user=user, conversation=conversation, calls=calls, published=published,
+    return SimpleNamespace(db=db_env.db, user=user, conversation=conversation, calls=calls, published=published,
                            announced=announced, inputs=inputs, log=tmp_path / "shared.jsonl")
 
 

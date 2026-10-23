@@ -1,5 +1,7 @@
 # Shared-state refactor: step 4 implementation report
 
+> **Superseded 2026-10-22** by the legacy cleanup (`LEGACY_CLEANUP_2026-10-22.md`): the shared-state pipeline is the only reply preparation, `SHARED_STATE_PIPELINE_ENABLED` and the old preparation branch are gone, and Cognitive V0, its shadow and dialogue memory are retired. Test tables below name V0 test files that no longer exist. Kept as the record of what was built.
+
 Update 2026-10-22: live frontend findings are recorded in
 `reports/shared-state-step4-e2e-2026-10-22.md`. The cached-memory input defect found there is fixed:
 cache entries carry the re-read record content directly into Jev's request, alongside reference,

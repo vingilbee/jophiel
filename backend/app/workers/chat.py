@@ -17,7 +17,6 @@ import redis
 from sqlalchemy import select
 
 from app.ai import AgentRuntimeContext, stream_chat
-from app.ai.Cognitive.system.v0.live_shadow.models import GenerationPath
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.core.config import get_settings
@@ -25,8 +24,8 @@ from app.db.models import ChatJob, ChatMessage, User
 from app.db.session import SessionLocal
 from app.services import desktop_game, game_correction
 from app.services import asset_store, chat as chat_service, google_account
-from app.services import cognitive_live, cognitive_shadow, inner_state_live
-from app.services import dialogue_memory, memory_manager
+from app.services import cognitive_live, inner_state_live
+from app.services import memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
@@ -132,44 +131,15 @@ def event_bus_available() -> bool:
         return False
 
 
-def _start_setup_tasks(job: ChatJob, payload: dict) -> list[asyncio.Task]:
-    """Start the independent pre-generation steps: (memory lookup, capture)."""
-
-    async def capture() -> None:
-        if not (job.attempts == 1 and job.user_message_id is not None
-                and cognitive_shadow.capture_enabled()):
-            return
-        # Observational only. Captured once, on the first claim, from this
-        # turn's own durable boundary and before generation starts; a retry
-        # never recaptures later state. The result is never read here, and a
-        # capture failure cannot affect this job.
-        with contextlib.suppress(Exception):
-            await asyncio.to_thread(
-                cognitive_shadow.capture_turn,
-                user_id=job.user_id, conversation_id=job.conversation_id, turn_id=job.turn_id,
-                user_message_id=job.user_message_id, chat_job_id=job.id,
-                generation_path=GenerationPath.CHAT_WORKER,
-                source_channel=cognitive_shadow.source_channel_for(payload),
-            )
-
-    if payload.get("phase") == "follow_up" or shared_state.enabled():
-        # The shared-state pipeline runs no search before the reply: its memory is the last answer's, re-read later.
-        lookup = asyncio.sleep(0, result=None)
-    elif recall_references.enabled():
-        # Shared recall: a TurnRecall (never raises; a failure is a "failed" result she's told about).
-        lookup = asyncio.to_thread(recall_references.for_reply, job.user_id, job.conversation_id,
-                                   job.user_message_id, payload["content"], payload.get("zone"))
-    else:
-        # Fails open inside the service (returns None), like before.
-        lookup = asyncio.to_thread(memory_service.retrieve_for_prompt, job.user_id, payload["content"])
-    return [asyncio.ensure_future(lookup), asyncio.create_task(capture())]
-
-
 async def _generate(job: ChatJob) -> None:
     payload = job.payload
     claim_token = job.claim_token
     if not claim_token:
         raise RuntimeError("claimed chat job has no ownership token")
+    if payload.get("phase") == "deliver":
+        # Words her mouth already chose (autonomous_speech.deliver_worded): no model run, only delivery.
+        await asyncio.to_thread(_deliver_worded, job)
+        return
 
     def mark(stage: str, **dims) -> None:
         # Timing marks are for spoken turns only; typed turns aren't waiting
@@ -199,31 +169,18 @@ async def _generate(job: ChatJob) -> None:
             if payload.get("phase") == "follow_up":
                 coordinator.announce_follow_up(uuid.UUID(payload["request_id"]))
             return
-        # Setup steps that don't depend on each other run concurrently: the
-        # memory lookup (an embedding API call) and the shadow capture each
-        # use their own thread and DB session, and proceed while history and
-        # the Google token load below. Serially they added up before every
-        # first token.
-        background = _start_setup_tasks(job, payload)
-        try:
-            history = chat_service.get_history(
-                db, conversation=conversation, up_to_message_id=job.user_message_id,
-                up_to_job_id=job.id,
-            )
-            user = db.get(User, job.user_id)
-            gmail_token = await google.get_access_token(db, user_id=job.user_id)
-            account = google_account.get_for_user(db, user_id=job.user_id)
-            granted = account.granted_scopes() if account else set()
-            drive_token = gmail_token if DRIVE in granted else None
-            if GMAIL_MODIFY not in granted:
-                gmail_token = None
-        except BaseException:
-            for task in background:
-                task.cancel()
-            await asyncio.gather(*background, return_exceptions=True)
-            raise
+        history = chat_service.get_history(
+            db, conversation=conversation, up_to_message_id=job.user_message_id,
+            up_to_job_id=job.id,
+        )
+        user = db.get(User, job.user_id)
+        gmail_token = await google.get_access_token(db, user_id=job.user_id)
+        account = google_account.get_for_user(db, user_id=job.user_id)
+        granted = account.granted_scopes() if account else set()
+        drive_token = gmail_token if DRIVE in granted else None
+        if GMAIL_MODIFY not in granted:
+            gmail_token = None
 
-    looked_up, _ = await asyncio.gather(*background)
     assistant_id = uuid.uuid5(job.turn_id, "assistant")
     fast = None
     follow_up = payload.get("phase") == "follow_up"
@@ -240,8 +197,8 @@ async def _generate(job: ChatJob) -> None:
             return
         thought_text = coordinator.render_result(info)
         recall_turn, long_term_memory, live = None, None, None
-    elif shared_state.enabled():
-        # One scoped view -> Student 1 -> her (docs/SHARED_STATE_REFACTOR_SPEC.md step 3).
+    else:
+        # One scoped view -> Student 1 -> her (docs/SHARED_STATE_REFACTOR_SPEC.md step 3), the only preparation.
         fast = await asyncio.to_thread(
             shared_state.prepare, user_id=job.user_id, conversation_id=job.conversation_id,
             user_message_id=job.user_message_id, history=history, message=payload["content"],
@@ -252,15 +209,6 @@ async def _generate(job: ChatJob) -> None:
         if fast.silent:
             await asyncio.to_thread(_finish_silent, job, fast)
             return
-    else:
-        recall_turn = looked_up if isinstance(looked_up, recall_references.TurnRecall) else None
-        # The cognitive layer still reads the old fact/episode block as text: the same records, rendered so.
-        long_term_memory = recall_turn.legacy if recall_turn is not None else looked_up
-        # Simple cognition, live: None (nothing changes) unless enabled in settings.
-        live = (await asyncio.to_thread(
-            cognitive_live.prepare, user_id=job.user_id, conversation_id=job.conversation_id, history=history,
-            message=payload["content"], long_term_memory=long_term_memory,
-        ) if cognitive_live.enabled() else None)
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     working_memory = await asyncio.to_thread(memory_manager.view_for, job.user_id,
                                              user_name=user.name if user else None)
@@ -287,7 +235,7 @@ async def _generate(job: ChatJob) -> None:
         cognitive_reading=live.reading if live else None,
         conversation_notes=live.notes if live else None,
         working_memory=working_memory,
-        recall=fast.recall_rendered if fast else recall_turn.rendered if recall_turn is not None else None,
+        recall=fast.recall_rendered if fast else None,
         recall_turn=recall_turn,
         cached_memory=fast.cached_memory if fast else None,
         turn_boundary=fast.boundary if fast else None,
@@ -457,7 +405,6 @@ async def _generate(job: ChatJob) -> None:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
-        dialogue_scheduled = False
         receipt_id = None
         with SessionLocal() as db:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
@@ -498,13 +445,6 @@ async def _generate(job: ChatJob) -> None:
                             db, assistant_message_id=assistant.id,
                             channel_identity_id=identity_id, content=reply,
                         )
-            trigger_id = assistant.id if assistant is not None else job.user_message_id
-            if conversation is not None and trigger_id is not None:
-                # Same transaction as the terminal outcome; a user-only turn
-                # still advances dialogue memory over its user message.
-                dialogue_scheduled = dialogue_memory.schedule_update(
-                    db, user_id=job.user_id, conversation_id=job.conversation_id, trigger_message_id=trigger_id,
-                )
             finished = chat_service.finish_job(
                 db, job.id, "cancelled" if stopped else "completed",
                 claim_token=claim_token, commit=False,
@@ -516,8 +456,6 @@ async def _generate(job: ChatJob) -> None:
                 coordinator.save_follow_up_receipt(db, job, assistant,
                     {"completed": "delivered", "partial": "partial", "cancelled": "cancelled"}[outcome])
             db.commit()
-        if dialogue_scheduled:
-            dialogue_memory.wake_worker()
         # Which memories her words were about: its own thread, after the reply is safely stored.
         recall_references.start_association(receipt_id)
         publish(turn_id, {"type": "stopped" if stopped else "done",
@@ -561,7 +499,6 @@ async def _generate(job: ChatJob) -> None:
                     ChatMessage.role == "assistant",
                 ))
                 failure_text = reply or "I couldn't complete that response. Please try again."
-                failure_scheduled = False
                 # A follow-up nobody asked for that failed says nothing (its output row records the failure).
                 if conversation is not None and existing is None and not (follow_up and not reply):
                     assistant = chat_service.add_message(
@@ -575,10 +512,6 @@ async def _generate(job: ChatJob) -> None:
                             channel_identity_id=uuid.UUID(payload["channel_identity_id"]),
                             content=failure_text,
                         )
-                    failure_scheduled = dialogue_memory.schedule_update(
-                        db, user_id=job.user_id, conversation_id=job.conversation_id,
-                        trigger_message_id=assistant.id,
-                    )
                 finished = chat_service.finish_job(
                     db, job.id, "failed", str(exc)[:1000],
                     claim_token=claim_token, commit=False,
@@ -593,8 +526,6 @@ async def _generate(job: ChatJob) -> None:
                         coordinator.follow_up_outcome(request_id, status="failed", assistant_message_id=None)
                     if context.channel == "whatsapp":
                         whatsapp_service.wake_worker()
-                    if failure_scheduled:
-                        dialogue_memory.wake_worker()
                 else:
                     db.rollback()
         except Exception:
@@ -612,22 +543,48 @@ async def _generate(job: ChatJob) -> None:
 
 
 def _finish_silent(job: ChatJob, fast) -> None:
-    """Cognition chose silence for the immediate phase: no assistant message, the background work stays
-    tracked, and the user's message still advances dialogue memory. Recorded as ``not_sent``, never as an
-    empty reply."""
+    """Cognition chose silence for the immediate phase: no assistant message, and the background work stays
+    tracked. Recorded as ``not_sent``, never as an empty reply."""
     with SessionLocal() as db:
-        scheduled = dialogue_memory.schedule_update(
-            db, user_id=job.user_id, conversation_id=job.conversation_id, trigger_message_id=job.user_message_id,
-        ) if job.user_message_id else False
         if not chat_service.finish_job(db, job.id, "completed", claim_token=job.claim_token, commit=False):
             db.rollback()
             raise RuntimeError("chat job lease ownership was lost before commit")
         db.commit()
-    if scheduled:
-        dialogue_memory.wake_worker()
     coordinator.immediate_outcome(job.turn_id, status="not_sent", assistant_message_id=None)
     publish(job.turn_id, {"type": "done", "turn_id": str(job.turn_id), "status": "silent"})
     shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
+
+
+def _deliver_worded(job: ChatJob) -> None:
+    """Store queued words in their conversation, or drop them: under the conversation's sequencing lock,
+    re-checked against a newer user message, the activity and the restraint rules. The output row is the
+    receipt (``delivered`` or ``cancelled``); the announcement goes through the follow-up outbox."""
+    from app.db.models import Conversation, CoordinatorOutput
+    from app.services import autonomous_speech
+
+    request_id = uuid.UUID(job.payload["request_id"])
+    message = None
+    with SessionLocal() as db:
+        db.scalar(select(Conversation.id).where(Conversation.id == job.conversation_id).with_for_update())
+        conversation = chat_service.get_conversation(db, user_id=job.user_id, conversation_id=job.conversation_id)
+        output = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.chat_job_id == job.id))
+        message = db.scalar(select(ChatMessage).where(ChatMessage.turn_id == job.turn_id,
+                                                      ChatMessage.role == "assistant"))
+        if message is None and conversation is not None and autonomous_speech.worded_still_valid(db, job):
+            message = chat_service.add_message(
+                db, message_id=uuid.uuid5(job.turn_id, "assistant"), conversation=conversation,
+                role="assistant", content=job.payload["text"], turn_id=job.turn_id, status="completed",
+                source_channel="web", commit=False)
+        if output is not None and output.status == "dispatched":
+            coordinator.save_follow_up_receipt(db, job, message, "delivered" if message else "cancelled")
+        if not chat_service.finish_job(db, job.id, "completed" if message else "cancelled",
+                                       claim_token=job.claim_token, commit=False):
+            db.rollback()
+            raise RuntimeError("chat job lease ownership was lost before commit")
+        db.commit()
+    coordinator._log({"op": "worded_delivered" if message else "worded_dropped", "request": str(request_id)})
+    if message is not None:
+        coordinator.announce_follow_up(request_id)
 
 
 def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> bool:
@@ -645,6 +602,8 @@ def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> bool:
             work = db.get(CoordinatorWork, uuid.UUID(work_id)) if work_id else None
             if work is not None and work.input.get("autonomous"):
                 interrupt = agent_say.interrupts(work.input["reasons"])
+            elif (job.payload or {}).get("phase") == "deliver":
+                interrupt = agent_say.interrupts(job.payload["reasons"])
         r.publish(agent_say.channel(job.user_id), json.dumps({
             "conversation_id": str(job.conversation_id), "text": reply, "reason": "follow_up",
             "message_id": str(message_id), "interrupt": interrupt}))

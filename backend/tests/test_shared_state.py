@@ -3,7 +3,6 @@ cognition -> mouth. Routing and prompt are pure; the assembly runs with stub ada
 against memory is in ``test_shared_state_cache.py`` (real PostgreSQL). No model calls."""
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from types import SimpleNamespace
@@ -154,7 +153,7 @@ def test_typed_memory_never_says_nothing_relevant_when_nothing_was_looked_up():
 
 
 def _settings(tmp_path, **over):
-    base = dict(shared_state_pipeline_enabled=True, shared_state_log_path=str(tmp_path / "shared.jsonl"),
+    base = dict(shared_state_log_path=str(tmp_path / "shared.jsonl"),
                 cognitive_live_student="ab", cognitive_live_character=False, cognitive_live_student_dir=None,
                 recall_enabled=True, mind_enabled=False, mind_inner_state_enabled=True,
                 memory_manager_enabled=False, recall_tool_calls_per_reply=3)
@@ -262,22 +261,6 @@ def test_the_trace_links_event_route_and_delivery_and_holds_no_message_text(stub
     assert line["delivery"] == {"outcome": "partial", "assistant_message_id": str(reply_id), "reply_chars": 19,
                                 "heard_chars": 4}
     assert line["sections"]["inner_state"] == "disabled" and line["sections"]["activities"] == "unavailable"
-
-
-def test_the_worker_starts_no_memory_search_on_the_fast_path(monkeypatch):
-    from app.workers import chat as worker
-    monkeypatch.setattr(shared_state, "enabled", lambda: True)
-    monkeypatch.setattr(recall_references, "for_reply", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
-    monkeypatch.setattr(worker.memory_service, "retrieve_for_prompt",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError))
-    monkeypatch.setattr(worker.cognitive_shadow, "capture_enabled", lambda: False)
-    job = SimpleNamespace(attempts=1, user_message_id=MSG, user_id=USER, conversation_id=CONV, turn_id=uuid.uuid4(),
-                          id=uuid.uuid4())
-
-    async def run():
-        return await asyncio.gather(*worker._start_setup_tasks(job, {"content": "hi"}))
-
-    assert asyncio.run(run()) == [None, None]
 
 
 # --- step 4: Jev's two answers ------------------------------------------------------------------------

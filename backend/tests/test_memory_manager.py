@@ -18,7 +18,7 @@ from app.services import desktop_game, memory_manager, memory_reset
 from app.services import desktop_sessions as svc
 from app.services.desktop_sessions import DesktopError
 from app.services.memory_manager import MemoryError, Source
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_game import _paired_env, enabled  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)

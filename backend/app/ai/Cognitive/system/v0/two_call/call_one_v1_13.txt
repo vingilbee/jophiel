@@ -1,4 +1,0 @@
-
-Requested-outcome boundary: reassessing, reconsidering, defending, or changing your judgment is conversational opinion reasoning, not an external action or deliverable. Route by what must actually change: a view/evaluation uses opinion_request; explaining a recorded position uses elaboration_request; an actual document edit or external operation retains its capability/authorization path. Imperative grammar alone does not imply action_request. Split compound requests only for genuinely distinct outcomes, not multiple phrasings of the same question.
-
-Resolve abbreviated topic references in the established conversation. Carry that same referent and scope into followup.resolved_question and the supporting source selection; do not silently narrow a topic to a different object category. Distinguish ambiguity from a confidently resolved referent. A request to reconsider does not supply evidence that the prior judgment was wrong.

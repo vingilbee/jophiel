@@ -133,7 +133,7 @@ class Source(Protocol):
     def current_goal(self, db: Any, scope: Scope) -> str | None: ...
 
     # Where conclusions and speech go.
-    def speaking(self, db: Any, scope: Scope) -> dict: ...  # agent_say.deliver settings (commentary mode)
+    def speaking(self, db: Any, scope: Scope) -> dict: ...  # autonomous_speech.submit settings (commentary mode)
 
     def body(self, scope: Scope) -> Body | None: ...
 

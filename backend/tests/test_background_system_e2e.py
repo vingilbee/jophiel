@@ -19,7 +19,7 @@ from app.services import memory_manager, observation, observation_adapters
 from app.workers import runner, chat as chat_worker, observation as observation_worker
 from test_background_coordination import bg  # noqa: F401
 from test_coordinator import env  # noqa: F401
-from cognitive_shadow_support import database, shadow_env, create_conversation  # noqa: F401
+from db_support import database, db_env, create_conversation  # noqa: F401
 
 
 def wait_for(check, timeout=12):
@@ -34,10 +34,10 @@ def wait_for(check, timeout=12):
 @pytest.mark.parametrize('adapters',['scripted_success','unavailable'])
 def test_real_worker_loops_progress_while_mind_is_held(bg,monkeypatch,adapters):
     settings=components.get_settings().model_copy(update={
-        'shared_state_pipeline_enabled':True,'memory_manager_enabled':True,'observation_enabled':True,
+        'memory_manager_enabled':True,'observation_enabled':True,
         'observation_preparation_enabled':True,'mind_enabled':False,'desktop_agent_enabled':False,
-        'recall_enabled':False,'whatsapp_enabled':False,'cognitive_live_shadow_enabled':False,
-        'cognitive_dialogue_memory_enabled':False,'mind_inner_state_enabled':False,
+        'recall_enabled':False,'whatsapp_enabled':False,
+        'mind_inner_state_enabled':False,
         'coordinator_executor_slots':1,'coordinator_heartbeat_seconds':1,'redis_url':None})
     monkeypatch.setattr(runner,'get_settings',lambda:settings)
     from app.db import session as database_sessions
