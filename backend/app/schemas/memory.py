@@ -95,6 +95,9 @@ class WorkingMemoryOut(BaseModel):
     items: list[WorkingItemOut] = []
     events: list[MemoryEventOut] = []
     corrections: list[MemoryCorrectionOut] = []
+    # Stage 4: items on hold because a fact they rely on changed ("pending": being rechecked; "review": may
+    # be out of date), and dependency counts by role/state.
+    dependencies: dict = {}
 
 
 # --------------------------------------------------------------------------- #

@@ -671,6 +671,26 @@ def _unresolved(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
     return out
 
 
+def _held(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
+    """An open item a fact it relies on changed under (services/memory_dependencies.py): being rechecked, or
+    may be out of date. Said on every read path, so no reader takes it as checked."""
+    items = [uuid.UUID(r.ref.id) for r in records if r.ref.kind == "item"]
+    if not items:
+        return records
+    from app.services import memory_dependencies
+
+    held = memory_dependencies.holds(db, item_ids=items)
+    if not held:
+        return records
+    out = []
+    for record in records:
+        hold = held.get(uuid.UUID(record.ref.id)) if record.ref.kind == "item" else None
+        if hold:
+            record = replace(record, lifecycle="; ".join(x for x in (record.lifecycle, memory_dependencies.HOLD_TEXT[hold]) if x))
+        out.append(record)
+    return out
+
+
 def _about(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
     """Who or what each record is about or involves (services/memory_entities.py), in words and by id."""
     ids = {kind: [uuid.UUID(r.ref.id) for r in records if r.ref.kind == kind] for kind in ("fact", "item", "episode")}
@@ -707,7 +727,7 @@ def annotate(db: Session, records: list[MemoryRecord]) -> list[MemoryRecord]:
     revised it is history, no longer what the item says (docs/COLUMBINA_MEMORY_CORRECTIONS.md); an item a
     correction revised says so; a fact a message disagreed with says it's unresolved. Never applied twice: it
     reads only what's stored."""
-    records = _about(db, _unresolved(db, records))
+    records = _held(db, _about(db, _unresolved(db, records)))
     wording = [int(r.ref.id) for r in records if r.ref.kind == "event" and r.subkind in _ITEM_WORDING]
     items = {uuid.UUID(r.ref.id) for r in records if r.ref.kind == "item"}
     about = dict(db.execute(select(MemoryEvent.id, MemoryEvent.item_id).where(

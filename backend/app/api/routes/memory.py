@@ -19,7 +19,7 @@ from app.schemas.memory import (
     ManagerStateOut, MemoryContextOut, MemoryCorrectionOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
     ObservationSourceOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
 )
-from app.services import memory_corrections, memory_manager, observation, recall_references
+from app.services import memory_corrections, memory_dependencies, memory_manager, observation, recall_references
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -35,6 +35,7 @@ def working_memory(user: User = Depends(get_current_user), db: Session = Depends
             "has_source": i.id in found["sourced"], "needs_look": i.id in pending}) for i in found["items"]],
         events=[MemoryEventOut.model_validate(e) for e in found["events"]],
         corrections=[MemoryCorrectionOut.model_validate(c) for c in memory_corrections.recent(db, user.id)],
+        dependencies=memory_dependencies.inspect(db, user.id),
     )
 
 

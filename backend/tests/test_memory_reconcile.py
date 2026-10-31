@@ -12,13 +12,14 @@ from sqlalchemy import select
 
 import app.core.config as config
 import app.db.session as db_session
-from app.db.models import MemoryCorrection, MemoryFactRevision, SemanticMemory, WorkingItem
+from app.db.models import MemoryCorrection, MemoryDependency, MemoryFactRevision, SemanticMemory, WorkingItem
 from app.schemas.long_term_memory import CorrectionCandidate, MemoryCandidate
 from app.services import (
-    long_term_memory, memory_corrections, memory_manager, memory_reconcile, mind_conversation, recall,
+    long_term_memory, memory_corrections, memory_dependencies, memory_manager, memory_reconcile, mind_conversation,
+    recall,
 )
 from app.services.memory_manager import Source
-from app.services.memory_reconcile import FactChange
+from app.services.memory_reconcile import FactChange, ItemCheck
 from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
@@ -73,10 +74,18 @@ def _revised(db, monkeypatch, lab, said=MOVED, new=NEW, corrections=()):
     return asked
 
 
+def _items(view, *, about="Nora", action="revise"):
+    """What a careful reading says about each held item: one about Nora relies on where she lives, the rest
+    don't."""
+    return [ItemCheck(item=i["ref"], relies="required", action=action, why="where Nora lives")
+            if about in i["text"] else ItemCheck(item=i["ref"], relies="none", why="unrelated")
+            for i in view["items"]]
+
+
 def _moved(view):
     return FactChange(same_meaning=False, changes=[CorrectionCandidate(
         subject="Nora", attribute="city", previous_value="Lisbon", new_value="Porto", kind="changed",
-        user_words="Nora actually moved to Porto last month")])
+        user_words="Nora actually moved to Porto last month")], items=_items(view))
 
 
 def _revision(db, user) -> MemoryFactRevision:
@@ -129,12 +138,14 @@ def test_a_revised_fact_without_a_correction_still_reaches_the_items(db, alice, 
     for entry in (visit, ask):  # both checked against the new revision, and the hold is lifted
         assert entry.checked_facts == {str(lab["fact"].id): 2}
     assert memory_reconcile.held_item_ids(db, alice.id) == set()
+    roles = dict(db.execute(select(MemoryDependency.item_id, MemoryDependency.role)).all())
+    assert roles == {visit.id: "required", ask.id: "none"}  # judged once: the next change knows
 
 
 def test_a_paraphrase_changes_nothing_and_lifts_the_hold(db, alice, monkeypatch):
     lab = _taught(db, alice)
     _revised(db, monkeypatch, lab, said="Yep, Nora's in Lisbon.", new="Nora, the user's sister, lives in Lisbon.")
-    _settle_all(db, read=lambda view: FactChange(same_meaning=True))
+    _settle_all(db, read=lambda view: FactChange(same_meaning=True, items=_items(view, action="keep")))
     row = _revision(db, alice)
     assert row.status == "done" and row.result["same_meaning"] is True and row.result["correction_ids"] == []
     assert db.get(WorkingItem, lab["visit"].id).text == "Visit Nora in Lisbon in December"
@@ -147,11 +158,13 @@ def test_a_change_the_message_doesnt_support_is_dropped(db, alice, monkeypatch):
     _revised(db, monkeypatch, lab)
     invented = lambda view: FactChange(same_meaning=False, changes=[CorrectionCandidate(  # noqa: E731
         subject="Nora", previous_value="Lisbon", new_value="Madrid", kind="changed",
-        user_words="Nora actually moved to Porto last month")])
+        user_words="Nora actually moved to Porto last month")], items=_items(view))
     _settle_all(db, read=invented)
     row = _revision(db, alice)
     assert row.status == "done" and row.result["changes"] == [] and len(row.result["dropped"]) == 1
     assert db.get(WorkingItem, lab["visit"].id).text == "Visit Nora in Lisbon in December"
+    # Nothing grounded to reword it with: it may be out of date, and stays held.
+    assert memory_dependencies.holds(db, alice.id) == {lab["visit"].id: "review"}
 
 
 def test_the_messages_own_correction_isnt_handed_over_twice_but_is_waited_for(db, alice, monkeypatch):
@@ -210,8 +223,8 @@ def test_held_items_are_kept_from_autonomous_use_and_marked_for_replies(db, alic
         intention = memory_manager.note_intention(db, alice.id, "Look up Lisbon trams",
                                                   source=Source("message", lab["taught"].id))
         db.commit()
-        row = _revision(db, alice)
-        row.held_item_ids = [*row.held_item_ids, str(intention.id)]
+        db.add(MemoryDependency(user_id=alice.id, item_id=intention.id, fact_id=lab["fact"].id, role="required",
+                                state="pending", origin="derived", pending_revision_id=_revision(db, alice).id))
         db.commit()
         memory_manager.resolve(db, alice.id, intention.id, status="dropped", reason="no longer", background=True)
     assert refused.value.code == "on_hold"
@@ -223,23 +236,40 @@ def test_held_items_are_kept_from_autonomous_use_and_marked_for_replies(db, alic
     assert any(p.anchor.get("item") == str(ask.id) for _, p in problems)  # the hold was what kept it out
 
 
-def test_a_failing_read_retries_then_fails_and_lifts_the_hold_unstamped(db, alice, monkeypatch):
+def test_a_failing_read_retries_daily_then_fails_and_keeps_the_hold(db, alice, monkeypatch):
+    """Stage 4 (the user's choice, 2026-10-30): quick retries, then once a day for 7 days, then failed; what it
+    held stays held as "may be out of date", never just lifted."""
     lab = _taught(db, alice)
     _revised(db, monkeypatch, lab)
 
     def broken(view):
         raise RuntimeError("model down")
 
-    for _ in range(memory_reconcile.MAX_ATTEMPTS):
+    def attempt():
         db.expire_all()
         row = _revision(db, alice)
         row.next_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db.commit()
         memory_reconcile.process(db, row.id, read=broken)
+        return _revision(db, alice)
+
+    for _ in range(memory_reconcile.MAX_ATTEMPTS):
+        row = attempt()
+    assert row.status == "pending" and row.daily_until is not None  # now once a day
+    assert row.next_attempt_at > datetime.now(timezone.utc) + timedelta(hours=23)
+    row.daily_until = datetime.now(timezone.utc) + timedelta(seconds=1)
+    db.commit()
+    assert attempt().status == "pending"  # a daily try that failed again
     row = _revision(db, alice)
+    row.daily_until = datetime.now(timezone.utc) - timedelta(seconds=1)  # the 7 days are over
+    db.commit()
+    row = attempt()
     assert row.status == "failed" and "model down" in row.last_error
-    assert memory_reconcile.held_item_ids(db, alice.id) == set()
+    assert memory_dependencies.holds(db, alice.id) == {lab["visit"].id: "review", lab["ask"].id: "review"}
     assert db.get(WorkingItem, lab["visit"].id).checked_facts == {}
+    reply = memory_manager.view(db, alice.id, user_name="Sam")
+    assert "may be out of date" in reply
+    assert "Visit Nora" not in (memory_manager.view(db, alice.id, user_name="Sam", autonomous=True) or "")
 
 
 # --- 3. no promises that only copy a fact --------------------------------------------------------------------

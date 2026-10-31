@@ -346,7 +346,10 @@ weekend") is kind `plan`, not an episode or a fact: content: the plan in one sen
 plan, copied exactly from the latest USER message; time as above; entity: who it's mainly with or about;
 participants: the other people and places it involves. KNOWN PLANS are plans already stored: for the same plan
 reuse its key exactly, with the new content and time when they changed, and set plan_status `happened` or
-`cancelled` when the user says it happened or is off. What already happened is an episode (with its time)."""
+`cancelled` when the user says it happened or is off. What already happened is an episode (with its time).
+relies_on: the keys of facts the plan only makes sense while they hold, KNOWN keys or keys you write in this
+answer ("visiting Nora in Lisbon" relies on the fact of where Nora lives; "camping next weekend" relies on
+none); leave it empty when it relies on none."""
 
 
 def _prompt() -> str:
@@ -450,24 +453,25 @@ def _keep_plan(db: Session, job: MemoryJob, candidate: MemoryCandidate, key: str
             if candidate.plan_status in ("happened", "cancelled"):
                 memory_manager.resolve(db, job.user_id, same.id, status=candidate.plan_status,
                                        reason="the user said so", source=source)
-                return
+                return None
             memory_manager.revise_plan(db, job.user_id, same, text_=text_, user_words=_plan_words(candidate, user_text),
                                        time_values=when, source=source, role="restated")
             entry = same
         elif candidate.plan_status != "planned":
-            return  # about a plan never stored: nothing to close
+            return None  # about a plan never stored: nothing to close
         else:
             entry = memory_manager.add_plan(db, job.user_id, text_, user_words=_plan_words(candidate, user_text),
                                             time_values=when, source=source)
             known_plans.append(entry)
     except memory_manager.MemoryError as exc:
         logger.info("Memory job %s: plan %s not kept: %s", job.id, key, exc.message)
-        return
+        return None
     for mention, role in [(candidate.entity, "about"), *((m, "participant") for m in candidate.participants)]:
         linked = entity if mention is candidate.entity else resolver.resolve(mention)
         if linked is not None:
             memory_entities.link(db, job.user_id, linked, item_id=entry.id,
                                  role="place" if linked.kind == "place" else role)
+    return entry
 
 
 def process_job(db: Session, job_id: uuid.UUID) -> bool:
@@ -524,6 +528,7 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
             db, job=job, message_id=source_message_id, user_text=turn[0], shown=shown_by_key,
             conflicts=extraction.conflicts) if extraction.conflicts and turn is not None else set()
         revised: list[tuple[SemanticMemory, str, int]] = []  # (fact, its old wording, its old revision)
+        relies: list[tuple] = []  # (a plan, the fact keys it relies on)
         forget_keys: list[str] = []
         updated_keys = {c.normalized_key.strip().lower() for c in candidates if c.operation == "upsert"}
         split_notes: dict[str, list[uuid.UUID]] = {}
@@ -557,7 +562,10 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
                 continue
             entity = resolver.resolve(candidate.entity)
             if candidate.kind == "plan":
-                _keep_plan(db, job, candidate, key, entity, resolver, plans, turn[0], source_message_id, said_at, zone)
+                entry = _keep_plan(db, job, candidate, key, entity, resolver, plans, turn[0], source_message_id,
+                                   said_at, zone)
+                if entry is not None and candidate.relies_on:
+                    relies.append((entry, candidate.relies_on))
                 continue
             vector = _embedding(candidate.content)
             if candidate.kind == "episode":
@@ -630,6 +638,10 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
                     role = "correction" if corrects else "restated"
                 else:
                     role = "support"
+                    # Said again: the topic came up, so a recheck of it that failed runs again.
+                    from app.services import memory_reconcile
+
+                    memory_reconcile.recheck(db, existing.id)
                 existing.evidence_count += 1
             existing.kind = candidate.kind
             existing.content = candidate.content.strip()
@@ -682,6 +694,16 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
 
             memory_corrections.record(db, job=job, message_id=source_message_id, user_text=turn[0],
                                       shown=[*earlier, *known], corrections=extraction.corrections)
+        if relies:
+            # What each new plan relies on, as of the facts' versions now (after this message changed them): a
+            # recheck queued below for the same change never holds a plan made knowing it.
+            from app.services import memory_dependencies
+
+            for entry, keys in relies:
+                facts = list(db.scalars(select(SemanticMemory.id).where(
+                    SemanticMemory.user_id == job.user_id, SemanticMemory.status == "active",
+                    SemanticMemory.normalized_key.in_([k.strip().lower() for k in keys]))))
+                memory_dependencies.link_refs(db, job.user_id, entry.id, facts, role="required")
         if revised and source_message_id is not None:
             # Whatever reworded a fact, its working items are reconciled with it (services/memory_reconcile.py),
             # in this same transaction: a revised fact is never left without that handoff.

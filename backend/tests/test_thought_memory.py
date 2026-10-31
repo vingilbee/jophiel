@@ -290,3 +290,34 @@ def test_a_suspicion_nothing_settles_becomes_unresolved_and_only_evidence_settle
         memory_manager.tick_due(db, now=later)
         db.refresh(entry)
     assert (entry.status, entry.status_reason) == ("unresolved", "nothing settled it")
+
+
+def test_a_thought_relies_on_the_facts_the_judgement_names(mind_env):
+    """Stage 4 (services/memory_dependencies.py): the facts she read are shown to the judgement, the ones it
+    names become what the item relies on, the rest only its context; refs it wasn't shown link nothing."""
+    from app.db.models import MemoryDependency, SemanticMemory
+
+    with mind_env.db() as db:
+        city = SemanticMemory(user_id=mind_env.ids.user, kind="fact", normalized_key="fact:sister:city",
+                              content="Their sister lives in Lisbon.", importance=0.7, confidence=0.9)
+        dog = SemanticMemory(user_id=mind_env.ids.user, kind="fact", normalized_key="fact:pets:dog",
+                             content="Their dog is Pretzel.", importance=0.6, confidence=0.9)
+        db.add_all([city, dog])
+        db.commit()
+        city_id, dog_id = city.id, dog.id
+    mind_env.supplied.extend([f"fact:{city_id}", "event:4", f"fact:{dog_id}"])
+    mind_env.think("decision", "I'll suggest a Lisbon café for their visit.", topic="the visit")
+    seen = []
+
+    def judge(thought, candidates):
+        seen.append(thought.get("facts_she_read"))
+        return Judgement(keep=True, relies_on=["f1", "f7"])
+
+    assert thought_memory.run_once(judge=judge) is True
+    assert seen == [[{"ref": "f1", "text": "Their sister lives in Lisbon."},
+                     {"ref": "f2", "text": "Their dog is Pretzel."}]]
+    with mind_env.db() as db:
+        [entry] = _items(db, mind_env.ids.user, "decision")
+        roles = dict(db.execute(select(MemoryDependency.fact_id, MemoryDependency.role).where(
+            MemoryDependency.item_id == entry.id)).all())
+    assert roles == {city_id: "required", dog_id: "context"}

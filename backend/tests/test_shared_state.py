@@ -17,6 +17,7 @@ from app.ai.state.contracts import (
     Assessed, CacheEntry, CognitionView, RecallDecision, ConversationView, EvidenceAssessment, Interpretation, MemoryContextView,
     MissingEvidence, OutputView, Projection, SharedView, ThinkingDecision, WorkView, Envelope, SCHEMA_VERSION,
 )
+from app.ai.recall.contracts import MemoryRef
 from app.ai.state.routing import route
 from app.ai.state import student_two as S
 from app.services import cognitive_live, recall_references, shared_state, student_two
@@ -175,8 +176,9 @@ def stubs(monkeypatch, tmp_path):
     shared_state._personality.cache_clear()
     monkeypatch.setattr(shared_state, "_conversation", lambda u, c, t: ConversationView(
         Projection("chat", "available", version="3"), c, 3, t))
-    record = SimpleNamespace(ref="event:4", fingerprint="f" * 40, applicability="current", corrected=False,
-                             content="died")
+    record = SimpleNamespace(ref=MemoryRef("event", "4"), fingerprint="f" * 40, applicability="current",
+                             corrected=False, content="died", matched=(), lifecycle=None,
+                             recorded_at=datetime(2026, 10, 20, tzinfo=timezone.utc))
     # The initial memory check: what memory's reply search returns (one per call; the last repeats).
     found = _turn_recall("matched", [record], "Memory search ran (looked in: events):\n- [event:4] died")
     calls["searches"] = [found]

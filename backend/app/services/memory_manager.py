@@ -477,6 +477,14 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
     if not (reason or "").strip():
         raise MemoryError("invalid", "give a short reason")
     if status == entry.status:
+        if not background and source is not None:
+            # The user's turn kept it as it is: if a fact it relies on changed, it now stands checked
+            # (services/memory_dependencies.py; the way out of "may be out of date").
+            from app.services import memory_dependencies
+
+            if memory_dependencies.confirm(db, user_id, entry.id):
+                link(db, user_id, role="support", source=source, item_id=entry.id)
+                _log({"op": "confirm", "user": str(user_id), "item": str(entry.id)})
         return entry, []
     now = _now()
     _set_status(db, entry, status, " ".join(reason.split()), now)
@@ -747,7 +755,7 @@ def _origin_known(db: Session, ids: list[uuid.UUID]) -> set[uuid.UUID]:
 
 
 def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[uuid.UUID], plans: dict,
-               held: set[uuid.UUID] = frozenset()) -> str:
+               held: dict[uuid.UUID, str] | None = None) -> str:
     tag = f"[{ref(entry)}]"
     lost = "" if entry.id in sourced or entry.epistemic == "inferred" else " (where it came from is no longer available)"
     status = "" if entry.status in ("active", "open", "planned") else f" ({entry.status}"
@@ -784,16 +792,19 @@ def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[u
     else:
         who = "You asked" if entry.owner == "columbina" else f"{user_name} asked"
         line = f"{who} {tag}, still open: {entry.text}"
-    on_hold = (" (on hold: a fact it may depend on just changed and it's being rechecked; don't act on it yet)"
-               if entry.id in held else "")
+    from app.services.memory_dependencies import HOLD_TEXT
+
+    hold = (held or {}).get(entry.id)
+    on_hold = f" ({HOLD_TEXT[hold]})" if hold else ""
     return line + status + lost + on_hold
 
 
-def _held(db: Session, user_id: uuid.UUID) -> set[uuid.UUID]:
-    """Items held until a revised fact they may depend on is reconciled (services/memory_reconcile.py)."""
-    from app.services import memory_reconcile
+def _held(db: Session, user_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """Items on hold, with why: a fact they rely on is being rechecked (``pending``) or couldn't be (``review``)
+    (services/memory_dependencies.py)."""
+    from app.services import memory_dependencies
 
-    return memory_reconcile.held_item_ids(db, user_id)
+    return memory_dependencies.holds(db, user_id)
 
 
 def _top_goals(entries: list[WorkingItem]) -> list[WorkingItem]:

@@ -2315,10 +2315,12 @@ event.listen(MemoryCorrection.__table__, "after_create",
              DDL(MEMORY_CORRECTION_OWNER_DDL).execute_if(dialect="postgresql"))
 
 
-# pending -> processing -> applying (its corrections are queued) -> done; or failed. While pending, processing
-# or applying, its held items are on hold.
-MEMORY_FACT_REVISION_STATUSES = ("pending", "processing", "applying", "done", "failed")
+# pending -> processing -> applying (its corrections are queued) -> done; or failed (retried daily until
+# ``daily_until`` first), or superseded (a newer change of the same fact took its items over). What's held is
+# kept in ``memory_dependencies`` (stage 4), not by this status: a failure never lifts a hold.
+MEMORY_FACT_REVISION_STATUSES = ("pending", "processing", "applying", "done", "failed", "superseded")
 MEMORY_FACT_REVISION_HOLDING = ("pending", "processing", "applying")
+MEMORY_FACT_REVISION_SETTLED = ("done", "failed", "superseded")
 
 
 class MemoryFactRevision(Base):
@@ -2354,15 +2356,71 @@ class MemoryFactRevision(Base):
     result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when its quick retries ran out: retried once a day until then, then failed (its items stay held).
+    daily_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(f"status IN ({_in(MEMORY_FACT_REVISION_STATUSES)})", name="ck_memory_fact_revisions_status"),
         CheckConstraint("to_revision > from_revision", name="ck_memory_fact_revisions_order"),
-        CheckConstraint("(status IN ('done', 'failed')) = (settled_at IS NOT NULL)",
+        CheckConstraint(f"(status IN ({_in(MEMORY_FACT_REVISION_SETTLED)})) = (settled_at IS NOT NULL)",
                         name="ck_memory_fact_revisions_settled"),
         UniqueConstraint("fact_id", "to_revision", name="uq_memory_fact_revisions_once"),
         Index("ix_memory_fact_revisions_due", "status", "next_attempt_at"),
         Index("ix_memory_fact_revisions_user", "user_id", "status"),
+    )
+
+
+# required: the item only makes sense while the fact holds ("visit Nora in Lisbon" on where Nora lives);
+# context: it mentions or was thought with the fact, without relying on it; none: checked, unrelated; unknown:
+# not known yet (an older item that shares a source or a person with the fact).
+MEMORY_DEPENDENCY_ROLES = ("required", "context", "none", "unknown")
+# valid: checked against ``checked_revision``; pending: the fact changed and it's being rechecked; review: the
+# recheck couldn't settle it (failed, or the item needs a look): it may be out of date.
+MEMORY_DEPENDENCY_STATES = ("valid", "pending", "review")
+# derived: written when the item was made; judged: by a recheck's reading; candidate: queued for one;
+# confirmed: the user's turn said it still stands.
+MEMORY_DEPENDENCY_ORIGINS = ("derived", "judged", "candidate", "confirmed")
+# Only these hold an item from autonomous use while not valid (an incidental link never blocks it).
+MEMORY_DEPENDENCY_HOLDING_ROLES = ("required", "unknown")
+
+
+class MemoryDependency(Base):
+    """What a working item relies on (stage 4, ``services/memory_dependencies.py``): one row per item and fact,
+    separate from provenance (``memory_evidence`` says where it came from; this says what must still hold for
+    it to be usable). Both ends are owner-keyed and go with either side. ``pending_revision_id``: the fact's
+    change (``memory_fact_revisions``) that owns the recheck; a newer change takes it over."""
+
+    __tablename__ = "memory_dependencies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    checked_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pending_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_fact_revisions.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"role IN ({_in(MEMORY_DEPENDENCY_ROLES)})", name="ck_memory_dependencies_role"),
+        CheckConstraint(f"state IN ({_in(MEMORY_DEPENDENCY_STATES)})", name="ck_memory_dependencies_state"),
+        CheckConstraint(f"origin IN ({_in(MEMORY_DEPENDENCY_ORIGINS)})", name="ck_memory_dependencies_origin"),
+        CheckConstraint("state <> 'valid' OR checked_revision IS NOT NULL", name="ck_memory_dependencies_checked"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_memory_dependencies_item"),
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_dependencies_fact"),
+        UniqueConstraint("item_id", "fact_id", name="uq_memory_dependencies"),
+        Index("ix_memory_dependencies_fact", "user_id", "fact_id"),
+        Index("ix_memory_dependencies_item", "user_id", "item_id"),
+        Index("ix_memory_dependencies_unsettled", "user_id", "state", postgresql_where=sa_text("state <> 'valid'")),
+        Index("ix_memory_dependencies_revision", "pending_revision_id",
+              postgresql_where=sa_text("pending_revision_id IS NOT NULL")),
     )
 
 

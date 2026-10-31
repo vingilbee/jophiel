@@ -41,9 +41,22 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
     for what these keep). ``background``: a turn the user didn't start: only her own intentions."""
     source = Source("message", message_id) if message_id is not None else None
 
+    def relying(db, entry, relies_on: list[str] | None) -> str:
+        """What the item relies on (services/memory_dependencies.py), and what couldn't be linked."""
+        if not relies_on:
+            return ""
+        from app.services import memory_dependencies
+
+        linked, refused = memory_dependencies.link_refs(db, user_id, entry.id, relies_on[:6], role="required")
+        note = f" Relies on {len(linked)} fact(s)." if linked else ""
+        if refused:
+            note += f" Not linked (not one of the user's current facts): {', '.join(refused)}."
+        return note
+
     @tool
     async def set_goal(goal: str, parent: str | None = None, done_when: str | None = None,
-                       whose: Literal["user", "columbina", "shared"] = "user") -> str:
+                       whose: Literal["user", "columbina", "shared"] = "user",
+                       relies_on: list[str] | None = None) -> str:
         """Keep a goal in your memory: something the user (or you, or both) is trying to achieve that
         outlives this conversation ("prepare for Friday's interview", "plan the Japan trip").
 
@@ -52,13 +65,15 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
         closed by this: both stand. A goal in a game is set with the game tools, which keep it here too.
         parent: the id in brackets of the goal this is a sub-goal of, if it is one.
         done_when: what will show it's done, if the user said.
+        relies_on: the ids in brackets of facts from your memory (fact:...) it only makes sense while they
+        hold ("plan the trip to Nora's in Lisbon" relies on where Nora lives). If one changes, it's rechecked.
         """
         def do(db) -> str:
             parent_id = memory_manager.item(db, user_id, parent).id if parent else None
             entry = memory_manager.set_goal(db, user_id, goal, owner=whose, done_when=done_when,
                                             parent_id=parent_id, source=source,
                                             epistemic="reported" if whose != "columbina" else "inferred")
-            return f"Kept: goal [{memory_manager.ref(entry)}] \"{entry.text}\"."
+            return f"Kept: goal [{memory_manager.ref(entry)}] \"{entry.text}\"." + relying(db, entry, relies_on)
         return await _run(do)
 
     @tool
@@ -70,6 +85,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
 
         Only when the user says so, or it's clearly done: never because time passed or the topic moved
         on. Completing a goal leaves its sub-goals open (you're told which). item: its id in brackets.
+        One marked "may be out of date" that the user says still stands: set it to the status it has now.
         reason: a few words ("the user said we're done", "we changed our mind").
         """
         def do(db) -> str:
@@ -84,26 +100,28 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
 
     @tool
     async def note_commitment(what: str, who_owes: Literal["columbina", "user"] = "columbina",
-                              due_in_minutes: int | None = None) -> str:
+                              due_in_minutes: int | None = None, relies_on: list[str] | None = None) -> str:
         """Keep a promise in your memory: something you told the user you'd do or tell them later
         ("I'll remind you about the dentist"), or something the user promised you ("I'll show you the
         base tomorrow"). Not for your own plans to yourself: those are intentions. Not for remembering
         what the user told you ("remember that Leo hates cilantro"): that's kept on its own.
         due_in_minutes: only when a time was said.
+        relies_on: the ids in brackets of facts (fact:...) it only makes sense while they hold.
         """
         def do(db) -> str:
             due = (datetime.now(timezone.utc) + timedelta(minutes=due_in_minutes)) if due_in_minutes else None
             entry = memory_manager.note_commitment(db, user_id, what, owner=who_owes, due_at=due, source=source)
-            return f'Kept: promise [{memory_manager.ref(entry)}] "{entry.text}".'
+            return f'Kept: promise [{memory_manager.ref(entry)}] "{entry.text}".' + relying(db, entry, relies_on)
         return await _run(do)
 
     @tool
-    async def note_intention(what: str) -> str:
+    async def note_intention(what: str, relies_on: list[str] | None = None) -> str:
         """Keep something you mean to do yourself, not promised to anyone ("look into that cave
-        later", "ask how the interview went"). It lapses on its own after a while if you don't."""
+        later", "ask how the interview went"). It lapses on its own after a while if you don't.
+        relies_on: the ids in brackets of facts (fact:...) it only makes sense while they hold."""
         def do(db) -> str:
             entry = memory_manager.note_intention(db, user_id, what, source=source)
-            return f'Kept: intention [{memory_manager.ref(entry)}] "{entry.text}".'
+            return f'Kept: intention [{memory_manager.ref(entry)}] "{entry.text}".' + relying(db, entry, relies_on)
         return await _run(do)
 
     @tool

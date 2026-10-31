@@ -54,6 +54,9 @@ class MemoryCandidate(BaseModel):
     user_words: str | None = Field(default=None, max_length=500)
     # A plan already KNOWN (its key reused): what became of it.
     plan_status: Literal["planned", "happened", "cancelled"] = "planned"
+    # A plan: the keys of facts (KNOWN, or written in this same answer) it only makes sense while they hold
+    # ("visit Nora in Lisbon" relies on where Nora lives). Code keeps only keys of the user's active facts.
+    relies_on: list[str] = Field(default_factory=list, max_length=4)
 
 
 class CorrectionCandidate(BaseModel):

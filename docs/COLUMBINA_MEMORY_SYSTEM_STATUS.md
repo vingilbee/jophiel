@@ -14,8 +14,8 @@ further". A memory input for Student 2 is a later snapshot version plus a model 
 | 0: baseline and contracts | done (below) |
 | 1: automatic recall and core | done; gate passed, including the live rerun (below) |
 | 2: forgetting and autonomous consistency | done; gate passed (e2e: 10 pass / 2 fail / 2 gaps) |
-| 3: claims and time | not started |
-| 4: full dependency reconciliation | not started |
+| 3: claims and time | built (committed in `2aab645`); every gate item passes except the live e2e, not run yet (below) |
+| 4: full dependency reconciliation | built (migration `b6f2d8a4c1e7`, not applied to the dev DB); scripted gate and real-model probe pass (below) |
 | 5: transcript search and maintenance | not started |
 
 ## Stage 0: ownership map and contracts
@@ -175,13 +175,56 @@ migrated schema).
 | Old fact outside the recent window | `test_an_old_fact_outside_the_recent_window_is_still_shown` | pass |
 | Extractor by aspect, old vs new | [reports/memory-extractor-2026-10-31/report.md](reports/memory-extractor-2026-10-31/report.md): content 96/96 new vs 89/96 old; structure 70/72, then the misses fixed and rerun | pass |
 | Memory tests | 190 passed (memory, recall, corrections, conflicts, forget, claims) | pass |
-| Full suite and live e2e | The full run had 4 failures in `test_simple_events.py` from files another session changed mid-run (they pass alone), and the shared-state tests now fail on that session's Student 2 "snapshot v5" change. The e2e is **not run yet** | open |
+| Full suite | Rerun 2026-10-31: everything passes except 8 `test_shared_state.py` tests, whose fake recall record was a plain string (`ref="event:4"`) that snapshot v5's `student_two.memory_for` can't read. The fixture was fixed (a real `MemoryRef`, plus the fields `memory_for` reads); the file now passes 23/23. The real code was fine | pass |
+| Live e2e | Harness in `reports/memory-e2e-2026-10-31/` (setup and run scripts only, no results). **Not run yet** | open |
 
 ### Known limits after stage 3
 
 - Entities never merge or split after the fact; a wrong new entity stays until the user corrects it.
 - Plans are linked to their people, but a plan's dependency on a fact (Nora moving) is stage 4.
 - Times are dates, not hours, except in schedules.
+
+## Stage 4: what items rely on (2026-10-31, migration `b6f2d8a4c1e7`)
+
+Decisions (user, 2026-10-31): to-dos only (goals, promises, intentions, questions, plans, suspicions,
+decisions), not episodes; older items without links are judged by the model, in the reading the recheck
+already makes (no extra call).
+
+### What changed
+
+- **Dependencies** (`memory_dependencies`, `services/memory_dependencies.py`): one row per item and fact, owner-keyed at both ends, separate from provenance. Role `required` (only makes sense while the fact holds), `context` (mentions it), `none` (judged unrelated) or `unknown` (an older item, not judged yet). State `valid` (checked against `checked_revision`), `pending` (being rechecked, owned by one `memory_fact_revisions` row) or `review` (may be out of date).
+- **Holds come from dependencies, not from a shared message:** an open item is held when a `required` or `unknown` dependency isn't valid. `held_item_ids` keeps its name and callers (memory view, mind, thought memory, Student 2, background status changes). The memory view and recall (`recall.annotate`, every read path) say "on hold: being rechecked" or "may be out of date".
+- **Written where items are made:**
+  - plans: the extractor's `relies_on` (fact keys, known or written in the same answer), linked after the job's facts are written, so a plan made knowing a change is never held by it;
+  - thoughts: the thought-memory judgement sees `facts_she_read` and names the ones the conclusion relies on (`required`); the rest she read become `context`;
+  - her memory tools: an optional `relies_on` on `set_goal`, `note_commitment` and `note_intention`; only the user's own active facts link.
+- **A fact's change** (`memory_reconcile.queue`): its `required`/`unknown` dependents become `pending`. Older open items sharing a source with the old version, or involving the fact's entity, with no row for that fact become `unknown` candidates. `context`/`none` rows and items made by the revising message are not held.
+- **The reading** (one model call, as before) also returns, per item: relies (required/context/none/unsure) and an action. Code allows: keep → valid; revise → waits for the correction pass to reword it, valid once it did, else review; answer (question → answered), cancel (her own promise → cancelled, her intention → dropped), supersede (her decision → superseded); review. Anything that doesn't fit the kind or owner (cancelling the user's promise, say) becomes review. A reading never weakens a stored `required` link. Items it didn't cover need review.
+- **Concurrency:** items are fenced by version. One that changed while the model read means the revision is read again (`stale`, not counted as an attempt, up to 5 times). A newer change of the same fact takes the pending rows over; the older revision ends `superseded` without touching them. The user's turn confirming an item while a reading runs wins (the row is no longer owned).
+- **Failure never lifts a hold:** 4 quick retries, then once a day until `daily_until` (7 days), then `failed` with its items in `review`. They come out when the user says the fact again (`recheck`, from consolidation's support path), when the user's turn sets the item to its current status (`update_item`, which now confirms it: `origin = confirmed`), or with a newer change.
+- **Inspect:** `GET /api/memory/working` → `dependencies` (counts by role/state, what's held and why).
+
+### Gate
+
+| Gate item | Evidence | Result |
+|---|---|---|
+| Nonempty hold; unrelated item from the same message usable | `tests/test_memory_dependencies.py::test_an_unrelated_item_from_the_same_message_is_usable_once_judged_while_the_related_one_stays_held` (the stage-0 "fails by design" case), `test_an_item_whose_links_say_it_doesnt_rely_on_the_fact_is_never_held` | pass |
+| Multi-change corrections | `test_an_item_relying_on_two_changed_facts_stays_held_until_both_are_rechecked` | pass |
+| Terminal failure stays safe | `test_memory_reconcile.py::test_a_failing_read_retries_daily_then_fails_and_keeps_the_hold`, `test_a_failed_recheck_runs_again_when_the_user_says_the_fact_again`, `test_the_users_turn_confirming_an_item_lifts_may_be_out_of_date_and_a_background_one_cant` | pass |
+| Concurrent updates | `test_an_item_that_changes_while_the_model_reads_is_read_again`, `test_a_newer_change_of_the_same_fact_takes_the_items_over`, `test_a_recheck_never_applies_to_an_item_the_users_turn_confirmed_meanwhile` | pass |
+| Typed actions, code-checked | `test_each_kind_gets_only_the_action_that_fits_it`, `test_a_reading_never_weakens_a_stored_required_link`, `test_revise_without_a_grounded_change_needs_review` | pass |
+| Links where items are made | `test_a_plan_relies_on_the_fact_it_names_and_one_made_knowing_the_change_isnt_held`, `test_thought_memory.py::test_a_thought_relies_on_the_facts_the_judgement_names`, `test_links_only_reach_the_users_own_current_facts` | pass |
+| No unchecked autonomous use | held items left out of the autonomous view, mind and background changes (`test_memory_reconcile.py::test_held_items_are_kept_from_autonomous_use_and_marked_for_replies`, plus the failure tests above) | pass |
+| Migration | Scratch database: a stage-2 revision in progress holding one real and one missing item → one `unknown`/`pending` row owned by it (the missing item skipped); downgrade and re-upgrade clean; `alembic check` shows no drift for these tables | pass |
+| Real models | `scripts/memory_dependency_probe.py 2` (2026-10-31): first run found the model writing past the item ref (`"i1: The…"`), so no verdict matched and every item would have gone to review; refs are now read from their start and the prompt asks for the ref only. Rerun: reading 31/36 checks, plans' `relies_on` 7/8. Misses are all "keep" judgement calls (an ex-partner intention, vegetarian recipes for a pescatarian, a question once `context`); no wrong close or cancel, the user's plan always `review`. The missed `relies_on` (Tomas, not named as brother) is still caught as an entity-linked `unknown` candidate | pass |
+
+### Known limits after stage 4
+
+- Episodes are not checked (the user's choice): a summary saying where someone lives *now* isn't reviewed when it changes.
+- A `context` link is never rechecked: a wrong `context` label from a thought means that item isn't held when the fact changes.
+- A note superseded by being split into claims (stage 3) doesn't start a recheck of what relied on it.
+- A forgotten fact deletes its dependency rows with it; items relying on it are handled by the forget judge, not by a hold.
+- Plans from the extractor without `relies_on` are judged as candidates when a fact sharing their message changes, so a short hold (one reading) still happens for them.
 
 ## Decisions for stages 3 to 5 (user, 2026-10-30)
 
