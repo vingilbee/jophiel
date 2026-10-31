@@ -16,6 +16,7 @@ answer is about, and how the next turn follows up.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -32,16 +33,13 @@ from app.ai.recall.contracts import (
 from app.core.config import get_settings
 from app.db.models import ChatMessage, MemoryManagerState, RecallReceipt, RecallReference
 from app.db.session import SessionLocal
-from app.services import heard, recall
+from app.services import heard, memory_forget, recall
 
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "recall-receipt-v1"
+BUNDLE_VERSION = "evidence-bundle-v1"  # the reply's sectioned evidence (recall.render_bundle)
 _TARGET = {"fact": "fact_id", "episode": "episode_id", "event": "event_id", "item": "item_id"}
-
-
-def enabled() -> bool:
-    return get_settings().recall_enabled
 
 
 @dataclass
@@ -62,20 +60,25 @@ class TurnRecall:
     tool_budget: int = TOOL_CALLS_PER_REPLY
     tool_statuses: list[str] = field(default_factory=list)
     histories: list = field(default_factory=list)  # recall_history.HistoryRun, kept with the receipt
+    # The evidence bundle this reply's consumers read: one id per search, and what each consumer was given
+    # (refs and a hash of its rendering), so a receipt says exactly what Student 1, Student 2 and the mouth saw.
+    bundle_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    consumers: dict[str, dict] = field(default_factory=dict)
 
     def supply(self, records: list[MemoryRecord]) -> None:
         for record in records:
             self.supplied.setdefault(record.ref, record)
 
+    def consumed(self, consumer: str, refs, rendering: str | None, *, note: str | None = None) -> None:
+        """What one consumer of this bundle was given. Refs and a hash only: never memory text."""
+        entry = {"refs": [str(r) for r in refs],
+                 "rendering_sha": hashlib.sha256(rendering.encode()).hexdigest()[:16] if rendering else None}
+        self.consumers[consumer] = entry | ({"note": note} if note else {})
+
 
 # --------------------------------------------------------------------------- #
 # Before the reply
 # --------------------------------------------------------------------------- #
-
-
-def _kinds() -> tuple:
-    """Facts and episodes only while long-term memory is on (its own switch, as before)."""
-    return KINDS if get_settings().long_term_memory_enabled else ("event", "item")
 
 
 def _focus(db: Session, user_id: uuid.UUID) -> uuid.UUID | None:
@@ -158,19 +161,22 @@ def for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messag
                           if conversation_id else ([], None))
             req = RecallRequest(user_id=user_id, query=(query or "")[:2000], purpose="reply", now=now, zone=zone,
                                 conversation_id=conversation_id, focus_context_id=focus, prior_refs=tuple(refs),
-                                kinds=_kinds(), limit=get_settings().recall_auto_limit,
+                                kinds=KINDS, limit=get_settings().recall_auto_limit,
                                 skip_open_items_of=focus if skip_focus_items else None)
             result = recall.search(db, req)
+            forgetting = memory_forget.status_note(db, user_id)
             db.commit()
     except RecallInvalid as exc:
         log.warning("recall: reply request invalid: %s", exc)
-        result, note = RecallResult.failed("invalid_request"), None
+        result, note, forgetting = RecallResult.failed("invalid_request"), None, None
     except Exception:  # noqa: BLE001 - a broken recall is said as such, never as "nothing recorded"
         log.exception("recall: reply recall failed")
-        result, note = RecallResult.failed("search_failed"), None
-    rendered = recall.render(result, now=now, zone=zone)
+        result, note, forgetting = RecallResult.failed("search_failed"), None, None
+    rendered = recall.render_bundle(result, now=now, zone=zone)
     if note:
         rendered += f"\n(About \"from your last answer\": {note}.)"
+    if forgetting:
+        rendered += f"\n{forgetting}"
     turn = TurnRecall(user_id, conversation_id, zone, now, None, result, rendered,
                       recall.render_legacy(result), prior_note=note,
                       tool_budget=get_settings().recall_tool_calls_per_reply)
@@ -230,8 +236,10 @@ def _activity_context(db: Session, source: str, activity: uuid.UUID) -> uuid.UUI
     return None
 
 
-def for_thought(db: Session, *, user_id: uuid.UUID, source: str, activity: uuid.UUID, query: str) -> str | None:
-    """A hard thought's recall, rendered for its input; the same service and statuses as a reply."""
+def for_thought(db: Session, *, user_id: uuid.UUID, source: str, activity: uuid.UUID, query: str,
+                refs: list[str] | None = None) -> str | None:
+    """A hard thought's recall, rendered for its input; the same service and statuses as a reply. ``refs``:
+    gets the supplied memories' references (what she read, for her thought's handoff to memory)."""
     now = datetime.now(timezone.utc)
     try:
         context_id = _activity_context(db, source, activity)
@@ -239,12 +247,14 @@ def for_thought(db: Session, *, user_id: uuid.UUID, source: str, activity: uuid.
             user_id=user_id, query=(query or "")[:2000], purpose="hard_thought", now=now,
             # Its own activity counts as named (a pull, not a filter: only tool searches filter).
             focus_context_id=context_id, context_ids=(context_id,) if context_id else (),
-            kinds=_kinds(), limit=get_settings().recall_auto_limit))
+            kinds=KINDS, limit=get_settings().recall_auto_limit))
     except Exception:  # noqa: BLE001
         log.exception("recall: hard-thought recall failed")
         result = RecallResult.failed("search_failed")
     recall._log({"op": "hard_thought_supplied", "source": source, "activity": str(activity),
                  "status": result.status, "refs": [str(r) for r in result.refs()]})
+    if refs is not None:
+        refs.extend(str(r) for r in result.refs())
     return recall.render(result, now=now, zone="UTC")
 
 
@@ -263,7 +273,7 @@ def save_receipt(db: Session, turn: TurnRecall | None, *, assistant_message_id: 
         with db.begin_nested():
             supplied = list(turn.supplied.values())
             association = ("none" if not supplied else
-                           "pending" if reply.strip() and get_settings().recall_association_enabled else "skipped")
+                           "pending" if reply.strip() else "skipped")
             by_kind: dict[str, int] = {}
             for record in supplied:
                 by_kind[record.ref.kind] = by_kind.get(record.ref.kind, 0) + 1
@@ -273,7 +283,9 @@ def save_receipt(db: Session, turn: TurnRecall | None, *, assistant_message_id: 
                 coverage={k: v for k, v in turn.result.coverage.items() if k != "ms"} | (
                     {"errors": turn.result.errors} if turn.result.errors else {}),
                 counts={"supplied": len(supplied), "by_kind": by_kind, "tool_calls": turn.tool_calls,
-                        "tool_statuses": turn.tool_statuses}
+                        "tool_statuses": turn.tool_statuses,
+                        "bundle": {"id": str(turn.bundle_id), "version": BUNDLE_VERSION},
+                        "consumers": turn.consumers | {"mouth": _mouth(turn)}}
                 | ({"histories": len(turn.histories)} if turn.histories else {}),
                 association_status=association)
             db.add(receipt)
@@ -286,6 +298,12 @@ def save_receipt(db: Session, turn: TurnRecall | None, *, assistant_message_id: 
     except Exception:  # noqa: BLE001
         log.exception("recall: saving the receipt for %s failed", assistant_message_id)
         return None
+
+
+def _mouth(turn: TurnRecall) -> dict:
+    """The mouth's share of a receipt: everything it was supplied (the bundle plus what its tools found)."""
+    return {"refs": [str(r) for r in turn.supplied],
+            "rendering_sha": hashlib.sha256(turn.rendered.encode()).hexdigest()[:16] if turn.rendered else None}
 
 
 def _save_histories(db: Session, receipt: RecallReceipt, runs: list) -> None:
@@ -391,7 +409,7 @@ def associate(receipt_id: int, *, ask=None) -> str:
 
 def start_association(receipt_id: int | None) -> None:
     """After the reply is committed: its own thread, off the reply path."""
-    if receipt_id is None or not get_settings().recall_association_enabled:
+    if receipt_id is None:
         return
 
     def run() -> None:

@@ -44,11 +44,6 @@ _TARGET = {"fact": "fact_id", "episode": "episode_id", "event": "event_id", "ite
 _INT_TARGETS = ("event", "observation", "experience", "session_event")
 
 
-def enabled() -> bool:
-    settings = get_settings()
-    return settings.recall_enabled and settings.recall_history_enabled
-
-
 @dataclass
 class HistoryRun:
     question: str

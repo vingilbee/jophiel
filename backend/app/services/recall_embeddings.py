@@ -52,8 +52,6 @@ def _text(event: MemoryEvent, label: str | None) -> tuple[str, str]:
 def run_once(embed=None) -> bool:
     """One batch. True when there was work (so the worker loops again at once)."""
     settings = get_settings()
-    if not settings.recall_enabled:
-        return False
     embed = embed or _embed_batch
     now = datetime.now(timezone.utc)
     with SessionLocal() as db:

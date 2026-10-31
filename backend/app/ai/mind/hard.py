@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from app.ai.mind.situation import GENERAL, Situation
 
-TRIGGERS = ("failing", "surprise", "big", "handoff", "open", "quiet")
+TRIGGERS = ("failing", "surprise", "big", "handoff", "open", "quiet", "promise", "intention", "conflict")
 TRIGGER_LINES = {
     "failing": "the same step keeps failing",
     "surprise": "something didn't go the way she expected",
@@ -27,6 +27,9 @@ TRIGGER_LINES = {
     "handoff": "{user} said something she wants to think over properly",
     "open": "{user} asked her something that is still open after her reply",
     "quiet": "nothing is happening, so she has time to think",
+    "promise": "she told {user} she would do or come back to something, and hasn't yet",
+    "intention": "something she meant to do is about to lapse",
+    "conflict": "something {user} said doesn't match what she remembers, and nothing has settled which holds",
 }
 CONCLUSIONS = {
     "decision": "what she'll do differently, concretely (\"follow the water out instead of digging up\")",
@@ -36,6 +39,10 @@ CONCLUSIONS = {
     "intention": "something to keep in mind for later (\"keep 5 planks to get back down\")",
     "feeling": "how she feels about {user} or what they're doing together, when that's what matters here",
 }
+# Where no body acts (just talking): the same kinds, without examples from play.
+CONCLUSIONS_TALK = dict(CONCLUSIONS, decision="what she'll do or say differently, concretely",
+                        guess="an explanation to test, and how she'd tell",
+                        intention="something to keep in mind for later")
 CONVERSATION_KEPT = 16
 SCHEMA = {
     "type": "object",
@@ -50,7 +57,7 @@ INSTRUCTIONS = """\
 You are Columbina's slow thinking. Right now she is {doing}. Something needs real thought, \
 and there's time for it: {trigger}.
 
-Below: the problem, with what was tried and what happened (counted by the game, so it's \
+Below: the problem, with what was tried and what happened (counted by {counter}, so it's \
 true); what's going on now; the conversation; memories that may bear on it; what she learned \
 before; her earlier thoughts on this; and what she cares about.
 
@@ -61,16 +68,22 @@ what she could do differently, what she needs from {user}. Then reach ONE conclu
 Rules:
 - Conclude something new. Never describe the moment back, never say what she's doing right \
 now ("I'm heading to..."), never just say she's stuck or paused.
+- Conclude about the problem above, not about something else in the conversation.
 - Build on her earlier thoughts; don't repeat them.
+- When {user} asks her to forget or not keep something, it covers what they named. It never means hiding a \
+standing safety constraint, like an allergy, when it bears on what she says.
 - A decision names what she'd do differently. It can't change the goal by itself: if the goal \
 should change, make it a question for {user}.
 - Only use what's here. Memories may be old or about something else.
 - "conclusion": first person, at most 30 words.
 - "thinking": a few private sentences on how she got there.
-- "for_hands": for a decision, guess or intention, one tip her hands can follow while playing \
-(how to play, not a new goal), at most 25 words. Otherwise empty.
+{for_hands}
 - "question": for a question, the exact words she'd say to {user}, short, in her voice. Otherwise empty.
 - If nothing here is worth concluding, leave "kind" empty."""
+FOR_HANDS = """\
+- "for_hands": for a decision, guess or intention, one tip her hands can follow while playing \
+(how to play, not a new goal), at most 25 words. Otherwise empty."""
+NO_HANDS = '- "for_hands": always empty (nothing acts on its own here).'
 
 
 @dataclass(frozen=True)
@@ -91,8 +104,9 @@ class HardInput:
     user: str = "the user"
     now: str = ""  # a short "right now": health, what she holds and carries, around her
     goal: str | None = None
-    conversation: tuple[dict, ...] = ()  # {"role", "content", "ago"} oldest first
+    conversation: tuple[dict, ...] = ()  # {"role", "content", "ago", "id"?} oldest first
     memories: str | None = None
+    memory_refs: tuple[str, ...] = ()  # the memories supplied ("event:42"), for what she read
     learned: tuple[str, ...] = ()  # lessons and learned moves, as lines
     earlier: tuple[str, ...] = ()  # her earlier conclusions on this problem
     character: tuple[str, ...] = ()  # what she cares about
@@ -149,9 +163,12 @@ class HardThinker:
         self.client = OpenAI(api_key=api_key, timeout=timeout, max_retries=0)
 
     def instructions(self, trigger: str, user: str, situation: Situation = GENERAL) -> str:
-        kinds = "\n".join(f"- {kind}: {what.format(user=user)}" for kind, what in CONCLUSIONS.items())
+        conclusions = CONCLUSIONS if situation.hands else CONCLUSIONS_TALK
+        kinds = "\n".join(f"- {kind}: {what.format(user=user)}" for kind, what in conclusions.items())
         return INSTRUCTIONS.format(doing=situation.describe(user), trigger=TRIGGER_LINES[trigger].format(user=user),
-                                   user=user, kinds=kinds) + (f"\n{situation.voice}" if situation.voice else "")
+                                   user=user, kinds=kinds, counter="the game" if situation.hands else "code",
+                                   for_hands=FOR_HANDS if situation.hands else NO_HANDS) + (
+            f"\n{situation.voice}" if situation.voice else "")
 
     def think(self, inp: HardInput, situation: Situation = GENERAL) -> HardThought:
         started = time.perf_counter()

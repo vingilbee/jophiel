@@ -104,17 +104,8 @@ def test_the_users_own_pause_does_not_wake_her(db, alice):
     assert _jobs(db) == []
 
 
-def test_danger_wakes_her_notable_only_in_commentary_mode(db, alice):
-    session = _playing(db, alice)
-    svc.driver_noticed(db, session.id, kind="notable", text="found iron")
-    assert _jobs(db) == []
-    svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
-    assert agent_events.reasons_of(_jobs(db)[-1]) == ["danger: creeper behind you"]
-
-
 def test_with_her_mind_on_commentary_wakeups_are_left_to_it_but_control_still_wakes(db, alice, monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "mind_enabled", True)
     monkeypatch.setattr(settings, "desktop_agent_enabled", True)
     session = _playing(db, alice)
     svc.driver_noticed(db, session.id, kind="danger", text="creeper behind you")
@@ -452,7 +443,6 @@ def test_her_mouth_sees_conclusions_intentions_and_takes_the_question(db, alice,
     from app.services import mind, mind_hard
 
     session = _playing(db, alice)
-    monkeypatch.setattr(mind, "enabled", lambda: True)
     monkeypatch.setattr(mind, "publish", lambda user_id, thought: None)
     mind.save_thought(db, user_id=alice.id, session_id=session.id, level="hard", text="The move kills them.",
                       topic="surprise: x", trigger="surprise", conclusion_kind="guess", thinking="it said failed",
@@ -466,7 +456,7 @@ def test_her_mouth_sees_conclusions_intentions_and_takes_the_question(db, alice,
     lines = "\n".join(desktop_game._mind_lines(db, session, time_.time() + 1, for_reply=True))
     assert '"The move kills them." (thought over: a guess;' in lines
     assert "Dig straight up" not in lines
-    assert 'You mean to (your own intentions, from thinking it over): "keep 5 planks to get back down".' in lines
+    assert "keep 5 planks" not in lines  # her intentions are in her working memory's view, not here
     assert 'A question you wanted to ask the user, from thinking it over: "Want me on top, or just the move?"' in lines
     assert mind_hard.take_question(session.id) is None  # her reply has it now
     assert "A question you wanted" not in "\n".join(desktop_game._mind_lines(db, session, time_.time() + 2))

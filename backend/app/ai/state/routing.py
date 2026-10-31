@@ -4,7 +4,7 @@ docs/SHARED_STATE_STEP4_SPEC.md).
 Pure. Two independent processing needs, each ``not_required`` / ``required`` / ``uncertain``, or ``None``
 (nobody assessed it):
 
-- recall: must memory be looked up before the mouth? From Jev (``view.recall``) when it answered, else from
+- recall: must memory be looked up before the mouth? From Student 2 (``view.recall``) when it decided, else from
   cognition's ``missing_evidence`` (Student 1 never assesses it, so that's ``None``).
 - thinking: must she think it through first?
 
@@ -88,8 +88,8 @@ def route(view: SharedView) -> RouteDecision:
         degraded.append("cognition_unavailable")
         reasons.append(f"cognition {cognition.meta.status}: {cognition.meta.reason or 'no reading'}")
     if view.recall.meta.status == "unavailable":
-        degraded.append("assessment_unavailable")
-        reasons.append(f"assessment unavailable: {view.recall.meta.reason}")
+        degraded.append("decision_unavailable")
+        reasons.append(f"Student 2 unavailable: {view.recall.meta.reason}")
 
     if view.recall.choice is not None:
         recall, recall_by = view.recall.choice, view.recall.origin

@@ -1,6 +1,6 @@
 """Which gate should decide how hard she thinks? Replay recorded ticks through each one.
 
-    # 1. Play with MIND_TICK_RECORDING_ENABLED=true: ticks go to var/mind_ticks.jsonl
+    # 1. Play a pack session: her mind writes its ticks to var/mind_ticks.jsonl
     # 2. Ask each gate about every tick (or every Nth), timing each call:
     uv run python scripts/mind_gate_eval.py replay --gates chat:gpt-4.1-mini chat:gpt-4.1-nano decisions jev strands
     # 3. Have Luna (reasoning on) label a sample, the reference answers:

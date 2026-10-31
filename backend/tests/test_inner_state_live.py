@@ -29,12 +29,6 @@ def test_words_name_both_readings_when_they_differ():
     assert live.words(split)["mood"] == "content or happy"
 
 
-def test_observe_does_nothing_when_off(monkeypatch):
-    monkeypatch.setattr(live, "enabled", lambda: False)
-    monkeypatch.setattr(live, "_redis", lambda: pytest.fail("touched Redis while off"))
-    live.observe(user_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[], message="hi", reply="hey")
-
-
 @pytest.fixture
 def redis_db(monkeypatch):
     url = os.environ.get("TEST_REDIS_URL")
@@ -44,7 +38,6 @@ def redis_db(monkeypatch):
     r = redis.from_url(url)
     r.flushdb()
     monkeypatch.setattr(live, "_redis", lambda: r)
-    monkeypatch.setattr(live, "enabled", lambda: True)
     yield r
     r.flushdb()
 

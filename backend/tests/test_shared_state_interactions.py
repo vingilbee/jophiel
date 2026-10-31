@@ -239,17 +239,17 @@ def test_activity_revision_change_fences_autonomous_speech(responding,monkeypatc
         assert output.status in ('cancelled','not_sent')
 
 
-def test_quiet_mode_enabled_during_mouth_cancels_proposal(responding,monkeypatch):
+def test_quiet_mode_enabled_during_mouth_does_not_cancel_a_chat_proposal(responding,monkeypatch):
+    """In chat only Student 2 decides (2026-10-28): game pacing rules no longer cancel it mid-mouth."""
     from app.services import autonomous_speech
     e=responding;propose(e,monkeypatch);assert coordinator.execute_once()
     async def mouth(**_):
         yield {'type':'token','content':'Queued commentary.'}
         monkeypatch.setattr(autonomous_speech.agent_say,'allowed',lambda *a,**k:(False,'quiet'))
     monkeypatch.setattr(worker,'stream_chat',mouth)
-    assert _run_chat(e) and not e.announced
+    assert _run_chat(e) and e.announced
     with e.db() as db:
-        assert not list(db.scalars(select(ChatMessage).where(ChatMessage.role=='assistant')))
-        assert db.scalar(select(CoordinatorOutput)).status=='cancelled'
+        assert db.scalar(select(CoordinatorOutput)).status=='delivered'
 
 
 def test_pending_announcement_retries_without_regenerating(responding, monkeypatch):

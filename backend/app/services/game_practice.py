@@ -48,8 +48,8 @@ STALE_RUNNING = timedelta(minutes=15)  # a running attempt nobody updated this l
 
 
 def enabled() -> bool:
-    settings = get_settings()
-    return settings.game_practice_enabled and settings.desktop_agent_enabled
+    """Her lessons need a game: desktop mode."""
+    return bool(get_settings().desktop_agent_enabled)
 
 
 def _now() -> datetime:
@@ -421,7 +421,7 @@ def run_once(*, pack=None, model=None) -> bool:
         log.exception("learning %r crashed", task)
         result = PracticeResult("failed", f"something broke: {type(exc).__name__}")
     _finish(attempt_id, session_id, result)
-    if result.status == "learned" and settings.game_practice_tidy_enabled:
+    if result.status == "learned":
         _tidy(attempt_id, task, result, pack=pack, model=model)
     return True
 

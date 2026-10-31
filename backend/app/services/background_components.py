@@ -31,17 +31,25 @@ def unavailable_cognition(event: CognitionEvent) -> SinkReceipt:
     return SinkReceipt("blocked", "background result cognition unavailable; relevance check required before replay")
 
 
+def student_cognition(event: CognitionEvent) -> SinkReceipt:
+    """A finished thought already went to Student 2 in its follow-up phase (``coordinator._conclude``); other
+    events have no reader yet."""
+    if event.kind == "private_thought":
+        return SinkReceipt("consumed", "decided by Student 2 in the follow-up phase")
+    return unavailable_cognition(event)
+
+
 # Test/implementation seams, deliberately without model or teacher fallbacks.
 prepare_observation = unavailable_preparation
-cognition_sink = unavailable_cognition
+cognition_sink = student_cognition
 
 
 def enabled(kind: str) -> bool:
     s = get_settings()
-    # Mind, recall and cognition belong to the shared-state pipeline, which always runs.
+    # Everything always runs except observation preparation, which has no production transformer yet.
     return bool({"mind": True,
                  "recall": True,
-                 "memory": getattr(s, "memory_manager_enabled", False),
+                 "memory": True,
                  "observation": getattr(s, "observation_preparation_enabled", False),
                  "cognition": True}.get(kind, False))
 
@@ -254,13 +262,10 @@ def owned_memory_projections(user_id, conversation_id):
     from app.ai.state.contracts import ComponentView, Projection, SourceRef
     from app.db.models import MemoryJob
     result = []
-    for name, model, flag, source_attr in (
-        ("memory_ingestion", MemoryJob, "long_term_memory_enabled", "assistant_message_id"),
+    for name, model, source_attr in (
+        ("memory_ingestion", MemoryJob, "assistant_message_id"),
     ):
         scope_id = str(conversation_id) if conversation_id else None
-        if not getattr(get_settings(), flag, False):
-            result.append(ComponentView(Projection.off(name, "owner disabled"), name, str(user_id), scope_id, "disabled"))
-            continue
         try:
             with SessionLocal() as db:
                 scope = (model.user_id == user_id, model.conversation_id == conversation_id)

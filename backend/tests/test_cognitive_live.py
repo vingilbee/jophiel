@@ -19,17 +19,12 @@ BLOCK = ("- [preference] Likes their tea very strong.\n"
 
 
 def _settings(**over):
-    base = dict(cognitive_live_character=False, cognitive_live_student='off', cognitive_live_student_dir=None,
-                cognitive_live_events_model=None, subagent_model='gpt-4.1-mini', openai_api_key='x',
+    base = dict(cognitive_live_student_dir=None, cognitive_live_events_model=None, subagent_model='gpt-4.1-mini', openai_api_key='x',
                 cognitive_live_log_path='var/test_cognitive_live.jsonl')
     return SimpleNamespace(**(base | over))
 
 
-def test_off_by_default_and_prompt_unchanged(monkeypatch):
-    monkeypatch.setattr(cognitive_live, 'get_settings', lambda: _settings())
-    assert not cognitive_live.enabled()
-    assert cognitive_live.prepare(user_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[], message='hi',
-                                  long_term_memory=BLOCK) is None
+def test_prompt_without_cognition_fields_is_unchanged():
     prompt = build_system_prompt(AgentRuntimeContext(user_id=uuid.uuid4(), long_term_memory=BLOCK))
     for heading in ('## Who you are', 'by whose it is', 'A quick reading', 'Still open in this conversation'):
         assert heading not in prompt
@@ -79,24 +74,20 @@ def live(monkeypatch, tmp_path):
     return store, tmp_path
 
 
-def test_reading_shown_only_in_its_arm_and_arm_sticks(monkeypatch, live):
+def test_every_turn_gets_her_page_and_the_reading(monkeypatch, live):
     store, tmp = live
     monkeypatch.setattr(cognitive_live, 'get_settings',
-                        lambda: _settings(cognitive_live_student='ab', cognitive_live_log_path=str(tmp / 'log.jsonl')))
-    convo = uuid.uuid4()
-    first = cognitive_live.prepare(user_id=uuid.uuid4(), conversation_id=convo, history=[], message='what do you think?',
-                                   long_term_memory=None)
-    assert first.arm in cognitive_live.ARMS and store[convo]['arm'] == first.arm
-    assert (first.reading is not None) == (first.arm == 'reading')
-    again = cognitive_live.prepare(user_id=uuid.uuid4(), conversation_id=convo, history=[], message='and?',
-                                   long_term_memory=None)
-    assert again.arm == first.arm
+                        lambda: _settings(cognitive_live_log_path=str(tmp / 'log.jsonl')))
+    prep = cognitive_live.prepare(user_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[],
+                                  message='what do you think?', long_term_memory=BLOCK)
+    assert prep.character_page and prep.typed_memory and prep.reading is not None
+    assert prep.interpretation is not None and 'arm' not in prep.state
 
 
 def test_her_notes_follow_her_actual_reply(monkeypatch, live):
     store, tmp = live
     monkeypatch.setattr(cognitive_live, 'get_settings',
-                        lambda: _settings(cognitive_live_student='on', cognitive_live_log_path=str(tmp / 'log.jsonl')))
+                        lambda: _settings(cognitive_live_log_path=str(tmp / 'log.jsonl')))
     monkeypatch.setattr(cognitive_live, '_reply_events', lambda m, r: cognitive_live.ReplyEvents(
         asked='?' in r, answered=False, offered=True, committed=False, source='reply-reading'))
     user, convo = uuid.uuid4(), uuid.uuid4()
@@ -117,7 +108,7 @@ def test_her_notes_follow_her_actual_reply(monkeypatch, live):
 
 
 def test_a_failing_student_never_breaks_the_turn(monkeypatch, live):
-    monkeypatch.setattr(cognitive_live, 'get_settings', lambda: _settings(cognitive_live_student='on'))
+    monkeypatch.setattr(cognitive_live, 'get_settings', lambda: _settings())
     monkeypatch.setattr(cognitive_live, 'read', lambda *a: (_ for _ in ()).throw(RuntimeError('model missing')))
     assert cognitive_live.prepare(user_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[], message='hi',
                                   long_term_memory=None) is None

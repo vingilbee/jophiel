@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(get_predictor)
         logger.info("MacroVision models ready")
 
-    # The live Student 1 (only when COGNITIVE_LIVE_STUDENT is on/ab), loaded in the background for the
+    # The live Student 1, loaded in the background for the
     # local WebSocket fallback path; the chat worker warms its own copy.
     from app.services import cognitive_live
     asyncio.get_running_loop().run_in_executor(None, cognitive_live.warm)

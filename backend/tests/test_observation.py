@@ -14,7 +14,7 @@ import app.core.config as config
 from app.ai import prompts
 from app.ai.observe import registry
 from app.db.models import (
-    ChannelIdentity, ChatMessage, Conversation, DesktopEnvironment, DesktopSession, GameExperience, MemoryContext,
+    ChannelIdentity, Conversation, DesktopEnvironment, DesktopSession, GameExperience, MemoryContext,
     MemoryEvent, MemoryEvidence, MessageDelivery, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, User,
 )
@@ -621,26 +621,6 @@ def test_working_reset_never_resurrects_and_observation_reset_starts_from_now(db
     _tick(db)
     assert [o.payload["chars"] for o in _observations(db, alice, "user_message")] == [6]
 
-
-# --- 16. capture without promotion --------------------------------------------------------------
-
-
-def test_capture_without_promotion_keeps_the_work_and_enabling_it_processes_it_once(db, alice, monkeypatch, on):
-    off = on.model_copy(update={"memory_manager_enabled": False})
-    for module in (memory_manager, observation, observation_memory, game_learning, config):
-        monkeypatch.setattr(module, "get_settings", lambda: off)
-    session = _pack_session(db, alice)
-    world = memory_manager.open_context(db, alice.id, kind="world", label="World", source=PACK)
-    _fail(db, session)
-    _tick(db)
-    [seen] = _observations(db, alice, "skill_outcome")
-    assert seen.context_id == world.id and _receipt(db, seen.id).status == "pending"
-    assert _events(db, alice, "action_failed") == []
-    for module in (memory_manager, observation, observation_memory, game_learning, config):
-        monkeypatch.setattr(module, "get_settings", lambda: on)
-    _tick(db)
-    _tick(db)
-    assert len(_events(db, alice, "action_failed")) == 1 and _receipt(db, seen.id).status == "applied"
 
 
 # --- the registry, pure -------------------------------------------------------------------------

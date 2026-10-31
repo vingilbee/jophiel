@@ -19,7 +19,7 @@ export type VoiceMessage = {
   content: string
   stickers?: string[]
   turnId?: string
-  status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  status?: 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
   unprompted?: boolean
   /**
    * Set when the user cut this spoken reply off: characters of `content` they

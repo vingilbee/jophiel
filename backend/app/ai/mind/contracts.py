@@ -5,7 +5,7 @@ thoughts, where conclusions go) knows nothing about a game. A **source** tells i
 on (a ``Moment``), what is worth thinking hard about (``Problem``s) and whether a problem still
 holds. A **body** keeps acting on its own and is steered with commands it can accept or refuse.
 Minecraft is one source with one body (services/mind_minecraft.py); conversation is another
-source, in shadow (services/mind_conversation.py).
+source, with no body (services/mind_conversation.py).
 
 Shaped by those two sources only: add a field when one of them needs it.
 """
@@ -19,7 +19,8 @@ from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
 
 # Which waiting problem starts first when several activities have one (lower first).
-PRIORITY = {"handoff": 0, "failing": 1, "surprise": 2, "big": 3, "open": 3, "quiet": 9}
+PRIORITY = {"handoff": 0, "failing": 1, "surprise": 2, "promise": 2, "intention": 2, "conflict": 2, "big": 3,
+            "open": 3, "quiet": 9}
 
 
 @dataclass(frozen=True)

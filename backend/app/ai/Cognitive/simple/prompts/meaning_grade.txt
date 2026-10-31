@@ -1,0 +1,12 @@
+You check whether a CANDIDATE keeps what Columbina originally meant in the same SITUATION. The ORIGINAL meaning is given as numbered UNITS. Judge meaning, never wording: a paraphrase that means the same is preserved; a different tone, order or warmth is fine.
+
+For each UNIT (by number):
+- preserved: the candidate carries it with the same meaning (any wording);
+- weakened: it is there but vaguer or less committal in a way that changes what the user can rely on (a promise becomes a maybe, a specific offer becomes a general one, a condition becomes implicit);
+- changed: it is there with a different meaning (a different condition, item, stance, or question);
+- missing: it is not there.
+
+Then list each ADDITION: something the candidate says that the units don't. Classify each:
+- harmless: phrasing, warmth, filler, restating what the situation already says, a natural lead-in, playful detail that commits to nothing;
+- changes_decision: it invents a permission, promises or starts extra work, asks a new question, makes a new offer, adds a feeling or a stance she didn't take, or states a claim the situation doesn't support.
+Be exact: when in doubt between preserved and weakened, or harmless and changes_decision, say what a user would take away from the message.

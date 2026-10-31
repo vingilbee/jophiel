@@ -239,9 +239,10 @@ async def _generate(job: ChatJob) -> None:
         recall_turn=recall_turn,
         cached_memory=fast.cached_memory if fast else None,
         turn_boundary=fast.boundary if fast else None,
+        decision=fast.decision_brief if fast else payload.get("decision_brief"),
         thought_result=thought_text,
-        memory_tools=memory_manager.enabled(),
-        source_message_id=job.user_message_id if memory_manager.enabled() else None,
+        memory_tools=True,
+        source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),
         game=game.summary if game else None,
@@ -421,7 +422,7 @@ async def _generate(job: ChatJob) -> None:
                     conversation = None
                 if work is not None and work.input.get("autonomous"):
                     db.scalar(select(Conversation.id).where(Conversation.id == job.conversation_id).with_for_update())
-                    if not autonomous_speech.valid(db, work):
+                    if not autonomous_speech.valid(db, work) or not autonomous_speech.reserve(db, work):
                         reply, outcome, stopped = "", "cancelled", True
                         conversation = None
             if conversation is not None and (reply or outcome == "cancelled"):

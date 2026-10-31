@@ -70,7 +70,7 @@ def test_history_and_memory_use_the_heard_part(db_env) -> None:
         db.refresh(assistant)
         assert assistant.content == REPLY and assistant.heard_chars == 45
 
-        job = SimpleNamespace(assistant_message_id=assistant.id, conversation_id=conversation.id)
+        job = SimpleNamespace(assistant_message_id=assistant.id, conversation_id=conversation.id, user_id=user.id)
         assert _turn_for_job(db, job)[1] == expected
 
 

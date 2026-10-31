@@ -33,7 +33,7 @@ export function MoodStrip() {
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [])
 
-  if (!state?.enabled) return null
+  if (!state) return null
   return (
     <section aria-label="Her mood (debug)" className="mb-2 rounded-2xl border border-dashed border-[#E3DCF0] bg-white/60 px-3 py-1.5 text-[11px] text-[#7A8BA6]">
       <button
