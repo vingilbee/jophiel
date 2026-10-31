@@ -12,9 +12,9 @@ Lifecycle of a request that needs thinking:
    then the mind through ``app/ai/mind/hard.py``, which waits for its recall dependency. Every result is
    checked against the lease and the cancellation generation before it's accepted.
 4. ``_conclude``: a result for a conversation that moved on is kept private (``superseded``). Otherwise cognition
-   decides respond / ask / defer / silent. Unsupported (today) means ``blocked``: nothing is said. respond/ask
-   queues a follow-up chat job, ``uuid5(request, "follow_up")``, which the chat worker runs through the
-   mouth after the immediate reply. Chat jobs run one at a time per conversation, so the follow-up can't
+   (Student 2, reading the finished thought as [T1]) decides respond / ask / defer / silent. When it can't decide,
+   ``blocked``: nothing is said. respond/ask queues a follow-up chat job, ``uuid5(request, "follow_up")``, carrying
+   its decision for the mouth, which the chat worker runs after the immediate reply. Chat jobs run one at a time per conversation, so the follow-up can't
    overtake or interleave with it.
 
 A new user message supersedes every unfinished item in its conversation (``supersede_older``): its result can
@@ -129,11 +129,13 @@ def schedule(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid
 
 def decide_immediate(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid.UUID,
                      trigger_ref: str, interpretation: dict | None, pending: tuple[PendingWork, ...],
-                     channel: str, voice: bool) -> tuple[str, PendingDecision]:
-    """Cognition's decision for the reply while she thinks, and the action the turn takes. Unsupported (today):
-    ``respond``, labelled ``policy_fallback``: never silence nobody chose. Recorded once per request."""
-    decision = cognition_decisions.decide_pending(PendingInput(str(request_id), trigger_ref, interpretation, pending,
-                                                               channel, voice))
+                     channel: str, voice: bool, decided: PendingDecision | None = None) -> tuple[str, PendingDecision]:
+    """Cognition's decision for the reply while she thinks, and the action the turn takes. ``decided``: the one
+    cognition already made with the request (Student 2 decides the reply and the thinking together); else the
+    pending provider is asked. Unsupported: ``respond``, labelled ``policy_fallback``: never silence nobody chose.
+    Recorded once per request."""
+    decision = decided or cognition_decisions.decide_pending(PendingInput(str(request_id), trigger_ref,
+                                                                          interpretation, pending, channel, voice))
     action = decision.action if decision.supported and decision.action else "respond"
     origin = decision.origin if decision.supported else "policy_fallback"
     _record(request_id=request_id, user_id=user_id, conversation_id=conversation_id, phase="immediate",
@@ -334,8 +336,6 @@ def _run_recall(work: CoordinatorWork) -> tuple[dict, str, str | None]:
     stays memory's: matched / partial / no_match are completed results; failed is a failed item."""
     from app.services import recall_references
 
-    if not recall_references.enabled():
-        return {"status": "unavailable"}, "failed", "recall_disabled"
     turn = recall_references.for_reply(work.user_id, work.conversation_id, work.trigger_message_id,
                                        work.input.get("message", ""), work.input.get("zone"))
     result = {"schema_version": 1, "status": turn.result.status, "refs": [str(r) for r in turn.result.refs()],
@@ -378,10 +378,12 @@ def _run_mind(work: CoordinatorWork) -> tuple[dict, str, str | None]:
         evidence_status, refs = recall.status, []
     message = work.input.get("message", "")
     reading = work.input.get("interpretation")
+    about = (work.input.get("think_about") or "").strip()  # what her decision said to think over
     problem = Problem(
         trigger="handoff",
         text=(f'They said: "{message}"\n'
               + (f"Your quick reading of it: {json.dumps(reading)}\n" if reading else "")
+              + (f"What you decided to think over: {about}\n" if about else "")
               + "Work out what you really think before you answer them properly."),
         topic=message[:60], query=message)
     thought = _think(HardInput(problem=problem, user=work.input.get("user_name") or "the user",
@@ -425,6 +427,8 @@ def _conclude(work_id: uuid.UUID) -> None:
         from app.services import autonomous_speech
         with SessionLocal() as db:
             if not autonomous_speech.valid(db, work):
+                why = autonomous_speech.why_not(db, work) if work.input.get("source") == "conversation" else None
+                _log({"op": "autonomous_not_said", "work": str(work.id), "why": why or "stale or restrained"})
                 _record(**common, decision="rejected", origin="coordinator", missing=None, status="not_sent")
                 return
     if work.status in ("superseded", "cancelled", "blocked") or newer:
@@ -451,10 +455,10 @@ def _conclude(work_id: uuid.UUID) -> None:
     if decision.action in ("silent", "defer"):
         _record(**common, decision=decision.action, origin=decision.origin, missing=None, status="not_sent")
         return
-    _dispatch_follow_up(work, decision.action, decision.origin)
+    _dispatch_follow_up(work, decision.action, decision.origin, brief=decision.extra.get("brief"))
 
 
-def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str) -> None:
+def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brief: str | None = None) -> None:
     """One follow-up chat job per request: same conversation, same channel as the request, never "the latest
     conversation". The output row and the job commit together; a second dispatch finds the row and stops."""
     from app.services import chat as chat_service
@@ -482,6 +486,8 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str) -> None
         payload = {"phase": "follow_up", "content": "", "work_id": str(work.id), "request_id": str(work.request_id),
                    "action": action, "channel": base.get("channel", work.input.get("channel", "web")),
                    "zone": base.get("zone"), "awareness": base.get("awareness", "")}
+        if brief:
+            payload["decision_brief"] = brief
         if base.get("channel_identity_id"):
             payload["channel_identity_id"] = base["channel_identity_id"]
         job = chat_service.enqueue_job(db, user_id=work.user_id, conversation=conversation, turn_id=turn,

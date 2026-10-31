@@ -833,7 +833,9 @@ const MessageBubble = memo(function MessageBubble({
     ? 'Response stopped.'
     : message.status === 'failed'
       ? 'Response failed.'
-      : null
+      : message.status === 'silent'
+        ? 'She chose not to reply.'
+        : null
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>

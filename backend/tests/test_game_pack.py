@@ -11,7 +11,7 @@ import pytest
 from app.ai.desktop import pack_client
 from app.ai.desktop.pack_client import PackError
 from app.core.config import get_settings
-from app.db.models import AgentEventJob, DesktopSession
+from app.db.models import DesktopSession
 from app.services import desktop_commands, desktop_game, game_pack
 from app.services import desktop_sessions as svc
 from tests.db_support import database  # noqa: F401  (fixture)
@@ -276,38 +276,6 @@ def test_without_the_pack_the_vm_still_plays_minecraft(db, bob, pack):
     assert _session(db, bob.id, vm.id).profile_id == "minecraft_java"
 
 
-def test_discoveries_wake_her_unless_quiet(db, alice, pack):
-    desktop_game.start(db, alice.id, goal="Explore")
-    game_pack.sync(db, pack)
-    env = game_pack.ensure_environment(db, alice.id)
-    session = _session(db, alice.id, env.id)
-    svc.driver_noticed(db, session.id, kind="discovery", text="a village, 70 m north")
-    jobs = db.query(AgentEventJob).filter_by(user_id=alice.id).all()
-    assert any("discovery: a village, 70 m north" in r for job in jobs for r in job.reasons)
-    db.query(AgentEventJob).delete()
-    db.commit()
-    session.commentary_mode = "quiet"
-    db.commit()
-    svc.driver_noticed(db, session.id, kind="discovery", text="diamond ore, 6 m")
-    assert db.query(AgentEventJob).filter_by(user_id=alice.id).count() == 0
-
-
-def test_warnings_wake_her_in_occasional_mode_but_not_quiet(db, alice, pack):
-    desktop_game.start(db, alice.id, goal="Explore")
-    game_pack.sync(db, pack)
-    env = game_pack.ensure_environment(db, alice.id)
-    session = _session(db, alice.id, env.id)
-    assert session.commentary_mode == "occasional"
-    svc.driver_noticed(db, session.id, kind="warning", text="the sun is setting")
-    jobs = db.query(AgentEventJob).filter_by(user_id=alice.id).all()
-    assert any("warning: the sun is setting" in r for job in jobs for r in job.reasons)
-    db.query(AgentEventJob).delete()
-    session.commentary_mode = "quiet"
-    db.commit()
-    svc.driver_noticed(db, session.id, kind="warning", text="zombie 4 m from alice")
-    assert db.query(AgentEventJob).filter_by(user_id=alice.id).count() == 0
-
-
 def _playing(db, alice, pack, goal="Make a bed"):
     desktop_game.start(db, alice.id, goal=goal, steps=[{"do": "craft a white bed", "done_when": "a white_bed"}])
     game_pack.sync(db, pack)
@@ -324,16 +292,15 @@ def test_she_sees_her_skills_her_failed_tries_and_her_promises(db, alice, pack):
              "data": {}}] * 3 + [
             {"skill": "craft", "params": {"item": "bed"}, "status": "refused", "reason": "no item is called bed",
              "data": {}}]}})
-    desktop_game.note_promise(db, alice.id, promise="tell them when the bed is ready")
+    assert desktop_game.note_promise(db, alice.id, promise="tell them when the bed is ready").startswith(
+        "Noted in your memory")
     summary = desktop_game.describe(db, alice.id).summary
     assert "Your hands' skills (all they can do, one at a time):" in summary
     assert "Before learning a move (or offering to): if you can name the skill above that does it" in summary
     assert "- craft(item, count): Craft an item. Stops when: missing ingredients." in summary
     assert ("This step so far (counted): 2 min, 5 tries, 4 failed: craft(item=white_bed) -> missing ingredients x3; "
             "craft(item=bed) -> no item is called bed.") in summary
-    assert 'What you promised the user' in summary and '1. "tell them when the bed is ready"' in summary
-    assert desktop_game.drop_promise(db, alice.id, number=1) == "Dropped; nothing promised now."
-    assert "What you promised" not in desktop_game.describe(db, alice.id).summary
+    assert desktop_game.drop_promise(db, alice.id, number=1) == "Dropped. Nothing promised now."
 
 
 def test_setting_the_same_goal_again_and_again_shows_as_a_loop(db, alice, pack):
@@ -370,15 +337,6 @@ def test_she_knows_what_she_cant_do_yet_and_how_her_moves_behave(db, alice, pack
     assert "What you know you can't do yet (you asked for it to be built; not done): Add a safe upward-pillar action." in summary
     assert "Already built" not in summary
     assert "- When crafting a bed: place a crafting table first (tentative: seen once)" in summary
-
-
-def test_struggling_wakes_her_even_when_quiet_and_stuck_says_why(db, alice, pack):
-    session = _playing(db, alice, pack)
-    session.commentary_mode = "quiet"
-    db.commit()
-    svc.driver_noticed(db, session.id, kind="struggling", text='4 failed tries at "craft a white bed": ...')
-    jobs = db.query(AgentEventJob).filter_by(user_id=alice.id).all()
-    assert any(r.startswith("struggling: 4 failed tries") for job in jobs for r in job.reasons)
 
 
 def test_background_modes_change_without_touching_the_plan(db, alice, pack):

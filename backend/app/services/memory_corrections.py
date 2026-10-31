@@ -66,12 +66,6 @@ MAX_UNKNOWN_REMOVED = 6
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
-def enabled() -> bool:
-    """Corrections are read and applied only with the memory manager on: it owns the events they write."""
-    settings = get_settings()
-    return bool(settings.memory_corrections_enabled and settings.memory_manager_enabled)
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -100,7 +94,9 @@ def ground(candidate: CorrectionCandidate, *, user_text: str, shown: Iterable[st
     said = _norm(user_text)
     seen = set(_words(user_text)) | {w for line in shown for w in _words(line)}
     words, new = _norm(candidate.user_words), _norm(candidate.new_value)
-    if not _contains(said, words) or not new or not set(new.split()) <= set(said.split()):
+    # Small words the model adds around the value ("he's fine" -> "is fine") are not the value.
+    value = set(new.split()) - FILLER
+    if not _contains(said, words) or not value or not value <= set(said.split()):
         return None
     if not _norm(candidate.subject) or not set(_words(candidate.subject)) <= seen:
         return None
@@ -133,7 +129,8 @@ def record(db: Session, *, job: MemoryJob, message_id: uuid.UUID, user_text: str
     for candidate in corrections:
         grounded = ground(candidate, user_text=user_text, shown=shown)
         if grounded is None:
-            _log({"op": "dropped", "user": str(job.user_id), "message": str(message_id), "why": "not grounded"})
+            _log({"op": "dropped", "user": str(job.user_id), "message": str(message_id), "why": "not grounded",
+                  "reading": candidate.model_dump()})
             continue
         row = db.execute(insert(MemoryCorrection).values(
             id=uuid.uuid4(), user_id=job.user_id, source_message_id=message_id, memory_job_id=job.id,
@@ -254,8 +251,10 @@ def gather(db: Session, row: MemoryCorrection) -> list[Candidate]:
     facts = list(db.scalars(select(SemanticMemory).where(
         SemanticMemory.user_id == user_id, SemanticMemory.status == "active",
     ).order_by(SemanticMemory.last_confirmed_at.desc()).limit(SCANNED)))
+    # Made or already revised by the correcting message itself (a plan it updated): one writer per change.
     from_correction = set(db.scalars(select(MemoryEvidence.item_id).where(
-        MemoryEvidence.message_id == row.source_message_id, MemoryEvidence.role == "origin",
+        MemoryEvidence.message_id == row.source_message_id,
+        MemoryEvidence.role.in_(("origin", "restated", "correction")),
         MemoryEvidence.item_id.is_not(None))))
     items = [i for i in items if i.id not in from_correction]
     facts = [f for f in facts if f.source_message_id != row.source_message_id]
@@ -416,8 +415,6 @@ class _Outcome:
 
 def run_once(judge: Callable[[dict, list[Candidate]], Judgement] | None = None) -> bool:
     """Apply at most one due correction (the memory worker's thread). False when there was none."""
-    if not enabled():
-        return False
     from app.db.session import SessionLocal
 
     with SessionLocal() as db:
@@ -540,8 +537,13 @@ def _apply(db: Session, correction_id: uuid.UUID, token: str, edits: list[Edit],
 
             _keep_history(fact, by_message_id=row.source_message_id, reason="correction", correction_id=row.id)
             fact.content = " ".join(fact.content.replace(edit.replace, edit.replacement).split())
+            if fact.value and edit.replace in fact.value:  # a claim's value says the same as its wording
+                fact.value = " ".join(fact.value.replace(edit.replace, edit.replacement).split())
             fact.embedding = vectors.get(edit.candidate.ref)
             fact.revision += 1
+            from app.services import memory_conflicts
+
+            memory_conflicts.settle(db, fact, "fact_changed", message_id=row.source_message_id)
         first_old = first_old or edit.replace
         outcome.revised.append({"ref": edit.candidate.ref, "field": edit.field, "replaced": edit.replace,
                                 "replacement": edit.replacement})

@@ -41,9 +41,9 @@ class Pack:
 @pytest.fixture
 def brain(monkeypatch, tmp_path):
     settings = get_settings()
-    for name, value in (("mind_enabled", True), ("desktop_agent_enabled", True), ("mind_think_threshold", 0.7),
+    for name, value in (("desktop_agent_enabled", True), ("mind_think_threshold", 0.7),
                         ("mind_quick_gap_seconds", 4.0), ("mind_hard_gap_seconds", 20.0), ("mind_quiet_seconds", 0),
-                        ("mind_tick_recording_enabled", False), ("mind_log_path", str(tmp_path / "mind.jsonl")),
+                        ("mind_tick_path", str(tmp_path / "ticks.jsonl")), ("mind_log_path", str(tmp_path / "mind.jsonl")),
                         ("mind_hard_quiet_seconds", 0)):
         monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(mind, "recent_thoughts", lambda db, sid, now, limit=5: [])

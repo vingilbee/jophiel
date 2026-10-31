@@ -180,18 +180,40 @@ def thinking(monkeypatch, tmp_path):
     monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
     monkeypatch.setattr(mind_hard, "conversation", lambda db, uid, now, cid=None: ())
     monkeypatch.setattr(mind_hard, "_character", lambda db: ())
-    monkeypatch.setattr(mind_hard, "_earlier", lambda db, sid, topic, now: ())
+    monkeypatch.setattr(mind_hard, "_earlier", lambda db, scope, topic, now: ())
     from app.services import long_term_memory
 
     monkeypatch.setattr(long_term_memory, "retrieve_for_prompt", lambda uid, query: None)
 
-    def think(answer):
+    calls = []
+
+    def think(answer, during=None):
+        """``during``: what happens while she thinks (the game ends, the goal changes, the question is answered)."""
+        def answer_(inp, situation):
+            calls.append(inp)
+            if during:
+                during()
+            return answer
         monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
-            think=lambda inp, situation: answer, instructions=lambda trigger, user, situation: "system"))
-    return SimpleNamespace(saved=saved, said=said, think=think, shadow=tmp_path / "shadow.jsonl")
+            think=answer_, instructions=lambda trigger, user, situation: "system"))
+    return SimpleNamespace(saved=saved, said=said, think=think, calls=calls, shadow=tmp_path / "shadow.jsonl")
 
 
 def test_a_game_that_ends_while_she_thinks_drops_the_thought(monkeypatch, thinking):
+    sid = uuid.uuid4()
+    game = SimpleNamespace(id=sid, owner_user_id=UID, state="running", plan=None, commentary_mode="occasional",
+                           name="Vincent")
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(game))
+    monkeypatch.setattr(mind_minecraft.SOURCE, "gather", lambda db, scope, problem, base: (base, None))
+    thinking.think(HardThought("decision", "Go around.", for_hands="go around"),
+                   during=lambda: setattr(game, "state", "ended"))
+    att = mind_hard.Attention()
+    mind_hard.run(mind_minecraft.SOURCE, Scope(UID, "minecraft", sid), att, problem("quiet"), 100.0)
+    assert (thinking.saved[0]["status"], thinking.saved[0]["dropped_reason"]) == ("dropped", "the game ended")
+    assert att.running is None
+
+
+def test_a_problem_that_stopped_holding_while_it_waited_is_never_thought_about(monkeypatch, thinking):
     sid = uuid.uuid4()
     ended = SimpleNamespace(id=sid, owner_user_id=UID, state="ended", plan=None, commentary_mode="occasional",
                             name="Vincent")
@@ -200,8 +222,7 @@ def test_a_game_that_ends_while_she_thinks_drops_the_thought(monkeypatch, thinki
     thinking.think(HardThought("decision", "Go around.", for_hands="go around"))
     att = mind_hard.Attention()
     mind_hard.run(mind_minecraft.SOURCE, Scope(UID, "minecraft", sid), att, problem("quiet"), 100.0)
-    assert (thinking.saved[0]["status"], thinking.saved[0]["dropped_reason"]) == ("dropped", "the game ended")
-    assert att.running is None
+    assert thinking.calls == [] and thinking.saved == [] and att.running is None
 
 
 def test_a_cancelled_thought_is_dropped_with_why_and_never_sent_on(monkeypatch, thinking):
@@ -209,8 +230,9 @@ def test_a_cancelled_thought_is_dropped_with_why_and_never_sent_on(monkeypatch, 
     monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db())
     routed = []
     monkeypatch.setattr(mind_hard, "route", lambda *a, **k: routed.append(a) or {})
-    thinking.think(HardThought("decision", "Go around.", for_hands="go around"))
-    att = mind_hard.Attention(cancelled="the goal changed")
+    att = mind_hard.Attention()
+    thinking.think(HardThought("decision", "Go around.", for_hands="go around"),
+                   during=lambda: setattr(att, "cancelled", "the goal changed"))
     mind_hard.run(source, Scope(UID, "game", uuid.uuid4()), att, problem("failing"), 100.0)
     assert thinking.saved[0]["dropped_reason"] == "the goal changed" and routed == []
 
@@ -226,7 +248,7 @@ def test_a_body_that_cannot_take_a_tip_says_so(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# The conversation source, in shadow
+# The conversation source, live
 # --------------------------------------------------------------------------- #
 
 NOTES = [{"id": "n1", "kind": "her_offer", "text": "want me to pick one?"},
@@ -241,49 +263,77 @@ def test_an_open_question_of_theirs_is_a_problem_worth_revisiting():
     assert mind_conversation.open_problem(cid, NOTES[:1]) is None
 
 
-def test_conversation_shadow_is_off_by_default(monkeypatch):
-    monkeypatch.setattr(get_settings(), "mind_conversation_shadow_enabled", False)
-    assert mind_conversation.observe(user_id=UID, conversation_id=uuid.uuid4(), notes=NOTES) is None
-
-
-def test_conversation_shadow_thinks_with_no_game_and_touches_nothing_live(monkeypatch, thinking):
-    """No DesktopSession: a thought from a message, only in the shadow log; live attention,
-    thoughts, mouth and body untouched."""
+def _live_conversation(monkeypatch, notes, holder=None):
     mind_hard.reset()
-    monkeypatch.setattr(get_settings(), "mind_conversation_shadow_enabled", True)
     monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(SimpleNamespace(name="Vincent")))
-    monkeypatch.setattr(mind_hard._shadow_pool, "submit", lambda fn, *args: fn(*args))
-    monkeypatch.setattr(mind_hard._pool, "submit", lambda *a: pytest.fail("a shadow thought used the live pool"))
+    monkeypatch.setattr(mind_hard._pool, "submit", lambda fn, *args: fn(*args))
+    monkeypatch.setattr(mind_hard._shadow_pool, "submit", lambda *a: pytest.fail("a live thought used the shadow pool"))
+    monkeypatch.setattr(mind_conversation.SOURCE, "gather", lambda db, scope, problem, base: (base, None))
+    monkeypatch.setattr(mind_conversation.SOURCE, "current_goal", lambda db, scope: None)
     from app.services import cognitive_live
 
-    monkeypatch.setattr(cognitive_live, "load_state", lambda uid, cid: {"notes": NOTES})
+    holder = holder if holder is not None else {"notes": notes}
+    monkeypatch.setattr(cognitive_live, "load_state", lambda uid, cid: {"notes": holder["notes"]})
+
+
+def test_a_conversation_thinks_live_with_no_game_and_proposes_what_to_say(monkeypatch, thinking):
+    """No DesktopSession: a thought from an open question, saved under the conversation and proposed to
+    Student 2 (autonomous speech) in that conversation, in the user's one attention."""
+    _live_conversation(monkeypatch, NOTES)
     thinking.think(HardThought("question", "I should just pick one for them.", thinking="they want a pick",
                                question="Want me to just pick?"))
     cid = uuid.uuid4()
     assert mind_conversation.observe(user_id=UID, conversation_id=cid, notes=NOTES) == "hard: open"
-    record = json.loads(thinking.shadow.read_text().splitlines()[-1])
-    assert (record["source"], record["activity"], record["trigger"], record["status"]) == (
-        "conversation", str(cid), "open", "done")
-    assert record["question"] == "Want me to just pick?"
-    assert thinking.saved == [] and thinking.said == []  # never saved, never said
-    assert mind_hard.take_question(str(cid)) is None  # no question left for her mouth
-    assert (UID, False) not in mind_hard._attention  # live attention never touched
+    saved = thinking.saved[-1]
+    assert (saved["source"], saved["activity_id"], saved["trigger"], saved["status"]) == (
+        "conversation", cid, "open", "done")
+    said = thinking.said[-1]
+    assert (said["source"], said["activity_id"], said["text"], said["question"]) == (
+        "conversation", cid, "Want me to just pick?", True)
+    assert not thinking.shadow.exists()  # nothing goes to the shadow log
+    assert (UID, False) in mind_hard._attention and (UID, True) not in mind_hard._attention  # one mind
     # The same note again (her next reply left it open too): not a second thought.
     assert mind_conversation.observe(user_id=UID, conversation_id=cid, notes=NOTES) == "hard: duplicate event"
 
 
-def test_a_shadow_thought_about_a_question_answered_meanwhile_is_dropped(monkeypatch, thinking):
-    mind_hard.reset()
-    monkeypatch.setattr(get_settings(), "mind_conversation_shadow_enabled", True)
-    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(SimpleNamespace(name="Vincent")))
-    monkeypatch.setattr(mind_hard._shadow_pool, "submit", lambda fn, *args: fn(*args))
-    from app.services import cognitive_live
-
-    monkeypatch.setattr(cognitive_live, "load_state", lambda uid, cid: {"notes": NOTES[:1]})  # n2 closed
-    thinking.think(HardThought("decision", "Pick a film.", for_hands=""))
+def test_a_conversation_thought_about_a_question_answered_meanwhile_is_dropped(monkeypatch, thinking):
+    notes = {"notes": NOTES}
+    _live_conversation(monkeypatch, NOTES, notes)
+    thinking.think(HardThought("decision", "Pick a film.", for_hands=""),
+                   during=lambda: notes.update(notes=NOTES[:1]))  # n2 answered while she thinks
     mind_conversation.observe(user_id=UID, conversation_id=uuid.uuid4(), notes=NOTES)
-    record = json.loads(thinking.shadow.read_text().splitlines()[-1])
-    assert (record["status"], record["dropped_reason"]) == ("dropped", "it's been answered")
+    assert (thinking.saved[-1]["status"], thinking.saved[-1]["dropped_reason"]) == ("dropped", "it's been answered")
+    assert thinking.said == []
+
+
+def test_student_two_deciding_to_think_wakes_the_mind_in_that_conversation(monkeypatch):
+    mind_hard.reset()
+    offered = []
+    monkeypatch.setattr(mind_hard, "offer", lambda source, scope, problem, at: offered.append((scope, problem)) or "hard: handoff")
+    cid = uuid.uuid4()
+    out = mind_conversation.wake(user_id=UID, conversation_id=cid, think_about="whether Berlin suits them",
+                                 decision_id="d-1")
+    scope, found = offered[0]
+    assert out == "handed to her mind (hard: handoff)" and scope == Scope(UID, "conversation", cid)
+    assert (found.trigger, found.anchor) == ("handoff", {"event": "decision:d-1"})
+    assert "whether Berlin suits them" in found.text
+    assert mind_conversation.wake(user_id=UID, conversation_id=cid, think_about=" ", decision_id="d-2").startswith(
+        "not carried out")
+
+
+def test_the_sweep_offers_what_it_finds_at_its_own_pace(monkeypatch):
+    cid = uuid.uuid4()
+    found = [(Scope(UID, "conversation", cid), problem("promise", item="i", revision=1, event="item:i:1"))]
+    monkeypatch.setattr(mind_conversation, "item_problems", lambda db, now: list(found))
+    monkeypatch.setattr(mind_conversation, "quiet_problems", lambda db, now, turn: [])
+    monkeypatch.setattr(mind_conversation, "conflict_problems", lambda db, now: [])
+    offered = []
+    monkeypatch.setattr(mind_hard, "offer", lambda source, scope, p, at: offered.append(p.trigger) or "hard: promise")
+    source = mind_conversation.ConversationSource()
+    db = SimpleNamespace(rollback=lambda: None)
+    assert source.sweep(db, 1000.0) == ["promise: hard: promise"]
+    assert source.sweep(db, 1010.0) == []  # not before SWEEP_SECONDS
+    assert source.sweep(db, 1031.0) == ["promise: hard: promise"] and offered == ["promise", "promise"]
 
 
 # --------------------------------------------------------------------------- #
@@ -291,7 +341,6 @@ def test_a_shadow_thought_about_a_question_answered_meanwhile_is_dropped(monkeyp
 # --------------------------------------------------------------------------- #
 
 def test_the_general_loop_runs_without_desktop_mode_and_minecraft_needs_it(monkeypatch):
-    monkeypatch.setattr(get_settings(), "mind_enabled", True)
     monkeypatch.setattr(get_settings(), "desktop_agent_enabled", False)
     polled = []
 

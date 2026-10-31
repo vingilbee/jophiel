@@ -1,7 +1,7 @@
 """Her read tools (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md §9): search what she remembers, read one
 memory with its evidence, or walk a context's timeline. Read-only wrappers over ``app.services.recall``
 for this user only; no SQL. They share one budget per reply (failed calls and pages count), and what they
-find joins what the reply was given (its receipt). With RECALL_HISTORY_ENABLED, ``recall_history`` rebuilds
+find joins what the reply was given (its receipt). ``recall_history`` rebuilds
 how one thing changed from the sources behind what search finds (``services/recall_history.py``).
 """
 from __future__ import annotations
@@ -104,7 +104,7 @@ def build_recall_tools(turn) -> list[BaseTool]:
             req = RecallRequest(
                 user_id=turn.user_id, query=query, purpose="explicit_search", now=turn.now, zone=turn.zone,
                 conversation_id=turn.conversation_id, context_ids=context_ids, context_query=context_query,
-                kinds=tuple(_KIND[k] for k in kinds) if kinds else recall_references._kinds(),
+                kinds=tuple(_KIND[k] for k in kinds) if kinds else recall_references.KINDS,
                 time_range=_range(time_from, time_to, time_basis, zone),
                 intent="historical" if historical else "relevance", limit=TOOL_LIMIT, page_token=page)
             return recall.search(db, req)
@@ -148,9 +148,6 @@ def build_recall_tools(turn) -> list[BaseTool]:
 
     tools = [search_memories, read_memory, read_timeline]
     from app.services import recall_history as histories
-
-    if not histories.enabled():
-        return tools
 
     def shown(run) -> str:
         try:

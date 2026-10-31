@@ -82,7 +82,7 @@ def report(args) -> None:
 def replay(args) -> None:
     records = [r for r in load(_path(args.log)) if r.get("system") and r.get("input")][-args.last:]
     if not records:
-        print("Nothing to replay yet: play a session with MIND_ENABLED=true first.")
+        print("Nothing to replay yet: play a game pack session first.")
         return
     settings = get_settings()
     effort = None if args.effort == "none" else args.effort

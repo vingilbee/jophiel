@@ -1,7 +1,14 @@
 """Durable autonomous proposals; cognition authorizes, the existing chat mouth delivers.
 
 No latest-conversation fallback. Completed producer work is queued as a mind result,
-not sent back through the thinker. Unsupported result cognition remains blocked.
+not sent back through the thinker. Student 2 decides whether it is said; when it can't decide, it stays
+private (blocked).
+
+Before anything she meant to say on her own is said, ``valid`` checks again that it still holds: no newer user
+message; its premise (the disagreement, item or open question it was about) still open; nothing forgotten since it
+was prepared; and, in a conversation, the same thing not already said in this quiet stretch (by premise, or in
+other words: ``AutonomousDelivery``, reserved in the delivery transaction by ``reserve``, so a restart or a second
+worker can't say it twice). Elapsed time never reopens a stretch: only a new user message does.
 
 Words her mouth already chose in a background turn (her ``say`` and ``offer_to_learn`` tools) are not a
 proposal: cognition and the mouth already ran. ``deliver_worded`` gives them the same delivery arbitration
@@ -17,7 +24,10 @@ from datetime import timedelta
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 
-from app.db.models import ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork, DesktopSession
+from app.db.models import (
+    AutonomousDelivery, ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork, DesktopSession,
+    MemoryConflict, WorkingItem,
+)
 from app.services import agent_say, coordinator, desktop_preview
 
 
@@ -32,8 +42,14 @@ def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, D
     return conversation, session
 
 
+PREMISE_KEYS = ("conflict", "item", "revision", "note")
+SAME_WORDS = 0.6  # shared content words, of the shorter: the same thing in other words
+
+
 def submit(db, *, user_id, activity_id, source, event_id, text, reasons, commentary_mode,
-           question=False, ttl=120) -> str:
+           question=False, ttl=120, premise=None) -> str:
+    """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision, an open
+    question's note); checked again before it's said."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
     if conversation is None:
@@ -62,7 +78,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
         dependency_ids=[], input_versions=versions, deadline_at=coordinator._now() + timedelta(seconds=ttl),
         idempotency_key=f"autonomous:{request}", result=result,
         input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "source": source, "event_id": event, "reasons": reasons,
-               "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal"},
+               "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal",
+               "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
     db.commit()
     coordinator._log({"op": "autonomous_proposed", "request": str(request), "event": event,
@@ -115,9 +132,95 @@ def valid(db, work) -> bool:
                         ("state", "state_revision")))):
             return False
         mode = session.commentary_mode
+    elif work.input["source"] == "conversation":
+        # Everyday chat: Student 2 decides whether it is said (no game pacing rules); the fences above (deadline,
+        # a newer user message) and these still hold.
+        return why_not(db, work) is None
     else:
         mode = work.input["commentary_mode"]
     return _restraint(db, work.user_id, work.input["reasons"], mode)[0]
+
+
+def _premise_holds(db, work) -> str | None:
+    premise = work.input.get("premise") or {}
+    if premise.get("conflict"):
+        row = db.get(MemoryConflict, uuid.UUID(premise["conflict"]))
+        if row is None or row.user_id != work.user_id or row.status != "open":
+            return "the disagreement it was about is settled"
+    if premise.get("item"):
+        entry = db.get(WorkingItem, uuid.UUID(premise["item"]))
+        if entry is None or entry.user_id != work.user_id or entry.closed_at is not None:
+            return "what it was about is no longer open"
+        if premise.get("revision") and str(entry.revision) != premise["revision"]:
+            return "what it was about changed meanwhile"
+    if premise.get("note"):
+        from app.services import mind_conversation
+        if not mind_conversation._note_open(work.user_id, work.conversation_id, premise["note"]):
+            return "the question it was about has been answered"
+    return None
+
+
+def _words(work) -> list[str]:
+    from app.services import memory_forget
+
+    r = work.result or {}
+    return sorted(memory_forget._bases(r.get("question") or r.get("conclusion") or ""))
+
+
+def _key(work) -> str | None:
+    premise = work.input.get("premise") or {}
+    return f"conflict:{premise['conflict']}" if premise.get("conflict") else (
+        f"item:{premise['item']}" if premise.get("item") else None)
+
+
+def _stretch(db, conversation_id) -> int:
+    """The quiet stretch: the conversation's latest user message (0 before any)."""
+    return db.scalar(select(func.max(ChatMessage.conversation_sequence)).where(
+        ChatMessage.conversation_id == conversation_id, ChatMessage.role == "user")) or 0
+
+
+def _said_already(db, work) -> bool:
+    """The same premise, or the same thing in other words, already said in this quiet stretch."""
+    words, key = set(_words(work)), _key(work)
+    for row in db.scalars(select(AutonomousDelivery).where(
+            AutonomousDelivery.conversation_id == work.conversation_id,
+            AutonomousDelivery.after_sequence == _stretch(db, work.conversation_id),
+            AutonomousDelivery.work_id != work.id)):
+        if key is not None and row.key == key:
+            return True
+        shared = words & set(row.words)
+        if len(shared) >= 2 and len(shared) >= SAME_WORDS * min(len(words), len(row.words)):
+            return True
+    return False
+
+
+def why_not(db, work) -> str | None:
+    """Why a conversation proposal can't be said now, or None when it can."""
+    from app.services import memory_forget
+
+    if (why := _premise_holds(db, work)) is not None:
+        return why
+    if memory_forget.forgotten_since(db, work.user_id, work.created_at):
+        return "something was forgotten since it was thought, and it may rest on it"
+    if _said_already(db, work):
+        return "already said in this quiet stretch"
+    return None
+
+
+def reserve(db, work) -> bool:
+    """In the delivery transaction, under the conversation's lock: claim this quiet stretch's slot for what it's
+    about. False when it was taken meanwhile (another worker, a retry): then it isn't said."""
+    if work.input.get("source") != "conversation":
+        return True
+    if why_not(db, work) is not None:
+        return False
+    with db.begin_nested():
+        row = db.execute(insert(AutonomousDelivery).values(
+            user_id=work.user_id, conversation_id=work.conversation_id,
+            after_sequence=_stretch(db, work.conversation_id), kind=(work.result or {}).get("kind") or "decision",
+            key=_key(work), words=_words(work), work_id=work.id,
+        ).on_conflict_do_nothing().returning(AutonomousDelivery.id)).scalar()
+    return row is not None
 
 
 def delivered(work):

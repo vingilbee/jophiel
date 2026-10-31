@@ -20,7 +20,7 @@ SCHEMA_VERSION = "shared-view-v0"
 
 Status = Literal["available", "pending", "stale", "unavailable", "disabled"]
 # Where a cognition field came from: the trained student, a written rule, or nobody (the field wasn't assessed).
-Origin = Literal["student_1", "policy", "jev", "explicit_user_instruction", "not_assessed"]
+Origin = Literal["student_1", "student_2", "policy", "explicit_user_instruction", "not_assessed"]
 Action = Literal["respond", "acknowledge", "ask", "defer", "silent"]
 Preference = Literal["speak", "silent", "defer"]
 Mode = Literal["live", "shadow", "disabled"]
@@ -173,7 +173,7 @@ class ThinkingDecision:
     trigger_ref: str | None = None
     required: bool | None = None  # None: not assessed or uncertain (never "not needed")
     depth: str | None = None
-    decider: Literal["jev", "explicit_instruction", "none"] = "none"
+    decider: Literal["student_2", "explicit_instruction", "none"] = "none"
     reason: str | None = None
     input_versions: dict[str, str] = field(default_factory=dict)
     choice: str | None = None  # the decider's own word: not_required / required / uncertain
@@ -182,7 +182,7 @@ class ThinkingDecision:
 
 @dataclass(frozen=True)
 class RecallDecision:
-    """Whether memory must be looked up before the mouth (step 4: Jev). ``choice`` None: not assessed.
+    """Whether memory must be looked up before the mouth (Student 2's decision). ``choice`` None: not assessed.
     ``not_required`` permits going on to the mouth; it never certifies that she knows the answer. Whether to
     ask what they meant or to use a tool is cognition's and the mouth's, not this decision's."""
 
@@ -245,7 +245,7 @@ class SharedView:
     mind: Projection
     health: tuple[ComponentHealth, ...] = ()
     recall: RecallDecision = field(default_factory=lambda: RecallDecision(
-        Projection.off("jev", "no recall assessment")))
+        Projection.off("student_2", "no recall decision")))
 
     components: tuple[ComponentView, ...] = ()
 

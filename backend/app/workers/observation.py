@@ -4,7 +4,6 @@ from app.services import observation
 
 
 def run_once() -> bool:
-    if observation.enabled():
-        with SessionLocal() as db:
-            observation.tick(db, consume_memory=False)
+    with SessionLocal() as db:
+        observation.tick(db, consume_memory=False)
     return False

@@ -18,7 +18,8 @@ from app.services import memory_manager
 from app.services.memory_manager import MemoryError, Source
 
 ItemStatus = Literal["active", "suspended", "completed", "abandoned", "open", "fulfilled", "cancelled",
-                     "done", "dropped", "answered"]
+                     "done", "dropped", "answered", "supported", "disproved", "unresolved", "superseded",
+                     "withdrawn"]
 
 
 async def _run(fn: Callable[..., str], **kwargs) -> str:
@@ -63,7 +64,9 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
     @tool
     async def update_item(item: str, status: ItemStatus, reason: str) -> str:
         """Change something in your memory: complete, suspend, abandon or reactivate a goal; mark a
-        promise fulfilled or cancelled; mark your intention done or dropped; a question answered.
+        promise fulfilled or cancelled; mark your intention done or dropped; a question answered; a
+        suspicion of yours supported or disproved (only by what the user said or what happened, never
+        by thinking it again) or unresolved; a decision of yours superseded or withdrawn.
 
         Only when the user says so, or it's clearly done: never because time passed or the topic moved
         on. Completing a goal leaves its sub-goals open (you're told which). item: its id in brackets.
@@ -84,7 +87,8 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
                               due_in_minutes: int | None = None) -> str:
         """Keep a promise in your memory: something you told the user you'd do or tell them later
         ("I'll remind you about the dentist"), or something the user promised you ("I'll show you the
-        base tomorrow"). Not for your own plans to yourself: those are intentions.
+        base tomorrow"). Not for your own plans to yourself: those are intentions. Not for remembering
+        what the user told you ("remember that Leo hates cilantro"): that's kept on its own.
         due_in_minutes: only when a time was said.
         """
         def do(db) -> str:

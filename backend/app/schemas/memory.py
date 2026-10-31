@@ -90,8 +90,7 @@ class MemoryCorrectionOut(BaseModel):
 
 
 class WorkingMemoryOut(BaseModel):
-    enabled: bool
-    state: ManagerStateOut | None = None
+    state: ManagerStateOut
     contexts: list[MemoryContextOut] = []
     items: list[WorkingItemOut] = []
     events: list[MemoryEventOut] = []
@@ -150,8 +149,6 @@ class ObservationAdapterOut(BaseModel):
 
 
 class ObservationsOut(BaseModel):
-    capture_enabled: bool
-    promotion_enabled: bool
     counts: dict[str, int] = {}
     # Age of the oldest report memory hasn't dealt with yet.
     lag_seconds: float | None = None
@@ -179,6 +176,5 @@ class RecallReceiptOut(BaseModel):
 
 
 class RecallOut(BaseModel):
-    enabled: bool
     embeddings: dict[str, int] = {}
     receipts: list[RecallReceiptOut] = []

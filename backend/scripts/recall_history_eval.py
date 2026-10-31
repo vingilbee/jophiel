@@ -144,11 +144,6 @@ async def answer(reconstructions: Path, output: Path, modes: list[str]) -> None:
 
 
 def main() -> None:
-    import os
-
-    # The tool under test, whatever the local .env says (read before settings are first loaded).
-    os.environ["RECALL_ENABLED"] = "true"
-    os.environ["RECALL_HISTORY_ENABLED"] = "true"
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="mode", required=True)
     rec = commands.add_parser("reconstruct")

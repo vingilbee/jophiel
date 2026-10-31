@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from app.ai.context import AgentRuntimeContext
 from app.ai.subagents.registry import SubAgentSpec
-from app.core.config import get_settings
 
 _BASE_SYSTEM_PROMPT = """\
 You are Columbina, a conversational agent with a persistent identity and personality.
@@ -333,10 +332,24 @@ another context doesn't move you there: never switch_context just to talk about 
 - Each entry says where it belongs and its times. "happened" is when it happened; "recorded" is only \
 when it was written down; a context's "last active" time is never when something in it happened. If \
 the time is unknown, say so. If two things happened at different times, give both.
+- A "when:", "planned for:" or "happened:" gives their own words, the day they said them, and what that \
+means as a date: talk about it from today, so "last month" said weeks ago is the month it names, not last \
+month now. If it says the year wasn't said, don't state the year as certain; if it says when isn't known, \
+don't invent a date.
+- "about:" says who or what it's about ("their sister Nora"): "my sister" means that one. "how things were" \
+entries are true of the past, not how things are now.
 - "from your last answer" marks what your previous reply was about: a follow-up like "when was that?" \
 means those. If that note says it's unclear which one, and it matters, ask.
 - "no longer current" entries are the past (a finished goal, a replaced fact): talk about them as the \
 past. Past events are things that happened, not how things are now.
+- "Always applies" entries are standing constraints, like an allergy: keep to them whenever they bear on what \
+you say, even if the message isn't about them. They don't answer a question by themselves.
+- "Unresolved" entries are memories something they said doesn't match, with nothing settled yet. Don't treat \
+either version as settled, and don't correct them as if you knew. You may ask, or leave it.
+- If it says more than one memory fits who or what they mean, don't pick one: ask if it matters.
+- When they ask you to forget something, it's forgotten after your reply: say you'll forget it, never that it's \
+already gone. It covers what they named. A wish like "don't keep health stuff" is for the future and for what \
+they named; it never means hiding a standing constraint like an allergy when it bears on what you say.
 - If the search found nothing, say you can't find a memory of it, never that it didn't happen. If it \
 FAILED, say you couldn't check just now. If it was incomplete, answer what's supported and say what's \
 missing.
@@ -357,7 +370,7 @@ said, not something the user told you; an earlier answer of yours can have been 
 
 _CACHED_MEMORY_PROMPT = """\
 
-## What you remember from your last answer (no memory search ran for this message)
+## What you remember from your last answer (re-read now; nothing else was looked up for this message)
 
 {memories}
 
@@ -375,6 +388,17 @@ _TURN_BOUNDARY_PROMPT = """\
 {boundary}
 
 Answer from what you have. Where it falls short, say what you couldn't check rather than filling the gap."""
+
+
+_DECISION_PROMPT = """\
+
+## What you decided
+
+You've already decided how to meet this moment (your own decision step, from the situation as it stands):
+{decision}
+
+Say it in your own voice: the decision is what you mean, the wording is yours. Don't decide again, and don't do
+more than this decided."""
 
 
 _CHARACTER_PROMPT = """\
@@ -758,12 +782,12 @@ def build_system_prompt(
     if context.cached_memory:
         # The shared-state pipeline: what the last answer used, re-read; no search ran (replaces the recall block).
         prompt += f"\n{_CACHED_MEMORY_PROMPT.format(memories=context.cached_memory)}"
-        if context.recall_turn is not None and get_settings().recall_history_enabled:
+        if context.recall_turn is not None:
             prompt += f"\n{_RECALL_HISTORY_PROMPT}"
     elif context.recall:
         # Shared recall replaces the long-term block (it holds the same facts and episodes, with ids).
         prompt += f"\n{_RECALL_PROMPT.format(recall=context.recall)}"
-        if context.recall_turn is not None and get_settings().recall_history_enabled:
+        if context.recall_turn is not None:
             prompt += f"\n{_RECALL_HISTORY_PROMPT}"
     elif context.typed_memory:
         # Typed by whose it is: game recaps are things you did together, not "your own recollections".
@@ -780,6 +804,8 @@ def build_system_prompt(
         prompt += f"\n{_THOUGHT_RESULT_PROMPT.format(result=context.thought_result)}"
     if context.turn_boundary:
         prompt += f"\n{_TURN_BOUNDARY_PROMPT.format(boundary=context.turn_boundary)}"
+    if context.decision:
+        prompt += f"\n{_DECISION_PROMPT.format(decision=context.decision)}"
     # Only when sharing is actually on — describing a sense the user hasn't
     # granted would just invite the model to reach for a tool it doesn't have.
     if context.vision_enabled:

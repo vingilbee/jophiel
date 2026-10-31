@@ -1,0 +1,4 @@
+You compare two versions of a background-thinking request Columbina made in the same SITUATION. ORIGINAL was written by her decision model. RECONSTRUCTED was written by another component from a compact summary of her choice (the subject, the references to weigh, the question form).
+
+- verdict: same (the same question, any wording), narrower (a part of the original question), broader (the original plus more), different (another question).
+- lost: an important part, caution or constraint of ORIGINAL that RECONSTRUCTED lacks ("don't assume it was the dates"), in a few words; empty if none.

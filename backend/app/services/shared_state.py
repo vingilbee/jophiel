@@ -6,15 +6,18 @@ Adapters, one per owner, over the stores that already hold the truth (the view n
 | Section | Owner (version source) |
 |---|---|
 | conversation | chat: ``conversations.last_message_sequence``, message ids/sequences; notes: the cognitive notebook |
-| memory context | memory: ``recall.reread`` of the answer before's references, each with its fingerprint |
+| memory context | memory: the initial check (``recall_references.for_reply``: the answer before's references, the user's standing constraints and a search for this message), each record with its fingerprint |
 | cognition | Student 1 via ``cognitive_live`` (reading in every arm; the A/B arm only gates its words in the prompt) |
 | thinking decision | nobody yet: ``required=None`` (Jev is step 4) |
 | work / output | the chat job (id, attempt, lease, cancel key) or the socket's in-process turn |
 | personality | the character page file (content hash) |
 | inner state, activities, situation, mind | not projected yet: ``disabled``/``unavailable`` with the reason |
 
-The turn runs no fresh memory search before the reply: the cache is what the last answer used, re-read now, so
-a correction or deletion since is seen. Cognition always runs; when it can't, the turn is *degraded* (named to
+Every user message gets an initial memory check before cognition (docs/COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md
+§7), whether or not anyone later decides memory is needed: Student 1 and the mouth read the same evidence bundle,
+and the receipt records what each consumer saw. Student 2's snapshot has no memory input yet, so its recall choice
+means searching further (the mouth's tools). If the search fails, the answer before's references are re-read
+instead and the turn says the search failed. Cognition always runs; when it can't, the turn is *degraded* (named to
 the mouth, published on the turn stream, traced), never a silent normal reply. What the student can't assess
 (whether older memory or careful thinking is needed) is said to the mouth as a limit of this turn, and such a
 turn is ``unassessed``: answered by the mouth, never reported as confirmed fast-path eligible.
@@ -38,7 +41,8 @@ from typing import Any
 from sqlalchemy import func, select
 
 from app.ai.Cognitive.simple.contracts import SCHEMA_VERSION as SIMPLE_SCHEMA
-from app.ai.state import assessment as assessment_contract
+from app.ai.recall.contracts import RecallResult
+from app.ai.state import student_two as student_contract
 from app.ai.state.contracts import (
     SCHEMA_VERSION, Assessed, CacheEntry, CognitionView, ComponentHealth, ConversationView, Envelope,
     EvidenceAssessment, Interpretation, MemoryContextView, MessageRef, NoteRef, OutputView,
@@ -48,8 +52,8 @@ from app.ai.state.routing import RouteDecision, route
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, Conversation
 from app.db.session import SessionLocal
-from app.ai.state.decisions import PendingWork
-from app.services import cognitive_live, coordinator, jev_assessment, recall_references
+from app.ai.state.decisions import PendingDecision, PendingWork
+from app.services import cognitive_live, coordinator, recall_references, student_two
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +72,15 @@ class FastPathTurn:
     boundary: str
     started: float = field(default_factory=time.monotonic)
     timings: dict[str, int] = field(default_factory=dict)
-    assessment: assessment_contract.Assessment | None = None
-    # A memory search ran for this message (the recall route): its result replaces the cache in the prompt.
+    # Student 2's decision for this message (None: it didn't run), and its words for the mouth.
+    student: student_two.Outcome | None = None
+    decision_brief: str | None = None
+    # A memory search ran for this message (the initial check, or the recall route's retry after it failed): its
+    # result replaces the cache in the prompt.
     searched: bool = False
-    # Background work committed for this request (thinking routes), and what cognition decided the immediate
-    # reply does while it runs: respond / acknowledge / partial / silent ("respond" by labelled fallback while
-    # the student can't decide it).
+    # Background work committed for this request (thinking routes), and what cognition decided the reply does:
+    # respond / acknowledge / partial / ask / silent ("respond" by labelled operational fallback when Student 2
+    # couldn't decide).
     pending: tuple[PendingWork, ...] = ()
     immediate_action: str = "respond"
     immediate_origin: str | None = None
@@ -140,32 +147,37 @@ def _conversation(user_id: uuid.UUID, conversation_id: uuid.UUID | None,
         conversation_id=conversation_id, revision=revision,
         trigger_message_id=trigger.id if trigger is not None else None,
         latest_message_id=recent[-1].id if recent else None, recent=recent,
-        commitments=(Projection("memory_manager", "available", reason="working items, in the working-memory view")
-                     if get_settings().memory_manager_enabled else
-                     Projection.off("memory_manager", "MEMORY_MANAGER_ENABLED is off")),
+        commitments=Projection("memory_manager", "available", reason="working items, in the working-memory view"),
         newer_than_trigger=newer,
     )
 
 
 def _memory(user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigger_id: uuid.UUID | None,
-            zone: str | None) -> tuple[MemoryContextView, recall_references.TurnRecall | None]:
-    if not recall_references.enabled():
-        return MemoryContextView(Projection.off(
-            "memory", "shared recall is off: there's no reference cache, and nothing was searched")), None
-    turn = recall_references.cached_for_reply(user_id, conversation_id, trigger_id, zone)
+            message: str, zone: str | None) -> tuple[MemoryContextView, recall_references.TurnRecall | None]:
+    """The initial memory check, before cognition: memory's own reply search (the answer before's references,
+    the user's standing constraints, and a search for this message). It doesn't wait for anyone to decide it's
+    needed. When the search fails, the answer before's references are re-read instead, and the view says the
+    search failed (never "nothing found")."""
+    turn = recall_references.for_reply(user_id, conversation_id, trigger_id, message, zone)
+    status = turn.result.status
+    if status == "failed":
+        turn = recall_references.cached_for_reply(user_id, conversation_id, trigger_id, zone)
+        turn.result.coverage["search"] = "failed"  # the receipt says the search failed, not what the cache held
     result = turn.result
     gone = tuple(result.coverage.get("references_gone", ()))
     gone += ("deleted",) * int(result.coverage.get("references_deleted", 0))
     entries = tuple(CacheEntry(str(r.ref), r.fingerprint, r.applicability, r.corrected, r.content)
                     for r in result.records)
     if result.status == "failed":
-        meta = Projection.missing("memory", "rereading the cached references failed")
+        meta = Projection.missing("memory", "the search and rereading the cached references both failed")
     else:
+        what = (f"searched for this message; {len(entries)} found" if status != "failed" else
+                f"the search failed; the last answer's references re-read, {len(entries)} current")
         meta = Projection("memory", "available", version=hashlib.sha256(
             ",".join(f"{e.ref}#{e.fingerprint}" for e in entries).encode()).hexdigest()[:16],
             updated_at=turn.now, source_refs=tuple(SourceRef(*e.ref.split(":", 1), e.fingerprint) for e in entries),
-            reason=f"the last answer's references, re-read; {len(entries)} current, {len(gone)} gone")
-    return MemoryContextView(meta, entries, gone, "not_searched", turn.rendered, turn.legacy), turn
+            reason=f"{what}, {len(gone)} gone")
+    return MemoryContextView(meta, entries, gone, status, turn.rendered, turn.legacy), turn
 
 
 @lru_cache(maxsize=1)
@@ -181,11 +193,7 @@ def _student_version() -> str:
 
 def _cognition(live: cognitive_live.LivePrep | None, trigger: str | None,
                memory: MemoryContextView) -> CognitionView:
-    s = get_settings()
     versions = {"memory_cache": memory.meta.version or memory.meta.status}
-    if s.cognitive_live_student == "off":
-        return CognitionView(Projection.off("cognition", "COGNITIVE_LIVE_STUDENT is off: no reading"),
-                             trigger_ref=trigger, input_versions=versions)
     if live is None or live.interpretation is None:
         return CognitionView(Projection.missing("cognition", "Student 1 couldn't read the message (see "
                                                 "cognitive_live log)"), trigger_ref=trigger, input_versions=versions)
@@ -199,22 +207,17 @@ def _cognition(live: cognitive_live.LivePrep | None, trigger: str | None,
         model=versions["student_1"])
     return CognitionView(
         Projection("cognition", "available", version=versions["student_1"],
-                   updated_at=datetime.now(timezone.utc), reason=f"arm {live.arm}"),
+                   updated_at=datetime.now(timezone.utc), reason="Student 1"),
         trigger_ref=trigger, input_versions=versions, interpretation=interpretation,
-        # A user message always gets an answer: a rule, not something the student predicted.
-        conversational_action=Assessed("respond", "policy", "a user message is answered"),
         missing_evidence=EvidenceAssessment(
             "not_assessed", "not_assessed",
             reason="Student 1 has no output for whether older memory is needed"),
-        communication_preference=Assessed("speak", "policy", "the user is waiting for a reply"),
         evidence_refs=tuple(e.ref for e in memory.entries),
     )
 
 
 @lru_cache(maxsize=1)
 def _personality() -> Projection:
-    if not get_settings().cognitive_live_character:
-        return Projection.off("character", "COGNITIVE_LIVE_CHARACTER is off")
     try:
         digest = hashlib.sha256(cognitive_live.character_page().encode()).hexdigest()[:16]
     except OSError:
@@ -223,17 +226,15 @@ def _personality() -> Projection:
 
 
 def _health(cognition: CognitionView, memory: MemoryContextView) -> tuple[ComponentHealth, ...]:
-    s = get_settings()
     return (
         ComponentHealth("cognition", "disabled" if cognition.meta.status == "disabled" else "live",
                         cognition.meta.status == "available", cognition.meta.reason),
         ComponentHealth("memory_cache", "disabled" if memory.meta.status == "disabled" else "live",
                         memory.meta.status == "available", memory.meta.reason),
-        ComponentHealth("recall", "live" if s.recall_enabled else "disabled", s.recall_enabled,
-                        "runs before the reply only on the recall route; her tools can still search"),
-        ComponentHealth("mind", "live" if s.mind_enabled else "disabled", False, "not routed to (step 4)"),
-        ComponentHealth("inner_state", "shadow" if s.mind_inner_state_enabled else "disabled", False,
-                        "observational only, no influence"),
+        ComponentHealth("recall", "live", memory.recall_status != "failed",
+                        "runs before cognition on every message; her tools can search further"),
+        ComponentHealth("mind", "live", False, "background thinking on the thinking routes"),
+        ComponentHealth("inner_state", "shadow", False, "observational only, no influence"),
     )
 
 
@@ -246,38 +247,33 @@ def _work(job: ChatJob | None, turn_id: uuid.UUID) -> WorkView:
                     lease_expires_at=job.lease_expires_at, cancellation=f"turn cancel key ({turn_id})")
 
 
-def _assess(trigger: str, message: str, history: list[dict[str, Any]], cognition: CognitionView,
-            memory: MemoryContextView,
-            conversation: ConversationView) -> tuple[assessment_contract.Assessment, RecallDecision, ThinkingDecision]:
-    """One Jev call for both needs; its answers as the recall and thinking sections."""
-    versions = {"conversation_revision": str(conversation.revision), "memory_cache": memory.meta.version or
-                memory.meta.status, **({"student_1": cognition.input_versions["student_1"]}
-                                       if "student_1" in cognition.input_versions else {})}
-    reading = None
-    if cognition.interpretation is not None:
-        i = cognition.interpretation
-        reading = {"doing": list(i.acts), "tone": i.tone, "wants": i.request}
-    earlier = [h for h in history if h.get("content")]
-    if earlier and earlier[-1].get("role") == "user" and earlier[-1]["content"].strip() == message.strip():
-        earlier = earlier[:-1]
-    # The mouth's renderer puts content on an indented continuation line. Selecting its bullets
-    # loses the facts, and clipping those headers can consume the budget with metadata alone.
-    lines = [f"[{e.ref}] ({e.applicability}{'; corrected by the user' if e.corrected else ''}) {e.content}"
-             for e in memory.entries]
-    capabilities = ["conversation"] + (["memory_search"] if recall_references.enabled() else [])
-    result = jev_assessment.assess(trigger_ref=trigger, input_versions=versions, state=assessment_contract.state(
-        message=message, recent=earlier, interpretation=reading, evidence_lines=lines, capabilities=capabilities))
-    status = {"ok": "available", "invalid": "unavailable", "error": "unavailable", "disabled": "disabled"}[result.status]
-    meta = Projection("jev", status, version=f"{result.policy_version}:{result.model}" if result.model else None,
-                      updated_at=datetime.now(timezone.utc), reason=result.error)
-    recall = RecallDecision(meta, result.recall, "jev" if result.recall else "not_assessed",
-                            result.probabilities.get("recall", {}), result.assessment_id)
-    thinking = ThinkingDecision(
-        meta, trigger_ref=trigger, required={"required": True, "not_required": False}.get(result.thinking),
-        decider="jev" if result.thinking else "none", reason=result.error or (None if result.thinking else
-                                                                               "not assessed"),
-        input_versions=versions, choice=result.thinking, probabilities=result.probabilities.get("thinking", {}))
-    return result, recall, thinking
+def _decide(trigger: str, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None,
+            user_message_id: uuid.UUID | None, message: str, zone: str | None,
+            recall_result: RecallResult | None = None, recall_failed: bool = False,
+            ) -> tuple[student_two.Outcome, RecallDecision, ThinkingDecision]:
+    """Student 2 decides the reply and its work from the live situation; recall and thinking follow from its
+    work part. When it can't decide (server down, unreadable or invalid answer) both stay unassessed."""
+    try:
+        with SessionLocal() as db:
+            live = student_two.gather(db, user_id=user_id, conversation_id=conversation_id,
+                                      trigger_message_id=user_message_id, message=message, zone=zone,
+                                      memory=student_two.memory_for(db, recall_result, failed=recall_failed))
+        outcome = student_two.decide(live)
+    except Exception as exc:  # noqa: BLE001 - the view says it couldn't decide, the turn goes on
+        logger.exception("shared_state: Student 2 failed")
+        outcome = student_two.Outcome("unavailable", error=f"{type(exc).__name__}"[:200])
+    status = {"ok": "available"}.get(outcome.status, "unavailable")
+    reason = outcome.error or ("; ".join(outcome.problems)[:300] if outcome.problems else None)
+    meta = Projection("student_2", status, version=outcome.model, updated_at=datetime.now(timezone.utc),
+                      reason=reason)
+    if not outcome.ok:
+        return outcome, RecallDecision(meta), ThinkingDecision(meta, trigger_ref=trigger, reason=reason or "no decision")
+    d = outcome.decision
+    recall = RecallDecision(meta, student_contract.recall_need(d), "student_2", assessment_id=outcome.decision_id)
+    thinking_choice = student_contract.thinking_need(d)
+    thinking = ThinkingDecision(meta, trigger_ref=trigger, required=thinking_choice == "required",
+                                decider="student_2", choice=thinking_choice)
+    return outcome, recall, thinking
 
 
 def _search(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
@@ -285,8 +281,6 @@ def _search(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_
             ) -> tuple[MemoryContextView, recall_references.TurnRecall | None]:
     """The recall route: memory's own reply search (the previous answer's references plus a search for this
     message). Its status stays as memory says it: matched, no_match, partial or failed."""
-    if not recall_references.enabled():
-        return replace(memory, recall_status="unavailable"), None
     turn = recall_references.for_reply(user_id, conversation_id, user_message_id, message, zone)
     return replace(memory, recall_status=turn.result.status), turn
 
@@ -315,12 +309,20 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
     superseded = coordinator.supersede_older(user_id, conversation_id, user_message_id)
     conversation = _conversation(user_id, conversation_id, user_message_id)
     at = lap("conversation_ms", at)
-    memory, recall_turn = _memory(user_id, conversation_id, user_message_id, zone)
-    at = lap("memory_cache_ms", at)
+    memory, recall_turn = _memory(user_id, conversation_id, user_message_id, message, zone)
+    at = lap("initial_recall_ms", at)
+    searched = memory.recall_status != "failed"
     live = None
-    if cognitive_live.enabled() and conversation_id is not None:
+    if conversation_id is not None:
         live = cognitive_live.prepare(user_id=user_id, conversation_id=conversation_id, history=history,
-                                      message=message, long_term_memory=memory.legacy, memory_searched=False)
+                                      message=message, long_term_memory=memory.legacy, memory_searched=searched)
+        if recall_turn is not None:
+            recall_turn.consumed("student_1", [e.ref for e in memory.entries if e.ref.split(":", 1)[0]
+                                               in ("fact", "episode")], memory.legacy)
+    if recall_turn is not None:
+        shown = student_two.rendering() in student_contract.MEMORY_RENDERINGS
+        recall_turn.consumed("student_2", [e.ref for e in memory.entries] if shown else [], None,
+                             note=None if shown else student_contract.SNAPSHOT_MEMORY_NOTE)
     lap("cognition_ms", at)
     trigger = f"message:{user_message_id}" if user_message_id else f"turn:{turn_id}"
     cognition = _cognition(live, trigger, memory)
@@ -331,8 +333,17 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
         notes, note_refs = Projection.off("cognitive_live", "no notebook this turn"), ()
     conversation = replace(conversation, notes=notes, note_refs=note_refs)
     at = time.monotonic()
-    result, recall_decision, thinking = _assess(trigger, message, history, cognition, memory, conversation)
-    at = lap("assessment_ms", at)
+    student, recall_decision, thinking = _decide(trigger, user_id=user_id, conversation_id=conversation_id,
+                                                 user_message_id=user_message_id, message=message, zone=zone,
+                                                 recall_result=recall_turn.result if recall_turn else None,
+                                                 recall_failed=memory.recall_status == "failed")
+    at = lap("student_2_ms", at)
+    d = student.decision if student.ok else None
+    if d is not None:
+        cognition = replace(cognition, conversational_action=Assessed(d["communication"], "student_2",
+                                                                      d["intention"].strip()[:200] or None),
+                            communication_preference=Assessed("speak" if student_contract.speaks(d) else "hold",
+                                                              "student_2"))
     view = SharedView(
         envelope=Envelope(SCHEMA_VERSION, user_id, conversation_id, conversation.revision,
                           datetime.now(timezone.utc), trigger),
@@ -347,8 +358,7 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
                           turn_id=turn_id, reply_message_id=reply_message_id,
                           reservation="chat job lease + one assistant row per turn" if job is not None
                           else "the socket that owns the turn", voice=voice),
-        inner_state=(Projection.off("inner_state", "observational only: never steers a reply")
-                     if get_settings().mind_inner_state_enabled else Projection.off("inner_state", "not enabled")),
+        inner_state=Projection.off("inner_state", "observational only: never steers a reply"),
         activities=Projection.missing("activities", "not projected yet; the game summary still reaches her "
                                                     "through its own section"),
         situation=Projection.missing("observation", "not projected yet"),
@@ -358,17 +368,32 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
     from app.services import background_components
     view = replace(view, components=background_components.projections(user_id, conversation_id))
     decision = route(view)
-    searched = False
-    if decision.runs_recall:
-        memory, searched_turn = _search(user_id, conversation_id, user_message_id, message, zone, view.memory)
-        lap("recall_ms", at)
-        if searched_turn is not None:
-            recall_turn, searched = searched_turn, True
-        view = replace(view, memory=memory)
-        if not searched:
-            decision = replace(decision, degraded=decision.degraded + ("recall_unavailable",))
+    # What she does now: Student 2's choice, silence included; "respond" only as a labelled operational fallback
+    # when it couldn't decide (a failure is never read as silence).
+    if d is not None:
+        action, origin = ("silent" if d["communication"] in ("silent", "defer") else d["communication"]), "student_2"
+    else:
+        action, origin = "respond", "operational_fallback"
+    effect = None
+    if d is not None:
+        with SessionLocal() as db:
+            effect = student_two.apply(db, student, user_id=user_id, message_id=user_message_id)
+        lap("student_2_effect_ms", at)
+    student_two.log(student, user_id=user_id, conversation_id=conversation_id, trigger=trigger)
+    if decision.runs_recall and action != "silent":
+        if searched:
+            # The initial check already searched for this message: Student 2 asking for recall means more than
+            # it found, which is the mouth's memory tools (said to it as a limit), not the same search again.
+            decision = replace(decision, limits=decision.limits + ("additional_recall_requested",))
+        else:
+            memory, searched_turn = _search(user_id, conversation_id, user_message_id, message, zone, view.memory)
+            lap("recall_ms", at)
+            if searched_turn is not None and memory.recall_status != "failed":
+                recall_turn, searched = searched_turn, True
+                view = replace(view, memory=memory)
+            else:
+                decision = replace(decision, degraded=decision.degraded + ("recall_unavailable",))
     pending: tuple[PendingWork, ...] = ()
-    action, origin = "respond", None
     if decision.schedules_mind and conversation_id is not None:
         reading = None
         if cognition.interpretation is not None:
@@ -379,6 +404,7 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
             with_recall=decision.route == "recall_then_mind",
             work_input={"message": message, "interpretation": reading, "zone": zone, "channel": channel,
                         "user_name": user_name, "cached_memory": view.memory.rendered,
+                        "think_about": d["think_about"] if d is not None else "",
                         "evidence_versions": {e.ref: f"{e.fingerprint}:{e.applicability}:{int(e.corrected)}" for e in view.memory.entries}},
             input_versions={k: v for k, v in view.dependencies().items() if v is not None})
         if committed is None:
@@ -386,19 +412,21 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
             decision = replace(decision, degraded=decision.degraded + ("mind_unavailable",))
         else:
             pending = committed
-            action, made = coordinator.decide_immediate(
+            coordinator.decide_immediate(
                 user_id=user_id, conversation_id=conversation_id, request_id=turn_id, trigger_ref=trigger,
-                interpretation=reading, pending=pending, channel=channel, voice=voice)
-            origin = made.origin if made.supported else "policy_fallback"
+                interpretation=reading, pending=pending, channel=channel, voice=voice,
+                decided=PendingDecision(action, "student_2", True))
             view = replace(view, mind=Projection("coordinator", "pending", reason=f"{len(pending)} work item(s) "
                                                  "committed for this request"))
         lap("schedule_ms", at)
     timings["prepare_ms"] = round((time.monotonic() - started) * 1000)
     if superseded:
         timings["superseded_work"] = superseded
+    brief = student_contract.brief(d, student.situation, effect=effect) if d is not None and action != "silent" else None
     return FastPathTurn(view, decision, live, recall_turn,
-                        boundary_text(view, decision, searched=searched, pending=pending), started, timings, result,
-                        searched, pending, action, origin)
+                        boundary_text(view, decision, searched=searched, pending=pending), started, timings,
+                        student=student, decision_brief=brief, searched=searched, pending=pending,
+                        immediate_action=action, immediate_origin=origin)
 
 
 _LIMIT_WORDS = {
@@ -411,12 +439,16 @@ _LIMIT_WORDS = {
                                  "nothing is recorded."),
     "memory_cache_changed": "Something your last answer used has since been removed or changed.",
     "recall_need_uncertain": "It's unclear whether this message needs anything older than what you have.",
+    "additional_recall_requested": ("Your decision step judged this message needs more from memory than the "
+                                    "check above: if what you recall doesn't cover it, search with your memory "
+                                    "tools before answering."),
     "thinking_need_uncertain": "It's unclear whether this message needs careful thinking.",
 }
 _DEGRADED_WORDS = {
     "cognition_unavailable": ("Your quick reading of their message didn't work this turn: take the message "
                               "only as written, and if what they want isn't clear, ask."),
-    "assessment_unavailable": "The check of what this message needs didn't work this turn.",
+    "decision_unavailable": ("Your decision step didn't work this turn: answer from the conversation, and don't "
+                             "start or promise anything you haven't decided."),
     "recall_unavailable": ("This message needs memory, and searching it isn't available here: say you can't "
                            "check that right now, and answer only what the conversation supports."),
     "mind_unavailable": ("This message needs careful thinking, and it couldn't be started: say you haven't "
@@ -451,6 +483,12 @@ def boundary_text(view: SharedView, decision: RouteDecision, *, searched: bool =
     memory = view.memory
     if searched:
         lines.append(f"- {_SEARCH_WORDS.get(memory.recall_status, _SEARCH_WORDS['failed'])}")
+    elif memory.recall_status == "failed":
+        lines.append(f"- {_SEARCH_WORDS['failed']}")
+        if memory.meta.status == "available":
+            have = (f"{len(memory.entries)} memories from your last answer, re-read now" if memory.entries
+                    else "no memories from your last answer")
+            lines.append(f"- You have the recent conversation and {have}.")
     elif memory.meta.status == "available":
         have = f"{len(memory.entries)} memories from your last answer, re-read now" if memory.entries else (
             "no memories from your last answer")
@@ -491,7 +529,7 @@ def finish(turn: FastPathTurn | None, *, outcome: str, reply: str, assistant_mes
             },
             "thinking": {"required": view.thinking.required, "decider": view.thinking.decider,
                          "choice": view.thinking.choice},
-            "assessment": _assessment_trace(turn.assessment),
+            "student_2": _student_trace(turn.student),
             "recall": {"ran": turn.searched, "status": view.memory.recall_status,
                        "records": len(recall_turn.result.records) if turn.searched and recall_turn else 0},
             "route": {"route": decision.route, "eligibility": decision.eligibility,
@@ -504,9 +542,9 @@ def finish(turn: FastPathTurn | None, *, outcome: str, reply: str, assistant_mes
                                       "output", "inner_state", "activities", "situation", "mind")},
             "work": {"id": view.work.work_id, "attempt": view.work.attempt,
                      "background": [{"id": p.work_id, "kind": p.kind, "status": p.status} for p in turn.pending]},
-            "immediate": {"action": turn.immediate_action, "origin": turn.immediate_origin} if turn.pending else None,
+            "immediate": {"action": turn.immediate_action, "origin": turn.immediate_origin},
             "calls": {"fresh_recall_before_reply": int(turn.searched), "mind_scheduled": int(bool(turn.pending)),
-                      "jev": int(turn.assessment is not None and turn.assessment.status != "disabled"),
+                      "student_2": int(turn.student is not None and turn.student.status != "unavailable"),
                       "memory_tool_calls_by_mouth": searched},
             # Her own search during the reply: the memory in hand wasn't enough for this message.
             "mouth_escalated": ["searched_memory"] if searched else [],
@@ -520,12 +558,14 @@ def finish(turn: FastPathTurn | None, *, outcome: str, reply: str, assistant_mes
         logger.exception("shared_state: writing the trace failed")
 
 
-def _assessment_trace(result: assessment_contract.Assessment | None) -> dict[str, Any] | None:
-    if result is None:
+def _student_trace(outcome: student_two.Outcome | None) -> dict[str, Any] | None:
+    if outcome is None:
         return None
-    return {"id": result.assessment_id, "status": result.status, "recall": result.recall,
-            "thinking": result.thinking, "probabilities": result.probabilities, "model": result.model,
-            "policy": result.policy_version, "latency_ms": result.latency_ms, "error": result.error}
+    d = outcome.decision or {}
+    return {"id": outcome.decision_id, "status": outcome.status, "model": outcome.model,
+            "latency_ms": outcome.latency_ms, "error": outcome.error, "problems": outcome.problems,
+            "communication": d.get("communication"), "work": d.get("work"), "target": d.get("target"),
+            "effect": outcome.effect}
 
 
 def _write(record: dict[str, Any]) -> None:

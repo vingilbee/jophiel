@@ -56,9 +56,14 @@ def database():
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
+    # Code that opens the app's own factory lands in this schema too (tests/conftest.py points it nowhere).
+    from app.db import session as app_session
+    before = app_session.SessionLocal.kw.get("bind")
+    app_session.SessionLocal.configure(bind=engine)
     try:
         yield factory
     finally:
+        app_session.SessionLocal.configure(bind=before)
         engine.dispose()
         with admin.begin() as connection:
             connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))

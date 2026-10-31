@@ -16,8 +16,6 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 import app.core.config as config
-from app.ai import prompts
-from app.ai.context import AgentRuntimeContext
 from app.ai.recall import history
 from app.ai.recall.contracts import MemoryRef, RecallRequest
 from app.ai.recall.history import ReaderAnswer
@@ -47,7 +45,7 @@ def on(monkeypatch, tmp_path, database):
         "recall_association_enabled": False, "long_term_memory_enabled": True,
         "memory_manager_log_path": str(tmp_path / "memory.jsonl"), "recall_log_path": str(tmp_path / "recall.jsonl")})
     getter = lambda: settings  # noqa: E731
-    for module in (memory_manager, config, recall, recall_references, recall_history, prompts):
+    for module in (memory_manager, config, recall, recall_references, recall_history):
         monkeypatch.setattr(module, "get_settings", getter)
     for module in (recall_references, recall_tools):
         monkeypatch.setattr(module, "SessionLocal", database)
@@ -493,12 +491,3 @@ def test_a_source_row_must_belong_to_the_owner(db, alice, bob):
     db.rollback()
 
 
-def test_without_the_switch_there_is_no_history_tool_and_no_prompt_line(db, alice, on):
-    on.recall_history_enabled = False
-    lab = _pottery(db, alice)
-    turn = recall_references.for_reply(alice.id, lab["conversation"].id, None, "pottery?", "UTC")
-    assert "recall_history" not in {t.name for t in recall_tools.build_recall_tools(turn)}
-    context = AgentRuntimeContext(user_id=alice.id, recall="x", recall_turn=turn)
-    assert "recall_history" not in prompts.build_system_prompt(context, [])
-    on.recall_history_enabled = True
-    assert "recall_history" in prompts.build_system_prompt(context, [])

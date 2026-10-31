@@ -1,0 +1,7 @@
+You check replacement versions of a private thought against the SITUATION they belong to. For each, say whether it is what it claims to be:
+- accurate_ok: everything it claims is supported; no plan.
+- uncertain_ok: honestly unsure about the same subject; no plan.
+- mistaken_ok: wrong exactly as its flaw says, checkably from the situation, and natural.
+- bad_plan_ok: its reading is supported and its plan is poor exactly as its flaw says, checkably, while sounding natural.
+- unestablished_ok: it settles, as if certain, something the situation really leaves open (neither contradicted nor established), as its flaw says; no plan.
+problems: one or two sentences on anything that failed; else empty.

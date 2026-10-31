@@ -87,22 +87,23 @@ class AgentRuntimeContext:
     typed_memory: str | None = None
     cognitive_reading: str | None = None
     conversation_notes: str | None = None
-    # Her working memory (services/memory_manager.py; None unless MEMORY_MANAGER_ENABLED): what we're
+    # Her working memory (services/memory_manager.py; None when empty): what we're
     # doing, in which context, and what's unfinished, rendered for this turn. ``memory_tools``: she gets
     # the tools that change it. ``source_message_id``: the user's message this turn answers, the evidence
     # for what those tools keep (None for turns without one).
     working_memory: str | None = None
     memory_tools: bool = False
-    # Shared recall (services/recall_references.py; None unless RECALL_ENABLED): the rendered result of this
+    # Shared recall (services/recall_references.py; None when nothing was searched): the rendered result of this
     # reply's search across every context, which replaces the long-term block in the prompt, and the turn
     # object her read tools add to (its receipt is saved with the reply).
     recall: str | None = None
     recall_turn: object | None = None
-    # The shared-state pipeline (services/shared_state.py; None unless SHARED_STATE_PIPELINE_ENABLED): the
-    # memories from the last answer, re-read (no search ran for this message; replaces ``recall`` in the
-    # prompt), and what this turn did and didn't have (degraded cognition, limits nobody assessed).
+    # The shared-state pipeline (services/shared_state.py): the memories from the last answer, re-read (no
+    # search ran for this message; replaces ``recall`` in the prompt), what this turn did and didn't have
+    # (degraded cognition, limits nobody assessed), and her decision (Student 2), which the reply puts into words.
     cached_memory: str | None = None
     turn_boundary: str | None = None
+    decision: str | None = None
     # A follow-up after background thinking (services/coordinator.py): the finished thought, rendered as her own
     # internal conclusion (never a user message), and what cognition decided to do with it (respond / ask).
     thought_result: str | None = None

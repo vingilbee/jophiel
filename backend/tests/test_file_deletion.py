@@ -251,6 +251,17 @@ def test_memory_worker_processes_one_job(monkeypatch):
     monkeypatch.setattr(memory, "process_job", process)
     assert memory.run_once()
     process.assert_called_once_with(db, job_id)
+    # With no job waiting it carries out a forget request, else reconciles a revised fact, else applies a
+    # correction (always on), else takes in one of her finished thoughts: none is due here.
+    forgets = Mock(return_value=False)
+    monkeypatch.setattr(memory.memory_forget, "run_once", forgets)
+    revisions = Mock(return_value=False)
+    corrections = Mock(return_value=False)
+    thoughts = Mock(return_value=False)
+    monkeypatch.setattr(memory.memory_reconcile, "run_once", revisions)
+    monkeypatch.setattr(memory.memory_corrections, "run_once", corrections)
+    monkeypatch.setattr(memory.thought_memory, "run_once", thoughts)
     monkeypatch.setattr(memory, "next_pending_job_id", Mock(return_value=None))
     assert not memory.run_once()
-    assert process.call_count == 1
+    assert process.call_count == 1 and revisions.call_count == 1
+    assert corrections.call_count == 1 and thoughts.call_count == 1 and forgets.call_count == 1

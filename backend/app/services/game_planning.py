@@ -18,7 +18,7 @@ line becomes a shared-state proposal for cognition and the mouth. A decision mad
 changed meanwhile, or while a newer goal from the user waits, is dropped: the newer job
 plans again.
 
-Only for her own Minecraft player (game packs), and only with ``MIND_PLANNER_ENABLED``.
+Only for her own Minecraft player (game packs), in desktop mode.
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ _planner = None
 def enabled() -> bool:
     from app.services import mind_minecraft
 
-    return bool(get_settings().mind_planner_enabled and mind_minecraft.enabled())
+    return mind_minecraft.enabled()
 
 
 def handles(session: DesktopSession) -> bool:

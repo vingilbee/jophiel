@@ -37,7 +37,8 @@ type ServerEvent =
   | { type: 'error'; turn_id?: string; detail: string }
   | { type: 'stopped' | 'done'; turn_id?: string; status?: ChatTurnStatus }
 
-export type ChatTurnStatus = 'completed' | 'partial' | 'cancelled' | 'failed'
+// 'silent': her decision was to say nothing this turn (no assistant message was stored).
+export type ChatTurnStatus = 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
 
 /**
  * The server's decision on a held interruption: carry on with the paused

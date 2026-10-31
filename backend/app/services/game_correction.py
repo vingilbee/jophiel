@@ -8,8 +8,8 @@ Seen live (2026-10-17): she said she hadn't learned the jump-and-place move 2 s 
 learning it, while her hands were already using it.
 
 The line is an autonomous proposal (``autonomous_speech.submit``, reason ``correction:``): result
-cognition decides whether it is said, and the mouth says it in the session's conversation. While result
-cognition is unsupported it is kept, not said.
+cognition (Student 2) decides whether it is said, and the mouth says it in the session's conversation. When
+it can't decide, the line is kept, not said.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ SCHEMA = {
 
 def enabled() -> bool:
     settings = get_settings()
-    return settings.game_corrections_enabled and bool(settings.openai_api_key)
+    return bool(settings.openai_api_key)
 
 
 def write(said: str, changed: list[str], *, user: str, voice: str = "") -> str | None:

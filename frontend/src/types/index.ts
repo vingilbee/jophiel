@@ -16,7 +16,7 @@ export type ChatMessage = {
   /** Ephemeral UI identity used to route concurrent/queued stream updates. */
   clientId?: string
   turnId?: string
-  status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  status?: 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
   role: 'user' | 'assistant'
   parts: MessagePart[]
   unprompted?: boolean
@@ -62,7 +62,7 @@ export interface StoredChatMessage extends ChatMessage {
   created_at: string
   content: string
   turn_id?: string | null
-  status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  status?: 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
   source_channel: 'web' | 'whatsapp' | 'system'
   /** Server-side attachment ids (snake_case, straight off the API). */
   image_ids?: string[] | null
@@ -159,7 +159,6 @@ export interface MoodCause {
 /** Her inner state for the debug strip: each value in two readings (an unclear size taken as
  * small / as clear); `words` names both when they differ. Nothing reads it into her replies. */
 export interface InnerState {
-  enabled: boolean
   config: string
   updated_at: number | null
   values: Record<string, { small: number; clear: number }>

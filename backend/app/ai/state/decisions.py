@@ -7,21 +7,18 @@ and only cognition answers them. The coordinator never picks a social behaviour 
 decide, the result says so (``supported=False``, with the missing capability), and the coordinator applies a
 labelled fallback, never a hidden one.
 
-What the trained student supports today (``app/ai/Cognitive/simple``, models-1.0):
+Who decides (2026-10-28):
 
-| Need | Student 1 (live) | Student 2 (trained, not loaded live) |
-|---|---|---|
-| Input: a user message with window, notes, memories, notice, mood | yes | yes |
-| Input: "a thought of hers is pending" | **no slot** | **no slot** |
-| Input: a finished thought (conclusion, uncertainty, evidence) | **no slot** (the bundle's ``message`` is the user's) | **no slot** |
-| Output: acts, tone, request kind | yes | (reads them) |
-| Output: main move among 20 groups (react_briefly, ask_about_it, ...) | no | yes |
-| Output: acknowledge / partial / silent | **no** | **no** (no silence group, no "hold" group) |
-| Output: respond / ask / defer / silent for a thought | **no** | **no** |
+- While she thinks (acknowledge / partial / silent / respond): Student 2, live, decides it with the request: its
+  ``communication`` is the immediate action (``shared_state.prepare``). Nothing else is asked.
+- A finished thought (respond / ask / defer / silent): Student 2 reads it as [T1], "just finished", with the
+  thinking behind it (trigger ``thought_result``; ``work_outcome`` when the work ended without a conclusion) and
+  decides whether and how to bring it up (``cognition_decisions.student_result``). ``defer`` has no store yet, so
+  it is silence.
+- When Student 2 can't decide (server down, unreadable or invalid answer), the decision is unsupported, said as
+  such: a request's reply falls back to a labelled ``respond``, and a finished thought stays private.
 
-So both decisions are unsupported by the student. Mapping a move like ``react_briefly`` to "acknowledge" would
-be a guess about semantics the student was never trained on, so it isn't done. Making them supported is a
-cognition change (new inputs and outputs, teacher labels, retraining), outside this session.
+Student 1 has no input or output for either.
 """
 from __future__ import annotations
 
@@ -33,8 +30,8 @@ ResultAction = Literal["respond", "ask", "defer", "silent"]
 
 PENDING_GAP = ("Student 1/2 have no input for 'a thought of hers is pending' and no output for "
                "acknowledge / partial / silent (Student 2's 20 move groups have no silence or hold option).")
-RESULT_GAP = ("Student 1/2 read only a user message: no input slot for a finished thought, and no output for "
-              "respond / ask / defer / silent about it.")
+RESULT_GAP = ("No result decision: Student 2 wasn't asked, and Student 1 has no input slot for a finished thought "
+              "or output for respond / ask / defer / silent about it.")
 
 
 @dataclass(frozen=True)
@@ -61,7 +58,7 @@ class PendingInput:
 @dataclass(frozen=True)
 class PendingDecision:
     action: PendingAction | None
-    origin: str  # student_1 / student_2 / unsupported / stub (tests only)
+    origin: str  # student_2 / unsupported / policy_fallback / stub (tests only)
     supported: bool
     missing_capability: str | None = None
     reason: str | None = None

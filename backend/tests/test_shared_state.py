@@ -1,9 +1,11 @@
 """The shared-state fast path (docs/SHARED_STATE_REFACTOR_SPEC.md step 3): user message -> scoped view ->
 cognition -> mouth. Routing and prompt are pure; the assembly runs with stub adapters; the cache's reread
-against memory is in ``test_shared_state_cache.py`` (real PostgreSQL). No model calls."""
+against memory is in ``test_shared_state_cache.py`` and the initial memory check against memory in
+``test_initial_recall.py`` (real PostgreSQL). No model calls."""
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import uuid
 from types import SimpleNamespace
 
@@ -16,7 +18,8 @@ from app.ai.state.contracts import (
     MissingEvidence, OutputView, Projection, SharedView, ThinkingDecision, WorkView, Envelope, SCHEMA_VERSION,
 )
 from app.ai.state.routing import route
-from app.services import cognitive_live, recall_references, shared_state
+from app.ai.state import student_two as S
+from app.services import cognitive_live, recall_references, shared_state, student_two
 
 USER = uuid.uuid4()
 CONV = uuid.uuid4()
@@ -39,13 +42,13 @@ def _cognition(status="available", interpretation=None, evidence=None):
 def _view(cognition=None, thinking=None, memory=None, recall=None):
     from datetime import datetime, timezone
     return SharedView(
-        recall=recall or RecallDecision(Projection.off("jev", "off")),
+        recall=recall or RecallDecision(Projection.off("student_2", "off")),
         envelope=Envelope(SCHEMA_VERSION, USER, CONV, 3, datetime.now(timezone.utc), f"message:{MSG}"),
         personality=Projection.off("character", "off"),
         conversation=ConversationView(Projection("chat", "available"), CONV, 3, MSG),
         memory=memory or MemoryContextView(Projection("memory", "available")),
         cognition=cognition or _cognition(interpretation=_interpretation()),
-        thinking=thinking or ThinkingDecision(Projection.off("jev", "step 4")),
+        thinking=thinking or ThinkingDecision(Projection.off("student_2", "off")),
         work=WorkView(Projection("chat_worker", "available")), output=OutputView(Projection("delivery", "available")),
         inner_state=Projection.off("inner_state", "x"), activities=Projection.missing("activities", "x"),
         situation=Projection.missing("observation", "x"), mind=Projection.off("mind", "x"))
@@ -68,7 +71,7 @@ def test_an_unassessed_turn_is_answered_but_never_reported_as_fast_path_eligible
 
 def test_fast_path_is_confirmed_only_when_both_requirements_were_assessed_absent():
     none_missing = EvidenceAssessment("none_missing", "student_1")
-    no_thinking = ThinkingDecision(Projection("jev", "available"), required=False, decider="jev", reason="trivial")
+    no_thinking = ThinkingDecision(Projection("student_2", "available"), required=False, decider="student_2", reason="trivial")
     decision = route(_view(cognition=_cognition(interpretation=_interpretation(), evidence=none_missing),
                            thinking=no_thinking))
     assert decision.route == "fast_path" and decision.eligibility == "confirmed"
@@ -84,7 +87,7 @@ def test_no_cognition_is_a_degraded_turn_not_a_normal_one():
 def test_known_needs_route_to_recall_and_background_thinking():
     missing = EvidenceAssessment("missing", "student_1", (MissingEvidence("what did we build?", "personal history"),))
     needs_memory = _cognition(interpretation=_interpretation(), evidence=missing)
-    think = ThinkingDecision(Projection("jev", "available"), required=True, decider="jev", reason="hard")
+    think = ThinkingDecision(Projection("student_2", "available"), required=True, decider="student_2", reason="hard")
     assert route(_view(cognition=needs_memory)).route == "recall"
     assert route(_view(cognition=needs_memory)).eligibility == "not_eligible"
     assert route(_view(thinking=think)).route == "mind"
@@ -109,7 +112,7 @@ THINKING = "needs careful thinking"
 
 def test_each_unknown_is_said_on_its_own_and_never_contradicts_a_decision():
     # Memory need unknown, thinking explicitly decided (not needed): only the memory unknown is said.
-    no_thinking = ThinkingDecision(Projection("jev", "available"), required=False, decider="jev", reason="trivial")
+    no_thinking = ThinkingDecision(Projection("student_2", "available"), required=False, decider="student_2", reason="trivial")
     view = _view(thinking=no_thinking)
     decision = route(view)
     text = shared_state.boundary_text(view, decision)
@@ -133,11 +136,11 @@ def test_each_unknown_is_said_on_its_own_and_never_contradicts_a_decision():
 # --- prompt --------------------------------------------------------------------------------------------
 
 
-def test_the_fast_path_prompt_says_no_search_ran_and_replaces_the_recall_block():
+def test_the_cached_memory_prompt_says_nothing_else_was_looked_up_and_replaces_the_recall_block():
     ctx = AgentRuntimeContext(user_id=USER, recall="SHOULD NOT SHOW", cached_memory="- [event:4] died",
-                              turn_boundary="- Memory was not searched for this message.")
+                              turn_boundary="- Memory search FAILED.")
     prompt = build_system_prompt(ctx)
-    assert "no memory search ran for this message" in prompt and "- [event:4] died" in prompt
+    assert "nothing else was looked up for this message" in prompt and "- [event:4] died" in prompt
     assert "What you had for this message" in prompt and "SHOULD NOT SHOW" not in prompt
     plain = build_system_prompt(AgentRuntimeContext(user_id=USER, recall="RECALLED"))
     assert "RECALLED" in plain and "What you had for this message" not in plain
@@ -154,15 +157,19 @@ def test_typed_memory_never_says_nothing_relevant_when_nothing_was_looked_up():
 
 def _settings(tmp_path, **over):
     base = dict(shared_state_log_path=str(tmp_path / "shared.jsonl"),
-                cognitive_live_student="ab", cognitive_live_character=False, cognitive_live_student_dir=None,
-                recall_enabled=True, mind_enabled=False, mind_inner_state_enabled=True,
-                memory_manager_enabled=False, recall_tool_calls_per_reply=3)
+                cognitive_live_student_dir=None, recall_tool_calls_per_reply=3, student_fails=False)
     return SimpleNamespace(**(base | over))
+
+
+def _turn_recall(status, records=(), rendered="", legacy=None):
+    return recall_references.TurnRecall(USER, CONV, "UTC", datetime.now(timezone.utc), None,
+                                        SimpleNamespace(status=status, records=list(records), coverage={}),
+                                        rendered, legacy)
 
 
 @pytest.fixture
 def stubs(monkeypatch, tmp_path):
-    calls = {"prepare": [], "fresh": 0}
+    calls = {"prepare": [], "fresh": 0, "cache": 0}
     settings = _settings(tmp_path)
     monkeypatch.setattr(shared_state, "get_settings", lambda: settings)
     shared_state._personality.cache_clear()
@@ -170,34 +177,56 @@ def stubs(monkeypatch, tmp_path):
         Projection("chat", "available", version="3"), c, 3, t))
     record = SimpleNamespace(ref="event:4", fingerprint="f" * 40, applicability="current", corrected=False,
                              content="died")
-    cached = SimpleNamespace(result=SimpleNamespace(status="matched", records=[record], coverage={}),
-                             now=None, rendered="Memories from your last answer, re-read now:\n- [event:4] died",
-                             legacy=None, tool_calls=0)
-    monkeypatch.setattr(recall_references, "cached_for_reply", lambda *a, **k: cached)
-    monkeypatch.setattr(recall_references, "enabled", lambda: settings.recall_enabled)
+    # The initial memory check: what memory's reply search returns (one per call; the last repeats).
+    found = _turn_recall("matched", [record], "Memory search ran (looked in: events):\n- [event:4] died")
+    calls["searches"] = [found]
 
     def fresh(*a, **k):
         calls["fresh"] += 1
-        raise AssertionError("the fast path never searches before the reply")
+        searches = calls["searches"]
+        return searches.pop(0) if len(searches) > 1 else searches[0]
 
     monkeypatch.setattr(recall_references, "for_reply", fresh)
-    monkeypatch.setattr(cognitive_live, "enabled", lambda: settings.cognitive_live_student != "off")
+    cached = _turn_recall("matched", [record], "Memories from your last answer, re-read now:\n- [event:4] died")
+
+    def reread(*a, **k):
+        calls["cache"] += 1
+        return cached
+
+    monkeypatch.setattr(recall_references, "cached_for_reply", reread)
 
     def prepare(**kwargs):
         calls["prepare"].append(kwargs)
-        if settings.cognitive_live_student == "off":
+        if settings.student_fails:
             return None
-        return cognitive_live.LivePrep(arm="page_only", interpretation=dict(
+        return cognitive_live.LivePrep(interpretation=dict(
             acts={"small_talk": 0.9}, tone={"friendly": 0.8}, request={"no_request": 0.9},
             understand={"acts": {"small_talk": True, "asking": False}, "tone": "friendly", "request": "no_request"}),
             state={"notes": [{"kind": "their_open_question", "opened_turn": 2}]})
 
     monkeypatch.setattr(cognitive_live, "prepare", prepare)
+    # Student 2, scripted: the real snapshot, render, parse and check run; only the model's answer is given.
+    calls["student"] = {"answer": json.dumps(SAY_HI), "down": False, "texts": []}
+    monkeypatch.setattr(student_two, "gather", lambda db, **k: S.Live(
+        "user_message", "chat", datetime.now(timezone.utc), (), k["message"]))
+    monkeypatch.setattr(student_two, "manifest", lambda: {"name": "test-student", "system": "sys", "rendering": None})
+
+    def ask(model, text):
+        calls["student"]["texts"].append(text)
+        if calls["student"]["down"]:
+            raise TimeoutError("read timeout")
+        return calls["student"]["answer"]
+
+    real_decide = student_two.decide
+    monkeypatch.setattr(student_two, "decide", lambda live: real_decide(live, ask=ask))
+    monkeypatch.setattr(student_two, "apply", lambda db, outcome, **k: setattr(outcome, "effect", "nothing changed")
+                        or "nothing changed")
+    monkeypatch.setattr(student_two, "log", lambda *a, **k: None)
     # No database here: the coordinator's supersession and scheduling are covered in test_coordinator.py.
     from app.services import coordinator
     monkeypatch.setattr(coordinator, "supersede_older", lambda *a, **k: 0)
     monkeypatch.setattr(coordinator, "schedule", lambda **k: None)
-    return settings, calls, cached
+    return settings, calls, found
 
 
 def _prepare(**over):
@@ -207,258 +236,191 @@ def _prepare(**over):
                                    | over))
 
 
-def test_the_view_is_built_from_conversation_cache_and_cognition_without_a_search(stubs):
+def test_every_message_gets_an_initial_memory_check_before_cognition(stubs):
     settings, calls, _ = stubs
     turn = _prepare()
-    assert calls["fresh"] == 0
-    assert calls["prepare"][0]["memory_searched"] is False
+    assert calls["fresh"] == 1 and calls["cache"] == 0  # one search, before Student 1 read the message
+    assert calls["prepare"][0]["memory_searched"] is True
     view = turn.view
-    # Cognition runs in every arm: the page_only arm hides the reading's words, not the routing.
     assert view.cognition.meta.status == "available" and view.cognition.interpretation.acts == ("small_talk",)
-    assert view.cognition.conversational_action.origin == "policy"
-    assert view.cognition.missing_evidence.assessment == "not_assessed"
-    assert view.thinking.required is None and view.mind.status == "disabled"
+    assert view.cognition.conversational_action == Assessed("respond", "student_2", "say hello back")
+    assert view.thinking.required is False and view.thinking.decider == "student_2" and view.mind.status == "disabled"
     assert view.memory.entries == (CacheEntry("event:4", "f" * 40, "current", content="died"),)
+    assert view.memory.recall_status == "matched" and turn.searched
     assert view.conversation.note_refs[0].kind == "their_open_question"
-    assert turn.decision.route == "unassessed" and turn.decision.outcome == "unassessed"
-    assert turn.cached_memory.endswith("died") and "1 memories from your last answer" in turn.boundary
-    assert turn.event()["type"] == "route" and turn.event()["eligibility"] == "unassessed"
+    assert turn.decision.route == "fast_path" and turn.decision.outcome == "fast_path"
+    assert turn.recall_rendered.endswith("died") and turn.cached_memory is None
+    assert "Memory was searched for this message" in turn.boundary
+    # What each consumer of the evidence was given: Student 1 the facts and episodes (none here), Student 2
+    # nothing (its snapshot has no memory input), the mouth the whole bundle.
+    consumers = turn.recall_turn.consumers
+    assert consumers["student_1"]["refs"] == [] and consumers["student_2"]["refs"] == []
+    assert "no memory input" in consumers["student_2"]["note"]
+    assert turn.event()["type"] == "route" and turn.event()["eligibility"] == "confirmed"
+    assert turn.immediate_action == "respond" and turn.immediate_origin == "student_2"
+    assert "What to get across: hi there" in turn.decision_brief
 
 
-def test_student_off_makes_every_turn_visibly_degraded(stubs):
+def test_a_failed_student_makes_the_turn_visibly_degraded(stubs):
     settings, _, _ = stubs
-    settings.cognitive_live_student = "off"
+    settings.student_fails = True
     turn = _prepare()
-    assert turn.view.cognition.meta.status == "disabled"
+    assert turn.view.cognition.meta.status == "unavailable"
     assert turn.decision.outcome == "degraded" and "didn't work this turn" in turn.boundary
     assert turn.event()["degraded"] == ["cognition_unavailable"]
 
 
-def test_recall_off_means_no_cache_and_the_mouth_is_told(stubs):
-    settings, _, _ = stubs
-    settings.recall_enabled = False
-    turn = _prepare()
-    assert turn.view.memory.meta.status == "disabled" and turn.recall_turn is None
-    assert "recent conversation only" in turn.boundary
-
-
 def test_the_trace_links_event_route_and_delivery_and_holds_no_message_text(stubs, tmp_path):
-    settings, _, cached = stubs
+    settings, _, found = stubs
     turn = _prepare()
-    cached.tool_calls = 1  # she searched during the reply: the fast path's memory wasn't enough
+    found.tool_calls = 1  # she searched during the reply: the initial check wasn't enough
     reply_id = uuid.uuid4()
     shared_state.finish(turn, outcome="partial", reply="Juniper! I remember", assistant_message_id=reply_id,
                         heard_chars=4)
     raw = (tmp_path / "shared.jsonl").read_text()
     assert "Juniper" not in raw and "died" not in raw
     line = json.loads(raw)
-    assert line["event"] == f"message:{MSG}" and line["route"]["route"] == "unassessed"
-    assert line["route"]["eligibility"] == "unassessed" and line["route"]["outcome"] == "unassessed"
+    assert line["event"] == f"message:{MSG}" and line["route"]["route"] == "fast_path"
+    assert line["route"]["eligibility"] == "confirmed" and line["route"]["outcome"] == "fast_path"
     assert line["dependencies"]["conversation_revision"] == "3" and "event:4#" in line["dependencies"]["memory_cache"]
-    assert line["calls"] == {"fresh_recall_before_reply": 0, "mind_scheduled": 0, "jev": 0,
+    assert line["calls"] == {"fresh_recall_before_reply": 1, "mind_scheduled": 0, "student_2": 1,
                              "memory_tool_calls_by_mouth": 1}
+    assert line["student_2"]["communication"] == "respond" and line["student_2"]["model"] == "test-student"
     assert line["mouth_escalated"] == ["searched_memory"]
     assert line["delivery"] == {"outcome": "partial", "assistant_message_id": str(reply_id), "reply_chars": 19,
                                 "heard_chars": 4}
     assert line["sections"]["inner_state"] == "disabled" and line["sections"]["activities"] == "unavailable"
 
 
-# --- step 4: Jev's two answers ------------------------------------------------------------------------
+# --- Student 2: the decision ------------------------------------------------------------------------
 
-from app.ai.state import assessment as jev_contract  # noqa: E402
-from app.services import jev_assessment  # noqa: E402
+DIALS = {"length": "a_little", "warmth": "somewhat", "playfulness": "none", "directness": "somewhat"}
+SAY_HI = dict(intention="say hello back", work="no_change", communication="respond", what_to_communicate="hi there",
+              move="react_briefly", dials=DIALS, about=["M"])
 
 
-def _jev(recall, thinking, status="available"):
-    meta = Projection("jev", status, reason=None if status == "available" else "HTTP 503")
-    return (RecallDecision(meta, recall, "jev" if recall else "not_assessed"),
+def _decided(recall, thinking, status="available"):
+    meta = Projection("student_2", status, reason=None if status == "available" else "down")
+    return (RecallDecision(meta, recall, "student_2" if recall else "not_assessed"),
             ThinkingDecision(meta, required={"required": True, "not_required": False}.get(thinking),
-                             decider="jev" if thinking else "none", choice=thinking))
+                             decider="student_2" if thinking else "none", choice=thinking))
 
 
 @pytest.mark.parametrize("recall,thinking,expected,eligibility,searches", [
     ("not_required", "not_required", "fast_path", "confirmed", False),
     ("required", "not_required", "recall", "not_eligible", True),
-    ("uncertain", "not_required", "unassessed", "unassessed", False),
-    ("not_required", "uncertain", "unassessed", "unassessed", False),
     ("not_required", "required", "mind", "not_eligible", False),
     ("required", "required", "recall_then_mind", "not_eligible", False),  # its recall is background work
 ])
-def test_each_jev_answer_has_its_route(recall, thinking, expected, eligibility, searches):
-    r, t = _jev(recall, thinking)
+def test_each_decision_has_its_route(recall, thinking, expected, eligibility, searches):
+    r, t = _decided(recall, thinking)
     decision = route(_view(recall=r, thinking=t))
     assert (decision.route, decision.eligibility, decision.runs_recall) == (expected, eligibility, searches)
-    assert decision.recall == recall and decision.thinking == thinking
     assert decision.degraded == () and decision.schedules_mind == ("mind" in expected)
-    if recall == "uncertain":
-        assert "recall_need_uncertain" in decision.limits  # uncertain is not "not required", and starts no search
 
 
-def test_jev_decides_processing_needs_only_never_clarification_or_tools():
-    from app.ai.state.routing import Route
-    assert set(Route.__args__) == {"fast_path", "unassessed", "recall", "mind", "recall_then_mind"}
-    assert jev_contract.RECALL == jev_contract.THINKING == ("not_required", "required", "uncertain")
-
-
-def test_a_failed_assessment_or_cognition_is_never_a_confirmed_fast_path():
-    r, t = _jev(None, None, status="unavailable")
+def test_a_failed_decision_or_reading_is_never_a_confirmed_fast_path():
+    r, t = _decided(None, None, status="unavailable")
     failed = route(_view(recall=r, thinking=t))
-    assert failed.route == "unassessed" and "assessment_unavailable" in failed.degraded
+    assert failed.route == "unassessed" and "decision_unavailable" in failed.degraded
     assert {"recall_need_not_assessed", "thinking_need_not_assessed"} <= set(failed.limits)
-    r, t = _jev("not_required", "not_required")
+    r, t = _decided("not_required", "not_required")
     no_reading = route(_view(recall=r, thinking=t, cognition=_cognition("unavailable")))
     assert no_reading.route == "unassessed" and no_reading.eligibility == "unassessed"
 
 
-def test_the_request_carries_both_questions_and_a_bad_answer_stays_unassessed():
-    body = jev_contract.body("jev-latest", jev_contract.state(
-        message="hi", recent=[{"role": "user", "content": "x" * 5000}], interpretation=None,
-        evidence_lines=[], capabilities=["conversation"]))
-    assert set(body["questions"]) == {"recall", "thinking"}
-    assert set(body["questions"]["recall"]["criteria"]) == set(jev_contract.RECALL)
-    assert len(body["state"]["recent_conversation"][0]["text"]) <= jev_contract.MESSAGE_CHARS
-    good = jev_contract.parse({"model": "jev-1.14.0", "answers": {
-        "recall": {"choice": "required", "probabilities": {"required": 0.9}},
-        "thinking": {"choice": "not_required"}}}, trigger_ref="m", input_versions={}, provider="t", latency_ms=60)
-    assert (good.status, good.recall, good.thinking, good.model) == ("ok", "required", "not_required", "jev-1.14.0")
-    # A choice Jev no longer has (v0's clarification) is an unusable answer, never mapped to a route.
-    bad = jev_contract.parse({"answers": {"recall": {"choice": "clarification_needed"},
-                                          "thinking": {"choice": "required"}}},
-                             trigger_ref="m", input_versions={}, provider="t", latency_ms=60)
-    assert bad.status == "invalid" and bad.recall is None and bad.thinking == "required"
+def test_the_student_reads_the_live_situation_in_its_training_shape(stubs):
+    _, calls, _ = stubs
+    _prepare()
+    [text] = calls["student"]["texts"]
+    assert text.startswith("TRIGGER: user message\nTIME: ")
+    assert f"[M] NEW MESSAGE FROM THE USER (just now; nothing done about it yet): {SECRET}" in text
+    assert "SETTING: just talking" in text and "write: write text for the user" in text
+    assert not any(line in text for line in S.E.EXCHANGE)  # qwen-4 was trained before the exchange line
 
 
-def _jev_settings(monkeypatch, settings):
-    jev = SimpleNamespace(shared_state_assessment_enabled=True, typesafe_api_key="k",
-                          typesafe_base_url="https://jev.test/v1", shared_state_assessment_model="jev-latest",
-                          shared_state_assessment_timeout_seconds=1.5)
-    monkeypatch.setattr(jev_assessment, "get_settings", lambda: jev)
-
-
-def _answer(recall, thinking):
-    def post(url, body):
-        assert url == "https://jev.test/v1/systemone" and body["state"]["latest_user_message"] == SECRET
-        return {"model": "jev-1.14.0", "answers": {"recall": {"choice": recall}, "thinking": {"choice": thinking}}}
-    return post
-
-
-def test_a_greeting_needing_neither_is_a_confirmed_fast_path_without_a_search(stubs, monkeypatch):
-    settings, calls, _ = stubs
-    _jev_settings(monkeypatch, settings)
-    real = jev_assessment.assess
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=_answer("not_required", "not_required")))
+def test_silence_is_honoured_no_reply_and_no_second_search(stubs):
+    _, calls, _ = stubs
+    calls["student"]["answer"] = json.dumps(dict(intention="let it sit", work="request_recall", target="M",
+                                                 communication="silent"))
     turn = _prepare()
-    assert turn.decision.route == "fast_path" and turn.decision.eligibility == "confirmed"
-    assert calls["fresh"] == 0 and not turn.searched and turn.recall_rendered is None
-    assert "Nobody checked" not in turn.boundary and "Memory was not searched" in turn.boundary
+    assert turn.silent and turn.immediate_origin == "student_2" and turn.decision_brief is None
+    assert calls["fresh"] == 1  # the initial check ran before anyone decided; silence adds nothing
 
 
-@pytest.mark.parametrize("kind", ["fact", "episode", "event", "item"])
-def test_cached_content_reaches_the_actual_jev_request_without_a_recall(stubs, monkeypatch, kind):
-    from datetime import datetime, timezone
-
-    from app.ai.recall.contracts import MemoryRecord, MemoryRef
-    from app.services import recall
-
-    settings, calls, cached = stubs
-    _jev_settings(monkeypatch, settings)
-    fact = ("The Cobalt reading circle meets every Thursday at 7 pm in the Glass Pavilion; "
-            "bring the blue atlas to its next meeting.")
-    now = datetime.now(timezone.utc)
-    record = MemoryRecord(
-        ref=MemoryRef(kind, "4" if kind == "event" else str(uuid.uuid4())), subkind=kind,
-        content=fact, context_id=None, context_label=None, occurred_at=None, occurred_until=None,
-        scheduled_at=None, recorded_at=now, updated_at=None, status="active", epistemic="reported",
-        evidence=None, fingerprint="f" * 40, matched=("direct_reference",), applicability="current")
-    cached.result.records = [record]
-    cached.rendered = "Memories from your last answer, re-read now:\n" + "\n".join(
-        recall.render_records([record], now=now, zone="America/Vancouver"))
-    # Production rendering keeps the answer off the bullet header. It is also absent from
-    # Jev's bounded recent conversation, reproducing the frontend cache-probe failure.
-    assert fact not in next(line for line in cached.rendered.splitlines() if line.startswith("- "))
-    captured = []
-
-    def post(url, body):
-        captured.append(body["state"])
-        assert body["state"]["memories_supplied"] == [f"[{record.ref}] (current) {fact}"]
-        assert all("Thursday" not in m["text"] for m in body["state"]["recent_conversation"])
-        return {"answers": {"recall": {"choice": "not_required"},
-                            "thinking": {"choice": "not_required"}}}
-
-    real = jev_assessment.assess
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=post))
-    turn = _prepare(message="What day, time and place is my Cobalt reading circle?", history=[
-        {"role": "assistant", "content": "rain " * 200 + fact}])
-    assert len(captured) == 1 and turn.decision.route == "fast_path"
-    assert calls["fresh"] == 0 and not turn.searched
-
-
-def test_jev_memory_content_is_bounded_and_retains_applicability_and_corrections(stubs, monkeypatch):
-    settings, _, cached = stubs
-    _jev_settings(monkeypatch, settings)
-    cached.result.records[0].content = "changed fact " * 1000
-    cached.result.records[0].applicability = "no_longer_current"
-    cached.result.records[0].corrected = True
-    captured = []
-    real = jev_assessment.assess
-
-    def post(url, body):
-        captured.append(body["state"]["memories_supplied"])
-        return {"answers": {"recall": {"choice": "uncertain"}, "thinking": {"choice": "not_required"}}}
-
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=post))
-    _prepare()
-    [evidence] = captured[0]
-    assert evidence.startswith("[event:4] (no_longer_current; corrected by the user) changed fact")
-    assert len(evidence) == jev_contract.EVIDENCE_CHARS and evidence.endswith("…")
-    bounded = jev_contract.state(message="hi", recent=[], interpretation=None,
-                                 evidence_lines=[evidence] * 100, capabilities=[])
-    assert len(bounded["memories_supplied"]) == jev_contract.EVIDENCE_LINES
-    cached.result.records = []
-    _prepare()
-    assert captured[1] == "none"  # stale rendered text cannot resurrect a removed fact
-
-
-def test_recall_needed_searches_memory_before_the_mouth_and_says_what_it_found(stubs, monkeypatch):
-    settings, calls, _ = stubs
-    _jev_settings(monkeypatch, settings)
-    real = jev_assessment.assess
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=_answer("required", "not_required")))
-    for status, words in (("matched", "What you recall"), ("no_match", "isn't proof it didn't happen"),
-                          ("failed", "search FAILED")):
-        found = SimpleNamespace(result=SimpleNamespace(status=status, records=[], coverage={}),
-                                rendered=f"RENDERED {status}", tool_calls=0)
-        monkeypatch.setattr(recall_references, "for_reply", lambda *a, **k: found)
+def test_recall_decided_after_the_initial_check_means_searching_further_not_the_same_search(stubs):
+    _, calls, _ = stubs
+    calls["student"]["answer"] = json.dumps(dict(SAY_HI, work="request_recall", target="M"))
+    for status, words in (("matched", "What you recall"), ("no_match", "isn't proof it didn't happen")):
+        calls["fresh"] = 0
+        calls["searches"] = [_turn_recall(status, rendered=f"RENDERED {status}")]
         turn = _prepare()
-        assert turn.decision.route == "recall" and turn.searched
+        assert calls["fresh"] == 1 and turn.decision.route == "recall" and turn.searched
         assert turn.recall_rendered == f"RENDERED {status}" and turn.cached_memory is None
         assert words in turn.boundary and turn.view.memory.recall_status == status
+        assert "additional_recall_requested" in turn.decision.limits and "memory tools" in turn.boundary
+        assert "look up your memory about their new message" in turn.decision_brief
 
 
-def test_recall_needed_without_shared_recall_is_degraded_not_answered_as_known(stubs, monkeypatch):
-    settings, _, _ = stubs
-    settings.recall_enabled = False
-    _jev_settings(monkeypatch, settings)
-    real = jev_assessment.assess
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=_answer("required", "not_required")))
+def test_a_failed_initial_check_rereads_the_cache_and_the_recall_route_tries_again(stubs):
+    _, calls, _ = stubs
+    # Nobody asked for recall: the cache stands in, and the turn says the search failed.
+    calls["searches"] = [_turn_recall("failed")]
     turn = _prepare()
-    assert turn.decision.route == "recall" and "recall_unavailable" in turn.decision.degraded
-    assert "can't check that right now" in turn.boundary
+    assert calls["fresh"] == 1 and calls["cache"] == 1 and calls["prepare"][-1]["memory_searched"] is False
+    assert turn.view.memory.recall_status == "failed" and not turn.searched
+    assert turn.cached_memory.endswith("died") and "search FAILED" in turn.boundary
+    assert "1 memories from your last answer" in turn.boundary
+    # Student 2 asked for recall: one more try, and what it found replaces the cache.
+    calls["student"]["answer"] = json.dumps(dict(SAY_HI, work="request_recall", target="M"))
+    calls["fresh"] = 0
+    calls["searches"] = [_turn_recall("failed"), _turn_recall("matched", rendered="RENDERED again")]
+    retried = _prepare()
+    assert calls["fresh"] == 2 and retried.searched and retried.recall_rendered == "RENDERED again"
+    assert retried.view.memory.recall_status == "matched" and "What you recall" in retried.boundary
+    # It fails again: degraded, and still never "nothing found".
+    calls["fresh"] = 0
+    calls["searches"] = [_turn_recall("failed")]
+    failed = _prepare()
+    assert calls["fresh"] == 2 and "recall_unavailable" in failed.decision.degraded
+    assert "search FAILED" in failed.boundary and "nothing that matches" not in failed.boundary
 
 
-def test_an_unreachable_assessor_keeps_the_turn_unassessed_and_degraded(stubs, monkeypatch, tmp_path):
-    settings, calls, _ = stubs
-    _jev_settings(monkeypatch, settings)
-
-    def down(url, body):
-        raise TimeoutError("read timeout")
-
-    real = jev_assessment.assess
-    monkeypatch.setattr(jev_assessment, "assess", lambda **k: real(**k, post=down))
+def test_thinking_decided_schedules_the_mind_with_what_to_think_about(stubs, monkeypatch):
+    _, calls, _ = stubs
+    from app.services import coordinator
+    scheduled, immediate = [], []
+    monkeypatch.setattr(coordinator, "schedule", lambda **k: scheduled.append(k) or (
+        shared_state.PendingWork("w1", "mind", "queued", "s", "the considered answer"),))
+    monkeypatch.setattr(coordinator, "decide_immediate", lambda **k: immediate.append(k["decided"]))
+    calls["student"]["answer"] = json.dumps(dict(
+        SAY_HI, communication="acknowledge", what_to_communicate="let me think", work="request_thinking",
+        target="M", think_about="which train", think_form="whether"))
     turn = _prepare()
-    assert turn.assessment.status == "error" and turn.decision.route == "unassessed"
-    assert "assessment_unavailable" in turn.decision.degraded and calls["fresh"] == 0
-    shared_state.finish(turn, outcome="completed", reply="ok", assistant_message_id=uuid.uuid4())
+    assert turn.decision.route == "mind" and scheduled[0]["work_input"]["think_about"] == "which train"
+    assert immediate[0].action == "acknowledge" and immediate[0].origin == "student_2"
+    assert turn.immediate_action == "acknowledge" and turn.pending
+
+
+def test_an_invalid_or_unreachable_student_is_a_degraded_turn_that_still_answers(stubs, tmp_path):
+    _, calls, _ = stubs
+    calls["student"]["answer"] = json.dumps(dict(SAY_HI, work="pause", target="G7"))  # no G7 here
+    invalid = _prepare()
+    assert invalid.student.status == "invalid" and invalid.student.problems
+    assert "decision_unavailable" in invalid.decision.degraded and invalid.immediate_action == "respond"
+    assert invalid.immediate_origin == "operational_fallback" and invalid.decision_brief is None
+    calls["student"]["down"] = True
+    down = _prepare()
+    assert down.student.status == "unavailable" and "TimeoutError" in down.student.error
+    assert "decision_unavailable" in down.decision.degraded and calls["fresh"] == 2  # one initial check per turn
+    shared_state.finish(down, outcome="completed", reply="ok", assistant_message_id=uuid.uuid4())
     line = json.loads((tmp_path / "shared.jsonl").read_text().splitlines()[-1])
-    assert line["assessment"]["status"] == "error" and line["calls"]["jev"] == 1
+    assert line["student_2"]["status"] == "unavailable" and line["calls"]["student_2"] == 0
     assert SECRET not in (tmp_path / "shared.jsonl").read_text()
+
+
+def test_the_mouth_hears_her_decision():
+    ctx = AgentRuntimeContext(user_id=USER, decision="- What you want here: say hello back")
+    prompt = build_system_prompt(ctx)
+    assert "## What you decided" in prompt and "say hello back" in prompt
+    assert "## What you decided" not in build_system_prompt(AgentRuntimeContext(user_id=USER))
