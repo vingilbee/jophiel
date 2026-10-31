@@ -204,7 +204,10 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     keep_playing = ("Keep playing is on: after a goal, she picks the next one herself."
                     if session.autonomy == "continue" else
                     "Keep playing is off: after this goal, she stops and tells the user.")
-    sections.append(("The goal and the plan", [*plan_lines(session.plan), keep_playing,
+    from app.services import memory_manager
+
+    served = memory_manager.goal_line(db, session)
+    sections.append(("The goal and the plan", [*([served] if served else []), *plan_lines(session.plan), keep_playing,
                                                f"Her session: {session.state}"
                                                + (f" ({desktop_game.REASONS.get(session.reason_code, session.reason_code)})"
                                                   if session.state != "running" and session.reason_code else "")

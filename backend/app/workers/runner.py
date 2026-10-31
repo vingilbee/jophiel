@@ -9,7 +9,7 @@ import redis
 from app.core.config import get_settings
 from app.workers import (
     agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, game_practice,
-    memory, mind, mind_ticks,
+    memory, mind, mind_ticks, recall_embeddings,
     whatsapp,
 )
 
@@ -123,6 +123,10 @@ def run(stop: threading.Event | None = None) -> None:
             if getattr(settings, "mind_tick_recording_enabled", False) and not getattr(settings, "mind_enabled", False):
                 # Recording what her mind would see each second: its own thread, reads only.
                 worker_specs.append(("mind-ticks", mind_ticks.run_once, "macrovision:mind-ticks:wakeups", 1.0))
+        if getattr(settings, "recall_enabled", False):
+            # Embedding memory events for recall: background, batched; recall works before it catches up.
+            worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
+                                 "macrovision:recall-embeddings:wakeups", 5.0))
         if getattr(settings, "mind_enabled", False):
             # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only
             # with desktop mode, where it also records ticks when MIND_TICK_RECORDING_ENABLED), on its own

@@ -381,7 +381,15 @@ class MinecraftSource:
 
     def current_goal(self, db: Session, scope: Scope) -> str | None:
         session = db.get(DesktopSession, scope.activity)
-        return (session.plan or {}).get("goal") if session is not None else None
+        if session is None:
+            return None
+        plan_goal = (session.plan or {}).get("goal")
+        from app.services import memory_manager
+
+        goal = memory_manager.session_goal(db, session)
+        if goal is not None and plan_goal and goal.text != plan_goal:
+            return f"{goal.text} (the plan for it now: {plan_goal})"
+        return goal.text if goal is not None else plan_goal
 
     def speaking(self, db: Session, scope: Scope) -> dict:
         session = db.get(DesktopSession, scope.activity)

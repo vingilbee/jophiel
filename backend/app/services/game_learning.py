@@ -103,9 +103,37 @@ def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: di
     game = game_for_profile(session.profile_id) if session is not None else None
     if game is None:
         return
-    db.add(GameExperience(user_id=session.owner_user_id, session_id=session_id, game=game,
-                          kind=kind, payload=payload))
-    db.commit()
+
+    def experience() -> GameExperience:
+        row = GameExperience(user_id=session.owner_user_id, session_id=session_id, game=game,
+                             kind=kind, payload=payload)
+        db.add(row)
+        return row
+
+    from app.services import observation, observation_adapters
+
+    row = experience()
+    if not observation.enabled():
+        db.commit()
+        return
+    # Observed in the same transaction (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md §6); if that fails, the
+    # experience is still kept and its source state says where to recover from.
+    try:
+        db.flush()
+        observation_adapters.experience_recorded(db, session, row)
+        db.commit()
+    except Exception:  # noqa: BLE001 - observing never loses the experience itself
+        log.exception("game learning: observing an experience failed; it will be recovered")
+        db.rollback()
+        session = db.get(DesktopSession, session_id)
+        row = experience()
+        db.flush()
+        try:
+            with db.begin_nested():
+                observation_adapters.mark_missed(db, session, row.id)
+        except Exception:  # noqa: BLE001
+            log.exception("game learning: could not mark experience %s for recovery", row.id)
+        db.commit()
 
 
 # --------------------------------------------------------------------------- #

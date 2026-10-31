@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import func, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -323,8 +324,7 @@ def start_session(
     )
     db.add(session)
     _record(db, session, "desktop.session_state", {"state": "starting", "previous_state": None, "reason": None})
-    if data.plan is not None:
-        _set_plan(db, session, data.plan, source=plan_source)
+    plan_event = _set_plan(db, session, data.plan, source=plan_source) if data.plan is not None else None
     try:
         db.commit()
     except IntegrityError as exc:
@@ -340,6 +340,14 @@ def start_session(
         if constraint == "uq_desktop_sessions_active_environment":
             raise DesktopError("already_owned", 409, "this environment already has a live session") from None
         raise
+    if data.plan is not None:
+        from app.services import memory_manager
+
+        if memory_manager.enabled():
+            session = _locked(db, owner_user_id, session.id)
+            memory_manager.on_plan_set(db, session, goal_text=data.plan.goal, source=plan_source,
+                                       plan_event=plan_event)
+            db.commit()
     return session, True
 
 
@@ -426,6 +434,11 @@ def resume_session(
         # Resuming a finished plan used to pause again within a second (7 times
         # in a row), while she said she was moving.
         raise DesktopError("nothing_to_do", 409, "every step of the plan is done; set a new goal to keep playing")
+    from app.services import memory_manager
+
+    blocked = memory_manager.resume_blocked(db, session)
+    if blocked:
+        raise DesktopError("goal_closed", 409, blocked)
     # Not locked: lock order is always environment -> session (revoke, offline),
     # and either of those committing after this read still waits on the
     # session row and then ends/disconnects it.
@@ -504,7 +517,7 @@ def append_plan_steps(
     return session
 
 
-def _set_plan(db: Session, session: DesktopSession, data: PlanIn, *, source: str) -> None:
+def _set_plan(db: Session, session: DesktopSession, data: PlanIn, *, source: str) -> DesktopSessionEvent:
     _check_step_count(len(data.steps))
     abandoned = 0
     if session.plan is not None:
@@ -524,10 +537,17 @@ def _set_plan(db: Session, session: DesktopSession, data: PlanIn, *, source: str
     if session.plan_revision > 1:
         # Replacing (not the first plan) invalidates in-flight decisions.
         session.execution_generation += 1
-    _record(db, session, "desktop.plan_set", {
+    plan_event = _record(db, session, "desktop.plan_set", {
         "plan_revision": session.plan_revision, "abandoned_steps": abandoned, "source": source,
         "goal": data.goal[:200],  # for game reflection's timeline
     })
+    # The plan serves a goal in her working memory; a new plan never replaces that goal. A session
+    # still being created is linked by start_session after its insert commits.
+    if not sa_inspect(session).pending:
+        from app.services import memory_manager
+
+        memory_manager.on_plan_set(db, session, goal_text=data.goal, source=source, plan_event=plan_event)
+    return plan_event
 
 
 def _number_steps(session: DesktopSession, steps) -> list[dict]:
@@ -1021,10 +1041,23 @@ def _transition(session: DesktopSession, to_state: str, *, reason: str, db: Sess
     _record(db, session, "desktop.session_state", {"state": to_state, "previous_state": previous, "reason": reason})
 
 
-def _record(db: Session, session: DesktopSession, event_type: str, payload: dict) -> None:
-    db.add(DesktopSessionEvent(
+def _record(db: Session, session: DesktopSession, event_type: str, payload: dict) -> DesktopSessionEvent:
+    recorded = DesktopSessionEvent(
         session_id=session.id,
         type=event_type,
         state_revision=session.state_revision,
         payload={**payload, "execution_generation": session.execution_generation},
-    ))
+    )
+    db.add(recorded)
+    return recorded
+
+
+def transition(session: DesktopSession, to_state: str, *, reason: str, db: Session) -> None:
+    """A state change made by another service that already holds the session's row lock
+    (her working memory pausing a session whose goal was closed)."""
+    _transition(session, to_state, reason=reason, db=db)
+
+
+def stop_input(session: DesktopSession, reason: str | None = None) -> None:
+    """After the commit of a ``transition`` away from running."""
+    _stop_input(session, reason)

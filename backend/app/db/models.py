@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, func, text
+from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -284,6 +284,8 @@ class ChatMessage(Base, TimestampMixin):
             "conversation_id", "conversation_sequence", name="uq_chat_messages_conversation_sequence"
         ),
         CheckConstraint("conversation_sequence >= 1", name="ck_chat_messages_conversation_sequence"),
+        # Interrupted replies, for observation recovery (services/observation_adapters._sweep_heard).
+        Index("ix_chat_messages_heard", "created_at", postgresql_where=text("heard_chars IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -493,6 +495,8 @@ class SemanticMemory(Base, TimestampMixin):
         CheckConstraint("importance BETWEEN 0 AND 1", name="ck_semantic_memory_importance"),
         CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_semantic_memory_confidence"),
         CheckConstraint("status IN ('active', 'superseded', 'deleted')", name="ck_semantic_memory_status"),
+        # Recall references check the owner in the key (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md §10).
+        UniqueConstraint("id", "user_id", name="uq_semantic_memories_id_user"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -581,6 +585,7 @@ class EpisodicMemory(Base, TimestampMixin):
         CheckConstraint("importance BETWEEN 0 AND 1", name="ck_episodic_memory_importance"),
         CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_episodic_memory_confidence"),
         CheckConstraint("status IN ('active', 'consolidated', 'superseded', 'deleted')", name="ck_episodic_memory_status"),
+        UniqueConstraint("id", "user_id", name="uq_episodic_memories_id_user"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -1416,6 +1421,10 @@ class DesktopSession(Base):
     # Explore and learn (stage H3, services/game_challenges.py): after a goal she picks her
     # own next challenge, and the cap on goals she picks herself doesn't apply.
     explore: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    # The goal in her working memory this session's plan serves (services/memory_manager.py). Replacing
+    # the plan never changes the goal; closing or suspending the goal pauses the session. ``plan["goal_id"]``
+    # is a copy for readers that only see the plan.
+    goal_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     # Retried start requests (e.g. a repeated tool call) return the same session.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1436,6 +1445,9 @@ class DesktopSession(Base):
             "commentary_mode IN ('quiet', 'occasional', 'commentary')", name="ck_desktop_sessions_commentary_mode"
         ),
         CheckConstraint("autonomy IN ('continue', 'stop')", name="ck_desktop_sessions_autonomy"),
+        ForeignKeyConstraint(["goal_item_id", "owner_user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="SET NULL (goal_item_id)", name="fk_desktop_sessions_goal_item"),
+        Index("ix_desktop_sessions_goal_item", "goal_item_id", postgresql_where=text("goal_item_id IS NOT NULL")),
         # One live session per environment: concurrent starts cannot both win.
         Index(
             "uq_desktop_sessions_active_environment",
@@ -1815,3 +1827,710 @@ class GameReflectionJob(Base):
         Index("ix_game_reflection_jobs_claim", "status", "created_at"),
         UniqueConstraint("session_id", "up_to_experience_id", name="uq_game_reflection_jobs_segment"),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Working memory (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md §4; services/memory_manager.py):
+# contexts, goals that outlive their steps, commitments, intentions, questions, recent events,
+# and where each came from. General: a game is one source of contexts and events among others.
+# Rows reference each other through composite keys that carry user_id (or context_id), so nothing
+# can point across users or contexts; those references are NO ACTION, so only the account cascade
+# and the reset remove a referenced row.
+# --------------------------------------------------------------------------- #
+
+# The column named "text" shadows sqlalchemy.text inside these class bodies.
+sa_text = text
+
+MEMORY_CONTEXT_KINDS = ("general", "activity", "project", "world")
+MEMORY_CONTEXT_STATUSES = ("active", "paused", "closed")
+WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question")
+# Per kind: (open statuses, closed statuses).
+WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "goal": (("active", "suspended"), ("completed", "abandoned")),
+    "commitment": (("open", "needs_review"), ("fulfilled", "cancelled")),
+    "intention": (("active",), ("done", "dropped", "lapsed")),
+    "question": (("open",), ("answered", "dropped")),
+}
+WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
+MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction")
+
+
+def _in(values) -> str:
+    return ", ".join(f"'{v}'" for v in values)
+
+
+_WORKING_ITEM_STATUS_CHECK = " OR ".join(
+    f"(kind = '{kind}' AND status IN ({_in(opened + closed)}))"
+    for kind, (opened, closed) in WORKING_ITEM_STATUSES.items()
+)
+
+
+class MemoryContext(Base):
+    """Where a memory belongs: a world, an activity, a project, or the user's general life (the default,
+    one per user). Normal use only closes a context; deleting one fails while anything references it."""
+
+    __tablename__ = "memory_contexts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    # Who can recognise it again (e.g. "minecraft_pack"), and that source's identity for it.
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_in(MEMORY_CONTEXT_KINDS)})", name="ck_memory_contexts_kind"),
+        CheckConstraint(f"status IN ({_in(MEMORY_CONTEXT_STATUSES)})", name="ck_memory_contexts_status"),
+        CheckConstraint("btrim(label) <> ''", name="ck_memory_contexts_label"),
+        CheckConstraint("(status = 'closed') = (closed_at IS NOT NULL)", name="ck_memory_contexts_closed"),
+        CheckConstraint(
+            "kind <> 'general' OR (source IS NULL AND external_ref IS NULL AND parent_id IS NULL "
+            "AND status <> 'closed')", name="ck_memory_contexts_general"),
+        CheckConstraint("external_ref IS NULL OR source IS NOT NULL", name="ck_memory_contexts_ref"),
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_memory_contexts_parent_self"),
+        UniqueConstraint("id", "user_id", name="uq_memory_contexts_id_user"),
+        ForeignKeyConstraint(["parent_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             name="fk_memory_contexts_parent"),
+        Index("uq_memory_contexts_general", "user_id", unique=True, postgresql_where=sa_text("kind = 'general'")),
+        Index("uq_memory_contexts_ref", "user_id", "source", "external_ref", unique=True,
+              postgresql_where=sa_text("external_ref IS NOT NULL")),
+        Index("ix_memory_contexts_user_status", "user_id", "status", sa_text("last_active_at DESC")),
+    )
+
+
+class WorkingItem(Base):
+    """Unfinished business: a goal (with sub-goals), a commitment owed by one party to the other, her own
+    intention, or a question waiting for an answer. Stands on its own: its text, status, context and
+    times are complete without its evidence links. Time and plan changes never close a goal."""
+
+    __tablename__ = "working_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    context_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Who wants it (goal), who owes it (commitment), whose it is (intention), who asked (question).
+    owner: Mapped[str] = mapped_column(String(16), nullable=False)
+    owed_to: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    done_when: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "reported": the user said it; "inferred": she concluded it.
+    epistemic: Mapped[str] = mapped_column(String(16), nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_in(WORKING_ITEM_KINDS)})", name="ck_working_items_kind"),
+        CheckConstraint(_WORKING_ITEM_STATUS_CHECK, name="ck_working_items_status"),
+        CheckConstraint("owner IN ('user', 'columbina', 'shared')", name="ck_working_items_owner"),
+        CheckConstraint("epistemic IN ('reported', 'inferred')", name="ck_working_items_epistemic"),
+        CheckConstraint("btrim(text) <> ''", name="ck_working_items_text"),
+        CheckConstraint(f"(closed_at IS NOT NULL) = (status IN ({_in(WORKING_ITEM_CLOSED)}))",
+                        name="ck_working_items_closed"),
+        CheckConstraint("parent_id IS NULL OR (kind = 'goal' AND parent_id <> id)", name="ck_working_items_parent"),
+        CheckConstraint("(kind = 'commitment') = (owed_to IS NOT NULL)", name="ck_working_items_owed_to"),
+        # Owed by one party to the other; "I'll remember to..." to herself is an intention.
+        CheckConstraint("kind <> 'commitment' OR (owner IN ('user', 'columbina') AND owed_to IN ('user', 'columbina') "
+                        "AND owner <> owed_to)", name="ck_working_items_commitment_parties"),
+        CheckConstraint("kind <> 'intention' OR due_at IS NOT NULL", name="ck_working_items_intention_due"),
+        CheckConstraint("revision >= 1", name="ck_working_items_revision"),
+        UniqueConstraint("id", "user_id", name="uq_working_items_id_user"),
+        UniqueConstraint("id", "context_id", name="uq_working_items_id_context"),
+        ForeignKeyConstraint(["context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             name="fk_working_items_context"),
+        ForeignKeyConstraint(["parent_id", "context_id"], ["working_items.id", "working_items.context_id"],
+                             name="fk_working_items_parent"),
+        Index("ix_working_items_user_status", "user_id", "status"),
+        Index("ix_working_items_context_kind_status", "context_id", "kind", "status"),
+        Index("ix_working_items_parent", "parent_id", postgresql_where=sa_text("parent_id IS NOT NULL")),
+        Index("ix_working_items_due", "due_at", postgresql_where=sa_text("due_at IS NOT NULL AND closed_at IS NULL")),
+    )
+
+
+class MemoryEvent(Base):
+    """Something meaningful that happened, in a context: short, one line, never a sensor sample. Where it
+    came from is an evidence link, not a column."""
+
+    __tablename__ = "memory_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    context_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    epistemic: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("epistemic IN ('observed', 'reported', 'inferred')", name="ck_memory_events_epistemic"),
+        CheckConstraint("btrim(text) <> ''", name="ck_memory_events_text"),
+        UniqueConstraint("id", "user_id", name="uq_memory_events_id_user"),
+        ForeignKeyConstraint(["context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             name="fk_memory_events_context"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="SET NULL (item_id)", name="fk_memory_events_item"),
+        Index("uq_memory_events_dedupe", "user_id", "dedupe_key", unique=True,
+              postgresql_where=sa_text("dedupe_key IS NOT NULL")),
+        Index("ix_memory_events_context", "context_id", sa_text("id DESC")),
+        Index("ix_memory_events_user", "user_id", "id"),
+    )
+
+
+class MemoryManagerState(Base):
+    """The manager's own bookkeeping per user, for the due checks and for inspection. Pending work is a
+    query over working_items, never stored here."""
+
+    __tablename__ = "memory_manager_state"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    focus_context_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_event_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    last_tick_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_decision: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(["focus_context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             ondelete="SET NULL (focus_context_id)", name="fk_memory_manager_state_focus"),
+        Index("ix_memory_manager_state_next_check", "next_check_at"),
+    )
+
+
+class MemoryEvidence(Base):
+    """Where a memory came from: one target (an item or an event) and one source, each a real foreign
+    key. Deleting the source deletes the link and nothing else: the memory stands on its own."""
+
+    __tablename__ = "memory_evidence"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    session_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("desktop_session_events.id", ondelete="CASCADE"), nullable=True)
+    thought_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mind_thoughts.id", ondelete="CASCADE"), nullable=True)
+    experience_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_experiences.id", ondelete="CASCADE"), nullable=True)
+    observation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(item_id, event_id) = 1", name="ck_memory_evidence_target"),
+        CheckConstraint("num_nonnulls(message_id, session_event_id, thought_id, experience_id, observation_id) = 1",
+                        name="ck_memory_evidence_source"),
+        CheckConstraint(f"role IN ({_in(MEMORY_EVIDENCE_ROLES)}) AND (role <> 'resolution' OR item_id IS NOT NULL)",
+                        name="ck_memory_evidence_role"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_memory_evidence_item"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="CASCADE", name="fk_memory_evidence_event"),
+        UniqueConstraint("item_id", "event_id", "role", "message_id", "session_event_id", "thought_id",
+                         "experience_id", "observation_id", name="uq_memory_evidence",
+                         postgresql_nulls_not_distinct=True),
+        Index("ix_memory_evidence_item", "item_id"),
+        Index("ix_memory_evidence_event", "event_id"),
+        Index("ix_memory_evidence_message", "message_id"),
+        Index("ix_memory_evidence_session_event", "session_event_id"),
+        Index("ix_memory_evidence_thought", "thought_id"),
+        Index("ix_memory_evidence_experience", "experience_id"),
+        Index("ix_memory_evidence_observation", "observation_id"),
+    )
+
+
+
+# --------------------------------------------------------------------------- #
+# Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md): what a source reported
+# --------------------------------------------------------------------------- #
+
+OBSERVATION_ACTORS = ("user", "columbina", "environment", "tool", "system")
+OBSERVATION_EPISTEMIC = ("observed", "reported")
+OBSERVATION_ORIGINS = ("user", "external", "system", "model")
+OBSERVATION_SALIENCE = ("routine", "notable", "critical")
+OBSERVATION_PROCESSING_STATUSES = ("pending", "retry", "applied", "skipped", "failed")
+OBSERVATION_AVAILABILITY = ("unknown", "online", "offline")
+
+
+class Observation(Base):
+    """One report from a source, normalized: immutable once written (a trigger allows only clearing a
+    reference whose target went away). The source's own record stays authoritative; this is its common
+    shape, with no message bodies copied in. Its id is identity, not commit order."""
+
+    __tablename__ = "observations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Bound by the source when it knows (e.g. the world a skill ran in); else observation_bindings.
+    context_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_instance: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_event_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    actor: Mapped[str] = mapped_column(String(16), nullable=False)
+    epistemic: Mapped[str] = mapped_column(String(16), nullable=False)
+    content_origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    salience: Mapped[str] = mapped_column(String(16), nullable=False)
+    caused_by_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    outcome_of_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("message_deliveries.id", ondelete="CASCADE"), nullable=True)
+    experience_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_experiences.id", ondelete="CASCADE"), nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"actor IN ({_in(OBSERVATION_ACTORS)})", name="ck_observations_actor"),
+        CheckConstraint(f"epistemic IN ({_in(OBSERVATION_EPISTEMIC)})", name="ck_observations_epistemic"),
+        CheckConstraint(f"content_origin IN ({_in(OBSERVATION_ORIGINS)})", name="ck_observations_origin"),
+        CheckConstraint(f"salience IN ({_in(OBSERVATION_SALIENCE)})", name="ck_observations_salience"),
+        CheckConstraint("char_length(summary) BETWEEN 1 AND 500 AND btrim(summary) <> ''",
+                        name="ck_observations_summary"),
+        CheckConstraint("schema_version >= 1", name="ck_observations_schema_version"),
+        CheckConstraint("btrim(source) <> '' AND btrim(source_instance) <> '' AND btrim(source_event_key) <> ''",
+                        name="ck_observations_identity"),
+        CheckConstraint("caused_by_id IS NULL OR caused_by_id <> id", name="ck_observations_caused_by_self"),
+        CheckConstraint("outcome_of_id IS NULL OR outcome_of_id <> id", name="ck_observations_outcome_self"),
+        UniqueConstraint("user_id", "source", "source_instance", "source_event_key", name="uq_observations_source_key"),
+        UniqueConstraint("id", "user_id", name="uq_observations_id_user"),
+        ForeignKeyConstraint(["context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             name="fk_observations_context"),
+        ForeignKeyConstraint(["caused_by_id", "user_id"], ["observations.id", "observations.user_id"],
+                             ondelete="SET NULL (caused_by_id)", name="fk_observations_caused_by"),
+        ForeignKeyConstraint(["outcome_of_id", "user_id"], ["observations.id", "observations.user_id"],
+                             ondelete="SET NULL (outcome_of_id)", name="fk_observations_outcome_of"),
+        Index("ix_observations_user_received", "user_id", sa_text("received_at DESC"), sa_text("id DESC")),
+        Index("ix_observations_context_received", "context_id", sa_text("received_at DESC"), sa_text("id DESC"),
+              postgresql_where=sa_text("context_id IS NOT NULL")),
+        Index("ix_observations_message", "message_id", postgresql_where=sa_text("message_id IS NOT NULL")),
+        Index("ix_observations_delivery", "delivery_id", postgresql_where=sa_text("delivery_id IS NOT NULL")),
+        Index("ix_observations_experience", "experience_id", postgresql_where=sa_text("experience_id IS NOT NULL")),
+        Index("ix_observations_session", "session_id", postgresql_where=sa_text("session_id IS NOT NULL")),
+        Index("ix_observations_caused_by", "caused_by_id", postgresql_where=sa_text("caused_by_id IS NOT NULL")),
+        Index("ix_observations_outcome_of", "outcome_of_id", postgresql_where=sa_text("outcome_of_id IS NOT NULL")),
+    )
+
+
+class ObservationProcessing(Base):
+    """Whether one consumer has dealt with one observation: durable per row, so an observation that
+    commits late (a lower id after higher ones were processed) is still processed. Only ``memory`` today."""
+
+    __tablename__ = "observation_processing"
+
+    observation_id: Mapped[int] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), primary_key=True)
+    consumer: Mapped[str] = mapped_column(String(16), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    rule_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(OBSERVATION_PROCESSING_STATUSES)})", name="ck_observation_processing_status"),
+        CheckConstraint("attempts >= 0", name="ck_observation_processing_attempts"),
+        CheckConstraint("(status IN ('applied', 'skipped', 'failed')) = (processed_at IS NOT NULL)",
+                        name="ck_observation_processing_done"),
+        ForeignKeyConstraint(["observation_id", "user_id"], ["observations.id", "observations.user_id"],
+                             ondelete="CASCADE", name="fk_observation_processing_observation"),
+        Index("ix_observation_processing_due", "consumer", "next_attempt_at", "observation_id",
+              postgresql_where=sa_text("status IN ('pending', 'retry')")),
+        Index("ix_observation_processing_user", "user_id", "consumer", "status"),
+    )
+
+
+class ObservationBinding(Base):
+    """The context an observation was bound to after the fact (e.g. a user message, once her reply showed
+    which context it was about). Kept apart so the observation itself never changes."""
+
+    __tablename__ = "observation_bindings"
+
+    observation_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    context_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # How it was bound: focus_at_reply, focus_at_message, source_context_at_time.
+    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(["observation_id", "user_id"], ["observations.id", "observations.user_id"],
+                             ondelete="CASCADE", name="fk_observation_bindings_observation"),
+        ForeignKeyConstraint(["context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
+                             name="fk_observation_bindings_context"),
+        Index("ix_observation_bindings_context", "context_id"),
+    )
+
+
+class ObservationSource(Base):
+    """A source's health and progress, per user and instance (a conversation, a game session): mutable,
+    unlike its observations. Availability, freshness and meaningful change are kept apart: silence in a
+    conversation says nothing about whether the user is there."""
+
+    __tablename__ = "observation_sources"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_instance: Mapped[str] = mapped_column(String(160), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=sa_text("true"))
+    availability: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown", server_default="unknown")
+    last_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_change_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Adapter-specific durable ingestion progress (e.g. {"sequence": 41} for a conversation).
+    position: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    last_decision: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict,
+                                                server_default=sa_text("'{}'::jsonb"))
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"availability IN ({_in(OBSERVATION_AVAILABILITY)})", name="ck_observation_sources_availability"),
+        CheckConstraint("revision >= 1", name="ck_observation_sources_revision"),
+    )
+
+
+class ObservationAdapter(Base):
+    """An adapter's own run state, for all users: when capture began (nothing older is imported), its last
+    run and decision."""
+
+    __tablename__ = "observation_adapters"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_decision: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict,
+                                                server_default=sa_text("'{}'::jsonb"))
+
+
+# An observation is immutable: the only change allowed is clearing a reference whose target went away
+# (a context removed by a reset, an expired causal link, a deleted game session).
+OBSERVATION_IMMUTABLE_DDL = """
+CREATE OR REPLACE FUNCTION observations_immutable() RETURNS trigger AS $$
+BEGIN
+    IF (NEW.context_id IS DISTINCT FROM OLD.context_id AND NEW.context_id IS NOT NULL)
+       OR (NEW.caused_by_id IS DISTINCT FROM OLD.caused_by_id AND NEW.caused_by_id IS NOT NULL)
+       OR (NEW.outcome_of_id IS DISTINCT FROM OLD.outcome_of_id AND NEW.outcome_of_id IS NOT NULL)
+       OR (NEW.session_id IS DISTINCT FROM OLD.session_id AND NEW.session_id IS NOT NULL)
+       OR (to_jsonb(NEW) - ARRAY['context_id', 'caused_by_id', 'outcome_of_id', 'session_id'])
+          IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['context_id', 'caused_by_id', 'outcome_of_id', 'session_id']) THEN
+        RAISE EXCEPTION 'observations are immutable' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER observations_immutable BEFORE UPDATE ON observations
+    FOR EACH ROW EXECUTE FUNCTION observations_immutable();
+"""
+
+event.listen(Observation.__table__, "after_create", DDL(OBSERVATION_IMMUTABLE_DDL).execute_if(dialect="postgresql"))
+
+# Parents: a working item's parent is a goal, and no chain of parents (items or contexts) loops back.
+# The composite keys already keep a parent in the same context (items) or user (contexts).
+WORKING_MEMORY_PARENT_DDL = """
+CREATE OR REPLACE FUNCTION working_items_parent_check() RETURNS trigger AS $$
+DECLARE
+    walker uuid;
+    steps integer := 0;
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.kind IS DISTINCT FROM OLD.kind
+       AND EXISTS (SELECT 1 FROM working_items WHERE parent_id = NEW.id) THEN
+        RAISE EXCEPTION 'working_items: a goal with sub-goals keeps its kind' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.parent_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    IF (SELECT kind FROM working_items WHERE id = NEW.parent_id) IS DISTINCT FROM 'goal' THEN
+        RAISE EXCEPTION 'working_items: a parent must be a goal' USING ERRCODE = 'check_violation';
+    END IF;
+    walker := NEW.parent_id;
+    WHILE walker IS NOT NULL LOOP
+        IF walker = NEW.id OR steps > 64 THEN
+            RAISE EXCEPTION 'working_items: parents may not loop' USING ERRCODE = 'check_violation';
+        END IF;
+        steps := steps + 1;
+        SELECT parent_id INTO walker FROM working_items WHERE id = walker;
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER working_items_parent_check BEFORE INSERT OR UPDATE OF parent_id, kind, context_id ON working_items
+    FOR EACH ROW EXECUTE FUNCTION working_items_parent_check();
+"""
+
+MEMORY_CONTEXT_PARENT_DDL = """
+CREATE OR REPLACE FUNCTION memory_contexts_parent_check() RETURNS trigger AS $$
+DECLARE
+    walker uuid;
+    steps integer := 0;
+BEGIN
+    walker := NEW.parent_id;
+    WHILE walker IS NOT NULL LOOP
+        IF walker = NEW.id OR steps > 64 THEN
+            RAISE EXCEPTION 'memory_contexts: parents may not loop' USING ERRCODE = 'check_violation';
+        END IF;
+        steps := steps + 1;
+        SELECT parent_id INTO walker FROM memory_contexts WHERE id = walker;
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER memory_contexts_parent_check BEFORE INSERT OR UPDATE OF parent_id ON memory_contexts
+    FOR EACH ROW EXECUTE FUNCTION memory_contexts_parent_check();
+"""
+
+event.listen(WorkingItem.__table__, "after_create", DDL(WORKING_MEMORY_PARENT_DDL).execute_if(dialect="postgresql"))
+event.listen(MemoryContext.__table__, "after_create", DDL(MEMORY_CONTEXT_PARENT_DDL).execute_if(dialect="postgresql"))
+
+
+# --------------------------------------------------------------------------- #
+# Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what a reply was given, and what it used
+# --------------------------------------------------------------------------- #
+
+RECALL_RELATIONS = ("supplied", "referenced")
+RECALL_ASSOCIATION_STATUSES = ("none", "pending", "done", "ambiguous", "failed", "skipped")
+RECALL_EMBEDDING_STATUSES = ("pending", "done", "failed")
+
+
+class RecallReceipt(Base):
+    """What one reply was given from memory: the search outcome and coverage, and counts that outlive the
+    memories themselves. No memory text: a deleted memory leaves only the count behind."""
+
+    __tablename__ = "recall_receipts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assistant_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False, unique=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    coverage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    counts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    association_status: Mapped[str] = mapped_column(String(16), nullable=False, default="none",
+                                                    server_default="none")
+    association_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('not_searched', 'matched', 'no_match', 'partial', 'failed')",
+                        name="ck_recall_receipts_status"),
+        CheckConstraint(f"association_status IN ({_in(RECALL_ASSOCIATION_STATUSES)})",
+                        name="ck_recall_receipts_association"),
+        UniqueConstraint("id", "user_id", name="uq_recall_receipts_id_user"),
+        Index("ix_recall_receipts_conversation", "conversation_id", "created_at"),
+        Index("ix_recall_receipts_user", "user_id", "created_at"),
+    )
+
+
+class RecallReference(Base):
+    """One memory a reply was given (``supplied``) or that a span of the delivered answer is about
+    (``referenced``, an association hypothesis, not proof the sentence is true). Exactly one target, a
+    real foreign key with the same owner: deleting the memory deletes the row."""
+
+    __tablename__ = "recall_references"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    receipt_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    relation: Mapped[str] = mapped_column(String(16), nullable=False)
+    fact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    span_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    span_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    method: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"relation IN ({_in(RECALL_RELATIONS)})", name="ck_recall_references_relation"),
+        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id) = 1", name="ck_recall_references_target"),
+        CheckConstraint("(span_start IS NULL) = (span_end IS NULL) AND (span_start IS NULL OR "
+                        "(span_start >= 0 AND span_end > span_start))", name="ck_recall_references_span"),
+        CheckConstraint("relation = 'referenced' OR span_start IS NULL", name="ck_recall_references_supplied_span"),
+        ForeignKeyConstraint(["receipt_id", "user_id"], ["recall_receipts.id", "recall_receipts.user_id"],
+                             ondelete="CASCADE", name="fk_recall_references_receipt"),
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_references_fact"),
+        ForeignKeyConstraint(["episode_id", "user_id"], ["episodic_memories.id", "episodic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_references_episode"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="CASCADE", name="fk_recall_references_event"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_recall_references_item"),
+        Index("uq_recall_references_supplied", "receipt_id", "fact_id", "episode_id", "event_id", "item_id",
+              unique=True, postgresql_where=sa_text("relation = 'supplied'"), postgresql_nulls_not_distinct=True),
+        Index("ix_recall_references_receipt", "receipt_id"),
+        Index("ix_recall_references_event", "event_id", postgresql_where=sa_text("event_id IS NOT NULL")),
+        Index("ix_recall_references_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
+        Index("ix_recall_references_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
+        Index("ix_recall_references_episode", "episode_id", postgresql_where=sa_text("episode_id IS NOT NULL")),
+    )
+
+
+class MemoryEventEmbedding(Base):
+    """A memory event's embedding, written in the background so writing an event stays code-only. Recall
+    works without it (context, words, time); a result whose fingerprint no longer matches is discarded."""
+
+    __tablename__ = "memory_event_embeddings"
+
+    event_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    text_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    vector: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(RECALL_EMBEDDING_STATUSES)})", name="ck_memory_event_embeddings_status"),
+        CheckConstraint("(status = 'done') = (vector IS NOT NULL)", name="ck_memory_event_embeddings_vector"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="CASCADE", name="fk_memory_event_embeddings_event"),
+        Index("ix_memory_event_embeddings_due", "status", "next_attempt_at"),
+    )
+
+
+# A receipt belongs to the user whose conversation the reply is in.
+RECALL_RECEIPT_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION recall_receipts_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+                   WHERE m.id = NEW.assistant_message_id AND c.id = NEW.conversation_id
+                         AND c.user_id = NEW.user_id) THEN
+        RAISE EXCEPTION 'a recall receipt must belong to the reply''s owner' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER recall_receipts_owner_check BEFORE INSERT OR UPDATE ON recall_receipts
+    FOR EACH ROW EXECUTE FUNCTION recall_receipts_owner_check();
+"""
+
+event.listen(RecallReceipt.__table__, "after_create", DDL(RECALL_RECEIPT_OWNER_DDL).execute_if(dialect="postgresql"))
+
+
+# --------------------------------------------------------------------------- #
+# Corrections (docs/COLUMBINA_MEMORY_CORRECTIONS.md): the user correcting something said or recorded earlier
+# --------------------------------------------------------------------------- #
+
+MEMORY_CORRECTION_KINDS = ("changed", "mistaken", "unspecified")
+MEMORY_CORRECTION_STATUSES = ("pending", "processing", "applied", "failed")
+
+
+class MemoryCorrection(Base):
+    """One explicit correction by the user, as semantic consolidation read it from their message: what it's
+    about, what was said or recorded before (when known), what holds now, and whether the thing changed
+    or the earlier statement was a mistake. Written in the same transaction as the consolidated facts, then
+    applied by the memory manager to the current memories it affects (``result`` says which and how). The
+    queue and the structured record behind the ``corrected`` memory event; deleting the message deletes it."""
+
+    __tablename__ = "memory_corrections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    memory_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    attribute: Mapped[str | None] = mapped_column(Text, nullable=True)
+    previous_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_words: Mapped[str] = mapped_column(Text, nullable=False)
+    # When the user said it (their message's time): corrections apply in this order.
+    said_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_in(MEMORY_CORRECTION_KINDS)})", name="ck_memory_corrections_kind"),
+        CheckConstraint(f"status IN ({_in(MEMORY_CORRECTION_STATUSES)})", name="ck_memory_corrections_status"),
+        CheckConstraint("btrim(subject) <> '' AND btrim(new_value) <> '' AND btrim(user_words) <> ''",
+                        name="ck_memory_corrections_text"),
+        CheckConstraint("(status = 'applied') = (applied_at IS NOT NULL)", name="ck_memory_corrections_applied"),
+        UniqueConstraint("user_id", "source_message_id", "fingerprint", name="uq_memory_corrections_once"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="SET NULL (event_id)", name="fk_memory_corrections_event"),
+        Index("ix_memory_corrections_due", "status", "next_attempt_at"),
+        Index("ix_memory_corrections_user", "user_id", "said_at"),
+        Index("ix_memory_corrections_message", "source_message_id"),
+    )
+
+
+MEMORY_CORRECTION_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION memory_corrections_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+                   WHERE m.id = NEW.source_message_id AND c.user_id = NEW.user_id AND m.role = 'user') THEN
+        RAISE EXCEPTION 'a correction must come from its owner''s own message' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER memory_corrections_owner_check BEFORE INSERT OR UPDATE OF source_message_id, user_id
+    ON memory_corrections FOR EACH ROW EXECUTE FUNCTION memory_corrections_owner_check();
+"""
+
+event.listen(MemoryCorrection.__table__, "after_create",
+             DDL(MEMORY_CORRECTION_OWNER_DDL).execute_if(dialect="postgresql"))

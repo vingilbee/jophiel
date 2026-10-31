@@ -133,11 +133,12 @@ from app.services import asset_store, google_account, image_store, salience
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
-from app.services import agent_say
+from app.services import agent_say, memory_manager
 from app.services import cognitive_live, cognitive_shadow, inner_state_live
 from app.services import desktop_game
 from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
+from app.services import recall_references
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -976,9 +977,16 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         # Retrieval may make one embedding API call. Keep that blocking client
         # off the WebSocket event loop, and fail open inside the service.
-        long_term_memory = await asyncio.to_thread(
-            memory_service.retrieve_for_prompt, user_id, content
-        )
+        recall_turn = None
+        if recall_references.enabled():
+            # Shared recall (never raises; a failure is a "failed" result she's told about).
+            recall_turn = await asyncio.to_thread(
+                recall_references.for_reply, user_id, resolved_id, user_message.id, content, state.zone_name)
+            long_term_memory = recall_turn.legacy
+        else:
+            long_term_memory = await asyncio.to_thread(
+                memory_service.retrieve_for_prompt, user_id, content
+            )
         # Simple cognition, live: None (nothing changes) unless enabled in settings.
         live = (await asyncio.to_thread(
             cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
@@ -1001,6 +1009,11 @@ async def chat_ws(websocket: WebSocket) -> None:
             typed_memory=live.typed_memory if live else None,
             cognitive_reading=live.reading if live else None,
             conversation_notes=live.notes if live else None,
+            working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
+            recall=recall_turn.rendered if recall_turn is not None else None,
+            recall_turn=recall_turn,
+            memory_tools=memory_manager.enabled(),
+            source_message_id=user_message.id if memory_manager.enabled() else None,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
             **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
@@ -1109,6 +1122,9 @@ async def chat_ws(websocket: WebSocket) -> None:
                         status=outcome_status,
                         commit=False,
                     )
+                    receipt_id = recall_references.save_receipt(
+                        db, recall_turn, assistant_message_id=assistant_message_id,
+                        conversation_id=resolved_id, reply=reply)
                     # The same scheduling service as the chat worker, in the
                     # transaction that commits the terminal outcome.
                     dialogue_scheduled = dialogue_memory.schedule_update(
@@ -1116,6 +1132,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         trigger_message_id=assistant_message_id,
                     )
                     db.commit()
+                    recall_references.start_association(receipt_id)
                     # A stopped reply is partial model output, not a completed
                     # interaction, so only consolidate finished turns.
                     if not stopped:
@@ -1206,7 +1223,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                 user_message_id=user_message.id,
                 payload={"content": transcript, "image_ids": [], "asset_ids": [],
                          "voice": True, "spoke_at": spoke_at, "awareness": state.describe(),
-                         "vision_enabled": state.senses.vision_enabled,
+                         "zone": state.zone_name, "vision_enabled": state.senses.vision_enabled,
                          "screen_image_id": state.senses.screen_image_id},
             )
             voice_latency.mark("job_enqueued", turn_id, source="api")
@@ -1705,7 +1722,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                             "content": message.content, "image_ids": attached,
                             "asset_ids": attached_assets, "voice": False,
                             "spoke_at": time.time(), "awareness": state.describe(),
-                            "vision_enabled": state.senses.vision_enabled,
+                            "zone": state.zone_name, "vision_enabled": state.senses.vision_enabled,
                             "screen_image_id": state.senses.screen_image_id,
                         },
                     )
