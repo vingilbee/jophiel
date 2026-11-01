@@ -193,7 +193,7 @@ def pipeline(monkeypatch, tmp_path, database):
     monkeypatch.setattr(student_two, "manifest", lambda: {"name": "test-student", "system": "sys", "rendering": None})
     real_decide = student_two.decide
     answer = {"text": "not json at all"}
-    monkeypatch.setattr(student_two, "decide", lambda live: real_decide(live, ask=lambda m, t: answer["text"]))
+    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=lambda m, t: answer["text"]))
     monkeypatch.setattr(student_two, "log", lambda *a, **k: None)
     return SimpleNamespace(seen=seen, answer=answer)
 

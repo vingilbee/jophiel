@@ -8,13 +8,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_owner
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.mind import InnerStateOut, ThoughtOut
 from app.services import inner_state_live, mind
 
-router = APIRouter(prefix="/mind", tags=["mind"])
+# The owner only (deps.require_owner): her insides are not for other users.
+router = APIRouter(prefix="/mind", tags=["mind"], dependencies=[Depends(require_owner)])
 
 
 @router.get("/thoughts", response_model=list[ThoughtOut])

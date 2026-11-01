@@ -327,6 +327,25 @@ def apply_delivery_status(
     if status in {"delivered", "read", "failed"}:
         from app.services import background_wake
         background_wake.mark(db)
+    _settled(db, delivery, status, error)
+
+
+def _settled(db: Session, delivery: MessageDelivery, status: str, error: str | None) -> None:
+    """The channel's settlement of one part, for the learning capture (after the caller commits, it's queued
+    already: a status the caller then rolls back can still appear; the provider said it)."""
+    from app.services import learning_capture
+
+    try:
+        user_id = db.scalar(select(Conversation.user_id).join(
+            ChatMessage, ChatMessage.conversation_id == Conversation.id).where(
+            ChatMessage.id == delivery.assistant_message_id))
+        if user_id is not None:
+            learning_capture.channel_delivery(user_id=user_id, delivery_id=delivery.id,
+                                              assistant_message_id=delivery.assistant_message_id,
+                                              channel=delivery.channel, part_index=delivery.part_index,
+                                              status=status, error=error)
+    except Exception:  # noqa: BLE001 - capture never fails a delivery
+        logger.exception("whatsapp: recording a settlement failed")
 
 
 def dispatch_due_batch(db: Session) -> ChatJob | None:

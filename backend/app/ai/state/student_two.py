@@ -128,6 +128,9 @@ class Live:
     earlier_thoughts: tuple[Thought, ...] = ()
     activity: Activity | None = None
     memory: Memory | None = None  # the check for the new message; None: not checked
+    # What the snapshot was read from ("message:<id>", "item:<id>", "fact:<id>", ...): never rendered; the learning
+    # capture keeps it so a forgotten or corrected source finds the copies made from it.
+    sources: tuple[str, ...] = ()
 
 
 @dataclass

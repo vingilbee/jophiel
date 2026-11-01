@@ -47,7 +47,7 @@ export default function App() {
       <Route
         path="/learning"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute ownerOnly>
             <LearningPage />
           </ProtectedRoute>
         }

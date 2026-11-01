@@ -156,20 +156,49 @@ class LivePrep:
 
 def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID, history: list[dict[str, Any]], message: str,
             long_term_memory: str | None, now: datetime | None = None,
-            memory_searched: bool = True) -> LivePrep | None:
+            memory_searched: bool = True, capture=None, student_version: str | None = None) -> LivePrep | None:
     """``memory_searched=False``: ``long_term_memory`` is only what was already in hand, not a search for
-    this message (the shared-state pipeline)."""
+    this message (the shared-state pipeline). ``capture``: a ``learning_capture.Ctx``; Student 1 then records
+    its attempt (the exact bundle it read, and its reading or its failure)."""
     try:
         return _prepare(user_id=user_id, conversation_id=conversation_id, history=history, message=message,
                         long_term_memory=long_term_memory, now=now or datetime.now(),
-                        memory_searched=memory_searched)
+                        memory_searched=memory_searched, capture=capture, student_version=student_version)
     except Exception:
         logger.exception('cognitive_live.prepare failed; continuing without it')
         return None
 
 
+def _capture(capture, *, bundle: Bundle | None, model_dir: str, version: str | None, reading: dict | None,
+             error: str | None, started: datetime) -> None:
+    """Student 1's attempt: the bundle exactly as it was given, its soft outputs as produced."""
+    if capture is None:
+        return
+    try:
+        _record(capture, bundle=bundle, model_dir=model_dir, version=version, reading=reading, error=error,
+                started=started)
+    except Exception:  # capture never fails her reading
+        logger.exception('cognitive_live: capturing Student 1 failed')
+
+
+def _record(capture, *, bundle, model_dir, version, reading, error, started) -> None:
+    from app.ai.Cognitive.simple.contracts import SCHEMA_VERSION
+    from app.services import learning_capture
+
+    output = None if reading is None else dict(
+        acts=reading['acts'], tone=reading['tone'], request=reading['request'], understand=reading['understand'],
+        experimental=reading['experimental'])
+    learning_capture.attempt(
+        capture, learner='student_1', provider='local', model=version or Path(model_dir).name,
+        input={'bundle': bundle.to_dict() if bundle is not None else None},
+        output=output, status='ok' if reading is not None else 'error', error=error, started_at=started,
+        produced_at=datetime.now(timezone.utc), versions={'schema': SCHEMA_VERSION, 'student': version},
+        settings={'model_dir': model_dir, 'device': 'cpu'},
+        absent=learning_capture.NOT_CAPTURED + (() if bundle is not None else ('input',)))
+
+
 def _prepare(*, user_id, conversation_id, history, message, long_term_memory, now,
-             memory_searched=True) -> LivePrep:
+             memory_searched=True, capture=None, student_version=None) -> LivePrep:
     s = get_settings()
     prep = LivePrep(character_page=character_page(),
                     typed_memory=typed_memory_text(long_term_memory, searched=memory_searched))
@@ -192,7 +221,16 @@ def _prepare(*, user_id, conversation_id, history, message, long_term_memory, no
                                   first_user_turn=not any(h['role'] == 'user' for h in earlier)),
                     mood=dict(START_MOODS['calm']), affinity=0.0, time_of_day=_time_of_day(now.hour), previous=None)
     started = time.monotonic()
-    reading = read(bundle, s.cognitive_live_student_dir or str(DEFAULT_STUDENT_DIR))
+    started_at = datetime.now(timezone.utc)
+    model_dir = s.cognitive_live_student_dir or str(DEFAULT_STUDENT_DIR)
+    try:
+        reading = read(bundle, model_dir)
+    except Exception as exc:
+        _capture(capture, bundle=bundle, model_dir=model_dir, version=student_version, reading=None,
+                 error=f'{type(exc).__name__}: {exc}'[:300], started=started_at)
+        raise
+    _capture(capture, bundle=bundle, model_dir=model_dir, version=student_version, reading=reading, error=None,
+             started=started_at)
     previous_reply = next((h['content'] for h in reversed(earlier) if h['role'] == 'assistant'), None)
     book.apply_message(turn=turn, message=message, understand=reading['understand'], previous_reply=previous_reply)
     prep.interpretation = dict(acts=reading['acts'], tone=reading['tone'], request=reading['request'],

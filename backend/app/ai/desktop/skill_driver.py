@@ -363,6 +363,9 @@ class SkillDriverDeps:
     learned_used: Callable[[uuid.UUID, str, str, str | None], str | None] | None = None
     # How the lesson that last held her hands ended: {task, status, result}, or None.
     lesson_result: Callable[[uuid.UUID], dict | None] | None = None
+    # The learning capture (services/learning_capture.py, wired by workers/desktop.py): capture("attempt", ...)
+    # records one decision exactly as asked and answered; capture("execution", ...) what the skill actually did.
+    capture: Callable[..., None] | None = None
     now: Callable[[], float] = time.time
     sleep: Callable[[float], None] = time.sleep
 
@@ -405,6 +408,7 @@ class SkillDriverRun:
     learned: dict[str, dict] = field(default_factory=dict)  # name -> her learned move (H2)
     _schema: dict | None = None
     _system: str | None = None
+    _lesson_refs: list[dict] = field(default_factory=list)
 
     def step(self) -> bool:
         deps = self.deps
@@ -477,6 +481,8 @@ class SkillDriverRun:
         messages = deps.messages(self.session_id) if deps.messages else []
         text = self.prompt_text(view, current, state, messages)
         asked_at = deps.now()
+        attempt_id = uuid.uuid4()  # before the call: what it decides carries this id to its execution
+        reply = None
         try:
             reply = deps.model.step(self._system, text, [], self._schema)
             action = to_action(reply.output, self.manifest)
@@ -484,6 +490,8 @@ class SkillDriverRun:
             if status not in STATUSES:
                 raise ValueError(f"bad status {status!r}")
         except (DriverModelError, ValueError) as exc:
+            self._capture_attempt(attempt_id, view, current, text, reply, asked_at,
+                                  status="unavailable" if reply is None else "invalid", error=str(exc)[:300])
             self.errors += 1
             deps.metric({"session": str(self.session_id), "event": "skill_model_error", "error": str(exc)[:200]})
             if self.errors >= MAX_MODEL_ERRORS:
@@ -492,18 +500,22 @@ class SkillDriverRun:
                 return False
             return True
         self.errors = 0
+        self._capture_attempt(attempt_id, view, current, text, reply, asked_at, status="ok", action=action)
 
         # The world may have moved on while the model thought.
         after = deps.view(self.session_id)
         if (after is None or not after.playing or after.execution_generation != view.execution_generation
                 or after.plan_revision != view.plan_revision):
             deps.metric({"session": str(self.session_id), "event": "discarded", "why": "session_changed"})
+            self._not_executed(attempt_id, action, "discarded: the session changed while it was deciding")
             return True
         if deps.messages and [m["id"] for m in deps.messages(self.session_id)] != [m["id"] for m in messages]:
             deps.metric({"session": str(self.session_id), "event": "discarded", "why": "message_arrived"})
+            self._not_executed(attempt_id, action, "discarded: a message arrived while it was deciding")
             return True
         if self._learning():
             deps.metric({"session": str(self.session_id), "event": "discarded", "why": "learning"})
+            self._not_executed(attempt_id, action, "discarded: a lesson took her hands")
             return True
 
         self.decisions += 1
@@ -529,11 +541,16 @@ class SkillDriverRun:
             deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
                           status=status, note=self.note)
         if status in ("stuck", "needs_human"):
+            self._not_executed(attempt_id, action, f"not started: the step was reported {status}")
             self._save()
             return False
         if self.running is not None and self.running.get("carried"):
             if action is not None and same_action(self.running, *action):
                 # Still fits the new plan: it carries on without a break.
+                self._execution(attempt_id, action, "deviated", deviation=(
+                    "the same skill was already running from an earlier decision and carried on"),
+                    executed={"carried_run": self.running.get("id"),
+                              "from_attempt": self.running.get("attempt_id")})
                 self.running = {key: value for key, value in self.running.items() if key != "carried"} | {
                     "plan_revision": view.plan_revision, "generation": view.execution_generation,
                     "step_id": current["id"]}
@@ -542,7 +559,7 @@ class SkillDriverRun:
                 self._stop_running("the plan changed")
         if action is not None:
             self.run_before = step_check.baseline(state)
-            self._start(view, current, *action)
+            self._start(view, current, *action, attempt_id=attempt_id)
         if self.decisions >= self.max_decisions:
             deps.pause(self.session_id, "budget")
             self._save()
@@ -560,41 +577,48 @@ class SkillDriverRun:
 
     # -- running a skill --------------------------------------------------------
 
-    def _start(self, view: DriverView, current: dict, skill: str, params: dict) -> None:
+    def _start(self, view: DriverView, current: dict, skill: str, params: dict,
+               attempt_id: uuid.UUID | None = None) -> None:
         deps = self.deps
         if skill == WAIT_SKILL:
             seconds = max(1.0, min(MAX_WAIT_SECONDS, float(params.get("seconds", 5))))
             self.waiting_until = deps.now() + seconds
-            self._outcome({"skill": WAIT_SKILL, "params": {"seconds": seconds}, "status": "done", "reason": None})
+            self._outcome({"skill": WAIT_SKILL, "params": {"seconds": seconds}, "status": "done", "reason": None},
+                          attempt_id=attempt_id, started=deps.now())
             return
         try:
             if game_skills.is_learned(skill):
-                return self._start_learned(view, current, skill, params)
+                return self._start_learned(view, current, skill, params, attempt_id=attempt_id)
             record = deps.pack.run(skill, params, source="driver")
         except PackError as exc:
             if exc.status == 409:
                 deps.pack.stop()  # something else was running (a hand-run skill): ours goes next time
+                self._not_executed(attempt_id, (skill, params), "not started: another skill was running")
                 return
             if exc.status == 400:
                 self.refused += 1
                 self._outcome({"skill": skill, "params": params, "status": "refused", "reason": str(exc)},
-                              step_id=current["id"])
+                              step_id=current["id"], attempt_id=attempt_id, started=deps.now())
                 if self.refused >= MAX_REFUSED:
                     deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
                                   status="stuck", note=f"{MAX_REFUSED} decisions in a row refused: {exc}")
                 return
+            self._execution(attempt_id, (skill, params), "unknown", deviation=f"the pack failed to start it: {exc}"[:300])
             raise
         self.refused = 0
         self.running = {"id": record["id"], "skill": skill, "params": record.get("params", params),
                         "plan_revision": view.plan_revision, "generation": view.execution_generation,
-                        "started": deps.now(), "step_id": current["id"]}
+                        "started": deps.now(), "step_id": current["id"], "attempt_id": attempt_id}
+        self._execution(attempt_id, (skill, params), "unknown", executed={"run_id": record["id"],
+                        "params": record.get("params", params)}, started=self.running["started"], settle=True)
 
-    def _start_learned(self, view: DriverView, current: dict, skill: str, params: dict) -> None:
+    def _start_learned(self, view: DriverView, current: dict, skill: str, params: dict,
+                       attempt_id: uuid.UUID | None = None) -> None:
         """A move she taught herself: its program, ``times`` times, in the pack's sandbox."""
         move = self.learned.get(skill)
         if move is None:
             self._outcome({"skill": skill, "params": params, "status": "refused", "reason": "no such move"},
-                          step_id=current["id"])
+                          step_id=current["id"], attempt_id=attempt_id, started=self.deps.now())
             return
         params = {"times": 1, **params}
         record = self.deps.pack.start_program(game_skills.program(move["code"], params["times"]),
@@ -602,7 +626,9 @@ class SkillDriverRun:
         self.refused = 0
         self.running = {"id": record["id"], "skill": skill, "params": params, "program": True,
                         "plan_revision": view.plan_revision, "generation": view.execution_generation,
-                        "started": self.deps.now(), "step_id": current["id"]}
+                        "started": self.deps.now(), "step_id": current["id"], "attempt_id": attempt_id}
+        self._execution(attempt_id, (skill, params), "unknown", executed={"program_id": record["id"]},
+                        started=self.running["started"], settle=True)
 
     def _watch_running(self, view: DriverView) -> bool | None:
         """True/False as ``step`` returns; None: the plan changed, so decide under the new one
@@ -656,7 +682,8 @@ class SkillDriverRun:
             if changed:  # switched off, or a different program: her skill list is read again
                 record = {**record, "reason": f"{record.get('reason') or record['status']} ({changed})"}
                 self.manifest = None
-        self._outcome(record, step_id=running.get("step_id"))
+        self._outcome(record, step_id=running.get("step_id"), attempt_id=running.get("attempt_id"),
+                      started=running.get("started"))
         if self.deps.notice and record.get("status") == "done" and running["skill"] == "fight" \
                 and (record.get("data") or {}).get("killed"):
             self.deps.notice(self.session_id, "notable", f"killed {record['data']['killed']} "
@@ -703,14 +730,32 @@ class SkillDriverRun:
             record = self.deps.pack.stop() or {}
             if self.running.get("program"):  # stop ends her program too
                 self._outcome({"skill": self.running["skill"], "params": self.running["params"],
-                               "status": "stopped", "reason": why}, step_id=self.running.get("step_id"))
+                               "status": "stopped", "reason": why}, step_id=self.running.get("step_id"),
+                              attempt_id=self.running.get("attempt_id"), started=self.running.get("started"))
             elif record.get("id") == self.running["id"]:
-                self._outcome({**record, "status": "stopped", "reason": why}, step_id=self.running.get("step_id"))
+                self._outcome({**record, "status": "stopped", "reason": why}, step_id=self.running.get("step_id"),
+                              attempt_id=self.running.get("attempt_id"), started=self.running.get("started"))
+            else:  # it ended some other way we didn't see: the result stays unknown, said as such
+                self._execution(self.running.get("attempt_id"), (self.running["skill"], self.running["params"]),
+                                "unknown", deviation=f"stopped ({why}) after it had already ended; result not seen",
+                                started=self.running.get("started"), ended=self.deps.now(), settle=True)
         except PackError:
-            pass
+            self._execution(self.running.get("attempt_id"), (self.running["skill"], self.running["params"]),
+                            "unknown", deviation=f"stopping it ({why}) failed: the pack didn't answer",
+                            started=self.running.get("started"), ended=self.deps.now(), settle=True)
         self.running = None
 
-    def _outcome(self, record: dict, step_id: str | None = None) -> None:
+    def _outcome(self, record: dict, step_id: str | None = None, attempt_id: uuid.UUID | None = None,
+                 started: float | None = None) -> None:
+        if attempt_id is not None:
+            status = record.get("status")
+            result = ("succeeded" if status == "done" else "cancelled" if status == "stopped"
+                      else "failed" if status in FAILED or status == "error" else "unknown")
+            self._execution(attempt_id, (record.get("skill"), record.get("params") or {}), result, executed={
+                "status": status, "reason": record.get("reason"), "data": record.get("data") or {},
+                "seconds": record.get("seconds"), "run_id": record.get("id")},
+                deviation=None if result == "succeeded" else f"{status}: {record.get('reason') or ''}".strip()[:300],
+                started=started, ended=self.deps.now(), settle=True)
         self.outcomes = (self.outcomes + [{
             "skill": record.get("skill"), "params": {k: v for k, v in (record.get("params") or {}).items()
                                                      if k != "time_limit"},
@@ -723,7 +768,7 @@ class SkillDriverRun:
             self._experience("skill_outcome", {
                 "skill": outcome["skill"], "params": outcome["params"], "status": outcome["status"],
                 "reason": outcome["reason"], "data": outcome["data"], "seconds": outcome["seconds"],
-                "step_id": step_id,
+                "step_id": step_id, **({"attempt_id": str(attempt_id)} if attempt_id else {}),
             })
             self._count_try(outcome, step_id)
 
@@ -856,6 +901,52 @@ class SkillDriverRun:
         lines.append(f"Current step id: {current['id']}. Choose the next action.")
         return "\n".join(lines)
 
+    # -- learning capture ---------------------------------------------------------
+
+    def _capture(self, kind: str, **record) -> None:
+        if self.deps.capture is None:
+            return
+        try:
+            self.deps.capture(kind, **record)
+        except Exception as exc:  # noqa: BLE001 - capture never stops play
+            self.deps.metric({"session": str(self.session_id), "event": "capture_error", "error": str(exc)[:200]})
+
+    def _capture_attempt(self, attempt_id: uuid.UUID, view: DriverView, current: dict, text: str, reply,
+                         asked_at: float, *, status: str, error: str | None = None, action=None) -> None:
+        """Her hands' decision as asked (system prompt, the step's text, the schema) and as answered."""
+        model = self.deps.model
+        self._capture(
+            "attempt", attempt_id=attempt_id, model=getattr(model, "model", None) or type(model).__name__,
+            input={"system": None, "schema": None, "text": text, "images": 0,
+                   "plan": {"revision": view.plan_revision, "generation": view.execution_generation,
+                            "step_id": current.get("id")}},
+            blobs={"system": self._system or "", "schema": json.dumps(self._schema or {}, sort_keys=True)},
+            output=None if reply is None else {"output": reply.output, "action": list(action) if action else None},
+            status=status, error=error, asked_at=asked_at, answered_at=self.deps.now() if reply else None,
+            settings={"reasoning_effort": getattr(model, "reasoning_effort", None),
+                      "image_detail": getattr(model, "image_detail", None)},
+            versions={"manifest": [m.get("name") for m in (self.manifest or [])]},
+            usage=None if reply is None else {"latency_ms": reply.latency_ms, "input_tokens": reply.input_tokens,
+                                              "output_tokens": reply.output_tokens,
+                                              "cached_tokens": reply.cached_tokens},
+            input_refs=[{"ref": f"learned_skill:{name}", "id": str(m.get("id")) if m.get("id") else None}
+                        for name, m in self.learned.items()] + list(self._lesson_refs))
+
+    def _execution(self, attempt_id: uuid.UUID | None, action, result: str, *, executed: dict | None = None,
+                   deviation: str | None = None, started: float | None = None, ended: float | None = None,
+                   settle: bool = False) -> None:
+        if attempt_id is None or action is None:
+            return
+        skill, params = action
+        self._capture("execution", attempt_id=attempt_id, result=result,
+                      intended={"skill": skill, "params": {k: v for k, v in (params or {}).items()}},
+                      executed=executed or {}, deviation=deviation, started=started,
+                      ended=ended if ended is not None else (self.deps.now() if result != "unknown" else None),
+                      settle=settle)
+
+    def _not_executed(self, attempt_id: uuid.UUID, action, why: str) -> None:
+        self._execution(attempt_id, action, "not_executed", deviation=why)
+
     # -- game learning ----------------------------------------------------------
 
     def _experience(self, kind: str, payload: dict) -> None:
@@ -879,7 +970,10 @@ class SkillDriverRun:
         if self.deps.lessons is None:
             return []
         try:
-            return self.deps.lessons(self.session_id)
+            lessons = self.deps.lessons(self.session_id)
+            self._lesson_refs = [{"ref": f"lesson:{lesson['id']}", "status": lesson.get("status"),
+                                  "revision": lesson.get("revision")} for lesson in lessons if lesson.get("id")]
+            return lessons
         except Exception as exc:  # noqa: BLE001
             self.deps.metric({"session": str(self.session_id), "event": "lessons_error", "error": str(exc)[:200]})
             return []

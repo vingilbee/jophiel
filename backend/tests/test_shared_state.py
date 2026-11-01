@@ -220,7 +220,7 @@ def stubs(monkeypatch, tmp_path):
         return calls["student"]["answer"]
 
     real_decide = student_two.decide
-    monkeypatch.setattr(student_two, "decide", lambda live: real_decide(live, ask=ask))
+    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=ask))
     monkeypatch.setattr(student_two, "apply", lambda db, outcome, **k: setattr(outcome, "effect", "nothing changed")
                         or "nothing changed")
     monkeypatch.setattr(student_two, "log", lambda *a, **k: None)

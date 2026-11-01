@@ -434,11 +434,14 @@ async def chat_ws(websocket: WebSocket) -> None:
     # Resolve the session cookie to a user before accepting the socket.
     user_id: uuid.UUID | None = None
     user_name: str | None = None
+    sees_thoughts = False
     db = SessionLocal()
     try:
         user = auth_service.get_user_for_token(db, token) if token else None
         if user is not None:
             user_id, user_name = user.id, user.name
+            # Her thoughts are her insides: shown only to the owner (deps.require_owner).
+            sees_thoughts = get_settings().is_owner(user.email)
     finally:
         db.close()
 
@@ -828,9 +831,10 @@ async def chat_ws(websocket: WebSocket) -> None:
                 except (TypeError, ValueError):
                     continue
                 if data.get("kind") == "thought":
-                    # Her mind (services/mind): shown in the thoughts panel, never spoken
-                    # and never a message, so it doesn't wait for a reply to finish.
-                    await send_json({"type": "thought", "thought": data.get("thought")})
+                    # Her mind (services/mind): shown in the thoughts panel (the owner's only), never
+                    # spoken and never a message, so it doesn't wait for a reply to finish.
+                    if sees_thoughts:
+                        await send_json({"type": "thought", "thought": data.get("thought")})
                     continue
                 message_id = data.get("message_id")
                 if message_id:

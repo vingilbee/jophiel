@@ -12,7 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_owner
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.memory import (
@@ -21,7 +21,8 @@ from app.schemas.memory import (
 )
 from app.services import memory_corrections, memory_dependencies, memory_manager, observation, recall_references
 
-router = APIRouter(prefix="/memory", tags=["memory"])
+# The owner only (deps.require_owner): her insides are not for other users.
+router = APIRouter(prefix="/memory", tags=["memory"], dependencies=[Depends(require_owner)])
 
 
 @router.get("/working", response_model=WorkingMemoryOut)

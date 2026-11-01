@@ -1,11 +1,17 @@
 # Columbina: learning-system design and implementation roadmap
 
-Status: **design only, revised 2026-10-30. No implementation is authorized by this document.**
+Status: **design only, revised 2026-11-01. No implementation is authorized by this document.**
 The user accepted the architectural direction below: three learning loops, evidence before learning products,
-multidimensional reward, attribution, and explicit prediction. Concrete schemas, algorithms, thresholds, and
-operational policies remain proposals for the next design discussion.
+multidimensional reward, attribution, and explicit prediction. Capture and ownership decisions were accepted on 2026-11-01 in
+[Capture and ownership](learning-system/01-capture-and-ownership.md), which is authoritative for that scope.
+Other concrete schemas, algorithms, thresholds, and operational policies remain proposals.
 
 Parent: [Memory and learning design](COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md).
+
+**Execution planning update, 2026-10-31:** This document remains the architectural reference.
+Use the [step-by-step plan index](learning-system/README.md) for the smaller planning units,
+their dependencies, and subsequent user decisions. Affinity and mood are excluded from V1.
+The split plans do not authorize implementation. Step 1 now records accepted capture decisions and was built on request on 2026-11-01 ([implementation](learning-system/01-implementation.md)); other listed open decisions remain unsettled.
 This revision replaces the earlier two-speed roadmap in this file. Existing game learning and memory capabilities
 are foundations to reuse; the general learning system described here is not implemented.
 
@@ -43,7 +49,7 @@ and automatic; it is not the only form of learning.
 
 ## 3. What exists and what needs connecting
 
-Implementation observations from the 2026-10-30 inspection; recheck paths and contracts before coding.
+Implementation observations from the 2026-10-30 inspection, with capture findings refreshed 2026-11-01; recheck paths and contracts before coding.
 
 | Existing piece | Relevant implementation | Proposed use or gap |
 | --- | --- | --- |
@@ -51,8 +57,8 @@ Implementation observations from the 2026-10-30 inspection; recheck paths and co
 | Game experience, reflection, and lessons | `backend/app/services/game_learning.py` | Generalize useful contracts; preserve game-specific outcome measurement |
 | Game practice and learned skills | `backend/app/services/game_practice.py`, `backend/app/ai/desktop/practice.py` | Reuse bounded attempts, counted results, critique, and skill evaluation |
 | Student 1 interpretation | `backend/app/ai/Cognitive/simple/live.py` | Persist inputs and predictions; attach interpretation-specific corrections |
-| Student 2 live inference and effects | `backend/app/services/student_two.py` | Persist exact inputs, outputs, versions, and execution links; current trace is insufficient for reproducible training |
-| Student 2 snapshot | `backend/app/ai/state/student_two.py` | Currently lacks direct memory/lesson input; bring a compatible lesson interface into the early roadmap |
+| Student 2 live inference and effects | `backend/app/services/student_two.py` | Teacher path already logs detailed exact inputs, outputs, versions, and settings in background JSONL; local-path capture, reliable persistence, and execution linkage remain gaps |
+| Student 2 snapshot | `backend/app/ai/state/student_two.py` | Memory input and memory-v1 rendering now exist; a compatible versioned scoped-lesson interface still needs design |
 | Student 2 generation | `student_two._ask` | Temperature is 0; greedy token decoding is not an estimate of expected action reward |
 | Student training/export/evaluation | `backend/app/ai/Cognitive/simple/student/events_*` | Reuse where compatible; preserve source and experience lineage for real examples |
 | Hard thinking | `backend/app/ai/mind/hard.py` | Extend guesses into testable hypotheses, alternatives, and predictions |
@@ -86,7 +92,8 @@ Execution ------------------> actual actions and delivery results
                                 future decisions
 ```
 
-Raw records are preserved; interpretation and assessment are versioned derivatives. Source references establish
+Raw records remain unchanged while retained; retention and source deletion follow the accepted capture plan.
+Interpretation and assessment are versioned derivatives. Source references establish
 where a claim came from, not whether the claim is true or causally explains an outcome.
 
 | Experience | What it initially supports | Potential product |
@@ -136,7 +143,9 @@ new seams only where responsibilities or implementations actually vary.
 | Training record | Learner, decision-time input, target, label source, review state, real/synthetic origin, lineage, dataset uses |
 | Model/procedure candidate | Version, training/evidence lineage, evaluations, promotion decision, rollback target |
 
-Persist decisions when made, before results are available. Store intended actions separately from executed actions.
+Freeze decision-time inputs when supplied and capture outputs when produced, before later results can contaminate them.
+Persist asynchronously without blocking responses or actions; bounded retries and visible detected gaps replace a
+guaranteed durable pre-action boundary. Store intended actions separately from executed actions.
 The minimum capture can precede candidate generation: missing alternatives or predictions remain explicitly absent.
 Do not reconstruct them afterward and represent them as contemporaneous.
 
@@ -257,7 +266,7 @@ include applicability conditions, exceptions, and supporting/contradicting evide
 are made, and log which lesson revisions a learner saw.
 
 Move Student 2's lesson input earlier than the previous roadmap. Design the input contract alongside the first
-adaptation loop, with matching training examples and compatibility checks. Do not append unfamiliar fields to an
+adaptation loop, with matching training examples and compatibility checks. Existing memory input does not establish compatibility with a new lesson contract. Do not append unfamiliar fields to an
 existing model and assume it uses them correctly. Until compatible support exists, report which consumers actually
 use lessons; a mouth-only change does not prove Student 2 adapted.
 
@@ -281,10 +290,13 @@ Dataset invariants:
 - Old input versions require a faithful compatible conversion from retained decision-time state, or exclusion.
 - Synthetic variants and repeated reflections do not count as independent real evidence.
 - Rehearsal reduces forgetting risk but does not prove retention; evaluate it directly.
-- Forgetting invalidates affected retrieval products and derived future dataset rows. Removing a row does not erase
-  its influence from an existing model or a descendant fine-tuned from that model. Model-level removal requires a
-  separate strategy, such as rebuilding from an unaffected checkpoint, and verification; no erasure guarantee is
-  implied by the next training run.
+- Source deletion removes affected retrieval products and raw capture copies, but retains already-created,
+  self-contained training examples. Opaque source identifiers support correction tracking without requiring the
+  original source. Explicit corrections make affected examples ineligible until reviewed; explicit training-data
+  deletion removes them from future training uses. Retained examples remain private to the originating user.
+- Removing examples does not erase their influence from an existing model or a descendant fine-tuned from it.
+  Model-level removal requires a separate strategy, such as rebuilding from an unaffected checkpoint, and
+  verification; no erasure guarantee is implied by the next training run.
 
 ## 11. Changes across modules
 
@@ -311,7 +323,7 @@ loops, not only collect records or generate labels.
 
 | Stage | Deliverable | Exit criterion |
 | --- | --- | --- |
-| L0: contracts and capture | Map existing owners; capture Student 1/2 inputs, versions, outputs, execution/delivery links | Reconstruct an interpretation-to-outcome chain without future leakage |
+| L0: contracts and capture | Map existing owners; capture Student 1/2 inputs, versions, outputs, execution/delivery links | Reconstruct saved interpretation-to-outcome chains without future leakage; expose detected capture gaps while actions continue |
 | L1: evidence and attribution | Learning consumer, delayed outcome links, uncertain attribution, review view, dimension assessments | Feedback reaches the right attempt; ambiguous causes remain unresolved |
 | L2: immediate adaptation | Scoped lesson lifecycle and retrieval; compatible Student 2 lesson input; revisions/invalidation | A correction changes the next relevant decision without retraining and does not spread to unrelated contexts |
 | L3: predictions and deliberate trials | Pre-action predictions, testable hypotheses, bounded alternatives; reuse game practice | A trial measures expectations versus results and updates a hypothesis or skill |
@@ -352,7 +364,9 @@ in-flight dataset. Reading contracts can be designed early while full source int
 - Generalization: improvement transfers to held-out situations and changed game conditions.
 - Retention: earlier capabilities and character behavior are measured alongside new learning.
 - Reversibility: mistaken lessons can be withdrawn; stale workers cannot restore them; model rollback is available.
-- Data integrity: source deletion propagates to derived records and datasets, with model limitations explicit.
+- Data integrity: source deletion removes raw copies while retained training examples remain independent; explicit
+  corrections invalidate affected examples, and explicit training-data deletion excludes them from future training.
+  User access boundaries and existing-model removal limitations remain explicit.
 - Runtime: retries do not duplicate evidence or trials; disabled new learning stops new updates while existing
   accepted lessons/models remain distinguishable from a separate baseline mode that disables their use.
 
@@ -363,8 +377,9 @@ Numeric thresholds and evaluation suites are part of the next design, not invent
 
 Start by walking the two complete loops through concrete inputs, records, owners, and failure cases. Then decide:
 
-1. **Record and ownership design:** reuse versus new tables; exact links across interpretation, choice, execution,
-   prediction, evidence, and revision; synchronous versus background writes.
+1. **Record and ownership design:** accepted boundaries are in [Step 1](learning-system/01-capture-and-ownership.md):
+   component ownership, reuse plus dedicated attempt records, exact capture, asynchronous persistence, retention,
+   and derivative handling. Concrete schemas and queue/retry settings remain implementation design work.
 2. **Adaptation interface:** what Student 1/2, thought, mouth, and hands actually receive; Student 2 version migration;
    lesson scope, retrieval budgets, and conflict handling.
 3. **Attribution and assessment:** what code measures, what models judge, uncertainty representation, review rules,

@@ -88,6 +88,9 @@ def _finish_delivery(
             )
             .values(**values)
         )
+        if status in ("accepted", "failed") and result.rowcount and delivery is not None:
+            from app.services.whatsapp import _settled
+            _settled(db, delivery, status, error)
         if status == "failed" and result.rowcount and delivery is not None:
             db.execute(
                 update(MessageDelivery)

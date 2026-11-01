@@ -3,6 +3,7 @@ import { DesktopSessionPanel } from './DesktopSessionPanel'
 import { MindPanel } from './MindPanel'
 import { SenseStrip } from './SenseStrip'
 import { useDesktopSession } from '../hooks/useDesktopSession'
+import { useAuth } from '../hooks/useAuth'
 import { useInnerState } from '../hooks/useInnerState'
 import type { ScreenSenseState } from '../hooks/useScreenSense'
 import type { VoiceSession } from '../hooks/useVoiceSession'
@@ -24,8 +25,10 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
   onPanelChange: (open: boolean) => void
   inputBlocked: boolean
 }) {
+  const { user } = useAuth()
+  const owner = Boolean(user?.is_owner)
   const desktop = useDesktopSession()
-  const inner = useInnerState()
+  const inner = useInnerState(owner)
   const [panel, setPanel] = useState<Panel | null>(null)
   const live = desktop.session && !['ended', 'failed'].includes(desktop.session.state)
   const ears = voice.state === 'off' ? 'Closed' : voice.muted ? 'Muted' : voice.state === 'listening' ? 'Listening' : 'Mic on'
@@ -34,7 +37,7 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
   const mic = voice.state === 'off' ? 'mic off' : voice.muted ? 'mic muted' : voice.state === 'listening' ? 'listening' : 'mic on'
   const toggle = (next: Panel) => setPanel(panel === next ? null : next)
   const tabs: { id: Panel; label: string }[] = [
-    { id: 'mind', label: 'Mind' },
+    ...(owner ? [{ id: 'mind' as const, label: 'Mind' }] : []),
     ...(desktop.enabled ? [{ id: 'game' as const, label: 'Game' }] : []),
     { id: 'senses', label: 'Senses' },
   ]
@@ -51,9 +54,9 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2" aria-label="Mind, game and senses">
-        <button type="button" className={CHIP} onClick={() => toggle('mind')} aria-expanded={panel === 'mind'} aria-controls="chat-session-panel">
+        {owner && <button type="button" className={CHIP} onClick={() => toggle('mind')} aria-expanded={panel === 'mind'} aria-controls="chat-session-panel">
           Mind{inner ? `: ${inner.words.mood}` : ''}
-        </button>
+        </button>}
         {desktop.enabled && <button type="button" className={CHIP} onClick={() => toggle('game')} aria-expanded={panel === 'game'} aria-controls="chat-session-panel">{live && desktop.session ? `Game: ${SESSION_LABEL[desktop.session.state]}` : 'Game session'}</button>}
         <button type="button" className={CHIP} onClick={() => toggle('senses')} aria-expanded={panel === 'senses'} aria-controls="chat-session-panel">
           Senses: {eyes} · {mic}
@@ -85,7 +88,7 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
               </svg>
             </button>
           </div>
-          {panel === 'mind' ? <MindPanel state={inner} thoughts={thoughts} /> : panel === 'game' ? <DesktopSessionPanel /> : <>
+          {panel === 'mind' && owner ? <MindPanel state={inner} thoughts={thoughts} /> : panel === 'game' ? <DesktopSessionPanel /> : <>
             <p className="mb-3 text-xs text-[#7183A3]">Your shared screen is separate from the game session’s view.</p>
             <SenseStrip awareness={awareness} hearingMuted={voice.muted} onToggleEye={eye.toggle} eyeOpening={eye.status === 'opening'} eyeError={eye.error} />
             <button type="button" className={`${CHIP} mt-3 w-full`} disabled={eye.status === 'opening'} onClick={eye.toggle}>{eye.status === 'open' ? 'Stop sharing screen' : 'Share screen'}</button>

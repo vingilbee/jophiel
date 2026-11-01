@@ -94,7 +94,7 @@ def env(db_env, monkeypatch, tmp_path):
             d.update(think_about="the Berlin job", think_form="whether")
         return json.dumps(d)
 
-    monkeypatch.setattr(student_two, "decide", lambda live: real_decide(live, ask=answer))
+    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=answer))
 
     def think(inp):
         calls["think"].append(inp)

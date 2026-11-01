@@ -455,10 +455,12 @@ def _conclude(work_id: uuid.UUID) -> None:
     if decision.action in ("silent", "defer"):
         _record(**common, decision=decision.action, origin=decision.origin, missing=None, status="not_sent")
         return
-    _dispatch_follow_up(work, decision.action, decision.origin, brief=decision.extra.get("brief"))
+    _dispatch_follow_up(work, decision.action, decision.origin, brief=decision.extra.get("brief"),
+                        decision_id=decision.extra.get("decision_id"), communication=decision.extra.get("communication"))
 
 
-def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brief: str | None = None) -> None:
+def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brief: str | None = None,
+                        decision_id: str | None = None, communication: str | None = None) -> None:
     """One follow-up chat job per request: same conversation, same channel as the request, never "the latest
     conversation". The output row and the job commit together; a second dispatch finds the row and stops."""
     from app.services import chat as chat_service
@@ -488,6 +490,10 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brie
                    "zone": base.get("zone"), "awareness": base.get("awareness", "")}
         if brief:
             payload["decision_brief"] = brief
+        if decision_id:
+            # The decision's attempt (services/learning_capture.py): the follow-up's delivery links to it.
+            payload["decision_attempt_id"] = decision_id
+            payload["decision_communication"] = communication
         if base.get("channel_identity_id"):
             payload["channel_identity_id"] = base["channel_identity_id"]
         job = chat_service.enqueue_job(db, user_id=work.user_id, conversation=conversation, turn_id=turn,

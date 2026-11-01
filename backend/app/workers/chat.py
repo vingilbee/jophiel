@@ -29,7 +29,7 @@ from app.services import memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
-from app.services import coordinator, shared_state
+from app.services import coordinator, learning_capture, shared_state
 from app.services import agent_say
 from app.ai import prompts
 from app.services import stickers
@@ -194,6 +194,7 @@ async def _generate(job: ChatJob) -> None:
             with SessionLocal() as db:
                 chat_service.finish_job(db, job.id, "cancelled", claim_token=claim_token)
             coordinator.follow_up_outcome(request_id, status="cancelled", assistant_message_id=None)
+            _record_follow_up(job, "cancelled", "", None)
             return
         thought_text = coordinator.render_result(info)
         recall_turn, long_term_memory, live = None, None, None
@@ -470,6 +471,7 @@ async def _generate(job: ChatJob) -> None:
             coordinator.immediate_outcome(job.turn_id, status=delivered, assistant_message_id=stored)
         if follow_up:
             coordinator.follow_up_outcome(request_id, status=delivered, assistant_message_id=stored)
+            _record_follow_up(job, outcome, reply, stored)
             if reply and outcome == "completed":
                 # Shown (and spoken on an idle live voice session) by the sockets: already stored above.
                 coordinator.announce_follow_up(request_id)
@@ -525,6 +527,7 @@ async def _generate(job: ChatJob) -> None:
                         coordinator.immediate_outcome(job.turn_id, status="failed", assistant_message_id=None)
                     if follow_up:
                         coordinator.follow_up_outcome(request_id, status="failed", assistant_message_id=None)
+                        _record_follow_up(job, "failed", failure_text if reply else "", None)
                     if context.channel == "whatsapp":
                         whatsapp_service.wake_worker()
                 else:
@@ -541,6 +544,20 @@ async def _generate(job: ChatJob) -> None:
             await heartbeat
         except asyncio.CancelledError:
             pass
+
+
+def _record_follow_up(job: ChatJob, outcome: str, reply: str, message_id: uuid.UUID | None) -> None:
+    """A follow-up's delivery, linked to the decision on the finished thought (``decision_attempt_id``)."""
+    payload = job.payload
+    try:
+        learning_capture.reply(
+            user_id=job.user_id, attempt_id=payload.get("decision_attempt_id"), turn_id=job.turn_id,
+            conversation_id=job.conversation_id, outcome=outcome, assistant_message_id=message_id,
+            reply_chars=len(reply or ""), channel=payload.get("channel", "web"), voice=bool(payload.get("voice")),
+            intended={"communication": payload.get("decision_communication"), "immediate_action": payload.get("action"),
+                      "origin": "student_2" if payload.get("decision_attempt_id") else "not_captured"})
+    except Exception:  # noqa: BLE001
+        logger.exception("chat worker: recording the follow-up delivery failed")
 
 
 def _finish_silent(job: ChatJob, fast) -> None:

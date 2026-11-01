@@ -166,6 +166,8 @@ def record_heard(
         from app.services import background_wake
         background_wake.mark(db)
         db.commit()
+        from app.services import learning_capture
+        learning_capture.heard(user_id=user_id, message=message, conversation_id=message.conversation_id)
     return True
 
 

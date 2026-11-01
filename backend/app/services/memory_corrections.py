@@ -556,6 +556,15 @@ def _apply(db: Session, correction_id: uuid.UUID, token: str, edits: list[Edit],
     row.status, row.applied_at, row.event_id = "applied", _now(), event.id
     row.claim_token, row.lease_expires_at, row.last_error = None, None, None
     row.result = {"candidates": candidates, "revised": outcome.revised, "unchanged": outcome.unchanged}
+    # Training examples made from the corrected claim (the memory, or the message that said it) wait for review.
+    from app.services import training_examples
+    stated = [f"message:{m}" for m in db.scalars(select(SemanticMemory.source_message_id).where(
+        SemanticMemory.user_id == user_id, SemanticMemory.source_message_id.is_not(None),
+        SemanticMemory.id.in_([uuid.UUID(c["ref"].split(":", 1)[1]) for c in outcome.revised
+                               if c["ref"].startswith("fact:")] or [uuid.uuid4()])))]
+    training_examples.invalidate_for_sources(
+        db, user_id, [c["ref"] for c in outcome.revised] + stated,
+        reason=f"memory correction {row.id}: a claim it was made from was corrected")
     from app.services import background_components
     background_components.memory_changed(db, user_id, row.id, event.id,
                                          [change["ref"] for change in outcome.revised])

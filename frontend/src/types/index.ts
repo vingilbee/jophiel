@@ -3,6 +3,8 @@ export interface User {
   name: string
   email: string
   created_at: string
+  /** May see her insides (mind, learning); everyone else only talks with her. */
+  is_owner: boolean
 }
 
 export type ChatRole = 'user' | 'assistant'

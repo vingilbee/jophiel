@@ -8,7 +8,7 @@ import redis
 
 from app.core.config import get_settings
 from app.workers import (
-    agent_events, chat, desktop, file_deletion, game_learning, game_practice,
+    agent_events, chat, desktop, file_deletion, game_learning, game_practice, learning,
     memory, mind, recall_embeddings, observation,
     whatsapp,
 )
@@ -111,6 +111,8 @@ def run(stop: threading.Event | None = None) -> None:
         # Embedding memory events for recall: background, batched; recall works before it catches up.
         worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                              "macrovision:recall-embeddings:wakeups", 5.0))
+        # Learning capture upkeep: training examples from captured decisions, raw captures past retention.
+        worker_specs.append(("learning", learning.run_once, "macrovision:learning:wakeups", 30.0))
         # What sources report (conversation, deliveries, games), captured once.
         worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
         # Background recall and thinking for user requests (shared-state pipeline, step 4) and autonomous

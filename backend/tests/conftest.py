@@ -38,3 +38,15 @@ def _no_served_student(monkeypatch):
     monkeypatch.setattr(student_two, "_ask", refuse)
     monkeypatch.setattr(student_two, "_ask_teacher", refuse)
     monkeypatch.setattr(student_two.get_settings(), "cognition_decision_provider", "student")
+
+
+@pytest.fixture(autouse=True)
+def _no_learning_capture():
+    """Captures go nowhere unless a test installs its own writer (tests/test_learning_capture.py)."""
+    from app.services import learning_capture
+
+    before = learning_capture.install(learning_capture.disabled())
+    try:
+        yield
+    finally:
+        learning_capture.install(before)

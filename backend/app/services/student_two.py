@@ -108,13 +108,17 @@ def live_game(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID | None
         DesktopSession.state.not_in(DESKTOP_TERMINAL_STATES)).order_by(DesktopSession.started_at.desc()).limit(1))
 
 
-def _lines(db: Session, conversation_id: uuid.UUID, before_sequence: int | None) -> list[S.Line]:
+def _lines(db: Session, conversation_id: uuid.UUID, before_sequence: int | None,
+           seen: list[str] | None = None) -> list[S.Line]:
+    """``seen``: collects the shown messages' refs (the capture's sources)."""
     from app.services.heard import heard_text
 
     query = select(ChatMessage).where(ChatMessage.conversation_id == conversation_id, ChatMessage.content != "")
     if before_sequence is not None:
         query = query.where(ChatMessage.conversation_sequence < before_sequence)
     rows = list(db.scalars(query.order_by(ChatMessage.conversation_sequence.desc()).limit(S.WINDOW)))
+    if seen is not None:
+        seen.extend(f"message:{r.id}" for r in reversed(rows))
     return [S.Line("user" if r.role == "user" else "columbina",
                    heard_text(r.content, r.heard_chars) if r.role == "assistant" else r.content, _aware(r.created_at))
             for r in reversed(rows)]
@@ -240,20 +244,34 @@ def _record_text(r: MemoryRecord) -> str:
     return f"{label}: {r.content}" if label else r.content
 
 
+def _sources(seen: list[str], goals, work, thoughts, *extra: str) -> tuple[str, ...]:
+    refs = list(seen) + [f"item:{g.key}" for g in goals]
+    refs += [f"work:{w.key.split(':', 1)[1]}" for w in work if w.key.startswith("coordinator:")]
+    refs += [f"thought:{t.key}" for t in thoughts if t is not None and not t.key.startswith("coordinator:")]
+    return tuple(dict.fromkeys([*refs, *(e for e in extra if e)]))
+
+
 def gather(db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None,
            trigger_message_id: uuid.UUID | None, message: str, zone: str | None,
-           now: datetime | None = None, memory: S.Memory | None = None) -> S.Live:
+           now: datetime | None = None, memory: S.Memory | None = None,
+           memory_refs: tuple[str, ...] = ()) -> S.Live:
+    """``memory_refs``: the records behind ``memory`` (``fact:<id>``, ...), kept only as the capture's sources."""
     now = now or datetime.now(timezone.utc)
     trigger = db.get(ChatMessage, trigger_message_id) if trigger_message_id else None
     before = trigger.conversation_sequence if trigger is not None else None
     game = live_game(db, user_id, conversation_id)
     thought, earlier = _thoughts(db, game.id if game else conversation_id, now)
+    seen: list[str] = []
+    lines = tuple(_lines(db, conversation_id, before, seen)) if conversation_id else ()
+    goals = tuple(_goals(db, user_id, _goal_context(db, user_id, game), game))
+    work = tuple(_work(db, user_id, conversation_id, game))
     return S.Live(
         trigger="user_message", domain="minecraft" if game is not None else "chat",
-        now=now.astimezone(_zone(zone)), lines=tuple(_lines(db, conversation_id, before)) if conversation_id else (),
-        new_message=message, goals=tuple(_goals(db, user_id, _goal_context(db, user_id, game), game)),
-        work=tuple(_work(db, user_id, conversation_id, game)), thought=thought, earlier_thoughts=tuple(earlier),
-        activity=_activity(game), memory=memory)
+        now=now.astimezone(_zone(zone)), lines=lines,
+        new_message=message, goals=goals, work=work, thought=thought, earlier_thoughts=tuple(earlier),
+        activity=_activity(game), memory=memory,
+        sources=_sources(seen, goals, work, (thought, *earlier),
+                         f"message:{trigger_message_id}" if trigger_message_id else "", *memory_refs))
 
 
 def _game_of(db: Session, work: CoordinatorWork) -> DesktopSession | None:
@@ -294,12 +312,16 @@ def gather_result(db: Session, work: CoordinatorWork, *, zone: str | None = None
         work_items.append(S.Work(f"coordinator:{work.id}", "thinking", subject, state, _aware(work.created_at),
                                  outcome=outcome, unresolved=unresolved, for_thought=finished))
     work_items += _work(db, work.user_id, work.conversation_id, game, exclude=work.id)
+    seen: list[str] = []
+    lines = tuple(_lines(db, work.conversation_id, None, seen)) if work.conversation_id else ()
+    goals = tuple(_goals(db, work.user_id, _goal_context(db, work.user_id, game), game))
     return S.Live(
         trigger="thought_result" if finished else "work_outcome", domain="minecraft" if game is not None else "chat",
         now=now.astimezone(_zone(zone or work.input.get("zone"))),
-        lines=tuple(_lines(db, work.conversation_id, None)) if work.conversation_id else (), new_message="",
-        goals=tuple(_goals(db, work.user_id, _goal_context(db, work.user_id, game), game)), work=tuple(work_items),
-        thought=thought, earlier_thoughts=tuple(earlier), activity=_activity(game))
+        lines=lines, new_message="", goals=goals, work=tuple(work_items),
+        thought=thought, earlier_thoughts=tuple(earlier), activity=_activity(game),
+        sources=_sources(seen, goals, work_items, earlier, f"work:{work.id}",
+                         *(f"{k}" for k in (r.get("evidence_refs") or ()) if isinstance(k, str))))
 
 
 # --------------------------------------------------------------------------- #
@@ -319,6 +341,8 @@ class Outcome:
     effect: str | None = None  # what ``apply`` did with the work part
     decision_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     teacher_capture: dict[str, Any] | None = field(default=None, repr=False)
+    # The learning capture this decision was recorded under (``decision_id`` is its attempt id), or None.
+    capture: Any = field(default=None, repr=False)
 
     @property
     def ok(self) -> bool:
@@ -336,26 +360,83 @@ def _ask(model: dict[str, Any], text: str) -> str:
         return json.load(response)["choices"][0]["message"]["content"]
 
 
-def decide(live: S.Live, ask=None) -> Outcome:
-    """One decision. Never raises: what went wrong is the outcome's status and error."""
+def decide(live: S.Live, ask=None, *, capture=None) -> Outcome:
+    """One decision. Never raises: what went wrong is the outcome's status and error.
+    ``capture``: a ``learning_capture.Ctx`` (its ``attempt_id`` becomes the decision id); the attempt is then
+    recorded here, input and output exactly as they were, before anything carries the decision out."""
     started = time.monotonic()
+    started_at = datetime.now(timezone.utc)
+    exact: dict[str, Any] = {}
     if get_settings().cognition_decision_provider == "teacher":
-        return _teacher_decide(live, started, ask=ask)
+        outcome = _teacher_decide(live, started, ask=ask, exact=exact)
+    else:
+        outcome = _local_decide(live, started, ask=ask, exact=exact)
+    if capture is not None:
+        outcome.decision_id = str(capture.attempt_id)
+        outcome.capture = capture
+        try:
+            _record_attempt(outcome, live, capture, exact, started_at)
+        except Exception:  # noqa: BLE001 - capture never changes the decision
+            logger.exception("student_two: capturing the attempt failed")
+    return outcome
+
+
+def _local_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, Any]) -> Outcome:
+    exact["provider"] = "student"
     try:
         model = manifest()
     except (OSError, ValueError) as exc:
         return Outcome("unavailable", error=f"no model: {type(exc).__name__}")
     situation = S.snapshot(live)
     text = S.render(situation, model.get("rendering"))
+    exact.update(system=model.get("system") or "", prompt=text, snapshot=situation.snapshot, refs=situation.refs,
+                 rendering=model.get("rendering"), settings={
+                     "temperature": 0.0, "max_tokens": model.get("max_tokens", 400),
+                     "chat_template_kwargs": model.get("chat_template_kwargs", {}),
+                     "url": get_settings().cognition_student_url},
+                 versions={"snapshot_version": S.E.SNAPSHOT_VERSION, "decision_version": S.E.DECISION_VERSION,
+                           "rendering": model.get("rendering"), "manifest": _manifest_digest(model)})
     try:
         output = (ask or _ask)(model, text)
     except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as exc:
         return Outcome("unavailable", situation, model=model.get("name"), error=f"{type(exc).__name__}: {exc}"[:200],
                        latency_ms=round((time.monotonic() - started) * 1000))
+    exact["raw_output"] = output
     decision, unreadable = S.parse(output)
     problems = [unreadable] if unreadable else S.check(decision, situation)
     return Outcome("invalid" if problems else "ok", situation, None if unreadable else decision, problems,
                    model.get("name"), round((time.monotonic() - started) * 1000))
+
+
+def _manifest_digest(model: dict[str, Any]) -> str:
+    import hashlib
+    return hashlib.sha256(json.dumps(model, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _record_attempt(outcome: Outcome, live: S.Live, capture, exact: dict[str, Any], started_at: datetime) -> None:
+    """Student 2's attempt as it happened: what was missing stays absent (no prompt when the snapshot itself
+    failed, no output when the model never answered)."""
+    from app.services import learning_capture
+
+    blobs = {}
+    if exact.get("system"):
+        blobs["system"] = exact["system"]
+    if exact.get("schema") is not None:
+        blobs["schema"] = json.dumps(exact["schema"], sort_keys=True)
+    absent = list(learning_capture.NOT_CAPTURED)
+    if "prompt" not in exact:
+        absent.append("input")
+    if "raw_output" not in exact:
+        absent.append("output")
+    learning_capture.attempt(
+        capture, learner="student_2", provider=exact.get("provider"), model=outcome.model,
+        input={"prompt": exact.get("prompt"), "snapshot": exact.get("snapshot"), "refs": exact.get("refs"),
+               "rendering": exact.get("rendering"), "system": None, "schema": None},
+        output=None if "raw_output" not in exact else {
+            "raw": exact["raw_output"], "decision": outcome.decision, "problems": outcome.problems},
+        status=outcome.status, error=outcome.error, started_at=started_at,
+        produced_at=datetime.now(timezone.utc) if "raw_output" in exact else None,
+        versions=exact.get("versions") or {}, settings=exact.get("settings") or {}, blobs=blobs, absent=absent)
 
 
 @lru_cache(maxsize=1)
@@ -375,7 +456,7 @@ def _ask_teacher(model: dict[str, Any], text: str) -> str:
     return result.choices[0].message.content or ""
 
 
-def _teacher_decide(live: S.Live, started: float, *, ask=None) -> Outcome:
+def _teacher_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, Any] | None = None) -> Outcome:
     """Only EventTeacher's decision call: no sample reply, critic, or additional training samples."""
     from app.ai.Cognitive.simple import events as E
     from app.services.cognitive_live import character_page
@@ -395,8 +476,17 @@ def _teacher_decide(live: S.Live, started: float, *, ask=None) -> Outcome:
                  "schema": E.decision_schema([ref for ref, _ in E.candidates(situation.snapshot)])}
         capture.update(snapshot=situation.snapshot, refs=situation.refs, prompt=text,
                        system=model["system"], schema=model["schema"])
+        if exact is not None:
+            exact.update(provider="teacher", system=model["system"], schema=model["schema"], prompt=text,
+                         snapshot=situation.snapshot, refs=situation.refs, rendering="memory-v1",
+                         settings={"reasoning_effort": "low", "max_completion_tokens": 4000, "store": False,
+                                   "response_format": "json_schema strict"},
+                         versions={"snapshot_version": E.SNAPSHOT_VERSION, "decision_version": E.DECISION_VERSION,
+                                   "rendering": "memory-v1", "prompt": "decide_events_v1"})
         output = (ask or _ask_teacher)(model, text)
         capture["raw_output"] = output
+        if exact is not None:
+            exact["raw_output"] = output
         decision, unreadable = S.parse(output)
         outcome.decision = None if unreadable else decision
         outcome.problems = [unreadable] if unreadable else S.check(decision, situation)
@@ -481,7 +571,42 @@ def apply(db: Session, outcome: Outcome, *, user_id: uuid.UUID, message_id: uuid
         logger.exception("student_two: carrying out %s %s failed", work, target)
         effect = f"failed: {type(exc).__name__}"
     outcome.effect = effect[:200]
+    try:
+        _record_effect(outcome, user_id=user_id, work=work, target=target, routed=routed)
+    except Exception:  # noqa: BLE001 - capture never changes what was done
+        logger.exception("student_two: capturing the effect failed")
     return outcome.effect
+
+
+def _effect_result(effect: str, work: str, routed: bool) -> str:
+    if effect.startswith("failed"):
+        return "failed"
+    if effect.startswith("not carried out"):
+        return "not_executed"
+    if effect == "goal on hold: being rechecked":
+        return "not_executed"
+    if (work in S.RECALL_WORK | S.E.THINKING and routed) or work == "pursue":
+        return "handed_off"
+    return "succeeded"
+
+
+def _record_effect(outcome: Outcome, *, user_id: uuid.UUID, work: str, target: str, routed: bool) -> None:
+    """The work part as its owner carried it out: intended (Student 2's work and target) next to what happened."""
+    ctx = outcome.capture
+    if ctx is None:
+        return
+    from app.services import learning_capture
+
+    d = outcome.decision or {}
+    learning_capture.execution(
+        user_id=user_id, kind="effect", executor="student_two.apply", attempt_id=outcome.decision_id,
+        result=_effect_result(outcome.effect or "", work, routed), turn_id=ctx.turn_id,
+        conversation_id=ctx.conversation_id, game_session_id=ctx.game_session_id,
+        intended={"work": work, "target": target, "target_key": (outcome.situation.refs.get(target)
+                                                                 if outcome.situation else None),
+                  "resolution": d.get("resolution"), "think_about": d.get("think_about")},
+        executed={"effect": outcome.effect}, deviation=None if _effect_result(outcome.effect or "", work, routed)
+        in ("succeeded", "handed_off") else outcome.effect, ended_at=datetime.now(timezone.utc))
 
 
 def log(outcome: Outcome, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigger: str) -> None:

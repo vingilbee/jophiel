@@ -2,7 +2,8 @@ import { Navigate, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from '../hooks/useAuth'
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
+/** ``ownerOnly``: her insides (the backend refuses everyone else); other users go to the chat. */
+export function ProtectedRoute({ children, ownerOnly = false }: { children: ReactNode; ownerOnly?: boolean }) {
   const { user, loading } = useAuth()
   const location = useLocation()
 
@@ -18,6 +19,10 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+
+  if (ownerOnly && !user.is_owner) {
+    return <Navigate to="/chat" replace />
   }
 
   return <>{children}</>
