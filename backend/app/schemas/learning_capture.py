@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TrainingExampleOut(BaseModel):
@@ -30,3 +30,9 @@ class TrainingExampleOut(BaseModel):
 
 class TrainingExampleReview(BaseModel):
     review_status: Literal["unreviewed", "accepted", "rejected"]
+
+
+class AssessmentNote(BaseModel):
+    """The user's correction of an assessment, in their own words."""
+
+    text: str = Field(min_length=1, max_length=2000)

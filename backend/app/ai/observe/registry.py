@@ -167,7 +167,8 @@ class KindSpec:
     # Its memory event belongs to a context, so promotion waits until it has one.
     needs_context: bool = True
     # Who processes it (one receipt each). Her thoughts go to ``thought_memory`` alone, which can judge
-    # with a model; ``memory`` is code only.
+    # with a model; ``memory`` is code only. ``learning`` (services/learning_assessment.triage, code only) decides
+    # whether a report starts or adds to a retrospective assessment.
     consumers: tuple[str, ...] = ("memory",)
 
 
@@ -282,16 +283,19 @@ def _fixed(level: str) -> Callable[[Any], str]:
 
 _SPECS = [
     KindSpec("conversation", "user_message", 1, UserMessage, "user", "observed", "user", _fixed("routine"),
-             _user_message_summary, _skip("kept in the conversation history"), needs_context=False),
+             _user_message_summary, _skip("kept in the conversation history"), needs_context=False,
+             consumers=("memory", "learning")),
     KindSpec("conversation", "reply_recorded", 1, ReplyRecorded, "columbina", "observed", "model",
              lambda p: "notable" if p.status == "failed" else "routine", _reply_summary,
              _skip("kept in the conversation history"), needs_context=False),
     KindSpec("conversation", "reply_interrupted", 1, ReplyInterrupted, "user", "reported", "system",
-             _fixed("notable"), _interrupted_summary, _interrupted_memory),
+             _fixed("notable"), _interrupted_summary, _interrupted_memory, consumers=("memory", "learning")),
     KindSpec("conversation", "delivery_status", 1, DeliveryStatus, "system", "reported", "external",
-             lambda p: "notable" if p.status == "failed" else "routine", _delivery_summary, _delivery_memory),
+             lambda p: "notable" if p.status == "failed" else "routine", _delivery_summary, _delivery_memory,
+             consumers=("memory", "learning")),
     KindSpec("minecraft_pack", "skill_outcome", 1, SkillOutcome, "columbina", "observed", "external",
-             lambda p: "notable" if p.status in SKILL_FAILED else "routine", _skill_summary, _skill_memory),
+             lambda p: "notable" if p.status in SKILL_FAILED else "routine", _skill_summary, _skill_memory,
+             consumers=("memory", "learning")),
     KindSpec("minecraft_pack", "notice", 1, GameNotice, "environment", "observed", "external",
              _notice_salience, _notice_summary, _notice_memory),
     KindSpec("minecraft_pack", "source_availability", 1, SourceAvailability, "system", "observed", "system",

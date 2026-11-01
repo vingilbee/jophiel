@@ -18,6 +18,12 @@ Learning capture (docs/learning-system/01-implementation.md), the user's own rec
     GET    /api/learning/training-examples             derived examples (?learner=, ?eligible=)
     PATCH  /api/learning/training-examples/{id}        review (accepted / rejected / unreviewed)
     DELETE /api/learning/training-examples/{id}        delete from future training (and the export files)
+
+Retrospective assessment (docs/learning-system/02-implementation.md):
+
+    GET    /api/learning/assessments                   counts and recent assessments (?outcome=)
+    GET    /api/learning/assessments/{id}              one, with its evidence, every revision, links and uses
+    POST   /api/learning/assessments/{id}/notes        the user's correction: new evidence, assessed again
 """
 from __future__ import annotations
 
@@ -41,8 +47,10 @@ from app.schemas.game_learning import (
     ProposalUpdate,
     ReflectionOut,
 )
-from app.schemas.learning_capture import TrainingExampleOut, TrainingExampleReview
-from app.services import capture_chains, game_challenges, game_learning, game_skills, training_examples
+from app.schemas.learning_capture import AssessmentNote, TrainingExampleOut, TrainingExampleReview
+from app.services import (
+    capture_chains, game_challenges, game_learning, game_skills, learning_assessment, training_examples,
+)
 from app.services.game_learning import LearningError
 
 # The owner only (deps.require_owner): her insides are not for other users.
@@ -173,3 +181,30 @@ def delete_training_example(example_id: uuid.UUID, user: User = Depends(get_curr
                             db: Session = Depends(get_db)):
     if not training_examples.delete_examples(db, user.id, [example_id]):
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such example."})
+
+
+# --------------------------------------------------------------------------- #
+# Retrospective assessment
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/assessments")
+def list_assessments(outcome: str | None = Query(default=None), user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    return learning_assessment.listing(db, user.id, outcome=outcome)
+
+
+@router.get("/assessments/{assessment_id}")
+def get_assessment(assessment_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    found = learning_assessment.detail(db, user.id, assessment_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such assessment."})
+    return found
+
+
+@router.post("/assessments/{assessment_id}/notes", dependencies=mutation)
+def note_assessment(assessment_id: uuid.UUID, data: AssessmentNote, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if learning_assessment.add_note(db, user.id, assessment_id, data.text) is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such assessment."})
+    return learning_assessment.detail(db, user.id, assessment_id)

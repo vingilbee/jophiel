@@ -1,6 +1,9 @@
-"""Learning's background upkeep, for the worker started with python -m app.workers
-(docs/learning-system/01-implementation.md): derive training examples from captured decisions, and remove raw
-captures past their retention (every PRUNE_SECONDS)."""
+"""Learning's background work, for the worker started with python -m app.workers.
+
+- ``run_once`` (docs/learning-system/01-implementation.md): derive training examples from captured decisions, and
+  remove raw captures past their retention (every PRUNE_SECONDS).
+- ``assess_once`` (docs/learning-system/02-implementation.md): its own thread, since an assessment is one or more
+  model calls: triage new observations, sweep for failures and late captures, then run one due assessment."""
 from __future__ import annotations
 
 import logging
@@ -27,4 +30,10 @@ def run_once() -> bool:
     return made > 0
 
 
-__all__ = ["run_once"]
+def assess_once() -> bool:
+    from app.services import learning_assessment
+
+    return learning_assessment.run_once()
+
+
+__all__ = ["run_once", "assess_once"]

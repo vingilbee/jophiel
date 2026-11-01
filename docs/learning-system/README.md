@@ -1,10 +1,15 @@
 # Columbina learning system: staged plans
 
-Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); no other step is authorized by this split.
+Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); Step 2 design decisions were accepted on 2026-11-01 and it was built on request the same day ([implementation](02-implementation.md)). No other step is authorized by this split.
 
 Architecture: [original design](../COLUMBINA_LEARNING_SYSTEM_DESIGN.md). This index organizes that design into smaller plans. Step 1 records capture decisions accepted 2026-11-01 and supersedes earlier conflicting capture and retention proposals.
 
 ## Decisions already made
+
+- [Step 2](02-evidence-and-attribution.md) records accepted evidence and attribution decisions: learning-owned
+  retrospective assessment, separate target and cause judgments, qualitative uncertainty, six assessment dimensions,
+  automatic assessment without routine human review, evidence-based revision, and stopping on resolution or lack of
+  a useful next step rather than a fixed investigation budget. Adaptation and training acceptance remain separate.
 
 - Three loops: immediate adaptation, deliberate learning, and consolidation.
 - Cognition handles the current request; learning decides what should persist.

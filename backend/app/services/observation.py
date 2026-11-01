@@ -44,7 +44,7 @@ from app.db.models import (
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # Every consumer a receipt can name; each kind lists its own (``registry.KindSpec.consumers``).
-CONSUMERS = ("memory", "thought_memory")
+CONSUMERS = ("memory", "thought_memory", "learning")
 
 _log_lock = threading.Lock()
 _last_sweep = 0.0

@@ -138,6 +138,29 @@ def invalidate_for_sources(db: Session, user_id: uuid.UUID, refs: Iterable[str],
     return len(rows)
 
 
+def flag_for_review(db: Session, user_id: uuid.UUID, attempt_id: uuid.UUID, *, reason: str) -> list[uuid.UUID]:
+    """An assessment found the decision behind these examples at fault (services/learning_assessment.py): they're
+    ineligible until reviewed, kept for inspection. A rejected example stays rejected. In the caller's transaction.
+    Returns the examples made from that attempt (flagged now or already)."""
+    rows = list(db.scalars(select(TrainingExample).where(TrainingExample.user_id == user_id,
+                                                         TrainingExample.attempt_id == attempt_id)))
+    for row in rows:
+        if row.review_status == "rejected":
+            continue
+        if row.review_status != "needs_review" or row.ineligible_reason != reason[:500]:
+            row.eligible, row.review_status, row.ineligible_reason = False, "needs_review", reason[:500]
+    return [r.id for r in rows if r.review_status != "rejected"]
+
+
+def reconsider(db: Session, user_id: uuid.UUID, example_id: uuid.UUID, *, note: str) -> None:
+    """The assessment that flagged an example was revised and no longer supports the flag. Review decides: the
+    example stays as it is, with the note added. In the caller's transaction."""
+    row = db.scalar(select(TrainingExample).where(TrainingExample.user_id == user_id,
+                                                  TrainingExample.id == example_id))
+    if row is not None and row.review_status == "needs_review":
+        row.ineligible_reason = f"{row.ineligible_reason or ''}; {note}".strip("; ")[:2000]
+
+
 def delete_examples(db: Session, user_id: uuid.UUID, ids: Iterable[uuid.UUID]) -> int:
     """Explicit training-data deletion: the examples go, a tombstone keeps only ids (so the attempt is never
     derived again and exports can exclude it), and the export files lose their copies. Commits."""

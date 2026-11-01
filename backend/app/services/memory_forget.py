@@ -587,6 +587,10 @@ def _apply(db: Session, forget_id: uuid.UUID, attempts: int, chosen: list[dict],
         *(f"fact:{i}" for i in ids["fact"]), *(f"episode:{i}" for i in ids["episode"]),
         *(f"item:{i}" for i in ids["item"]), *(f"event:{i}" for i in events),
         *(f"message:{m}" for m in known - {row.source_message_id})])
+    # Learning's assessments that read those messages go as well (docs/learning-system/02-implementation.md).
+    from app.services import learning_assessment
+    removed["assessments"] = learning_assessment.drop_for(
+        db, user_id, [f"message:{m}" for m in known - {row.source_message_id}])
     total = removed["fact"] + removed["episode"] + removed["item"] + removed["event"]
     mentions = len(known - {row.source_message_id})
     if mixed_whole:

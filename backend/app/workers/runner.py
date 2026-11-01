@@ -113,6 +113,10 @@ def run(stop: threading.Event | None = None) -> None:
                              "macrovision:recall-embeddings:wakeups", 5.0))
         # Learning capture upkeep: training examples from captured decisions, raw captures past retention.
         worker_specs.append(("learning", learning.run_once, "macrovision:learning:wakeups", 30.0))
+        # Retrospective assessment (docs/learning-system/02-implementation.md): corrections, complaints, failures and
+        # sampled exchanges; model calls, so on its own thread.
+        worker_specs.append(("learning-assessment", learning.assess_once, "macrovision:learning-assessment:wakeups",
+                             5.0))
         # What sources report (conversation, deliveries, games), captured once.
         worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
         # Background recall and thinking for user requests (shared-state pipeline, step 4) and autonomous
