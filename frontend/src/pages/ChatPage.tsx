@@ -18,9 +18,8 @@ import { useChatSocket } from '../hooks/useChatSocket'
 import { useVoiceSession, type VoiceSession } from '../hooks/useVoiceSession'
 import { useScreenSense } from '../hooks/useScreenSense'
 import { api } from '../api/client'
+import { TABS } from '../components/tabs'
 import { ChatSessionTools } from '../components/ChatSessionTools'
-import { ThoughtStream } from '../components/ThoughtStream'
-import { MoodStrip } from '../components/MoodStrip'
 import { mindApi } from '../api/mind'
 import { VoiceOrb } from '../components/VoiceOrb'
 import type { ChatMessage, MessagePart, Thought } from '../types'
@@ -56,12 +55,6 @@ function partsFromContent(content: string): MessagePart[] {
   if (cursor < content.length) parts.push({ kind: 'text', content: content.slice(cursor) })
   return parts
 }
-
-const CHAT_NAV = [
-  { to: '/chat', label: 'Chat' },
-  { to: '/predict', label: 'Scan Meal' },
-  { to: '/integrations', label: 'Integrations' },
-]
 
 /** A photo attached to the message being composed, before it's sent. */
 interface Attachment {
@@ -519,7 +512,7 @@ export function ChatPage() {
         <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
 
         <nav className="mt-12 flex flex-col gap-2" aria-label="Main navigation">
-          {CHAT_NAV.map((item) => {
+          {TABS.map((item) => {
             const active = item.label === 'Chat'
             return (
               <Link
@@ -631,11 +624,9 @@ export function ChatPage() {
       {/* composer */}
       <div className="bg-[#F8FAFF] px-5 pb-5 pt-3 sm:px-8 sm:pb-7 lg:px-12">
         <div className="mx-auto max-w-4xl">
-          <MoodStrip />
-          <ThoughtStream thoughts={thoughts} />
-          <ChatSessionTools eye={eye} voice={voice} awareness={awareness} onPanelChange={setSessionPanelOpen} inputBlocked={streaming} />
+          <ChatSessionTools eye={eye} voice={voice} awareness={awareness} thoughts={thoughts} onPanelChange={setSessionPanelOpen} inputBlocked={streaming} />
         <form onSubmit={handleSubmit}>
-          {voiceEnabled && (
+          {voiceLive && (
             <div className="mb-3 flex flex-col items-center gap-1">
               <button
                 type="button"
@@ -652,7 +643,6 @@ export function ChatPage() {
               >
                 <VoiceOrb state={voice.muted && !voiceBusy ? 'off' : voice.state} getLevel={voice.getLevel} />
               </button>
-              {!voiceLive && <span className="text-[10px] text-[#7183A3]">{voiceStarting ? 'Starting voice…' : 'Tap to talk'}</span>}
             </div>
           )}
           {voiceLive && (

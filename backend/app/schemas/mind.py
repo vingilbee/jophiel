@@ -42,6 +42,17 @@ class MoodCause(BaseModel):
     quote: str
 
 
+class ConversationThought(BaseModel):
+    """Her thought about one of their messages, written by the inner-state reading after her reply
+    (so it describes the moment, it didn't produce the reply)."""
+
+    at: float
+    conversation_id: str
+    message: str
+    moment: str
+    intention: str
+
+
 class InnerStateOut(BaseModel):
     """Her inner state for the debug strip (services/inner_state_live.py). Values come in two
     readings (an unclear size taken as small / as clear); ``words`` names both when they differ."""
@@ -52,3 +63,4 @@ class InnerStateOut(BaseModel):
     baseline: dict[str, float]
     words: dict[str, str]
     causes: list[MoodCause]
+    thoughts: list[ConversationThought] = []

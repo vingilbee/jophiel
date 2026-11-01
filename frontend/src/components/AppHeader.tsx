@@ -2,14 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import profileIcon from '../assets/profile_icon.jpg'
-
-// The app's top-level tabs. Add a route here and it appears on every page.
-const TABS = [
-  { to: '/chat', label: 'Chat' },
-  { to: '/predict', label: 'Scan Meal' },
-  { to: '/learning', label: 'Learning' },
-  { to: '/integrations', label: 'Integrations' },
-]
+import { TABS } from './tabs'
 
 /**
  * Shared header: logo, tab navigation, and the account controls.

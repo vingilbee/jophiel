@@ -156,7 +156,16 @@ export interface MoodCause {
   quote: string
 }
 
-/** Her inner state for the debug strip: each value in two readings (an unclear size taken as
+/** Her thought about one of their messages, written after her reply by the inner-state reading. */
+export interface ConversationThought {
+  at: number
+  conversation_id: string
+  message: string
+  moment: string
+  intention: string
+}
+
+/** Her inner state for the mind panel: each value in two readings (an unclear size taken as
  * small / as clear); `words` names both when they differ. Nothing reads it into her replies. */
 export interface InnerState {
   config: string
@@ -165,6 +174,8 @@ export interface InnerState {
   baseline: Record<string, number>
   words: Record<string, string>
   causes: MoodCause[]
+  /** Newest first. */
+  thoughts: ConversationThought[]
 }
 
 /** One thought of her mind while playing (backend services/mind.py). Not a message. */
