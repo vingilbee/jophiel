@@ -6,10 +6,12 @@ import type { InnerState } from '../types'
 // and when the request fails (her inner state is always on).
 const POLL_MS = 15000
 
-export function useInnerState(): InnerState | null {
+// ``enabled``: only for the owner (the route refuses everyone else).
+export function useInnerState(enabled = true): InnerState | null {
   const [state, setState] = useState<InnerState | null>(null)
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     const load = () => mindApi.innerState()
       .then((s) => { if (!cancelled) setState(s) })
@@ -17,7 +19,7 @@ export function useInnerState(): InnerState | null {
     load()
     const timer = window.setInterval(load, POLL_MS)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [])
+  }, [enabled])
 
   return state
 }

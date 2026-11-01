@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import profileIcon from '../assets/profile_icon.jpg'
-import { TABS } from './tabs'
+import { tabsFor } from './tabs'
 
 /**
  * Shared header: logo, tab navigation, and the account controls.
@@ -30,7 +30,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
         <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
 
         <nav className="mt-12 flex flex-col gap-2" aria-label="Main navigation">
-          {TABS.map((tab) => {
+          {tabsFor(user).map((tab) => {
             const active = tab.label === 'History' ? pathname === '/history' : pathname === tab.to
             return (
               <Link
@@ -67,7 +67,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
           <button onClick={handleSignout} className="text-[11px] text-[#7183A3]">Sign out</button>
         </div>
         <nav className="flex gap-4 overflow-x-auto" aria-label="Main navigation">
-          {TABS.map((tab) => (
+          {tabsFor(user).map((tab) => (
             <Link key={tab.label} to={tab.label === 'History' ? '/chat' : tab.to} className={`whitespace-nowrap text-[11px] uppercase tracking-[0.08em] ${pathname === tab.to && tab.label !== 'History' ? 'text-[#8B3158]' : 'text-[#7183A3]'}`}>
               {tab.label}
             </Link>

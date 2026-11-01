@@ -342,6 +342,9 @@ class Settings(BaseSettings):
     # pack writes at start. Only this user gets the pack (empty = nobody), since
     # it is one Minecraft account on one machine.
     minecraft_pack_owner_email: str = ""
+    # Who may see her insides (memory inspection, her mind, learning, captures and training data): comma-separated
+    # emails. Everyone else can only talk with her. Empty: MINECRAFT_PACK_OWNER_EMAIL; both empty: nobody.
+    owner_emails: str = ""
     minecraft_pack_url: str = "http://127.0.0.1:8790"
     minecraft_pack_token: str = ""
     minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
@@ -503,6 +506,12 @@ class Settings(BaseSettings):
     typesafe_base_url: str = "https://api.typesafe.ai/v1"
     openrouter_api_key: str = ""
     strands_decider_url: str = "http://127.0.0.1:8765"
+
+    def is_owner(self, email: str | None) -> bool:
+        """The owner sees her insides (``owner_emails``, else the pack owner); everyone else only talks with her."""
+        listed = self.owner_emails or self.minecraft_pack_owner_email
+        owners = {e.strip().lower() for e in listed.split(",") if e.strip()}
+        return bool(email) and email.strip().lower() in owners
 
 
 @lru_cache

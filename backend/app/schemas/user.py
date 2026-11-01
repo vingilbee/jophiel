@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field
 
 
 class UserCreate(BaseModel):
@@ -25,3 +25,10 @@ class UserOut(BaseModel):
     name: str
     email: EmailStr
     created_at: datetime
+
+    @computed_field
+    @property
+    def is_owner(self) -> bool:
+        """Whether the app shows her insides (mind, learning) to this user; the routes enforce it."""
+        from app.core.config import get_settings
+        return get_settings().is_owner(self.email)

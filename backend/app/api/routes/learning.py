@@ -28,7 +28,7 @@ from typing import TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, validate_origin
+from app.api.deps import get_current_user, require_owner, validate_origin
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.game_learning import (
@@ -45,7 +45,8 @@ from app.schemas.learning_capture import TrainingExampleOut, TrainingExampleRevi
 from app.services import capture_chains, game_challenges, game_learning, game_skills, training_examples
 from app.services.game_learning import LearningError
 
-router = APIRouter(prefix="/learning", tags=["learning"])
+# The owner only (deps.require_owner): her insides are not for other users.
+router = APIRouter(prefix="/learning", tags=["learning"], dependencies=[Depends(require_owner)])
 mutation = [Depends(validate_origin)]
 
 T = TypeVar("T")

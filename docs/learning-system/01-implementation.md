@@ -57,6 +57,20 @@ The capture service never interprets a record. Learning reads records and adds d
   - `GET /api/learning/capture/attempts/{id}`
   - `GET|PATCH|DELETE /api/learning/training-examples[/{id}]`
 
+## Access: the owner only (decided 2026-11-01)
+
+The user decided that training data is for the owner to train with, and that other users can only talk with
+Columbina. So every route under `/api/learning` (captures, training examples, review, deletion, lessons, skills),
+`/api/mind` and `/api/memory`, plus the live `thought` socket frames, is for the owner only
+(`deps.require_owner`). Any other user gets 404. `OWNER_EMAILS` (comma-separated) names the owner, falling back to
+`MINECRAFT_PACK_OWNER_EMAIL`; with both empty, nobody has access. `/api/auth/me` returns `is_owner`, so the app hides
+the Learning tab, the Mind panel and thoughts from other users. The routes are the real enforcement.
+
+This changes two points of the 01 decisions:
+- **Deleting training data is now the owner's operation, not the user's.**
+- **"Private to their user" still holds.** The owner sees only records filed under the owner's own account. Whether
+  the owner may also see and train on other users' examples is not decided yet; step 5 decides it.
+
 ## Retention, deletion and derivatives
 
 - **Raw retention.** `LEARNING_CAPTURE_RETENTION_DAYS=30` (`expires_at`). The `learning` worker thread prunes expired attempts, executions and gaps every 10 min.

@@ -43,6 +43,14 @@ def get_current_user(
         )
     return user
 
+
+def require_owner(user: User = Depends(get_current_user)) -> User:
+    """Her insides (memory inspection, her mind, learning, captures, training data) are the owner's only. Anyone
+    else gets 404, as if the route weren't there: they can only talk with her."""
+    if not get_settings().is_owner(user.email):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return user
+
 def validate_origin(request: Request):
     settings = get_settings()
     cors = settings.cors_origins

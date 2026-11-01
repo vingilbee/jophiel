@@ -482,7 +482,7 @@ def test_another_users_chain_is_not_found(db_env, capture, pipeline):
         assert capture_chains.attempt(db, other.id, attempt) is None
 
 
-def test_the_api_shows_only_the_users_own_records(db_env, capture, pipeline):
+def test_the_api_shows_only_the_users_own_records(db_env, capture, pipeline, monkeypatch):
     from types import SimpleNamespace
 
     from fastapi import FastAPI
@@ -497,6 +497,9 @@ def test_the_api_shows_only_the_users_own_records(db_env, capture, pipeline):
         other = create_user(db)
         conversation = create_conversation(db, user)
         message = _say(db, conversation, "user", "hello")
+    # Both are owners here, to show each still sees only their own records (non-owners: the next test).
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings(), "owner_emails", f"{user.email},{other.email}")
     _, _, turn_id = _turn(db_env, user, conversation, "how are you?")
     _teacher_attempt(db_env, user, conversation, message)
     assert capture.flush(5)
@@ -511,7 +514,7 @@ def test_the_api_shows_only_the_users_own_records(db_env, capture, pipeline):
     app.include_router(router, prefix="/api")
     app.dependency_overrides[get_db] = session
     app.dependency_overrides[validate_origin] = lambda: True
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user.id)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user.id, email=user.email)
     with TestClient(app) as client:
         overview = client.get("/api/learning/capture").json()
         assert overview["attempts"]["student_2"] == 2 and overview["process"]["written"] >= 4
@@ -520,12 +523,56 @@ def test_the_api_shows_only_the_users_own_records(db_env, capture, pipeline):
         examples = client.get("/api/learning/training-examples").json()
         assert len(examples) == 1
         example_id = examples[0]["id"]
-        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=other.id)
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=other.id, email=other.email)
         assert client.get(f"/api/learning/capture/turns/{turn_id}").status_code == 404
         assert client.get("/api/learning/training-examples").json() == []
         assert client.delete(f"/api/learning/training-examples/{example_id}").status_code == 404
-        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user.id)
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user.id, email=user.email)
         assert client.patch(f"/api/learning/training-examples/{example_id}",
                             json={"review_status": "rejected"}).json()["eligible"] is False
         assert client.delete(f"/api/learning/training-examples/{example_id}").status_code == 204
         assert client.get("/api/learning/training-examples").json() == []
+
+
+def test_only_the_owner_sees_her_insides(db_env, monkeypatch):
+    """Learning, captures, training data, her mind and memory inspection: 404 for anyone but the owner, who can
+    only talk with her. ``is_owner`` tells the app what to show."""
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_current_user, validate_origin
+    from app.api.routes import learning, memory, mind
+    from app.core.config import get_settings
+    from app.db.session import get_db
+    from app.schemas.user import UserOut
+
+    with db_env.db() as db:
+        owner, guest = create_user(db), create_user(db)
+    monkeypatch.setattr(get_settings(), "owner_emails", f" {owner.email.upper()} ")
+    monkeypatch.setattr(get_settings(), "minecraft_pack_owner_email", guest.email)  # used only when unset
+
+    def session():
+        with db_env.db() as db:
+            yield db
+
+    app = FastAPI()
+    for router in (learning.router, memory.router, mind.router):
+        app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_db] = session
+    app.dependency_overrides[validate_origin] = lambda: True
+    paths = ["/api/learning/capture", "/api/learning/training-examples", "/api/learning/lessons",
+             "/api/learning/skills", "/api/mind/thoughts", "/api/memory/working"]
+    with TestClient(app) as client:
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=guest.id, email=guest.email)
+        for path in paths:
+            assert client.get(path).status_code == 404, path
+        assert client.delete(f"/api/learning/training-examples/{uuid.uuid4()}").status_code == 404
+        assert client.patch(f"/api/learning/lessons/{uuid.uuid4()}", json={"status": "retired"}).status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=owner.id, email=owner.email)
+        assert client.get("/api/learning/training-examples").status_code == 200
+        assert client.get("/api/learning/capture").status_code == 200
+    assert UserOut.model_validate(owner).is_owner and not UserOut.model_validate(guest).is_owner
+    monkeypatch.setattr(get_settings(), "owner_emails", "")
+    assert get_settings().is_owner(guest.email) and not get_settings().is_owner(owner.email)

@@ -18,7 +18,8 @@ import { useChatSocket } from '../hooks/useChatSocket'
 import { useVoiceSession, type VoiceSession } from '../hooks/useVoiceSession'
 import { useScreenSense } from '../hooks/useScreenSense'
 import { api } from '../api/client'
-import { TABS } from '../components/tabs'
+import { tabsFor } from '../components/tabs'
+import { useAuth } from '../hooks/useAuth'
 import { ChatSessionTools } from '../components/ChatSessionTools'
 import { mindApi } from '../api/mind'
 import { VoiceOrb } from '../components/VoiceOrb'
@@ -66,6 +67,8 @@ interface Attachment {
 }
 
 export function ChatPage() {
+  const { user } = useAuth()
+  const owner = Boolean(user?.is_owner)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -96,10 +99,11 @@ export function ChatPage() {
   // Her mind's thoughts while playing: their own panel, never messages.
   const [thoughts, setThoughts] = useState<Thought[]>([])
   useEffect(() => {
+    if (!owner) return  // her thoughts are the owner's only
     let cancelled = false
     mindApi.listThoughts().then((loaded) => { if (!cancelled) setThoughts(loaded) }).catch(() => {})
     return () => { cancelled = true }
-  }, [])
+  }, [owner])
 
   /** Append orchestrator text to the last text part of the assistant bubble
    * being written, starting a new text part if the last part was a subagent
@@ -512,7 +516,7 @@ export function ChatPage() {
         <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
 
         <nav className="mt-12 flex flex-col gap-2" aria-label="Main navigation">
-          {TABS.map((item) => {
+          {tabsFor(user).map((item) => {
             const active = item.label === 'Chat'
             return (
               <Link
