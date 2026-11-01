@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import get_settings
 from app.services import cognitive_live, coordinator, recall_references, shared_state, student_two
 from app.workers import chat as chat_worker
 from db_support import database, db_env  # noqa: F401  (fixtures)
@@ -16,9 +17,10 @@ from chat_turn_support import REPLY, live_turn  # noqa: F401  (fixture)
 
 @pytest.fixture
 def fast(db_env, monkeypatch, tmp_path):
-    settings = SimpleNamespace(
+    settings = get_settings().model_copy(update=dict(
+        cognition_decision_provider="student",
         shared_state_log_path=str(tmp_path / "shared.jsonl"), cognitive_live_student_dir=None,
-        cognition_student_log_path=str(tmp_path / "student_two.jsonl"))
+        cognition_student_log_path=str(tmp_path / "student_two.jsonl")))
     monkeypatch.setattr(shared_state, "get_settings", lambda: settings)
     monkeypatch.setattr(shared_state, "SessionLocal", db_env.db)
     monkeypatch.setattr(coordinator, "SessionLocal", db_env.db)  # supersession reads the test schema only
