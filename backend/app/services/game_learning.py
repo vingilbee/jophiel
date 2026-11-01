@@ -163,8 +163,9 @@ def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
                  "keys": [lesson.normalized_key for lesson in lessons]},
     ))
     db.commit()
+    # id and revision: which lesson versions her hands saw (the learning capture records them).
     return [{"situation": lesson.situation, "advice": lesson.advice, "status": lesson.status,
-             "level": lesson.level} for lesson in lessons]
+             "level": lesson.level, "id": str(lesson.id), "revision": lesson.revision} for lesson in lessons]
 
 
 def plan_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]:

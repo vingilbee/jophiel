@@ -46,7 +46,15 @@ def student_result(inp: ResultInput) -> ResultDecision:
         if work is None:
             return ResultDecision(None, "student_2", False, missing_capability="the work item is gone")
         live = student_two.gather_result(db, work)
-    outcome = student_two.decide(live)
+    from app.services import coordinator, learning_capture
+
+    # One attempt per finished item (concluding it again is the same record); its reply is the follow-up turn.
+    capture = learning_capture.Ctx(
+        user_id=work.user_id, attempt_id=uuid.uuid5(work.id, "student_2:result"), trigger=live.trigger,
+        conversation_id=work.conversation_id, turn_id=coordinator.follow_up_turn(work.request_id),
+        upstream={"work": str(work.id), "request": str(work.request_id)}, sources=live.sources,
+        game_session_id=work.activity_id if work.input.get("source") == "minecraft" else None)
+    outcome = student_two.decide(live, capture=capture)
     if outcome.ok:
         with SessionLocal() as db:
             student_two.apply(db, outcome, user_id=work.user_id, message_id=None, routed=False,

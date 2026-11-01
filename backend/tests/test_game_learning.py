@@ -396,8 +396,11 @@ def test_lessons_for_run_respects_the_ab_switch_and_records_what_it_gave(db, use
                       status="retired"))
     db.commit()
     session = _pack_session(db, user)
+    lesson_id = db.scalar(select(GameLesson.id).where(GameLesson.normalized_key == "a:b"))
+    # id and revision: which lesson versions her hands saw, for the learning capture.
     assert game_learning.lessons_for_run(db, session.id) == [
-        {"situation": "s", "advice": "a", "status": "confirmed", "level": "skill"}]
+        {"situation": "s", "advice": "a", "status": "confirmed", "level": "skill", "id": str(lesson_id),
+         "revision": 1}]
     monkeypatch.setattr(game_learning, "get_settings",
                         lambda: get_settings().model_copy(update={"game_learning_apply_lessons": False}))
     assert game_learning.lessons_for_run(db, session.id) == []

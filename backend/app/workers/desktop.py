@@ -93,6 +93,41 @@ def _debug_writer(session_id: uuid.UUID):
     return write
 
 
+def _hands_capture(session_id: uuid.UUID):
+    """Her hands' records for the learning capture, in this session's owner's name (services/learning_capture.py)."""
+    from datetime import datetime, timezone
+
+    from app.db.models import DesktopSession
+    from app.services import learning_capture
+
+    owner = _db(lambda db, sid: getattr(db.get(DesktopSession, sid), "owner_user_id", None))(session_id)
+
+    def at(seconds: float | None):
+        return datetime.fromtimestamp(seconds, timezone.utc) if seconds is not None else None
+
+    def capture(kind: str, **r) -> None:
+        if owner is None:
+            return
+        if kind == "attempt":
+            ctx = learning_capture.Ctx(user_id=owner, attempt_id=r["attempt_id"], trigger="hands_step",
+                                       game_session_id=session_id, input_refs=tuple(r.get("input_refs") or ()),
+                                       sources=(f"session:{session_id}",))
+            learning_capture.attempt(
+                ctx, learner="hands", provider="openai", model=r.get("model"),
+                input=r["input"], output=None if r.get("output") is None else {**r["output"], "usage": r.get("usage")},
+                status=r["status"], error=r.get("error"), started_at=at(r["asked_at"]),
+                produced_at=at(r.get("answered_at")), versions=r.get("versions"), settings=r.get("settings"),
+                blobs=r.get("blobs"))
+        else:
+            learning_capture.execution(
+                user_id=owner, kind="skill_run", executor="minecraft_pack", result=r["result"],
+                attempt_id=r["attempt_id"], game_session_id=session_id, intended=r.get("intended"),
+                executed=r.get("executed"), deviation=r.get("deviation"), started_at=at(r.get("started")),
+                ended_at=at(r.get("ended")), settle=r.get("settle", False))
+
+    return capture
+
+
 def _drive_skills(session_id: uuid.UUID, model) -> None:
     """A game pack session: her hands pick skills (stage G, phase 3)."""
     settings = get_settings()
@@ -113,6 +148,7 @@ def _drive_skills(session_id: uuid.UUID, model) -> None:
         learned=_db(game_skills.for_session),
         learned_used=_db(game_skills.record_use),
         lesson_result=_db(game_practice.last_result),
+        capture=_hands_capture(session_id),
     )
     run = SkillDriverRun(session_id, deps, max_decisions=settings.minecraft_pack_max_decisions,
                          planning_wait_seconds=settings.desktop_planning_wait_seconds,

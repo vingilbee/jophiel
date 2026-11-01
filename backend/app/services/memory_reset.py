@@ -14,12 +14,12 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
+    AgentEventJob, CaptureBlob, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
-    RecallReference, SemanticMemory, WorkingItem,
+    RecallReference, SemanticMemory, TrainingExample, TrainingExampleDeletion, WorkingItem,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
@@ -44,6 +44,11 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # rebuilt for them), and event embeddings (rebuilt in the background). Deleting memories or their
     # sources elsewhere already removes their references.
     "recall": (RecallReconstructionSource, RecallReconstruction, RecallReference, RecallReceipt, MemoryEventEmbedding),
+    # Learning capture (docs/learning-system/01-implementation.md): raw decision captures and their gaps.
+    "capture": (DecisionExecution, DecisionAttempt, CaptureGap, CaptureBlob),
+    # Training examples derived from them, with deletion tombstones (a test reset starts over; a user's own
+    # source deletion never removes examples, and their explicit deletion keeps the tombstone).
+    "training": (TrainingExampleDeletion, TrainingExample),
 }
 
 

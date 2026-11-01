@@ -257,6 +257,20 @@ class Settings(BaseSettings):
     cognition_teacher_model: str = "gpt-6-luna"
     cognition_teacher_timeout_seconds: float = Field(default=60.0, gt=0, le=120)
     cognition_teacher_data_path: str = "var/cognitive_simple/qwen-6/live_teacher.jsonl"
+    # Learning capture (docs/learning-system/01-implementation.md; services/learning_capture.py): what each learner
+    # was given and produced, and what actually executed, saved in the background (never on the reply path).
+    # A record waits in a bounded in-memory queue; a failed save retries with backoff (base * 2^n, capped), and
+    # when the queue is full or the tries run out the loss is a capture gap (DB, else the gap file).
+    learning_capture_retention_days: int = Field(default=30, ge=1)
+    learning_capture_queue_max: int = Field(default=500, ge=1)
+    learning_capture_max_tries: int = Field(default=6, ge=1)
+    learning_capture_retry_base_seconds: float = Field(default=0.5, gt=0)
+    learning_capture_retry_max_seconds: float = Field(default=30.0, gt=0)
+    learning_capture_drain_seconds: float = Field(default=5.0, ge=0)
+    learning_capture_gap_log_path: str = "var/learning_capture_gaps.jsonl"
+    # The user's learning setting: Columbina may turn her decisions into training examples without asking each
+    # time. Off: nothing new is derived (existing examples stay, and stay deletable).
+    learning_derive_examples: bool = True
     # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
     # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
     # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is

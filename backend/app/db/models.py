@@ -2732,3 +2732,235 @@ class CoordinatorOutput(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
                                                  onupdate=func.now())
+
+
+# --------------------------------------------------------------------------- #
+# Learning capture (docs/learning-system/01-capture-and-ownership.md; implementation and settings:
+# docs/learning-system/01-implementation.md). Raw decision captures: what each learner was given and produced,
+# and what actually executed. Written in the background by services/learning_capture.py, never on the reply
+# path; kept LEARNING_CAPTURE_RETENTION_DAYS (30), and removed sooner with their conversation, message, game
+# session or a forgotten memory. Links between attempts and executions are plain ids, not foreign keys: they are
+# written asynchronously and out of order, and a missing one is a visible gap, never a failed insert.
+# --------------------------------------------------------------------------- #
+
+CAPTURE_LEARNERS = ("student_1", "student_2", "hands")
+CAPTURE_ATTEMPT_STATUSES = ("ok", "invalid", "unavailable", "error")
+CAPTURE_EXECUTION_KINDS = ("effect", "reply", "heard", "channel_delivery", "skill_run")
+# succeeded: did what was intended; deviated: did something, not exactly that (a reply cut off, a partial
+# delivery); failed: known failure; unknown: no result known (yet, or ever); not_executed: never started;
+# cancelled: stopped on purpose; handed_off: given to another owner (background work); not_sent: silence chosen.
+CAPTURE_RESULTS = ("succeeded", "deviated", "failed", "unknown", "not_executed", "cancelled", "handed_off",
+                   "not_sent")
+
+
+def _in(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN (" + ", ".join(f"'{v}'" for v in values) + ")"
+
+
+class CaptureBlob(Base):
+    """Exact, immutable content an attempt referenced instead of embedding (a system prompt, a schema), per user:
+    an attempt's ``{"$blob": sha}`` resolves here while the attempt exists; orphans are pruned."""
+
+    __tablename__ = "capture_blobs"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                   nullable=False)
+
+
+class DecisionAttempt(Base):
+    """One learner invocation as it happened: the exact input frozen when supplied, the output when produced.
+    ``id`` is assigned before the call and travels downstream; an actual retry is a new row whose
+    ``prior_attempt_id`` is the one before; a persistence retry reuses the same id (insert does nothing twice).
+    ``absent`` names what wasn't captured on purpose (no prediction, no alternatives), never filled in later."""
+
+    __tablename__ = "decision_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    learner: Mapped[str] = mapped_column(String(24), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
+    source_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    game_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=True)
+    prior_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    upstream: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    versions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    input: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    input_refs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    output: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    absent: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    # Optional links later plans fill (a prediction made before acting; how a choice was selected). Null: none.
+    prediction_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    selection: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blob_hashes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    produced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("learner", CAPTURE_LEARNERS), name="ck_decision_attempts_learner"),
+        CheckConstraint(_in("status", CAPTURE_ATTEMPT_STATUSES), name="ck_decision_attempts_status"),
+        Index("ix_decision_attempts_user", "user_id", "captured_at"),
+        Index("ix_decision_attempts_turn", "turn_id"),
+        Index("ix_decision_attempts_session", "game_session_id"),
+        Index("ix_decision_attempts_conversation", "conversation_id", "started_at"),
+        Index("ix_decision_attempts_expires", "expires_at"),
+        Index("ix_decision_attempts_blobs", "blob_hashes", postgresql_using="gin"),
+    )
+
+
+class DecisionAttemptSource(Base):
+    """What an attempt's input was made from (``message:<id>``, ``fact:<id>``, ``item:<id>``, ...): how a
+    forgotten memory or message finds the raw copies to remove."""
+
+    __tablename__ = "decision_attempt_sources"
+
+    attempt_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decision_attempts.id", ondelete="CASCADE"),
+                                                  primary_key=True)
+    ref: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (Index("ix_decision_attempt_sources_ref", "user_id", "ref"),)
+
+
+class DecisionExecution(Base):
+    """What actually happened to an attempt's decision, recorded by the executor (delivery, hands, an effect's
+    owner), separate from what was intended. ``result='unknown'`` is honest absence of a result; a later settle
+    may replace only an unknown one."""
+
+    __tablename__ = "decision_executions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    executor: Mapped[str] = mapped_column(String(40), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    game_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=True)
+    intended: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    executed: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    result: Mapped[str] = mapped_column(String(16), nullable=False)
+    deviation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("kind", CAPTURE_EXECUTION_KINDS), name="ck_decision_executions_kind"),
+        CheckConstraint(_in("result", CAPTURE_RESULTS), name="ck_decision_executions_result"),
+        Index("ix_decision_executions_attempt", "attempt_id"),
+        Index("ix_decision_executions_turn", "turn_id"),
+        Index("ix_decision_executions_message", "assistant_message_id"),
+        Index("ix_decision_executions_user", "user_id", "captured_at"),
+        Index("ix_decision_executions_expires", "expires_at"),
+    )
+
+
+class CaptureGap(Base):
+    """A capture known to be lost: queue full, retries exhausted, unserializable, its source gone before it was
+    saved, or still queued at shutdown. Content-free. A sudden crash can lose records without a gap."""
+
+    __tablename__ = "capture_gaps"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    record_kind: Mapped[str] = mapped_column(String(16), nullable=False)  # attempt / execution
+    record_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    label: Mapped[str] = mapped_column(String(40), nullable=False)  # learner or execution kind
+    reason: Mapped[str] = mapped_column(String(24), nullable=False)
+    tries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("reason IN ('queue_full', 'retries_exhausted', 'unserializable', 'source_gone', "
+                        "'shutdown')", name="ck_capture_gaps_reason"),
+        UniqueConstraint("record_id", name="uq_capture_gaps_record"),
+        Index("ix_capture_gaps_user", "user_id", "detected_at"),
+    )
+
+
+# Training examples (learning's derivatives): self-contained, private to their user, independent of the raw
+# capture's retention and of source deletion. ``source_refs`` are opaque ids (no foreign keys, no content):
+# a correction can still find what came from a claim after the claim's source is gone.
+
+TRAINING_REVIEW_STATUSES = ("unreviewed", "needs_review", "accepted", "rejected")
+
+
+class TrainingExample(Base):
+    __tablename__ = "training_examples"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    learner: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)  # opaque, no FK
+    label_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    origin: Mapped[str] = mapped_column(String(12), nullable=False, default="real", server_default="real")
+    input: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    target: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    versions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unreviewed",
+                                               server_default="unreviewed")
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    ineligible_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # the decision's time
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("learner", CAPTURE_LEARNERS), name="ck_training_examples_learner"),
+        CheckConstraint(_in("review_status", TRAINING_REVIEW_STATUSES), name="ck_training_examples_review"),
+        CheckConstraint("origin IN ('real', 'synthetic')", name="ck_training_examples_origin"),
+        UniqueConstraint("attempt_id", "learner", "label_source", name="uq_training_examples_derivation"),
+        Index("ix_training_examples_user", "user_id", "learner", "eligible"),
+    )
+
+
+class TrainingExampleSource(Base):
+    __tablename__ = "training_example_sources"
+
+    example_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("training_examples.id", ondelete="CASCADE"),
+                                                  primary_key=True)
+    ref: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (Index("ix_training_example_sources_ref", "user_id", "ref"),)
+
+
+class TrainingExampleDeletion(Base):
+    """An example explicitly deleted from training: ids only, so exports and later derivations exclude it
+    (and the same attempt is never derived again). Doesn't undo influence on models already trained."""
+
+    __tablename__ = "training_example_deletions"
+
+    example_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    learner: Mapped[str] = mapped_column(String(24), nullable=False)
+    label_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_training_example_deletions_attempt", "attempt_id"),)

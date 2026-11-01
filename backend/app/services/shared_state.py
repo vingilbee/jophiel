@@ -34,7 +34,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -53,7 +53,7 @@ from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, Conversation
 from app.db.session import SessionLocal
 from app.ai.state.decisions import PendingDecision, PendingWork
-from app.services import cognitive_live, coordinator, recall_references, student_two
+from app.services import cognitive_live, coordinator, learning_capture, recall_references, student_two
 
 logger = logging.getLogger(__name__)
 
@@ -250,18 +250,32 @@ def _work(job: ChatJob | None, turn_id: uuid.UUID) -> WorkView:
 def _decide(trigger: str, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None,
             user_message_id: uuid.UUID | None, message: str, zone: str | None,
             recall_result: RecallResult | None = None, recall_failed: bool = False,
+            capture: learning_capture.Ctx | None = None,
             ) -> tuple[student_two.Outcome, RecallDecision, ThinkingDecision]:
     """Student 2 decides the reply and its work from the live situation; recall and thinking follow from its
-    work part. When it can't decide (server down, unreadable or invalid answer) both stay unassessed."""
+    work part. When it can't decide (server down, unreadable or invalid answer) both stay unassessed.
+    ``capture``: its attempt's id and links, decided before it runs (the sources come from what it read)."""
     try:
+        memory_refs = tuple(str(r.ref) for r in recall_result.records) if recall_result is not None else ()
         with SessionLocal() as db:
             live = student_two.gather(db, user_id=user_id, conversation_id=conversation_id,
                                       trigger_message_id=user_message_id, message=message, zone=zone,
-                                      memory=student_two.memory_for(db, recall_result, failed=recall_failed))
-        outcome = student_two.decide(live)
+                                      memory=student_two.memory_for(db, recall_result, failed=recall_failed),
+                                      memory_refs=memory_refs)
+        if capture is not None:
+            capture = replace(capture, game_session_id=_session_of(live), sources=tuple(dict.fromkeys(
+                (*live.sources, *(r["ref"] for r in capture.input_refs)))))
+        outcome = student_two.decide(live, capture=capture)
     except Exception as exc:  # noqa: BLE001 - the view says it couldn't decide, the turn goes on
         logger.exception("shared_state: Student 2 failed")
         outcome = student_two.Outcome("unavailable", error=f"{type(exc).__name__}"[:200])
+        if capture is not None:
+            # Known failure before or around the call: an attempt with nothing captured but the failure.
+            outcome.decision_id, outcome.capture = str(capture.attempt_id), capture
+            learning_capture.attempt(capture, learner="student_2", provider=None, model=None, input={},
+                                     output=None, status="error", error=outcome.error,
+                                     started_at=datetime.now(timezone.utc), produced_at=None,
+                                     absent=learning_capture.NOT_CAPTURED + ("input", "output"))
     status = {"ok": "available"}.get(outcome.status, "unavailable")
     reason = outcome.error or ("; ".join(outcome.problems)[:300] if outcome.problems else None)
     meta = Projection("student_2", status, version=outcome.model, updated_at=datetime.now(timezone.utc),
@@ -274,6 +288,35 @@ def _decide(trigger: str, *, user_id: uuid.UUID, conversation_id: uuid.UUID | No
     thinking = ThinkingDecision(meta, trigger_ref=trigger, required=thinking_choice == "required",
                                 decider="student_2", choice=thinking_choice)
     return outcome, recall, thinking
+
+
+def _session_of(live) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(live.activity.key) if live.activity is not None else None
+    except ValueError:
+        return None
+
+
+def _captures(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
+              turn_id: uuid.UUID, job: ChatJob | None, memory: MemoryContextView
+              ) -> tuple[learning_capture.Ctx, learning_capture.Ctx]:
+    """Student 1's and Student 2's attempt ids for this turn, before either runs. A chat job's attempt n is the
+    same record however often it's saved; attempt n+1 (a reclaimed job) is a new attempt linked to it."""
+    tries = job.attempts if job is not None else None
+    refs = tuple({"ref": e.ref, "fingerprint": e.fingerprint, "applicability": e.applicability,
+                  "corrected": bool(e.corrected)} for e in memory.entries)
+    trigger_ref = (f"message:{user_message_id}",) if user_message_id else ()
+
+    def ctx(learner: str, **extra) -> learning_capture.Ctx:
+        return learning_capture.Ctx(
+            user_id=user_id, attempt_id=learning_capture.attempt_id_for(turn_id, learner, tries),
+            prior_attempt_id=learning_capture.prior_for(turn_id, learner, tries), trigger="user_message",
+            conversation_id=conversation_id, turn_id=turn_id, source_message_id=user_message_id, **extra)
+
+    s1_refs = tuple(r for r in refs if r["ref"].split(":", 1)[0] in ("fact", "episode"))
+    s1 = ctx("student_1", input_refs=s1_refs, sources=trigger_ref + tuple(r["ref"] for r in s1_refs))
+    s2 = ctx("student_2", input_refs=refs, upstream={"student_1": str(s1.attempt_id)})
+    return s1, s2
 
 
 def _search(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
@@ -312,13 +355,20 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
     memory, recall_turn = _memory(user_id, conversation_id, user_message_id, message, zone)
     at = lap("initial_recall_ms", at)
     searched = memory.recall_status != "failed"
+    capture_1, capture_2 = _captures(user_id=user_id, conversation_id=conversation_id,
+                                     user_message_id=user_message_id, turn_id=turn_id, job=job, memory=memory)
     live = None
     if conversation_id is not None:
         live = cognitive_live.prepare(user_id=user_id, conversation_id=conversation_id, history=history,
-                                      message=message, long_term_memory=memory.legacy, memory_searched=searched)
+                                      message=message, long_term_memory=memory.legacy, memory_searched=searched,
+                                      capture=capture_1, student_version=_student_version())
         if recall_turn is not None:
             recall_turn.consumed("student_1", [e.ref for e in memory.entries if e.ref.split(":", 1)[0]
                                                in ("fact", "episode")], memory.legacy)
+    if live is None or live.interpretation is None:
+        # Student 2 still names the reading it would have had: the missing link is visible, never invented.
+        capture_2 = replace(capture_2, upstream={"student_1": str(capture_1.attempt_id), "student_1_status": (
+            "not_run" if conversation_id is None else "failed")})
     if recall_turn is not None:
         shown = student_two.rendering() in student_contract.MEMORY_RENDERINGS
         recall_turn.consumed("student_2", [e.ref for e in memory.entries] if shown else [], None,
@@ -336,7 +386,8 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
     student, recall_decision, thinking = _decide(trigger, user_id=user_id, conversation_id=conversation_id,
                                                  user_message_id=user_message_id, message=message, zone=zone,
                                                  recall_result=recall_turn.result if recall_turn else None,
-                                                 recall_failed=memory.recall_status == "failed")
+                                                 recall_failed=memory.recall_status == "failed",
+                                                 capture=capture_2)
     at = lap("student_2_ms", at)
     d = student.decision if student.ok else None
     if d is not None:
@@ -506,6 +557,7 @@ def finish(turn: FastPathTurn | None, *, outcome: str, reply: str, assistant_mes
     """The turn's trace line: what it rested on, how it was routed, what was delivered. Never raises."""
     if turn is None:
         return
+    _record_reply(turn, outcome=outcome, reply=reply, assistant_message_id=assistant_message_id)
     try:
         view, decision = turn.view, turn.decision
         recall_turn = turn.recall_turn
@@ -556,6 +608,24 @@ def finish(turn: FastPathTurn | None, *, outcome: str, reply: str, assistant_mes
         _write(record)
     except Exception:  # noqa: BLE001
         logger.exception("shared_state: writing the trace failed")
+
+
+def _record_reply(turn: FastPathTurn, *, outcome: str, reply: str, assistant_message_id: uuid.UUID | None) -> None:
+    """Delivery's record of this turn: what Student 2 intended next to what the mouth stored. Never raises."""
+    try:
+        view, student = turn.view, turn.student
+        d = student.decision if student is not None and student.ok else None
+        intended = {"communication": d["communication"] if d else None, "move": d.get("move") if d else None,
+                    "immediate_action": turn.immediate_action, "origin": turn.immediate_origin,
+                    "decision_status": student.status if student is not None else "not_run"}
+        learning_capture.reply(
+            user_id=view.envelope.user_id, attempt_id=student.decision_id if student is not None and student.capture
+            else None, turn_id=view.output.turn_id, conversation_id=view.envelope.conversation_id, outcome=outcome,
+            assistant_message_id=assistant_message_id, reply_chars=len(reply or ""), intended=intended,
+            channel=view.output.channel, voice=view.output.voice,
+            started_at=datetime.now(timezone.utc) - timedelta(seconds=time.monotonic() - turn.started))
+    except Exception:  # noqa: BLE001
+        logger.exception("shared_state: recording the delivery failed")
 
 
 def _student_trace(outcome: student_two.Outcome | None) -> dict[str, Any] | None:

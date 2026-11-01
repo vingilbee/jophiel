@@ -45,7 +45,7 @@ def fast(db_env, monkeypatch, tmp_path):
     monkeypatch.setattr(student_two, "get_settings", lambda: settings)
     monkeypatch.setattr(student_two, "manifest", lambda: {"name": "test-student", "system": "sys", "rendering": None})
     real_decide = student_two.decide
-    monkeypatch.setattr(student_two, "decide", lambda live: real_decide(live, ask=lambda m, t: json.dumps(answer)))
+    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=lambda m, t: json.dumps(answer)))
     return SimpleNamespace(settings=settings, readings=readings, log=tmp_path / "shared.jsonl")
 
 

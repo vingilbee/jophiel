@@ -581,6 +581,12 @@ def _apply(db: Session, forget_id: uuid.UUID, attempts: int, chosen: list[dict],
     for message_id in known:
         db.execute(insert(MemoryForgottenSource).values(forget_id=row.id, message_id=message_id, user_id=user_id,
                                                         spans=fences[message_id]).on_conflict_do_nothing())
+    # Raw decision captures made from any of it go too (training examples already made stay: their own rules).
+    from app.services import learning_capture
+    removed["raw_captures"] = learning_capture.drop_raw_for(db, user_id, [
+        *(f"fact:{i}" for i in ids["fact"]), *(f"episode:{i}" for i in ids["episode"]),
+        *(f"item:{i}" for i in ids["item"]), *(f"event:{i}" for i in events),
+        *(f"message:{m}" for m in known - {row.source_message_id})])
     total = removed["fact"] + removed["episode"] + removed["item"] + removed["event"]
     mentions = len(known - {row.source_message_id})
     if mixed_whole:
