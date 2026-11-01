@@ -397,17 +397,10 @@ def _plan_lines(db: Session, session: DesktopSession) -> list[str]:
 
 
 def _commitment_lines(session: DesktopSession, now: float) -> list[str]:
-    """What she promised the user and what she told her hands, while the session lives."""
+    """What she told her hands, while the session lives (her promises are in her working memory)."""
     if session.state in DESKTOP_TERMINAL_STATES:
         return []
-    from app.services import memory_manager
-
     lines = []
-    promised = [] if memory_manager.enabled() else desktop_commands.promises(session.id)  # else: in her memory
-    if promised:
-        lines.append("What you promised the user (keep it, or drop it with drop_promise when it's done or moot): "
-                     + "; ".join(f'{i}. "{p["text"]}" ({_ago(now - p["at"])})' for i, p in enumerate(promised, 1))
-                     + ".")
     told = desktop_commands.hands_messages(session.id)
     if told:
         lines.append("You told your hands (they follow it every move): "
@@ -575,13 +568,6 @@ def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: 
     if thoughts:
         lines.append("On your mind (your own thoughts while playing, newest last): "
                      + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
-    from app.services import memory_manager
-
-    # With working memory on, her intentions are in its view (the Redis list stays her hands' tips).
-    intentions = [] if memory_manager.enabled() else mind_hard.intentions(session.id)
-    if intentions:
-        lines.append("You mean to (your own intentions, from thinking it over): "
-                     + "; ".join(f'"{i["text"]}"' for i in intentions) + ".")
     question = mind_hard.take_question(session.id) if for_reply else None
     if question:
         lines.append(f'A question you wanted to ask the user, from thinking it over: "{question["text"]}". '
@@ -935,11 +921,9 @@ def set_plan(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | 
 def _begin_goal(db: Session, user_id: uuid.UUID, text: str, message_id: uuid.UUID | None, *,
                 by_user: bool = True) -> None:
     """A different goal (``new_goal``): kept in her working memory next to the old one, which stays open;
-    the session plays for this one from now on. Without working memory there's nothing to keep."""
+    the session plays for this one from now on."""
     from app.services import memory_manager
 
-    if not memory_manager.enabled():
-        return
     session = db.scalar(select(DesktopSession).where(DesktopSession.id == _live(db, user_id).id).with_for_update())
     memory_manager.begin_goal(db, session, text, by_user=by_user,
                               source=memory_manager.Source("message", message_id) if message_id else None)
@@ -1270,18 +1254,15 @@ def note_promise(db: Session, user_id: uuid.UUID, *, promise: str, message_id: u
     session = _live(db, user_id)
     from app.services import memory_manager
 
-    if memory_manager.enabled():
-        context = memory_manager.game_context(db, session)
+    context = memory_manager.game_context(db, session)
+    try:
         memory_manager.note_commitment(db, user_id, promise, owner="columbina", context_id=context.id,
                                        source=memory_manager.Source("message", message_id) if message_id else None)
-        db.commit()
-        return "Noted in your memory; you'll see it until it's kept or dropped. " + _promise_list(db, user_id, session)
+    except memory_manager.MemoryError as exc:
+        db.rollback()
+        return f"Not noted: {exc.message}."
     db.commit()
-    kept = desktop_commands.add_promise(session.id, promise)
-    if kept is None:
-        raise DesktopError("unavailable", 503, "promises can't be kept right now (no Redis)")
-    return "Noted; you'll see it each turn until you drop it. Now: " + "; ".join(
-        f'{i}. "{p["text"]}"' for i, p in enumerate(kept, 1)) + "."
+    return "Noted in your memory; you'll see it until it's kept or dropped. " + _promise_list(db, user_id, session)
 
 
 def drop_promise(db: Session, user_id: uuid.UUID, *, number: int | None = None, kept: bool = True,
@@ -1289,28 +1270,21 @@ def drop_promise(db: Session, user_id: uuid.UUID, *, number: int | None = None, 
     session = _live(db, user_id)
     from app.services import memory_manager
 
-    if memory_manager.enabled():
-        promised = _promises_in_memory(db, user_id, session)
-        if not promised:
-            return "Nothing promised now."
-        if number is not None and not 1 <= number <= len(promised):
-            raise DesktopError("not_found", 404, f"there's no promise {number}; there are {len(promised)}")
-        source = memory_manager.Source("message", message_id) if message_id else None
-        status = "fulfilled" if kept and source is not None else "cancelled"
-        try:
-            for entry in promised if number is None else [promised[number - 1]]:
-                memory_manager.resolve(db, user_id, entry.id, status=status, source=source,
-                                       reason="kept" if status == "fulfilled" else "dropped")
-        except memory_manager.MemoryError as exc:
-            raise DesktopError(exc.code, 409, exc.message) from None
-        db.commit()
-        return "Dropped. " + _promise_list(db, user_id, session)
+    promised = _promises_in_memory(db, user_id, session)
+    if not promised:
+        return "Nothing promised now."
+    if number is not None and not 1 <= number <= len(promised):
+        raise DesktopError("not_found", 404, f"there's no promise {number}; there are {len(promised)}")
+    source = memory_manager.Source("message", message_id) if message_id else None
+    status = "fulfilled" if kept and source is not None else "cancelled"
+    try:
+        for entry in promised if number is None else [promised[number - 1]]:
+            memory_manager.resolve(db, user_id, entry.id, status=status, source=source,
+                                   reason="kept" if status == "fulfilled" else "dropped")
+    except memory_manager.MemoryError as exc:
+        raise DesktopError(exc.code, 409, exc.message) from None
     db.commit()
-    kept = desktop_commands.drop_promise(session.id, number)
-    if kept is None:
-        raise DesktopError("unavailable", 503, "promises can't be changed right now (no Redis)")
-    return ("Dropped. Still promised: " + "; ".join(f'{i}. "{p["text"]}"' for i, p in enumerate(kept, 1)) + "."
-            if kept else "Dropped; nothing promised now.")
+    return "Dropped. " + _promise_list(db, user_id, session)
 
 
 def _promises_in_memory(db: Session, user_id: uuid.UUID, session: DesktopSession) -> list:

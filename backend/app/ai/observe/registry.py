@@ -78,6 +78,32 @@ class DeliveryStatus(_Payload):
     status: Literal["delivered", "read", "failed"]
 
 
+class ThoughtBasis(_Payload):
+    """What she read when she thought it: message ids, memory references (``event:42``, ``item:<uuid>``,
+    ``fact:<uuid>``), observation ids."""
+
+    messages: list[str] = Field(default_factory=list, max_length=40)
+    memories: list[str] = Field(default_factory=list, max_length=40)
+    observations: list[int] = Field(default_factory=list, max_length=40)
+
+
+class ThoughtConcluded(_Payload):
+    """A hard thought of hers that reached a conclusion, handed to memory whole
+    (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md §3). Her own reasoning: never a report of what's true."""
+
+    thought_id: str
+    conclusion_kind: Literal["decision", "guess", "question", "intention", "feeling"]
+    conclusion: str = Field(min_length=1, max_length=4000)
+    question: str | None = Field(default=None, max_length=2000)
+    reason: str | None = Field(default=None, max_length=8000)  # her private thinking, whole
+    trigger: str | None = Field(default=None, max_length=32)
+    topic: str | None = Field(default=None, max_length=200)
+    status: Literal["completed"] = "completed"
+    basis: ThoughtBasis = Field(default_factory=ThoughtBasis)
+    supersedes: str | None = None  # the unfinished thought it carried on from
+    premise_conflict: str | None = None  # the unresolved disagreement it was about (its problem's conflict)
+
+
 class SkillOutcome(_Payload):
     experience_id: int
     skill: str = Field(max_length=80)
@@ -140,6 +166,9 @@ class KindSpec:
     memory: Callable[[Any, str], Decision]  # (payload, source_instance) -> decision
     # Its memory event belongs to a context, so promotion waits until it has one.
     needs_context: bool = True
+    # Who processes it (one receipt each). Her thoughts go to ``thought_memory`` alone, which can judge
+    # with a model; ``memory`` is code only.
+    consumers: tuple[str, ...] = ("memory",)
 
 
 def quote(text: str | None, limit: int = QUOTE_LIMIT) -> str:
@@ -182,6 +211,14 @@ def _delivery_memory(p: DeliveryStatus, _instance: str) -> Decision:
         return Skip("delivered replies are part of the conversation")
     return Promote("delivery_failed", f"Your {p.channel.capitalize()} reply couldn't be delivered", "reported",
                    coalesce_key=f"delivery_failed:{p.message_id}")
+
+
+_CONCLUSION_WORDS = {"decision": "decided", "guess": "suspected", "question": "wondered",
+                     "intention": "meant to", "feeling": "felt"}
+
+
+def _thought_summary(p: ThoughtConcluded) -> str:
+    return f'Columbina {_CONCLUSION_WORDS[p.conclusion_kind]} (her own thinking): "{quote(p.conclusion, 300)}"'
 
 
 def _skill_summary(p: SkillOutcome) -> str:
@@ -259,6 +296,8 @@ _SPECS = [
              _notice_salience, _notice_summary, _notice_memory),
     KindSpec("minecraft_pack", "source_availability", 1, SourceAvailability, "system", "observed", "system",
              _fixed("notable"), _availability_summary, _availability_memory("minecraft_pack")),
+    KindSpec("mind", "thought_concluded", 1, ThoughtConcluded, "columbina", "inferred", "model", _fixed("notable"),
+             _thought_summary, _skip("her thoughts go to thought memory"), consumers=("thought_memory",)),
 ]
 REGISTRY: dict[tuple[str, str, int], KindSpec] = {(s.source, s.kind, s.version): s for s in _SPECS}
 

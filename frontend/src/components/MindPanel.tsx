@@ -27,15 +27,15 @@ export function MindPanel({ state, thoughts }: { state: InnerState | null; thoug
     return () => window.clearInterval(timer)
   }, [])
 
-  const on = state?.enabled ?? false
+  // Always on (backend, 2026-10-28): null only before the first load or when the request failed.
+  const on = state != null
   const [latest, ...earlier] = state?.thoughts ?? []
 
   return (
     <div className="space-y-3">
       {!on && (
         <p className="rounded-2xl border border-dashed border-[#D9E3F0] bg-white/60 p-3 text-[11px] leading-relaxed text-[#7183A3]">
-          Mood reading is off. Set <code className="text-[#5E6F8A]">MIND_INNER_STATE_ENABLED=true</code> in the backend’s
-          .env to see her mood and her thoughts about your messages.
+          Couldn’t load her mood just now. It will show here once the backend answers.
         </p>
       )}
 

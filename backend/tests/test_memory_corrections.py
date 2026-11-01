@@ -20,12 +20,13 @@ from app.db.models import (
 )
 from app.schemas.long_term_memory import CorrectionCandidate, MemoryCandidate, MemoryExtraction
 from app.services import (
-    chat as chat_service, long_term_memory, memory_corrections, memory_manager, memory_reset, recall,
+    chat as chat_service, long_term_memory, memory_corrections, memory_manager, memory_reconcile, memory_reset,
+    recall,
 )
 from app.services.memory_corrections import Decision, Judgement
 from app.services.memory_manager import Source
 from app.workers import memory as memory_worker
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 
@@ -45,7 +46,7 @@ def on(monkeypatch, tmp_path, database):
         "memory_manager_enabled": True, "long_term_memory_enabled": True, "memory_corrections_enabled": True,
         "recall_enabled": True, "memory_manager_log_path": str(tmp_path / "memory.jsonl"),
         "recall_log_path": str(tmp_path / "recall.jsonl"), "redis_url": None})
-    for module in (memory_manager, memory_corrections, long_term_memory, recall, config):
+    for module in (memory_manager, memory_corrections, memory_reconcile, long_term_memory, recall, config):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(db_session, "SessionLocal", database)
     monkeypatch.setattr(long_term_memory, "_embedding", lambda text: None)
@@ -58,7 +59,7 @@ def on(monkeypatch, tmp_path, database):
 
 def _reads(memories=(), corrections=()):
     """A scripted consolidation model: always reads these, whatever the message."""
-    return lambda user, assistant, earlier=(), known=(): MemoryExtraction(
+    return lambda user, assistant, earlier=(), known=(), **_context: MemoryExtraction(
         memories=list(memories), corrections=list(corrections))
 
 
@@ -98,7 +99,7 @@ def _conversation(db, user):
 def _exchange(db, conversation, said, answer="Got it."):
     asked = chat_service.add_message(db, conversation=conversation, role="user", content=said, turn_id=uuid.uuid4())
     reply = chat_service.add_message(db, conversation=conversation, role="assistant", content=answer,
-                                     turn_id=uuid.uuid4())
+                                     turn_id=asked.turn_id)
     job = long_term_memory.schedule_consolidation(db, user_id=conversation.user_id, conversation_id=conversation.id,
                                                   assistant_message_id=reply.id, commit=False)
     db.commit()
@@ -321,6 +322,21 @@ def test_a_reading_the_shown_words_dont_support_is_dropped_or_trimmed():
         **base, "new_value": "red crescent"}), user_text=said, shown=[]) is None
 
 
+def test_small_words_around_the_new_value_dont_drop_a_correction():
+    # Live: "is fine with cilantro" was dropped because the user wrote "he's", so the stale item stayed.
+    said = "and I was wrong about Leo, he's fine with cilantro. it's mushrooms he can't stand"
+    base = dict(subject="Leo", attribute="cilantro preference", previous_value=None, kind="mistaken",
+                user_words="I was wrong about Leo, he's fine with cilantro.")
+    kept = memory_corrections.ground(CorrectionCandidate(new_value="is fine with cilantro", **base),
+                                     user_text=said, shown=[])
+    assert kept["new_value"] == "is fine with cilantro"
+    # Only small words are forgiven: a value word the user never said still drops it.
+    assert memory_corrections.ground(CorrectionCandidate(new_value="loves cilantro", **base),
+                                     user_text=said, shown=[]) is None
+    assert memory_corrections.ground(CorrectionCandidate(new_value="is the", **base),
+                                     user_text=said, shown=[]) is None
+
+
 def test_the_three_kinds_read_differently(db, alice, monkeypatch):
     row = MemoryCorrection(subject="velvet otter", attribute="marker", previous_value="purple square",
                            new_value="red crescent", kind="mistaken", user_words="x")
@@ -332,15 +348,11 @@ def test_the_three_kinds_read_differently(db, alice, monkeypatch):
     assert memory_corrections.describe(row) == 'The user corrected the velvet otter marker: now "red crescent".'
 
 
-def test_no_correction_read_means_nothing_is_revised_and_a_disabled_flag_records_none(db, alice, monkeypatch, on):
+def test_no_correction_read_means_nothing_is_revised(db, alice, monkeypatch, on):
     lab = _studied(db, alice)
     _, job = _exchange(db, lab["conversation"], "The velvet otter card also covers Singleton.")
     _consolidate(db, monkeypatch, job, _reads([_fact(FACT_OLD + " It also covers Singleton.")]))
     assert memory_corrections.next_due(db) is None
-    on.memory_corrections_enabled = False
-    _, job = _exchange(db, lab["conversation"], CORRECT)
-    _consolidate(db, monkeypatch, job, _reads([], [_correction()]))
-    assert db.scalar(select(MemoryCorrection).where(MemoryCorrection.user_id == alice.id)) is None
     assert db.get(WorkingItem, lab["sub"].id).revision == 1
 
 
@@ -366,9 +378,10 @@ def test_successive_corrections_apply_in_turn_and_keep_both_in_history(db, alice
     assert [h["content"] for h in history] == [FACT_OLD, FACT_NEW]
     # The first revision is history now too.
     first = [e for e in _events(db, alice, "item_revised") if "-> \"red crescent\"" in e.text]
-    later = recall._corrected_after(db, _events(db, alice))
-    assert first and all(e.id in later for e in first)
-    assert all(e.id not in later for e in _events(db, alice, "corrected"))
+    def later(event):
+        return recall.read(db, alice.id, f"event:{event.id}").records[0].applicability == "no_longer_current"
+    assert first and all(later(e) for e in first)
+    assert not any(later(e) for e in _events(db, alice, "corrected"))
 
 
 def test_a_late_consolidation_job_waits_its_turn_and_never_overwrites_a_newer_statement(db, alice, monkeypatch):
@@ -461,9 +474,14 @@ def test_the_worker_hands_a_consolidated_correction_to_the_manager(db, alice, mo
     _exchange(db, lab["conversation"], CORRECT)
     monkeypatch.setattr(long_term_memory, "_extract", _reads([_fact()], [_correction()]))
     monkeypatch.setattr(memory_corrections, "_judge", _swap("purple square", "red crescent"))
+    # The revised fact is reconciled too (services/memory_reconcile.py); its change is the same correction.
+    monkeypatch.setattr(memory_reconcile, "_read", lambda view: memory_reconcile.FactChange(
+        same_meaning=False, changes=[_correction()]))
     monkeypatch.setattr(memory_worker, "SessionLocal", db_session.SessionLocal)
     assert memory_worker.run_once() is True  # the consolidation job
+    assert memory_worker.run_once() is True  # the revised fact: covered by that correction, so it waits for it
     assert memory_worker.run_once() is True  # the correction it handed over
+    assert memory_worker.run_once() is True  # the revision settles once the correction is applied
     assert memory_worker.run_once() is False
     db.expire_all()
     assert "red crescent" in db.get(WorkingItem, lab["intention"].id).text

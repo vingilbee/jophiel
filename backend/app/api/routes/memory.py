@@ -19,25 +19,23 @@ from app.schemas.memory import (
     ManagerStateOut, MemoryContextOut, MemoryCorrectionOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
     ObservationSourceOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
 )
-from app.services import memory_corrections, memory_manager, observation, recall_references
+from app.services import memory_corrections, memory_dependencies, memory_manager, observation, recall_references
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
 
 @router.get("/working", response_model=WorkingMemoryOut)
 def working_memory(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> WorkingMemoryOut:
-    if not memory_manager.enabled():
-        return WorkingMemoryOut(enabled=False)
     found = memory_manager.inspect(db, user.id)
     pending = set(found["pending"])
     return WorkingMemoryOut(
-        enabled=True,
         state=ManagerStateOut(**found["state"]),
         contexts=[MemoryContextOut.model_validate(c) for c in found["contexts"]],
         items=[WorkingItemOut.model_validate(i).model_copy(update={
             "has_source": i.id in found["sourced"], "needs_look": i.id in pending}) for i in found["items"]],
         events=[MemoryEventOut.model_validate(e) for e in found["events"]],
         corrections=[MemoryCorrectionOut.model_validate(c) for c in memory_corrections.recent(db, user.id)],
+        dependencies=memory_dependencies.inspect(db, user.id),
     )
 
 
@@ -54,7 +52,6 @@ def _observation_out(row, receipt, context_id, bound_by) -> ObservationOut:
 def observations(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ObservationsOut:
     found = observation.inspect(db, user.id)
     return ObservationsOut(
-        capture_enabled=found["capture_enabled"], promotion_enabled=memory_manager.enabled(),
         counts=found["counts"], lag_seconds=found["lag_seconds"],
         sources=[ObservationSourceOut.model_validate(s) for s in found["sources"]],
         recent=[_observation_out(*entry) for entry in found["recent"]],
@@ -65,9 +62,7 @@ def observations(user: User = Depends(get_current_user), db: Session = Depends(g
 
 @router.get("/recall", response_model=RecallOut)
 def recall_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> RecallOut:
-    if not recall_references.enabled():
-        return RecallOut(enabled=False)
     found = recall_references.inspect(db, user.id)
-    return RecallOut(enabled=True, embeddings=found["embeddings"],
+    return RecallOut(embeddings=found["embeddings"],
                      receipts=[RecallReceiptOut.model_validate(r).model_copy(update=refs)
                                for r, refs in found["receipts"]])

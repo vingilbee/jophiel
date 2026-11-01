@@ -1,4 +1,4 @@
-"""The frozen teacher `teacher-2026-10-19`: the provisional teacher for the next training batch.
+"""The frozen teacher `teacher-2026-10-23-initiative-feelings`: the revised teacher candidate; requires a reviewed pilot before bulk training.
 
 Arm `I-p6-r1` of the ablation (intention handoff, character page v0.6, her rhythm on), with typed
 memories (explicit ownership and names), her scoped world and day, no critic, 3 samples, mood
@@ -24,7 +24,7 @@ from .scenario import Scenario
 from .simuser import make_card
 from .teacher import PROMPTS
 
-VERSION = 'teacher-2026-10-19'
+VERSION = 'teacher-2026-10-23-initiative-feelings'
 ARM = Arm('intention', 'v0.6', True)
 REPLAYS = 0.25
 # Batch teacher1 recorded her notes from move labels (notes-v1); later batches from her actual reply.

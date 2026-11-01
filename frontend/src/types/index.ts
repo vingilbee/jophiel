@@ -16,7 +16,7 @@ export type ChatMessage = {
   /** Ephemeral UI identity used to route concurrent/queued stream updates. */
   clientId?: string
   turnId?: string
-  status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  status?: 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
   role: 'user' | 'assistant'
   parts: MessagePart[]
   unprompted?: boolean
@@ -62,7 +62,7 @@ export interface StoredChatMessage extends ChatMessage {
   created_at: string
   content: string
   turn_id?: string | null
-  status?: 'completed' | 'partial' | 'cancelled' | 'failed'
+  status?: 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
   source_channel: 'web' | 'whatsapp' | 'system'
   /** Server-side attachment ids (snake_case, straight off the API). */
   image_ids?: string[] | null
@@ -73,53 +73,6 @@ export interface StoredChatMessage extends ChatMessage {
 
 export interface ConversationDetail extends Conversation {
   messages: StoredChatMessage[]
-}
-
-export type CognitiveSignalValue = boolean | number | string | null
-
-export interface CognitiveSignal {
-  value: CognitiveSignalValue
-  confidence: number
-  source: string
-}
-
-export interface CognitiveInspection {
-  perception: {
-    schema_version: number
-    is_question: boolean
-    is_request: boolean
-    is_directed_at_agent: boolean
-    novelty: number
-    ambiguity: number
-    signals: Record<string, CognitiveSignal>
-  }
-  interpretation: {
-    schema_version: number
-    intent: 'question' | 'request' | 'inform' | 'clarify' | 'feedback' | 'greeting' | 'unknown'
-    confidence: number
-    alternatives: Array<{ intent: string; confidence: number }>
-    needs_clarification: boolean
-    source: string
-  }
-  metrics: {
-    processing_ms: number
-    character_count: number
-    word_count: number
-    recent_message_count: number
-    online_model_calls: number
-  }
-}
-
-export interface CognitiveLLMInspection {
-  mode: 'llm'
-  state: {
-    perception: { observations: string[]; references: string[]; explicit_constraints: string[] }
-    interpretation: { primary_intent: string; secondary_intents: string[]; resolved_goal: string; missing_information: string[] }
-    action: { kind: 'respond' | 'clarify' | 'delegate'; objective: string; capability: string | null; clarification_question: string | null }
-  }
-  image_count: number
-  asset_count: number
-  metrics: CognitiveInspection['metrics']
 }
 
 // A connectable third-party provider plus this user's connection to it. The
@@ -215,7 +168,6 @@ export interface ConversationThought {
 /** Her inner state for the mind panel: each value in two readings (an unclear size taken as
  * small / as clear); `words` names both when they differ. Nothing reads it into her replies. */
 export interface InnerState {
-  enabled: boolean
   config: string
   updated_at: number | null
   values: Record<string, { small: number; clear: number }>

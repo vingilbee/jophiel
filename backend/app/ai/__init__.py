@@ -6,8 +6,7 @@ Public surface:
     - complete_chat       : await the full response as a single string
 
 Exports resolve lazily so importing a sibling package such as
-``app.ai.Cognitive`` does not load the chat agent — the cognitive live-shadow
-worker must stay isolated from it.
+``app.ai.Cognitive`` or ``app.ai.state`` does not load the chat agent.
 """
 from __future__ import annotations
 

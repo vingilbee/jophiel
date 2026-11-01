@@ -15,7 +15,7 @@ from app.services import desktop_commands, desktop_game
 from app.services import desktop_sessions as svc
 from app.services.desktop_sessions import DesktopError
 from desktop_controller.link import Hello
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_link import _pair_msg, FP  # noqa: F401
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
@@ -84,7 +84,7 @@ def test_summary_of_a_playing_session_labels_driver_content(db, alice):
     })
     summary = desktop_game.describe(db, alice.id).summary
     assert "Game: you are playing" in summary
-    assert "Your goal: Collect 5 oak logs." in summary
+    assert "Your current plan for it: Collect 5 oak logs." in summary
     assert "Steps done: 0 of 2. Now: find an oak tree (done when: a trunk fills the crosshair)." in summary
     assert "driver" not in summary.lower() and "revision" not in summary
     untrusted = next(line for line in summary.splitlines() if line.startswith("[what you noticed while playing"))

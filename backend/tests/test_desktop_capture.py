@@ -22,7 +22,7 @@ from app.services import desktop_sessions as svc
 from desktop_controller import connection
 from desktop_controller.capture import FakeCapture, encode
 from desktop_controller.link import MAX_FRAME_BYTES, FrameHeader, pack_frame, unpack_frame
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_link import _env, _hello, _paired, _wait_for, relay  # noqa: F401  (fixtures/helpers)
 from tests.test_desktop_sessions import _user, alice, bob, client, db  # noqa: F401  (fixtures)

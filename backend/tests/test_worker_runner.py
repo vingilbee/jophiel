@@ -13,8 +13,12 @@ def settings(monkeypatch):
     config = SimpleNamespace(
         redis_url=None, memory_worker_poll_seconds=1,
         memory_queue_name="test:memory", file_deletion_queue_name="test:deletion",
+        coordinator_queue_name="test:coordinator",
     )
     monkeypatch.setattr(runner, "get_settings", lambda: config)
+    # The coordinator thread always runs (the shared-state pipeline is the only preparation); keep it idle.
+    from app.workers import coordinator
+    monkeypatch.setattr(coordinator, "run_once", lambda: False)
     return config
 
 

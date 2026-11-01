@@ -52,7 +52,7 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2" aria-label="Mind, game and senses">
         <button type="button" className={CHIP} onClick={() => toggle('mind')} aria-expanded={panel === 'mind'} aria-controls="chat-session-panel">
-          Mind{inner?.enabled ? `: ${inner.words.mood}` : ''}
+          Mind{inner ? `: ${inner.words.mood}` : ''}
         </button>
         {desktop.enabled && <button type="button" className={CHIP} onClick={() => toggle('game')} aria-expanded={panel === 'game'} aria-controls="chat-session-panel">{live && desktop.session ? `Game: ${SESSION_LABEL[desktop.session.state]}` : 'Game session'}</button>}
         <button type="button" className={CHIP} onClick={() => toggle('senses')} aria-expanded={panel === 'senses'} aria-controls="chat-session-panel">

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -82,10 +83,6 @@ class Source:
 
 _SOURCE_COLUMN = {"message": "message_id", "session_event": "session_event_id", "thought": "thought_id",
                   "experience": "experience_id", "observation": "observation_id"}
-
-
-def enabled() -> bool:
-    return bool(get_settings().memory_manager_enabled)
 
 
 def _now() -> datetime:
@@ -297,7 +294,10 @@ def _open_status(kind: str) -> str:
 def add_item(db: Session, user_id: uuid.UUID, *, kind: str, text_: str, owner: str, epistemic: str,
              context_id: uuid.UUID | None = None, parent_id: uuid.UUID | None = None, owed_to: str | None = None,
              done_when: str | None = None, due_at: datetime | None = None,
-             source: Source | None = None) -> WorkingItem:
+             source: Source | None = None, reason: str | None = None, user_words: str | None = None,
+             time_values: dict | None = None) -> WorkingItem:
+    """``reason``: why she concluded it, for what comes from her own thinking. ``time_values``: the ``time_*``
+    fields of a checked time reading (services/memory_time.ground)."""
     words = " ".join((text_ or "").split())
     if not words:
         raise MemoryError("invalid", "say what it is")
@@ -313,9 +313,13 @@ def add_item(db: Session, user_id: uuid.UUID, *, kind: str, text_: str, owner: s
     now = _now()
     if kind == "intention" and due_at is None:
         due_at = now + timedelta(hours=get_settings().memory_intention_hours)
+    if kind == "hypothesis" and due_at is None:  # never settled after this long: unresolved
+        due_at = now + timedelta(days=get_settings().memory_hypothesis_days)
     entry = WorkingItem(id=uuid.uuid4(), user_id=user_id, context_id=context.id, kind=kind, parent_id=parent_id,
                         owner=owner, owed_to=owed_to, text=words, done_when=done_when or None,
-                        status=_open_status(kind), epistemic=epistemic, due_at=due_at)
+                        status=_open_status(kind), epistemic=epistemic, due_at=due_at,
+                        reason=(reason or "").strip() or None, user_words=(user_words or "").strip() or None,
+                        **(time_values or {}))
     db.add(entry)
     db.flush()
     _touch(context, now)
@@ -342,9 +346,29 @@ def note_commitment(db: Session, user_id: uuid.UUID, text_: str, *, owner: str =
     """Something one party owes the other. A promise to herself is an intention, not this."""
     if owner not in ("user", "columbina"):
         raise MemoryError("invalid", "a commitment is owed by you or by the user")
+    if owner == "columbina" and fact_copy(text_):
+        raise MemoryError("not_a_promise", "what the user tells you is kept in memory on its own; a promise is "
+                                           "for something you still have to do")
     owed_to = "user" if owner == "columbina" else "columbina"
     return add_item(db, user_id, kind="commitment", text_=text_, owner=owner, owed_to=owed_to, epistemic="reported",
                     due_at=due_at, context_id=context_id, source=source)
+
+
+_KEEP_PHRASES = ("remember", "keep in mind", "not forget", "don t forget", "do not forget", "never forget",
+                 "memorize", "memorise")
+
+
+def fact_copy(text_: str) -> bool:
+    """A "promise" that only keeps something the user said ("Remember that Sam is allergic to peanuts"): a copy
+    of a fact, not an unfinished obligation. "Remember to send the photos" is one, so it isn't this."""
+    words = " ".join(re.findall(r"[a-z0-9]+", (text_ or "").lower()))
+    for prefix in ("i ll ", "i will ", "i d ", "to "):
+        if words.startswith(prefix):
+            words = words[len(prefix):]
+    for phrase in _KEEP_PHRASES:
+        if words == phrase or words.startswith(phrase + " "):
+            return not words[len(phrase):].strip().startswith("to ")
+    return False
 
 
 def note_intention(db: Session, user_id: uuid.UUID, text_: str, *, context_id: uuid.UUID | None = None,
@@ -352,6 +376,50 @@ def note_intention(db: Session, user_id: uuid.UUID, text_: str, *, context_id: u
     """Her own plan: nobody is let down if it lapses (it does, after MEMORY_INTENTION_HOURS)."""
     return add_item(db, user_id, kind="intention", text_=text_, owner="columbina", epistemic=epistemic,
                     context_id=context_id, source=source)
+
+
+def add_plan(db: Session, user_id: uuid.UUID, text_: str, *, user_words: str, time_values: dict,
+             source: Source | None, owner: str = "user") -> WorkingItem:
+    """Something the user means to do ("visit Nora in Lisbon in December"), with their words and the time read
+    from them. Due at the end of that time: past it with no word, it needs a look (``tick_due``), and never
+    becomes "happened" on its own."""
+    return add_item(db, user_id, kind="plan", text_=text_, owner=owner, epistemic="reported",
+                    due_at=(time_values or {}).get("time_end"), source=source, user_words=user_words,
+                    time_values=time_values, context_id=ensure_general(db, user_id).id)
+
+
+def revise_plan(db: Session, user_id: uuid.UUID, entry: WorkingItem, *, text_: str, user_words: str,
+                time_values: dict, source: Source, role: str) -> bool:
+    """The user said more about a plan already known: its wording and, when the new words give one, its time.
+    The old version stays in an ``item_revised`` event. Returns whether anything changed."""
+    words = " ".join((text_ or "").split())
+    changes = {}
+    if words and words != entry.text:
+        changes["text"] = words
+    if time_values and any(getattr(entry, k) != v for k, v in time_values.items() if k != "time_said_at"):
+        changes.update(time_values)
+        changes["due_at"] = time_values.get("time_end")
+    if not changes:
+        link(db, user_id, role="support", source=source, item_id=entry.id)
+        return False
+    before = f"{entry.text}" + (f' (when: "{entry.time_words}")' if entry.time_words else "")
+    for key, value in changes.items():
+        setattr(entry, key, value)
+    entry.user_words = user_words or entry.user_words
+    if entry.status == "needs_review" and changes.get("time_end") and changes["time_end"] > _now():
+        entry.status, entry.status_reason = "planned", None
+    entry.revision += 1
+    entry.updated_at = _now()
+    after = f"{entry.text}" + (f' (when: "{entry.time_words}")' if entry.time_words else "")
+    event = record_event(db, user_id, kind="item_revised", text=f"Plan changed: {before} -> {after}",
+                         epistemic="reported", context_id=entry.context_id, item_id=entry.id,
+                         dedupe_key=f"plan:{entry.id}:{entry.revision}")
+    link(db, user_id, role=role, source=source, item_id=entry.id)
+    if event is not None:
+        link(db, user_id, role=role, source=source, event_id=event.id)
+    _schedule(db, user_id, entry.due_at)
+    _log({"op": "revise_plan", "user": str(user_id), "item": str(entry.id), "fields": sorted(changes)})
+    return True
 
 
 def item(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, lock: bool = False) -> WorkingItem:
@@ -395,16 +463,28 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
         raise MemoryError("stale_revision", "it changed since you read it; read it again")
     if background and not (entry.kind == "intention" and entry.owner == "columbina"):
         raise MemoryError("not_yours", "without the user here you can only change your own intentions")
+    if background and entry.id in _held(db, user_id):
+        raise MemoryError("on_hold", "a fact it may depend on just changed; leave it until it's rechecked")
     opened, closed = WORKING_ITEM_STATUSES[entry.kind]
     if status not in opened + closed:
         raise MemoryError("invalid", f"a {entry.kind} can be: {', '.join(opened + closed)}")
     if entry.closed_at is not None:
         raise MemoryError("closed", f'that {entry.kind} is already {entry.status}')
-    if status in ("completed", "fulfilled") and source is None:
+    if status in ("completed", "fulfilled", "happened") and source is None:
         raise MemoryError("no_evidence", "say what shows it's done (only when the user said so or it's clearly done)")
+    if status in ("supported", "disproved") and source is None:
+        raise MemoryError("no_evidence", "a suspicion is only shown right or wrong by what the user said or what happened")
     if not (reason or "").strip():
         raise MemoryError("invalid", "give a short reason")
     if status == entry.status:
+        if not background and source is not None:
+            # The user's turn kept it as it is: if a fact it relies on changed, it now stands checked
+            # (services/memory_dependencies.py; the way out of "may be out of date").
+            from app.services import memory_dependencies
+
+            if memory_dependencies.confirm(db, user_id, entry.id):
+                link(db, user_id, role="support", source=source, item_id=entry.id)
+                _log({"op": "confirm", "user": str(user_id), "item": str(entry.id)})
         return entry, []
     now = _now()
     _set_status(db, entry, status, " ".join(reason.split()), now)
@@ -422,10 +502,17 @@ def link(db: Session, user_id: uuid.UUID, *, role: str, source: Source, item_id:
          event_id: int | None = None) -> bool:
     """An evidence link, if the source exists and is this user's. Never fails the caller: a missing source
     just means no link (the memory stands on its own)."""
+    return link_target(db, user_id, role=role, source=source, item_id=item_id, event_id=event_id)
+
+
+def link_target(db: Session, user_id: uuid.UUID, *, role: str, source: Source, item_id: uuid.UUID | None = None,
+                event_id: int | None = None, fact_id: uuid.UUID | None = None,
+                entity_id: uuid.UUID | None = None) -> bool:
+    """``link`` for any one target: an item, an event, a fact or an entity."""
     if not _owns_source(db, user_id, source):
         return False
-    values = {"user_id": user_id, "item_id": item_id, "event_id": event_id, "role": role,
-              _SOURCE_COLUMN[source.kind]: source.id}
+    values = {"user_id": user_id, "item_id": item_id, "event_id": event_id, "fact_id": fact_id,
+              "entity_id": entity_id, "role": role, _SOURCE_COLUMN[source.kind]: source.id}
     db.execute(insert(MemoryEvidence).values(**values).on_conflict_do_nothing())
     return True
 
@@ -511,7 +598,7 @@ def record_correction(db: Session, user_id: uuid.UUID, *, text_: str, context_id
 
 def _kind_word(entry: WorkingItem) -> str:
     return {"goal": "Sub-goal" if entry.parent_id else "Goal", "commitment": "Commitment", "intention": "Intention",
-            "question": "Question"}[entry.kind]
+            "question": "Question", "hypothesis": "Suspicion", "decision": "Decision", "plan": "Plan"}[entry.kind]
 
 
 # --------------------------------------------------------------------------- #
@@ -570,8 +657,6 @@ def on_plan_set(db: Session, session: DesktopSession, *, goal_text: str, source:
     """Called whenever a session gets a plan. The plan serves a goal: the one the session already serves if
     it's still open, else the newest active goal of the game's context, else a new goal from the plan's own
     words. Replacing the plan never changes or closes that goal."""
-    if not enabled():
-        return None
     user_id = session.owner_user_id
     context = game_context(db, session)
     goal = db.get(WorkingItem, session.goal_item_id) if session.goal_item_id else None
@@ -626,7 +711,7 @@ def _lock_live_sessions(db: Session, user_id: uuid.UUID, source: str) -> list[De
 
 
 def session_goal(db: Session, session: DesktopSession) -> WorkingItem | None:
-    if not enabled() or session.goal_item_id is None:
+    if session.goal_item_id is None:
         return None
     return db.get(WorkingItem, session.goal_item_id)
 
@@ -669,10 +754,11 @@ def _origin_known(db: Session, ids: list[uuid.UUID]) -> set[uuid.UUID]:
                                                                MemoryEvidence.role == "origin")))
 
 
-def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[uuid.UUID], plans: dict) -> str:
+def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[uuid.UUID], plans: dict,
+               held: dict[uuid.UUID, str] | None = None) -> str:
     tag = f"[{ref(entry)}]"
     lost = "" if entry.id in sourced or entry.epistemic == "inferred" else " (where it came from is no longer available)"
-    status = "" if entry.status in ("active", "open") else f" ({entry.status}"
+    status = "" if entry.status in ("active", "open", "planned") else f" ({entry.status}"
     if status:
         status += (f": {entry.status_reason}" if entry.status_reason else "") + ")"
     if entry.kind == "goal":
@@ -689,10 +775,36 @@ def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[u
             status = ""
     elif entry.kind == "intention":
         line = f"You mean to {tag}: {entry.text}"
+    elif entry.kind == "hypothesis":
+        line = f"You suspect {tag} (your own guess, not confirmed): {entry.text}"
+    elif entry.kind == "decision":
+        line = f"You decided {tag}: {entry.text}"
+    elif entry.kind == "plan":
+        from app.services import memory_time
+
+        span = memory_time.span(entry)
+        when = f" (when: {memory_time.describe(span, now)})" if span else ""
+        whose = {"user": f"{user_name}'s plan", "columbina": "Your plan"}.get(entry.owner, f"Your and {user_name}'s plan")
+        line = f"{whose} {tag}: {entry.text}{when}"
+        if entry.status == "needs_review":
+            line += " (its time has passed and nobody said whether it happened)"
+            status = ""
     else:
         who = "You asked" if entry.owner == "columbina" else f"{user_name} asked"
         line = f"{who} {tag}, still open: {entry.text}"
-    return line + status + lost
+    from app.services.memory_dependencies import HOLD_TEXT
+
+    hold = (held or {}).get(entry.id)
+    on_hold = f" ({HOLD_TEXT[hold]})" if hold else ""
+    return line + status + lost + on_hold
+
+
+def _held(db: Session, user_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """Items on hold, with why: a fact they rely on is being rechecked (``pending``) or couldn't be (``review``)
+    (services/memory_dependencies.py)."""
+    from app.services import memory_dependencies
+
+    return memory_dependencies.holds(db, user_id)
 
 
 def _top_goals(entries: list[WorkingItem]) -> list[WorkingItem]:
@@ -702,9 +814,12 @@ def _top_goals(entries: list[WorkingItem]) -> list[WorkingItem]:
     return [g for g in entries if g.kind == "goal" and (g.parent_id is None or g.parent_id not in open_ids)]
 
 
-def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: datetime | None = None) -> str | None:
+def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: datetime | None = None,
+         autonomous: bool = False) -> str | None:
     """The memory view: the focused context in full, the other open ones in a line each, and closed ones
-    only while something there is unresolved. None when there's nothing to say."""
+    only while something there is unresolved. None when there's nothing to say. Items on hold (a fact they
+    may depend on is being reconciled) are marked; ``autonomous`` (a turn or thought the user didn't start)
+    leaves them out, so nothing she does on her own acts on them."""
     now = now or _now()
     name = user_name or "the user"
     current = state(db, user_id)
@@ -712,6 +827,9 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
     open_items = list(db.scalars(select(WorkingItem).where(
         WorkingItem.user_id == user_id,
         (WorkingItem.closed_at.is_(None))).order_by(WorkingItem.created_at)))
+    held = _held(db, user_id)
+    if autonomous:
+        open_items = [entry for entry in open_items if entry.id not in held]
     sourced = _origin_known(db, [entry.id for entry in open_items])
     plans = {row.goal_item_id: (row.plan or {}).get("goal") for row in db.scalars(select(DesktopSession).where(
         DesktopSession.owner_user_id == user_id, DesktopSession.goal_item_id.is_not(None),
@@ -730,11 +848,15 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
             children.setdefault(entry.parent_id, []).append(entry)
     goal_lines = []
     for goal in goals[:VIEW_GOALS]:
-        goal_lines.append("  " + _item_line(goal, now, name, sourced, plans))
-        goal_lines += ["    - " + _item_line(c, now, name, sourced, plans) for c in children.get(goal.id, [])[:VIEW_CHILDREN]]
-    commitments = ["  " + _item_line(e, now, name, sourced, plans) for e in mine if e.kind == "commitment"][:VIEW_ITEMS]
-    questions = ["  " + _item_line(e, now, name, sourced, plans) for e in mine if e.kind == "question"][:VIEW_ITEMS]
-    intentions = ["  " + _item_line(e, now, name, sourced, plans) for e in mine if e.kind == "intention"][:VIEW_ITEMS]
+        goal_lines.append("  " + _item_line(goal, now, name, sourced, plans, held))
+        goal_lines += ["    - " + _item_line(c, now, name, sourced, plans, held)
+                       for c in children.get(goal.id, [])[:VIEW_CHILDREN]]
+    commitments = ["  " + _item_line(e, now, name, sourced, plans, held)
+                   for e in mine if e.kind in ("commitment", "plan")][:VIEW_ITEMS]
+    questions = ["  " + _item_line(e, now, name, sourced, plans, held)
+                 for e in mine if e.kind == "question"][:VIEW_ITEMS]
+    intentions = ["  " + _item_line(e, now, name, sourced, plans, held) for e in mine
+                  if e.kind in ("intention", "hypothesis", "decision")][:VIEW_ITEMS]
     events = list(db.scalars(select(MemoryEvent).where(
         MemoryEvent.context_id == focus_ctx.id, MemoryEvent.kind.not_in(("item_added", "item_changed", "context_switched")),
     ).order_by(MemoryEvent.id.desc()).limit(VIEW_EVENTS)))
@@ -800,13 +922,15 @@ def pending(db: Session, user_id: uuid.UUID, now: datetime | None = None) -> lis
 
 
 # --------------------------------------------------------------------------- #
-# The tick (code only, from the mind loop; spec §8)
+# Due maintenance (code only, scheduled independently by the coordinator)
 # --------------------------------------------------------------------------- #
 
 
 def _schedule(db: Session, user_id: uuid.UUID, due_at: datetime | None) -> None:
     if due_at is None:
         return
+    from app.services import background_wake
+    background_wake.mark(db)
     db.execute(update(MemoryManagerState).where(MemoryManagerState.user_id == user_id,
                                                 MemoryManagerState.next_check_at > due_at)
                .values(next_check_at=due_at))
@@ -838,9 +962,14 @@ def _tick_user(db: Session, user_id: uuid.UUID, now: datetime) -> bool:
     done = []
     for entry in db.scalars(select(WorkingItem).where(
             WorkingItem.user_id == user_id, WorkingItem.closed_at.is_(None), WorkingItem.due_at <= now,
-            WorkingItem.kind.in_(("intention", "commitment")), WorkingItem.status != "needs_review").with_for_update()):
+            WorkingItem.kind.in_(("intention", "commitment", "hypothesis", "plan")),
+            WorkingItem.status != "needs_review").with_for_update()):
         if entry.kind == "intention":
             _set_status(db, entry, "lapsed", "its time passed", now)
+        elif entry.kind == "hypothesis":
+            _set_status(db, entry, "unresolved", "nothing settled it", now)
+        elif entry.kind == "plan":
+            _set_status(db, entry, "needs_review", "its time passed; whether it happened isn't known", now)
         else:
             _set_status(db, entry, "needs_review", "it's overdue", now)
         done.append(f"{entry.kind}:{entry.status}")
@@ -870,22 +999,22 @@ def _tick_user(db: Session, user_id: uuid.UUID, now: datetime) -> bool:
 # --------------------------------------------------------------------------- #
 
 
-def intention_from_thought(user_id: uuid.UUID, activity: uuid.UUID, text_: str, thought_id: uuid.UUID) -> None:
-    """A hard thought concluded an intention: keep it in memory, in the context of the session it was about.
-    Her hands still get it as a tip (an execution hint, not memory)."""
-    if not enabled():
-        return
-    from app.db.session import SessionLocal
+def thought_context(db: Session, user_id: uuid.UUID, source: str, activity: uuid.UUID | None) -> MemoryContext:
+    """Where a thought of hers belongs, decided when she thought it: a game session's world, else the
+    context in focus then."""
+    session = db.get(DesktopSession, activity) if source != "conversation" and activity else None
+    if session is not None and session.owner_user_id == user_id:
+        return game_context(db, session)
+    return focused(db, user_id)
 
-    try:
-        with SessionLocal() as db:
-            session = db.get(DesktopSession, activity)
-            context = game_context(db, session) if session is not None and session.owner_user_id == user_id else None
-            note_intention(db, user_id, text_, context_id=context.id if context else None,
-                           source=Source("thought", thought_id))
-            db.commit()
-    except Exception:  # noqa: BLE001 - memory never gets in the way of thinking
-        log.exception("memory: could not keep an intention for %s", user_id)
+
+def restate(db: Session, user_id: uuid.UUID, entry: WorkingItem, source: Source) -> None:
+    """She reached the same conclusion again: linked as a restatement, never as support. A suspicion she
+    keeps returning to waits again before it counts as never settled."""
+    link(db, user_id, role="restated", source=source, item_id=entry.id)
+    if entry.kind == "hypothesis" and entry.closed_at is None:
+        entry.due_at = _now() + timedelta(days=get_settings().memory_hypothesis_days)
+        _schedule(db, user_id, entry.due_at)
 
 
 def inspect(db: Session, user_id: uuid.UUID) -> dict:
@@ -919,16 +1048,14 @@ def _log(record: dict) -> None:
         log.warning("memory: could not write %s", path)
 
 
-def view_for(user_id: uuid.UUID, *, user_name: str | None = None) -> str | None:
+def view_for(user_id: uuid.UUID, *, user_name: str | None = None, autonomous: bool = False) -> str | None:
     """``view`` with its own DB session, for a turn being assembled (run in a thread). Never fails a turn:
-    any error just means no memory view this turn. None when working memory is off or empty."""
-    if not enabled():
-        return None
+    any error just means no memory view this turn. None when working memory is empty."""
     from app.db.session import SessionLocal
 
     try:
         with SessionLocal() as db:
-            rendered = view(db, user_id, user_name=user_name)
+            rendered = view(db, user_id, user_name=user_name, autonomous=autonomous)
             db.commit()
             return rendered
     except Exception:  # noqa: BLE001 - logged, then the turn goes on without it

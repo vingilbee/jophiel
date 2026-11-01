@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -223,6 +224,132 @@ def _evaluate(args) -> None:
     print(json.dumps(evaluate(RUNS / args.run, _dynamics(args), seed=args.seed, models_name=args.models), indent=1))
 
 
+def _events(args) -> None:
+    """Student 2 event teacher pilot: situations -> decision first -> speech only when she speaks."""
+    from dotenv import dotenv_values
+
+    from app.ai.Cognitive.simple.events import SETS, FAMILY_BY_ID, EventEnv, fingerprint, plan_situations, run
+    from app.ai.Cognitive.simple.llm import LLM
+
+    out = RUNS / args.run
+    out.mkdir(parents=True, exist_ok=True)
+    page = (ROOT / 'docs' / 'characters' / f'{args.character}.md').read_text()
+    sets = tuple(x for x in SETS if x not in ('fresh', 'contrast', 'recall', 'scope', 'think', 'speak', 'memory')) if args.set == 'all' else (args.set,)
+    used: dict[str, set[str]] = {}
+    for r in filter(None, args.after.split(',')):
+        for f in (RUNS / r / 'situations').glob('*.json'):
+            plan = json.loads(f.read_text())['plan']
+            used.setdefault(plan['family'], set()).add(plan.get('topic'))
+    plans = plan_situations(args.seed, per_family=args.per_family, twins=args.twins, thought_subs=args.thought_subs,
+                            sets=sets, domain=args.domain, topic_pool=args.topic_pool, used_topics=used)
+    if args.families:
+        keep = {f.strip() for f in args.families.split(',')}
+        assert keep <= set(FAMILY_BY_ID), keep - set(FAMILY_BY_ID)
+        plans = [p for p in plans if p['family'] in keep]
+    (out / f'manifest-{args.seed}.json').write_text(json.dumps(dict(
+        character=args.character, model=args.model, seed=args.seed,
+        fingerprint=fingerprint(page, contrast=bool({'contrast', 'recall', 'scope', 'think', 'speak', 'memory'} & set(sets))), plans=plans), indent=1))
+    llm = LLM(dotenv_values(BACKEND / '.env').get('OPENAI_API_KEY'), model=args.model, concurrency=args.concurrency)
+    asyncio.run(run(EventEnv(llm=llm, page=page, out=out), plans, parallel=args.parallel))
+    print(json.dumps(llm.usage.to_dict(), indent=1))
+
+
+def _events_report(args) -> None:
+    from app.ai.Cognitive.simple.events import report, review_page, twins_page, write_twin_tags
+    out = RUNS / args.run
+    print(write_twin_tags(out))  # keeps tags already written
+    (out / 'TWINS.md').write_text(twins_page(out))
+    (out / 'REPORT.md').write_text(report(out))
+    (out / 'REVIEW.md').write_text(review_page(out))
+    print(out / 'REPORT.md')
+
+
+def _events_contrast(args) -> None:
+    """Contrast families of a run: speech checks on speaking samples (kept grades reused), then CONTRAST.md."""
+    from dotenv import dotenv_values
+
+    from app.ai.Cognitive.simple.events import contrast_report, grade_run
+    from app.ai.Cognitive.simple.llm import LLM
+
+    out = RUNS / args.run
+    llm = LLM(dotenv_values(BACKEND / '.env').get('OPENAI_API_KEY'), model=args.model, concurrency=args.concurrency)
+    asyncio.run(grade_run(llm, out))
+    (out / 'CONTRAST.md').write_text(contrast_report(out))
+    print(out / 'CONTRAST.md')
+    print(json.dumps(llm.usage.to_dict(), indent=1))
+
+
+def _events_review(args) -> None:
+    """Model review of a run's decisions (review.json); wrong ones leave the student's training data."""
+    from dotenv import dotenv_values
+
+    from app.ai.Cognitive.simple.events import review_run
+    from app.ai.Cognitive.simple.llm import LLM
+
+    llm = LLM(dotenv_values(BACKEND / '.env').get('OPENAI_API_KEY'), model=args.model, concurrency=args.concurrency)
+    page = (ROOT / 'docs' / 'characters' / f'{args.character}.md').read_text()
+    done = asyncio.run(review_run(llm, RUNS / args.run, page))
+    verdicts = [(d['verdict'], d['issue']) for v in done.values() for d in v.values()]
+    print({f'{v} ({i})': n for (v, i), n in Counter(verdicts).most_common()}, llm.usage.calls)
+
+
+def _events_student(args) -> None:
+    """Student 2 event student: train on teacher runs, evaluate on held-out thought and motive probes."""
+    from dotenv import dotenv_values
+
+    from app.ai.Cognitive.simple.llm import LLM
+    from app.ai.Cognitive.simple.student.events_probe import experiment
+
+    llm = None if args.no_grade else LLM(dotenv_values(BACKEND / '.env').get('OPENAI_API_KEY'), concurrency=40)
+    print(experiment([RUNS / r for r in args.runs.split(',')], RUNS / args.run, arms=tuple(args.arms.split(',')),
+                     epochs=args.epochs, seed=args.seed, llm=llm))
+
+
+def _events_student2(args) -> None:
+    """Structured Student 2: complete decisions chosen among what the contract accepts."""
+    from app.ai.Cognitive.simple.student.events_student2 import experiment
+
+    print(json.dumps(experiment([RUNS / r for r in args.runs.split(',')], RUNS / args.run, epochs=args.epochs,
+                                seed=args.seed, limit=args.limit), indent=1))
+
+
+def _events_qwen_export(args) -> None:
+    """Bundle for the generative student's notebook (Colab/Kaggle): situations and plain teacher decisions."""
+    from app.ai.Cognitive.simple.student.events_qwen import export
+
+    print(json.dumps(export([RUNS / r for r in args.runs.split(',')], RUNS / args.run,
+                            ROOT / 'docs' / 'characters' / f'{args.character}.md', seed=args.seed, order=args.order,
+                            follow=args.follow),
+                     indent=1))
+
+
+def _events_data_check(args) -> None:
+    """What a training set teaches, before training: pairs, both sides, label mix, teacher agreement (no model calls)."""
+    from app.ai.Cognitive.simple.student.events_datacheck import check, page
+
+    result = check([RUNS / r for r in args.runs.split(',')],
+                   [RUNS / r for r in args.baseline.split(',')] if args.baseline else None, seed=args.seed)
+    out = RUNS / args.out
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'data_check.json').write_text(json.dumps(result, indent=1))
+    (out / 'DATA_CHECK.md').write_text(page(result))
+    print(json.dumps(result['gates'], indent=1))
+    print(out / 'DATA_CHECK.md')
+
+
+def _events_qwen_score(args) -> None:
+    """Score the notebook's predictions like Student 2, and grade the speech it writes."""
+    from dotenv import dotenv_values
+
+    from app.ai.Cognitive.simple.llm import LLM
+    from app.ai.Cognitive.simple.student.events_qwen import score
+
+    llm = None if args.no_grade else LLM(dotenv_values(BACKEND / '.env').get('OPENAI_API_KEY'), concurrency=40)
+    page = (ROOT / 'docs' / 'characters' / f'{args.character}.md').read_text()
+    print(json.dumps(asyncio.run(score([RUNS / r for r in args.runs.split(',')], RUNS / args.run / args.preds,
+                                       RUNS / args.run, llm=llm, page=page, seed=args.seed)), indent=1))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -274,6 +401,67 @@ def main() -> None:
     tp.add_argument('--model', default='gpt-6-luna')
     tp.add_argument('--concurrency', type=int, default=40)
     tp.add_argument('--character', default='columbina')
+    ev = sub.add_parser('events', help='Student 2 event teacher pilot (decision first, speech optional)')
+    ev.add_argument('--run', required=True)
+    ev.add_argument('--seed', type=int, default=31)
+    ev.add_argument('--per-family', type=int, default=2)
+    ev.add_argument('--twins', type=float, default=1.0, help='share of situations with a counterfactual twin')
+    ev.add_argument('--thought-subs', type=float, default=0.0,
+                    help='share of situations that also get thought substitutions')
+    ev.add_argument('--families', default='', help='comma-separated family ids (default: all)')
+    ev.add_argument('--domain', default='', help='only families allowed in this domain, all set there')
+    ev.add_argument('--topic-pool', default='all', choices=['all', 'casual'], help='where topics are drawn from')
+    ev.add_argument('--after', default='', help='runs whose topics this one never repeats within a family (top-ups)')
+    ev.add_argument('--set', default='all', choices=['all', 'targeted', 'broad', 'motives', 'fresh', 'contrast', 'recall', 'scope', 'think', 'speak', 'memory'],
+                    help='which family set')
+    ev.add_argument('--parallel', type=int, default=10)
+    ev.add_argument('--concurrency', type=int, default=40)
+    ev.add_argument('--model', default='gpt-6-luna')
+    ev.add_argument('--character', default='columbina-v0.6')
+    evr = sub.add_parser('events-report')
+    evr.add_argument('--run', required=True)
+    ecx = sub.add_parser('events-contrast', help='contrast families: speech checks + CONTRAST.md')
+    ecx.add_argument('--run', required=True)
+    ecx.add_argument('--concurrency', type=int, default=40)
+    ecx.add_argument('--model', default='gpt-6-luna')
+    erv = sub.add_parser('events-review', help='model review of an event run (wrong decisions leave training)')
+    erv.add_argument('--run', required=True)
+    erv.add_argument('--model', default='gpt-6-luna')
+    erv.add_argument('--concurrency', type=int, default=60)
+    erv.add_argument('--character', default='columbina-v0.6')
+    es2 = sub.add_parser('events-student2', help='structured Student 2: complete, contract-valid decisions')
+    es2.add_argument('--run', required=True, help='output folder name')
+    es2.add_argument('--runs', default='events-pilot-8,events-pilot-8b')
+    es2.add_argument('--epochs', type=int, default=4)
+    es2.add_argument('--seed', type=int, default=0)
+    es2.add_argument('--limit', type=int, default=0, help='smoke run: train on this many examples only')
+    eqx = sub.add_parser('events-qwen-export', help='bundle for the generative student notebook')
+    eqx.add_argument('--run', required=True, help='output folder name')
+    eqx.add_argument('--runs', default='events-pilot-8,events-pilot-8b')
+    eqx.add_argument('--seed', type=int, default=0)
+    eqx.add_argument('--character', default='columbina-v0.6')
+    eqx.add_argument('--order', default='work_first', choices=('work_first', 'words_first'))
+    eqx.add_argument('--follow', action='store_true',
+                     help="leave out training samples confirmed in a run's follow_review.json (reviewed verdicts)")
+    edc = sub.add_parser('events-data-check', help='is a training set ready? checks on what it teaches')
+    edc.add_argument('--runs', required=True)
+    edc.add_argument('--baseline', default='', help='runs of the set to compare the label mix with')
+    edc.add_argument('--seed', type=int, default=0)
+    edc.add_argument('--out', required=True, help='folder for DATA_CHECK.md and data_check.json')
+    eqs = sub.add_parser('events-qwen-score', help="score the notebook's predictions")
+    eqs.add_argument('--run', required=True, help='folder holding the predictions')
+    eqs.add_argument('--preds', required=True, help='predictions file in that folder, e.g. preds_lora.jsonl')
+    eqs.add_argument('--runs', default='events-pilot-8,events-pilot-8b')
+    eqs.add_argument('--seed', type=int, default=0)
+    eqs.add_argument('--character', default='columbina-v0.6')
+    eqs.add_argument('--no-grade', action='store_true', help='structured scores only, no model calls')
+    est = sub.add_parser('events-student', help='Student 2 event student: train + held-out probes')
+    est.add_argument('--run', required=True, help='output folder name')
+    est.add_argument('--runs', required=True, help='comma-separated teacher runs to train and evaluate on')
+    est.add_argument('--arms', default='with_subs,without_subs')
+    est.add_argument('--epochs', type=int, default=4)
+    est.add_argument('--seed', type=int, default=0)
+    est.add_argument('--no-grade', action='store_true', help='skip the model-graded probes')
     for name in ('ablation-rate', 'ablation-report'):
         cmd = sub.add_parser(name)
         cmd.add_argument('--run', required=True)
@@ -302,7 +490,7 @@ def main() -> None:
             cmd.add_argument('--fraction', type=float, default=1.0, help='share of training conversations (learning curve)')
     args = parser.parse_args()
     {'generate': _generate, 'experiment': _experiment, 'ablation': _ablation, 'batch': _batch, 'tension-probe': _tension_probe,
-     'ablation-rate': _ablation_rate, 'ablation-report': _ablation_report, 'real': _real, 'review': _review, 'import-review': _import_review, 'report': _report, 'train': _train, 'evaluate': _evaluate}[args.command](args)
+     'events': _events, 'events-report': _events_report, 'events-student': _events_student, 'events-student2': _events_student2, 'events-qwen-export': _events_qwen_export, 'events-qwen-score': _events_qwen_score, 'events-data-check': _events_data_check, 'events-review': _events_review, 'events-contrast': _events_contrast, 'ablation-rate': _ablation_rate, 'ablation-report': _ablation_report, 'real': _real, 'review': _review, 'import-review': _import_review, 'report': _report, 'train': _train, 'evaluate': _evaluate}[args.command](args)
 
 
 if __name__ == '__main__':

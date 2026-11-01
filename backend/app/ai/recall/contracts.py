@@ -12,14 +12,18 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
-Kind = Literal["fact", "episode", "event", "item"]
+Kind = Literal["fact", "episode", "event", "item", "message"]
+# The stores a memory search reads. ``message`` (a transcript passage: what was said, not a memory) is its own
+# search (services/transcript_search.py) and only ever a reference here.
 KINDS: tuple[Kind, ...] = ("fact", "episode", "event", "item")
+REF_KINDS: tuple[Kind, ...] = (*KINDS, "message")
 Purpose = Literal["reply", "hard_thought", "explicit_search"]
 Intent = Literal["relevance", "current", "historical"]
 Basis = Literal["occurred", "scheduled", "recorded"]
 Status = Literal["not_searched", "matched", "no_match", "partial", "failed"]
 # How a record was found.
-Match = Literal["direct_reference", "named_context", "lexical", "semantic", "temporal", "standing"]
+# ``reference``: the message names it ("Leo") or points at it ("my sister" for a fact about their sister).
+Match = Literal["direct_reference", "named_context", "lexical", "semantic", "temporal", "standing", "reference"]
 # Whether it describes now: a past event, or something that no longer holds.
 Applicability = Literal["current", "past", "no_longer_current", "unknown"]
 
@@ -49,7 +53,7 @@ class MemoryRef:
     @classmethod
     def parse(cls, text: str) -> MemoryRef:
         kind, _, key = (text or "").strip().strip("[]").partition(":")
-        if kind not in KINDS or not key:
+        if kind not in REF_KINDS or not key:
             raise RecallInvalid(f"not a memory reference: {text[:60]!r}")
         if kind == "event":
             if not key.isdigit():
@@ -129,6 +133,21 @@ class Evidence:
 
 
 @dataclass(frozen=True)
+class TimeSpan:
+    """When a memory is about, as stored (services/memory_time.py): the user's words, the interval read from them
+    when they were said (half-open, or none when it couldn't be placed), and how sure that reading is."""
+
+    words: str
+    precision: str  # day, days, week, month, season, year, unknown, repeating
+    start: datetime | None
+    end: datetime | None
+    inferred: bool  # part of the date (usually the year) wasn't said
+    zone: str | None  # None: the user's zone wasn't known (read as UTC)
+    said_at: datetime | None
+    repeats: str | None = None  # a schedule in words: "weekly on Thursday at 19:00"
+
+
+@dataclass(frozen=True)
 class MemoryRecord:
     ref: MemoryRef
     subkind: str  # a fact's kind ("preference"), an event's kind ("died"), an item's kind ("goal")
@@ -148,7 +167,58 @@ class MemoryRecord:
     applicability: Applicability
     lifecycle: str | None = None  # e.g. "its game session has ended", "its context is closed"
     source_label: str | None = None  # the source whose words it quotes, e.g. "Minecraft"
+    corrected: bool = False  # an item a user's correction revised since it was first noted
     score: float = 0.0
+    owner: str | None = None  # an item's: whose it is (user, columbina, shared)
+    reason: str | None = None  # an item from her own thinking: why she concluded it
+    time: TimeSpan | None = None  # what the user said about when (stage 3)
+    # Who or what it's about or involves, in words ("their sister Nora"), and those entities' ids.
+    about: tuple[str, ...] = ()
+    entity_ids: tuple[str, ...] = ()
+    user_words: str | None = None  # a plan's own words, as the user said them
+    # A transcript passage (kind ``message``): its conversation, and whether something in it was asked to be
+    # forgotten (it's still history the user can ask about; it's never remembered again from it).
+    conversation_id: uuid.UUID | None = None
+    forgotten: bool = False
+
+
+_SUSPECTED = {"open": "You suspected (not confirmed)", "supported": "You suspected, later confirmed",
+              "disproved": "You suspected, later shown wrong", "unresolved": "You suspected, never settled"}
+
+
+def origin_label(record: MemoryRecord) -> str | None:
+    """Where a memory came from and how sure it is, in her words: what the user told her, what she
+    observed, what she suspected or decided. Her own reasoning is never put as a fact."""
+    if record.ref.kind == "item":
+        if record.subkind == "hypothesis":
+            return _SUSPECTED.get(record.status, "You suspected")
+        if record.subkind == "decision":
+            return "You decided" if record.status == "active" else "You had decided (since changed)"
+        if record.subkind == "plan":
+            return "The user plans" if record.owner == "user" else "You and the user plan"
+        if record.owner == "columbina" and record.subkind == "intention":
+            return "You meant to"
+        if record.owner == "columbina" and record.subkind == "question":
+            return "You wondered"
+        if record.subkind == "commitment":
+            return "You promised" if record.owner == "columbina" else "The user promised you"
+        if record.epistemic == "reported":
+            return "The user told you"
+        return "You concluded" if record.epistemic == "inferred" else None
+    if record.ref.kind == "message":
+        # Unmistakable either way: she reads these and quotes them back ("I said..." / "you said...").
+        return ("Your own words (you, Columbina, said this to them: quote it as \"I said\")"
+                if record.subkind == "columbina" else
+                "The user's own words (they wrote this to you: quote it as \"you said\")")
+    if record.ref.kind == "fact":
+        return "The user told you"
+    if record.ref.kind == "event":
+        if record.epistemic == "observed":
+            return "You observed"
+        if record.epistemic == "reported" and record.source_label:
+            return f"{record.source_label} reported"
+        return "Your own thinking" if record.epistemic == "inferred" else None
+    return None
 
 
 @dataclass

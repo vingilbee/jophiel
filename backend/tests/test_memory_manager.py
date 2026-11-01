@@ -18,7 +18,7 @@ from app.services import desktop_game, memory_manager, memory_reset
 from app.services import desktop_sessions as svc
 from app.services.desktop_sessions import DesktopError
 from app.services.memory_manager import MemoryError, Source
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_game import _paired_env, enabled  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
@@ -326,15 +326,7 @@ def test_reset_scopes(db, alice):
     assert session.goal_item_id is None and session.state == "running"
 
 
-# --- 7. flag off, and the tools ------------------------------------------------------------
-
-
-def test_with_the_flag_off_nothing_is_kept(db, alice, memory_on, monkeypatch):
-    monkeypatch.setattr(memory_manager, "get_settings",
-                        lambda: memory_on.model_copy(update={"memory_manager_enabled": False}))
-    session = _playing(db, alice)
-    assert session.goal_item_id is None and db.scalar(select(WorkingItem)) is None
-    assert "Your goal: go to the Nether." in desktop_game.describe(db, alice.id).summary
+# --- 7. the tools ------------------------------------------------------------
 
 
 def test_the_tools_act_for_their_own_user_with_the_message_as_evidence(database, alice, monkeypatch):

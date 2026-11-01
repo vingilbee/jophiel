@@ -103,15 +103,15 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import AgentRuntimeContext, prompts, stream_chat, vision
-from app.ai.Cognitive.system.v0.live_shadow.models import GenerationPath, ShadowSourceChannel
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
 from app.api.deps import get_current_user, validate_origin
 from app.core.config import get_settings
-from app.db.models import User
+from app.db.models import ChatJob, User
 from app.db.session import SessionLocal, get_db
 from app.schemas.chat import (
     ChatRunRequest,
@@ -134,11 +134,11 @@ from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import agent_say, memory_manager
-from app.services import cognitive_live, cognitive_shadow, inner_state_live
+from app.services import cognitive_live, inner_state_live
 from app.services import desktop_game
-from app.services import dialogue_memory
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
+from app.services import coordinator, shared_state
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -497,11 +497,22 @@ async def chat_ws(websocket: WebSocket) -> None:
         except (WebSocketDisconnect, RuntimeError):
             connected = False
 
+    try:
+        resume_turn_id = uuid.UUID(websocket.query_params.get("resume_turn_id", ""))
+    except ValueError:
+        resume_turn_id = None
+
     def read_history() -> dict:
         db = SessionLocal()
         try:
-            conversations = chat_service.list_conversations(db, user_id=user_id)
-            conversation = conversations[0] if conversations else None
+            resume_job = db.scalar(select(ChatJob).where(
+                ChatJob.turn_id == resume_turn_id, ChatJob.user_id == user_id)) if resume_turn_id else None
+            if resume_job is not None:
+                conversation = chat_service.get_conversation(db, user_id=user_id,
+                                                             conversation_id=resume_job.conversation_id)
+            else:
+                conversations = chat_service.list_conversations(db, user_id=user_id)
+                conversation = conversations[0] if conversations else None
             detail = (
                 chat_service.get_conversation(
                     db, user_id=user_id, conversation_id=conversation.id
@@ -777,25 +788,14 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         if reply:
             db = SessionLocal()
-            scheduled = False
             try:
                 conversation = chat_service.get_conversation(
                     db, user_id=user_id, conversation_id=conversation_id
                 )
                 if conversation is not None:
-                    nudge_message = chat_service.add_message(
-                        db, conversation=conversation, role="assistant", content=reply, commit=False,
-                    )
-                    # An unprompted message is still a delivered dialogue event.
-                    scheduled = dialogue_memory.schedule_update(
-                        db, user_id=user_id, conversation_id=conversation_id,
-                        trigger_message_id=nudge_message.id,
-                    )
-                    db.commit()
+                    chat_service.add_message(db, conversation=conversation, role="assistant", content=reply)
             finally:
                 db.close()
-            if scheduled:
-                dialogue_memory.wake_worker()
 
         await send_json({"type": "nudge_end"})
 
@@ -810,6 +810,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply to be generated *and* spoken, then is said.
         """
         last_interrupt = 0.0
+        seen_messages: dict[str, None] = {}
         url = settings.redis_url
         if not url:
             return
@@ -831,6 +832,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                     # and never a message, so it doesn't wait for a reply to finish.
                     await send_json({"type": "thought", "thought": data.get("thought")})
                     continue
+                message_id = data.get("message_id")
+                if message_id:
+                    if message_id in seen_messages:
+                        continue
+                    seen_messages[message_id] = None
+                    if len(seen_messages) > 200:
+                        del seen_messages[next(iter(seen_messages))]
                 # This socket's voice phase, as the browser last reported it.
                 def replying() -> bool:
                     return (current_task is not None and not current_task.done()) or \
@@ -859,7 +867,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                     and (interrupt or senses.voice_state in ("idle", "listening"))
                 )
                 await send_json({"type": "nudge_start", "conversation_id": data["conversation_id"],
-                                 "reason": data.get("reason", "game")})
+                                 "reason": data.get("reason", "game"), "message_id": data.get("message_id")})
                 await send_json({"type": "nudge_token", "content": data["text"]})
                 if speak_aloud:
                     clauses: asyncio.Queue[str | None] = asyncio.Queue()
@@ -954,19 +962,6 @@ async def chat_ws(websocket: WebSocket) -> None:
         finally:
             db.close()
 
-        # Local fallback has no ChatJob, so it calls the same shared capture
-        # owner as the chat worker, marked as the local-fallback path.
-        # Observational only: nothing below reads the result.
-        if cognitive_shadow.capture_enabled():
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(
-                    cognitive_shadow.capture_turn,
-                    user_id=user_id, conversation_id=resolved_id, turn_id=turn_id,
-                    user_message_id=user_message.id, chat_job_id=None,
-                    generation_path=GenerationPath.LOCAL_FALLBACK,
-                    source_channel=ShadowSourceChannel.VOICE if voice else ShadowSourceChannel.WEB,
-                )
-
         # Caption the screen lazily, here, rather than on a timer while the
         # user is idle — this is what makes an always-on eye free when nobody
         # is talking to it. Cached per frame id, so only the first turn after
@@ -975,23 +970,21 @@ async def chat_ws(websocket: WebSocket) -> None:
         if senses.vision_enabled and not session.captioned(senses.screen_image_id):
             state = await _caption_screen(state)
 
-        # Retrieval may make one embedding API call. Keep that blocking client
-        # off the WebSocket event loop, and fail open inside the service.
-        recall_turn = None
-        if recall_references.enabled():
-            # Shared recall (never raises; a failure is a "failed" result she's told about).
-            recall_turn = await asyncio.to_thread(
-                recall_references.for_reply, user_id, resolved_id, user_message.id, content, state.zone_name)
-            long_term_memory = recall_turn.legacy
-        else:
-            long_term_memory = await asyncio.to_thread(
-                memory_service.retrieve_for_prompt, user_id, content
-            )
-        # Simple cognition, live: None (nothing changes) unless enabled in settings.
-        live = (await asyncio.to_thread(
-            cognitive_live.prepare, user_id=user_id, conversation_id=resolved_id, history=history,
-            message=content, long_term_memory=long_term_memory,
-        ) if cognitive_live.enabled() else None)
+        # One scoped view -> Student 1 -> her; no search before the reply (docs/SHARED_STATE_REFACTOR_SPEC.md),
+        # the only preparation. Off the event loop: it reads the database and runs the student.
+        assistant_message_id = uuid.uuid4()
+        fast = await asyncio.to_thread(
+            shared_state.prepare, user_id=user_id, conversation_id=resolved_id,
+            user_message_id=user_message.id, history=history, message=content, zone=state.zone_name,
+            turn_id=turn_id, reply_message_id=assistant_message_id, voice=voice, user_name=user_name)
+        recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
+        if fast.silent:
+            # Cognition chose silence while she thinks: no reply, recorded as not sent. (Follow-ups need
+            # the external chat worker: this local path has no job for them to run in.)
+            coordinator.immediate_outcome(turn_id, status="not_sent", assistant_message_id=None)
+            await emit_event({"type": "done", "turn_id": str(turn_id), "status": "silent"})
+            shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
+            return
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -1010,10 +1003,13 @@ async def chat_ws(websocket: WebSocket) -> None:
             cognitive_reading=live.reading if live else None,
             conversation_notes=live.notes if live else None,
             working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
-            recall=recall_turn.rendered if recall_turn is not None else None,
+            recall=fast.recall_rendered,
             recall_turn=recall_turn,
-            memory_tools=memory_manager.enabled(),
-            source_message_id=user_message.id if memory_manager.enabled() else None,
+            cached_memory=fast.cached_memory,
+            turn_boundary=fast.boundary,
+            decision=fast.decision_brief,
+            memory_tools=True,
+            source_message_id=user_message.id,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
             **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
@@ -1031,7 +1027,8 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply = ""
         stopped = False
         failed = False
-        assistant_message_id = uuid.uuid4()
+        # How this reply was routed, degraded or not: visible on the turn, never silent.
+        await emit_event({**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
         first_model_token = True
         sticker_buffer = ""
         try:
@@ -1104,7 +1101,6 @@ async def chat_ws(websocket: WebSocket) -> None:
             "partial" if stopped else
             "completed"
         )
-        dialogue_scheduled = False
         if reply or outcome_status in {"cancelled", "failed"}:
             db = SessionLocal()
             try:
@@ -1125,12 +1121,6 @@ async def chat_ws(websocket: WebSocket) -> None:
                     receipt_id = recall_references.save_receipt(
                         db, recall_turn, assistant_message_id=assistant_message_id,
                         conversation_id=resolved_id, reply=reply)
-                    # The same scheduling service as the chat worker, in the
-                    # transaction that commits the terminal outcome.
-                    dialogue_scheduled = dialogue_memory.schedule_update(
-                        db, user_id=user_id, conversation_id=resolved_id,
-                        trigger_message_id=assistant_message_id,
-                    )
                     db.commit()
                     recall_references.start_association(receipt_id)
                     # A stopped reply is partial model output, not a completed
@@ -1144,19 +1134,6 @@ async def chat_ws(websocket: WebSocket) -> None:
                         )
             finally:
                 db.close()
-        elif dialogue_memory.enabled():
-            # A user-only terminal turn still advances dialogue memory over
-            # the persisted user message.
-            db = SessionLocal()
-            try:
-                dialogue_scheduled = dialogue_memory.schedule_update(
-                    db, user_id=user_id, conversation_id=resolved_id, trigger_message_id=user_message.id,
-                )
-                db.commit()
-            finally:
-                db.close()
-        if dialogue_scheduled:
-            dialogue_memory.wake_worker()
 
         await emit_event({
             "type": "stopped" if stopped else "done",
@@ -1164,6 +1141,12 @@ async def chat_ws(websocket: WebSocket) -> None:
             "message_id": str(assistant_message_id),
             "status": outcome_status,
         })
+        if fast.pending:
+            coordinator.immediate_outcome(turn_id, status={"completed": "delivered"}.get(outcome_status, outcome_status),
+                                          assistant_message_id=assistant_message_id if reply else None)
+        shared_state.finish(fast, outcome=outcome_status, reply=reply,
+                            assistant_message_id=assistant_message_id
+                            if reply or outcome_status in {"cancelled", "failed"} else None)
         if live is not None and outcome_status == "completed":
             # After the reply is delivered: notes follow what she actually said. Never fails the turn.
             await asyncio.to_thread(cognitive_live.after_reply, live, user_id=user_id,

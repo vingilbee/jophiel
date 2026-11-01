@@ -5,7 +5,7 @@ export type SocketStatus = 'connecting' | 'open' | 'closed'
 
 // Server → client JSON frames. Binary frames (raw PCM) are handled separately.
 type ServerEvent =
-  | { type: 'meta'; conversation_id: string }
+  | { type: 'meta'; conversation_id: string; turn_id?: string }
   | { type: 'history'; conversation_id: string | null; messages: StoredChatMessage[] }
   | { type: 'ack'; turn_id: string; user_message_id: string; conversation_id: string }
   | { type: 'token'; turn_id?: string; content: string }
@@ -13,7 +13,7 @@ type ServerEvent =
   | { type: 'subagent_start'; turn_id?: string; agent: string }
   | { type: 'subagent_token'; turn_id?: string; agent: string; content: string }
   | { type: 'subagent_end'; turn_id?: string; agent: string }
-  | { type: 'nudge_start'; conversation_id: string; reason: string }
+  | { type: 'nudge_start'; conversation_id: string; reason: string; message_id?: string }
   | { type: 'reply_interrupted'; reason: string }
   | { type: 'nudge_token'; content: string }
   | { type: 'nudge_sticker'; sticker: string }
@@ -37,7 +37,8 @@ type ServerEvent =
   | { type: 'error'; turn_id?: string; detail: string }
   | { type: 'stopped' | 'done'; turn_id?: string; status?: ChatTurnStatus }
 
-export type ChatTurnStatus = 'completed' | 'partial' | 'cancelled' | 'failed'
+// 'silent': her decision was to say nothing this turn (no assistant message was stored).
+export type ChatTurnStatus = 'completed' | 'partial' | 'cancelled' | 'failed' | 'silent'
 
 /**
  * The server's decision on a held interruption: carry on with the paused
@@ -90,7 +91,8 @@ export interface SocketHandlers {
    * awareness was worth mentioning. Nothing on the client asked for this, so
    * it arrives outside the request/response bookkeeping entirely.
    */
-  onNudgeStart?: (info: { conversationId: string; reason: string }) => void
+  onNudgeStart?: (info: { conversationId: string; reason: string; messageId?: string }) => boolean | void
+  onConversation?: (conversationId: string) => void
   onNudgeToken?: (chunk: string) => void
   onNudgeSticker?: (name: string) => void
   onNudgeSubagentStart?: (agent: string) => void
@@ -116,6 +118,7 @@ interface Pending {
   buffer: string
   conversationId: string | null
   turnId?: string
+  reconnecting?: boolean
 }
 
 /**
@@ -160,6 +163,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
   // frames carry no turn id, so they inherit it from the last `audio_start`.
   const fencedTurnsRef = useRef<string[]>([])
   const dropAudioRef = useRef(false)
+  const ignoredNudgeRef = useRef(false)
   // An open hold: the utterance talking over a paused reply, and the voice
   // turn id to restore if the reply resumes.
   const heldRef = useRef<{ turnId: string; previousVoiceTurnId: string | null } | null>(null)
@@ -179,7 +183,9 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
     intentionalCloseRef.current = false
     const generation = ++socketGenerationRef.current
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${window.location.host}/api/chat/ws`)
+    const resumeTurn = pendingRef.current?.turnId
+    const query = resumeTurn ? `?resume_turn_id=${encodeURIComponent(resumeTurn)}` : ''
+    const ws = new WebSocket(`${proto}://${window.location.host}/api/chat/ws${query}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     setStatus('connecting')
@@ -224,13 +230,33 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       }
 
       if (msg.type === 'history') {
+        const pending = pendingRef.current
+        if (pending?.conversationId && msg.conversation_id !== pending.conversationId) return
+        if (pending?.reconnecting) {
+          pending.buffer = '' // the server replays from the beginning of the turn stream
+          pending.reconnecting = false
+          const saved = msg.messages.find(m => m.role === 'assistant' && m.turn_id === pending.turnId)
+          if (saved) {
+            pending.resolve({ conversationId: msg.conversation_id ?? '', reply: saved.content,
+              status: saved.status ?? 'completed' })
+            pendingRef.current = null
+          }
+        }
         handlersRef.current.onHistory?.({
           conversationId: msg.conversation_id,
           messages: msg.messages,
         })
         return
       }
-      if (msg.type === 'ack') return
+      if (msg.type === 'ack') {
+        const pending = pendingRef.current
+        if (pending && (!pending.turnId || pending.turnId === msg.turn_id)) {
+          pending.turnId = msg.turn_id
+          pending.conversationId = msg.conversation_id
+          handlersRef.current.onConversation?.(msg.conversation_id)
+        }
+        return
+      }
 
       // Unprompted. Routed well clear of `pendingRef` — a nudge must never
       // resolve, or worse reject, a turn the user actually asked for.
@@ -242,10 +268,11 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
         return
       }
       if (msg.type === 'nudge_start') {
-        handlersRef.current.onNudgeStart?.({
+        ignoredNudgeRef.current = handlersRef.current.onNudgeStart?.({
           conversationId: msg.conversation_id,
           reason: msg.reason,
-        })
+          messageId: msg.message_id,
+        }) === false
         return
       }
       if (msg.type === 'nudge_token') {
@@ -270,7 +297,8 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       if (msg.type === 'audio_start') {
         // Every reply's audio opens with this frame, so it is also where a
         // fence from a previous interruption is lifted for the next reply.
-        dropAudioRef.current = !!msg.turn_id && fencedTurnsRef.current.includes(msg.turn_id)
+        dropAudioRef.current = (msg.unprompted === true && ignoredNudgeRef.current) ||
+          (!!msg.turn_id && fencedTurnsRef.current.includes(msg.turn_id))
         if (dropAudioRef.current) return
         audioTurnIdRef.current = msg.turn_id ?? null
         audioRateRef.current = msg.sample_rate
@@ -306,6 +334,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       if (eventTurnId && pending.turnId && eventTurnId !== pending.turnId) return
       if (msg.type === 'meta') {
         pending.conversationId = msg.conversation_id
+        handlersRef.current.onConversation?.(msg.conversation_id)
       } else if (msg.type === 'token') {
         pending.buffer += msg.content
         pending.callbacks.onToken(msg.content)
@@ -331,15 +360,17 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isCurrentSocket()) return
       setStatus('closed')
       heldRef.current = null
-      // Fail any in-flight turn so the UI doesn't hang.
-      if (pendingRef.current) {
-        pendingRef.current.reject(new Error('Connection closed.'))
+      if (event.code === 1008) {
+        pendingRef.current?.reject(new Error('Session expired. Please sign in again.'))
         pendingRef.current = null
+        return
       }
+      // Keep the turn identity and callbacks: the replacement socket replays its stream.
+      if (pendingRef.current) pendingRef.current.reconnecting = true
       if (!intentionalCloseRef.current && networkOnlineRef.current) {
         reconnectTimerRef.current = window.setTimeout(connect, 1500)
       }
@@ -353,10 +384,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       const ws = wsRef.current
       wsRef.current = null
       ws?.close()
-      if (pendingRef.current) {
-        pendingRef.current.reject(new Error('Connection is offline.'))
-        pendingRef.current = null
-      }
+      if (pendingRef.current) pendingRef.current.reconnecting = true
     }
     const handleOnline = () => {
       networkOnlineRef.current = true
@@ -372,6 +400,8 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('online', handleOnline)
       wsRef.current?.close()
+      pendingRef.current?.reject(new Error('Chat closed.'))
+      pendingRef.current = null
     }
   }, [connect])
 
@@ -428,6 +458,7 @@ export function useChatSocket(handlers: SocketHandlers = {}) {
             asset_ids: assetIds,
           }),
         ),
+        turnId,
       ),
     [beginTurn],
   )

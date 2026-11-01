@@ -8,8 +8,8 @@ import redis
 
 from app.core.config import get_settings
 from app.workers import (
-    agent_events, chat, cognitive_shadow, desktop, dialogue_memory, file_deletion, game_learning, game_practice,
-    memory, mind, mind_ticks, recall_embeddings,
+    agent_events, chat, desktop, file_deletion, game_learning, game_practice,
+    memory, mind, recall_embeddings, observation,
     whatsapp,
 )
 
@@ -35,6 +35,10 @@ def _work_loop(
         while not stop.is_set():
             try:
                 # run_once creates/closes its own DB sessions in this thread.
+                if name in ("coordinator", "observation"):
+                    from app.services import coordinator_runtime
+                    wake = coordinator_runtime.wake if name == "coordinator" else coordinator_runtime.capture_wake
+                    wake.clear()
                 worked = run_once()
             except Exception:
                 logger.exception("%s job processing failed; will retry", name)
@@ -52,8 +56,14 @@ def _work_loop(
                     continue
                 except Exception:
                     logger.warning("%s Redis wake-up failed; polling PostgreSQL", name)
-            stop.wait(interval)
+            if name in ("coordinator", "observation"):
+                wake.wait(interval)
+            else:
+                stop.wait(interval)
     finally:
+        if name == "coordinator":
+            from app.services.coordinator_runtime import close
+            close()
         if wakeups is not None:
             wakeups.close()
         logger.info("%s worker thread stopped", name)
@@ -87,26 +97,6 @@ def run(stop: threading.Event | None = None) -> None:
                 getattr(settings, "whatsapp_queue_name", "macrovision:whatsapp:wakeups"),
                 getattr(settings, "whatsapp_worker_poll_seconds", 1.0),
             ))
-        if getattr(settings, "cognitive_live_shadow_enabled", False) and getattr(
-            settings, "cognitive_live_shadow_run_in_shared_worker", True
-        ):
-            # A separate thread and queue: shadow cognition never shares the
-            # chat thread, so its CPU work cannot sit in front of a reply.
-            cognitive_shadow.check_semantic_parser_configuration(settings)
-            cognitive_shadow.check_realization_configuration(settings)
-            worker_specs.append((
-                "cognitive-shadow", cognitive_shadow.run_once,
-                getattr(settings, "cognitive_live_shadow_queue_name", "macrovision:cognitive-shadow:wakeups"),
-                getattr(settings, "cognitive_live_shadow_worker_poll_seconds", 2.0),
-            ))
-        if getattr(settings, "cognitive_dialogue_memory_enabled", False):
-            # Its own thread and queue: dialogue state updates never sit in
-            # front of a chat reply or a shadow observation.
-            worker_specs.append((
-                "dialogue-memory", dialogue_memory.run_once,
-                getattr(settings, "cognitive_dialogue_memory_queue_name", "macrovision:dialogue-memory:wakeups"),
-                getattr(settings, "cognitive_dialogue_memory_worker_poll_seconds", 2.0),
-            ))
         if getattr(settings, "desktop_agent_enabled", False):
             # The gameplay driver: its own thread (and one thread per playing
             # session), so a model call never sits in front of a chat reply.
@@ -114,24 +104,24 @@ def run(stop: threading.Event | None = None) -> None:
             # Columbina waking on game events: its own thread, so a background
             # turn never sits in front of a reply (and vice versa).
             worker_specs.append(("agent-events", agent_events.run_once, "macrovision:agent-events:wakeups", 1.0))
-            if getattr(settings, "game_learning_enabled", False):
-                # Reflection on ended game sessions: rare, slow model calls on their own thread.
-                worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
-            if getattr(settings, "game_practice_enabled", False):
-                # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
-                worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
-            if getattr(settings, "mind_tick_recording_enabled", False) and not getattr(settings, "mind_enabled", False):
-                # Recording what her mind would see each second: its own thread, reads only.
-                worker_specs.append(("mind-ticks", mind_ticks.run_once, "macrovision:mind-ticks:wakeups", 1.0))
-        if getattr(settings, "recall_enabled", False):
-            # Embedding memory events for recall: background, batched; recall works before it catches up.
-            worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
-                                 "macrovision:recall-embeddings:wakeups", 5.0))
-        if getattr(settings, "mind_enabled", False):
-            # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only
-            # with desktop mode, where it also records ticks when MIND_TICK_RECORDING_ENABLED), on its own
-            # thread so it never delays a reply or her hands.
-            worker_specs.append(("mind", mind.run_once, "macrovision:mind:wakeups", 1.0))
+            # Reflection on ended game sessions: rare, slow model calls on their own thread.
+            worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
+            # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
+            worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
+        # Embedding memory events for recall: background, batched; recall works before it catches up.
+        worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
+                             "macrovision:recall-embeddings:wakeups", 5.0))
+        # What sources report (conversation, deliveries, games), captured once.
+        worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
+        # Background recall and thinking for user requests (shared-state pipeline, step 4) and autonomous
+        # proposals (step 5): always on, since every reply goes through the pipeline. Its own thread, so a slow
+        # thought never sits in front of a reply.
+        from app.workers import coordinator
+        worker_specs.append(("coordinator", coordinator.run_once, settings.coordinator_queue_name,
+                             getattr(settings, "coordinator_heartbeat_seconds", 1.0)))
+        # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only with
+        # desktop mode, where it also records its ticks), on its own thread so it never delays a reply or her hands.
+        worker_specs.append(("mind", mind.run_once, "macrovision:mind:wakeups", 1.0))
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

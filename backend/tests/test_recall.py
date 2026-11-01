@@ -25,7 +25,7 @@ from app.services import (
     chat as chat_service, desktop_sessions, game_learning, memory_manager, memory_reset, mind, observation,
     observation_memory, recall, recall_embeddings, recall_references,
 )
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 from tests.test_observation import PACK, _fail, _pack_session, _tick, _world
@@ -409,13 +409,6 @@ def test_without_association_what_was_given_is_a_candidate_marked_unclear(db, al
     refs, note = recall_references.prior_references(db, alice.id, conversation.id, follow.id)
     assert set(refs) == set(list(turn.supplied)[:4]) and "unclear" in note
 
-    monkeypatch.setattr(recall_references, "get_settings",
-                        lambda: on.model_copy(update={"recall_association_enabled": False}))
-    turn = recall_references.for_reply(alice.id, conversation.id, follow.id, follow.content, None)
-    _, receipt_id = _answer(db, turn, conversation, "Around the same time.")
-    assert receipt_id is None
-    receipt = db.scalar(select(RecallReceipt).order_by(RecallReceipt.id.desc()).limit(1))
-    assert receipt.association_status == "skipped"
     # A proposal that isn't in what was given, or whose words aren't in the answer, is never kept.
     monkeypatch.setattr(recall_references, "get_settings", lambda: on)
     turn = recall_references.for_reply(alice.id, conversation.id, follow.id, follow.content, None)

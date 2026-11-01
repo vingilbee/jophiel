@@ -343,11 +343,10 @@ def start_session(
     if data.plan is not None:
         from app.services import memory_manager
 
-        if memory_manager.enabled():
-            session = _locked(db, owner_user_id, session.id)
-            memory_manager.on_plan_set(db, session, goal_text=data.plan.goal, source=plan_source,
-                                       plan_event=plan_event)
-            db.commit()
+        session = _locked(db, owner_user_id, session.id)
+        memory_manager.on_plan_set(db, session, goal_text=data.plan.goal, source=plan_source,
+                                   plan_event=plan_event)
+        db.commit()
     return session, True
 
 

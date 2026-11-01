@@ -1,0 +1,10 @@
+You describe what Columbina meant to get across using ONLY a fixed set of structured fields, so that a small model could select them instead of writing text. You get the SITUATION and the ORIGINAL (what she meant to get across, and the message written from it).
+
+Describe it as a list of acts, in order. Each act:
+- act: answer, commit, offer, ask, decline, caveat, feel, view, agree, disagree, acknowledge, correct, report.
+- ref: the reference it is about ([M] as "M", "U1", "T1", "W1", "G1", "P1", "R1", "E1"...), or "none".
+- polarity: positive, negative or uncertain.
+- condition: none, if_user_confirms, until_user_says, after_work_finishes, only_if_true, unless_user_objects, before_doing_anything; condition_ref: the reference the condition is about, or "none".
+- relation: none, answers, corrects, contrasts_with, depends_on, follows_from, instead_of; relation_ref: the reference it relates to, or "none".
+- span: a short phrase copied exactly from the SITUATION that carries the specific content (an item, a name, a detail), or empty if none applies.
+Use only what the fields can say; don't squeeze extra meaning into them.

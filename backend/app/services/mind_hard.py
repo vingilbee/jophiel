@@ -6,7 +6,8 @@ tick (services/mind.py) calls ``step`` for each activity of a polled source; a s
 produces events calls ``offer``. Problems come from:
 
 - the source (services/mind_minecraft.py: a step that keeps failing, a surprise, something big;
-  services/mind_conversation.py, in shadow: a question of theirs still open after her reply);
+  services/mind_conversation.py: a question of theirs still open after her reply, a promise she hasn't kept,
+  an intention about to lapse, quiet time, and Student 2 deciding to think something over);
 - her mouth's ``think_it_over`` (a hand-off: the user's words need thought);
 - quiet: nothing new for MIND_HARD_QUIET_SECONDS, at most every MIND_HARD_QUIET_EVERY_SECONDS.
 
@@ -311,13 +312,22 @@ def conversation(db: Session, user_id: uuid.UUID, now: datetime,
     if conversation_id is None:
         return ()
     rows = db.execute(
-        select(ChatMessage.role, ChatMessage.content, ChatMessage.created_at)
+        select(ChatMessage.role, ChatMessage.content, ChatMessage.created_at, ChatMessage.id)
         .where(ChatMessage.conversation_id == conversation_id, ChatMessage.content != "")
         .order_by(ChatMessage.created_at.desc()).limit(CONVERSATION_KEPT)).all()
+    from app.services import memory_forget
+
+    # What they asked her to forget isn't something she thinks over again (marked; a message fenced whole is left out).
+    cuts = memory_forget.memory_cuts(db, user_id, [row[3] for row in rows])
     out = []
-    for role, content, created in reversed(rows):
+    for role, content, created, message_id in reversed(rows):
+        if message_id in cuts:
+            content = memory_forget.memory_view(content, None, "user", cuts[message_id])
+            if content is None:
+                continue
         created = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
-        out.append({"role": role, "content": content[:500], "ago": (now - created).total_seconds()})
+        out.append({"role": role, "content": content[:500], "ago": (now - created).total_seconds(),
+                    "id": str(message_id)})
     return tuple(out)
 
 
@@ -328,11 +338,10 @@ def _character(db: Session) -> tuple[str, ...]:
                  for item in character.get(section) or [] if item.get("text"))
 
 
-def _earlier(db: Session, session_id: uuid.UUID | None, topic: str, now: datetime) -> tuple[str, ...]:
-    if session_id is None:
-        return ()
+def _earlier(db: Session, scope: Scope, topic: str, now: datetime) -> tuple[str, ...]:
     rows = db.scalars(
-        select(MindThought.text).where(MindThought.session_id == session_id, MindThought.level == "hard",
+        select(MindThought.text).where(MindThought.user_id == scope.user_id,
+                                       MindThought.activity_id == scope.activity, MindThought.level == "hard",
                                        MindThought.topic == topic, MindThought.status.in_(("done", "stale")),
                                        MindThought.created_at >= now - EARLIER_WINDOW)
         .order_by(MindThought.created_at.desc()).limit(EARLIER_KEPT)).all()
@@ -342,17 +351,17 @@ def _earlier(db: Session, session_id: uuid.UUID | None, topic: str, now: datetim
 def gather(db: Session, source: Source, scope: Scope, problem: Problem) -> tuple[HardInput, Any, str]:
     """What she reads: the general part here, the source's part (right now, the goal, what she
     learned, a token to tell later whether the world moved) from the source."""
-    from app.services import long_term_memory, recall_references
+    from app.services import recall_references
 
     user = db.get(User, scope.user_id)
     name = user.name if user and user.name else "the user"
     now = datetime.now(timezone.utc)
+    refs: list[str] = []
     base = HardInput(
         problem=problem, user=name, conversation=conversation(db, scope.user_id, now),
-        memories=(recall_references.for_thought(db, user_id=scope.user_id, source=scope.source,
-                                                activity=scope.activity, query=problem.query)
-                  if recall_references.enabled() else long_term_memory.retrieve_for_prompt(scope.user_id, problem.query)),
-        earlier=_earlier(db, source.thought_session(scope), problem.topic, now), character=_character(db),
+        memories=recall_references.for_thought(db, user_id=scope.user_id, source=scope.source,
+                                               activity=scope.activity, query=problem.query, refs=refs),
+        earlier=_earlier(db, scope, problem.topic, now), character=_character(db), memory_refs=tuple(refs),
     )
     inp, token = source.gather(db, scope, problem, base)
     return inp, token, name  # inp None: the activity is gone
@@ -364,8 +373,15 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
     try:
         with SessionLocal() as db:
             inp, token, name = gather(db, source, scope, problem)
+            # A problem that stopped holding while it waited (settled, answered, the step over) isn't thought
+            # about at all: nothing to conclude, and no model call.
+            stale_before = source.dropped(db, scope, problem, att.cancelled) if inp is not None else None
             db.commit()
         if inp is None:
+            return
+        if stale_before:
+            mind._log({"ts": time.time(), "session": str(scope.activity), "source": source.name,
+                       "hard_dropped_before_thinking": {"trigger": problem.trigger, "why": stale_before}})
             return
         situation = source.situation()
         brain = thinker()
@@ -386,9 +402,11 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
                 return
             saved = mind.save_thought(
                 db, user_id=scope.user_id, session_id=source.thought_session(scope), level="hard",
-                text=thought.conclusion, status=status, topic=problem.topic, trigger=problem.trigger,
+                source=scope.source, activity_id=scope.activity, text=thought.conclusion, status=status, topic=problem.topic, trigger=problem.trigger,
                 conclusion_kind=thought.kind, thinking=thought.thinking, for_hands=thought.for_hands,
-                question=thought.question, dropped_reason=why)
+                question=thought.question, dropped_reason=why,
+                handoff=(lambda row: to_memory(db, source, scope, problem, inp, thought, row))
+                if status == "done" else None)
             if status == "done":
                 routed = route(source, scope, saved.id, problem, thought, goal=source.current_goal(db, scope))
                 if routed:
@@ -405,6 +423,32 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             schedule(att, time.time())  # no tick comes back for event-source work
 
 
+def to_memory(db: Session, source: Source, scope: Scope, problem: Problem, inp: HardInput, thought: HardThought,
+            saved: MindThought) -> None:
+    """A thought that reached a conclusion goes to memory as an observation, in the thought's own transaction
+    (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md §3); memory decides what lasts. In a savepoint: a failure here
+    never loses the thought."""
+    from app.services import memory_manager, mind, observation
+
+    basis = {"messages": [m["id"] for m in inp.conversation if m.get("id")][-40:],
+             "memories": list(inp.memory_refs)[:40]}
+    payload = {"thought_id": str(saved.id), "conclusion_kind": thought.kind, "conclusion": thought.conclusion,
+               "question": thought.question, "reason": thought.thinking, "trigger": problem.trigger,
+               "topic": (mind.base_topic(problem.topic) or "")[:200] or None, "basis": basis}
+    if problem.anchor.get("conflict"):
+        payload["premise_conflict"] = str(problem.anchor["conflict"])
+    try:
+        with db.begin_nested():
+            context = memory_manager.thought_context(db, scope.user_id, scope.source, scope.activity)
+            observation.record(db, observation.Report(
+                user_id=scope.user_id, source="mind", source_instance=f"{scope.source}:{scope.activity}",
+                source_event_key=f"thought:{saved.id}:v1", kind="thought_concluded", payload=payload,
+                occurred_at=datetime.now(timezone.utc), context_id=context.id, thought_id=saved.id,
+                session_id=source.thought_session(scope)))
+    except Exception:  # noqa: BLE001 - memory never gets in the way of thinking
+        log.exception("mind: thought %s not handed to memory", saved.id)
+
+
 def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem, thought: HardThought, *,
           goal: str | None) -> dict[str, CommandResult]:
     """A tip to the activity's body, an intention, or a question for her mouth to ask.
@@ -418,12 +462,16 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
             results["tip"] = body.command(scope, Command("tip", f"(from your own thinking) {thought.for_hands}"))
     if thought.kind == "intention":
         add_intention(scope.key, thought.for_hands or thought.conclusion)  # her hands' tip (an execution hint)
-        from app.services import memory_manager
-
-        memory_manager.intention_from_thought(scope.user_id, scope.activity, thought.conclusion, thought_id)
-    if thought.kind == "question" and thought.question:
-        set_question(scope.key, {"text": thought.question, "at": time.time(), "thought_id": str(thought_id),
-                                 "goal": goal, "topic": problem.topic})
+        # Memory gets it through ``to_memory``, never written here.
+    if thought.conclusion or thought.question:
+        from app.services import autonomous_speech
+        with SessionLocal() as db:
+            autonomous_speech.submit(
+                db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
+                event_id=thought_id, text=thought.question or thought.conclusion,
+                question=bool(thought.question), premise=problem.anchor,
+                reasons=[f"question: {problem.topic}" if thought.question else f"thought: {problem.topic}"],
+                **source.speaking(db, scope))
     return results
 
 
@@ -554,16 +602,14 @@ def ask_if_due(db: Session, source: Source, scope: Scope, at: float) -> str | No
     user_id = scope.user_id
     if agent_say.user_spoke_since(db, user_id, at - QUESTION_PAUSE_SECONDS) or _reply_in_flight(db, user_id):
         return None
-    if not client.delete(_question_key(scope.key)):
-        return None  # a reply took it meanwhile
-    outcome = agent_say.deliver(db, user_id=user_id, text=question["text"],
-                                reasons=[f"question: {question.get('topic', '')}"[:300]],
-                                **source.speaking(db, scope))
-    if outcome.startswith("Said") and question.get("thought_id"):
-        row = db.get(MindThought, uuid.UUID(question["thought_id"]))
-        if row is not None:
-            row.said = question["text"]
-            db.commit()
+    from app.services import autonomous_speech
+    outcome = autonomous_speech.submit(
+        db, user_id=user_id, activity_id=scope.activity, source=scope.source,
+        event_id=question.get("thought_id") or f"question:{question.get('at')}", text=question["text"],
+        question=True, reasons=[f"question: {question.get('topic', '')}"[:300]],
+        **source.speaking(db, scope))
+    if outcome.startswith("Proposed"):
+        client.delete(_question_key(scope.key))
     return f"asked: {outcome}"
 
 
@@ -572,8 +618,6 @@ def hand_off(db: Session, user_id: uuid.UUID, *, what: str) -> str:
     that takes hand-offs (today: her live game)."""
     from app.services import mind
 
-    if not mind.enabled():
-        return "Not now: your slow thinking is off. Think it through in your reply instead."
     taken = next(((source, scope) for source in mind.sources() if not source.shadow
                   for scope in [source.handoff_scope(db, user_id)] if scope is not None), None)
     client = desktop_preview.redis_client()

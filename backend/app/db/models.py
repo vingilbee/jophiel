@@ -21,8 +21,8 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Computed, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -274,6 +274,10 @@ class Conversation(Base, TimestampMixin):
     )
 
 
+CHAT_MESSAGE_SEARCH_EXPRESSION = ("to_tsvector('english'::regconfig, CASE WHEN heard_chars IS NULL THEN content "
+                                  "ELSE left(content, heard_chars) END)")
+
+
 class ChatMessage(Base, TimestampMixin):
     """A single turn within a conversation (a user prompt or an assistant reply)."""
 
@@ -286,6 +290,8 @@ class ChatMessage(Base, TimestampMixin):
         CheckConstraint("conversation_sequence >= 1", name="ck_chat_messages_conversation_sequence"),
         # Interrupted replies, for observation recovery (services/observation_adapters._sweep_heard).
         Index("ix_chat_messages_heard", "created_at", postgresql_where=text("heard_chars IS NOT NULL")),
+        # Transcript search (stage 5, services/transcript_search.py): what was said, as far as it was heard.
+        Index("ix_chat_messages_search", "search_tsv", postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -323,6 +329,10 @@ class ChatMessage(Base, TimestampMixin):
     # `content` keeps the full generated text; history and memory read the
     # heard part via services/heard.py.
     heard_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # What transcript search matches (stage 5): the heard part only, kept by Postgres itself. Its last word may be
+    # half heard; services/transcript_search.py checks every hit against the text snapped to a whole word.
+    search_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed(CHAT_MESSAGE_SEARCH_EXPRESSION, persisted=True), nullable=True, deferred=True)
     # The message's durable position in its conversation ledger
     # (dialogue-message-order-v0.1). Allocated by a BEFORE INSERT trigger under
     # the conversation row lock -- never by the application, never reused, and
@@ -480,7 +490,91 @@ class MessageDelivery(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class SemanticMemory(Base, TimestampMixin):
+# --------------------------------------------------------------------------- #
+# Time a memory is about (docs/COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md §4): the user's own words, kept,
+# and the interval code read them as, on the user's calendar when it was said. A fact's time is when it
+# became true ("moved last month"), an episode's when it happened, a plan's when it's meant to happen.
+# --------------------------------------------------------------------------- #
+
+# day: one day; days: a few named days ("this weekend"); unknown: the words couldn't be placed (no bounds);
+# repeating: a schedule ("Thursdays at 7pm", in time_repeats).
+TIME_PRECISIONS = ("day", "days", "week", "month", "season", "year", "unknown", "repeating")
+
+
+class TimeFieldsMixin:
+    # The time words exactly as the user said them ("in December", "last month"): never dropped.
+    time_words: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Half-open [start, end), local midnights of the user's zone; null when it couldn't be placed.
+    time_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    time_precision: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Part of the date wasn't said and was chosen (usually the year of "in December").
+    time_inferred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # The zone it was read in; null when the client never said (read as UTC, and shown as unknown).
+    time_zone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # A schedule: {"repeats": "weekly", "weekdays": ["thu"], "local_time": "19:00"}.
+    time_repeats: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # When the words were said (their message's time): what "last month" was read from, never a later recall.
+    time_said_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+def _time_checks(table: str) -> tuple:
+    precisions = ", ".join(f"'{p}'" for p in TIME_PRECISIONS)
+    return (
+        CheckConstraint("(time_start IS NULL) = (time_end IS NULL) AND (time_start IS NULL OR time_start < time_end)",
+                        name=f"ck_{table}_time_bounds"),
+        CheckConstraint(f"time_precision IS NULL OR time_precision IN ({precisions})",
+                        name=f"ck_{table}_time_precision"),
+        # Any reading keeps its words; one with bounds says how precise they are.
+        CheckConstraint("(time_words IS NULL) = (time_precision IS NULL) AND (time_words IS NULL) = (time_said_at IS NULL) "
+                        "AND (time_words IS NULL OR btrim(time_words) <> '')",
+                        name=f"ck_{table}_time_words"),
+        CheckConstraint("time_start IS NULL OR time_precision <> 'unknown'", name=f"ck_{table}_time_unknown"),
+        CheckConstraint("(time_repeats IS NOT NULL) = (time_precision IS NOT DISTINCT FROM 'repeating')",
+                        name=f"ck_{table}_time_repeats"),
+    )
+
+
+MEMORY_ENTITY_KINDS = ("person", "pet", "place", "organization", "activity", "thing", "other")
+
+
+class MemoryEntity(Base):
+    """Someone or something the user's memories are about: their sister, their dog, a pottery class. Claims
+    point at it (``semantic_memories.entity_id``), plans and episodes link to it (``memory_entity_links``), so
+    "my sister" finds what's known about her and a renamed dog keeps everything else said about it. A new
+    mention is a new entity unless the message makes clear it's the same one: two of the same name stay two
+    (recall says it's ambiguous), and nothing merges them on similar wording. ``name`` follows its current
+    name claim; earlier names stay in ``metadata.names``."""
+
+    __tablename__ = "memory_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What it is to the user, in their words: "sister", "dog", "childhood cat", "partner".
+    relation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
+    source_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict,
+                                            server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ({})".format(", ".join(f"'{k}'" for k in MEMORY_ENTITY_KINDS)),
+                        name="ck_memory_entities_kind"),
+        CheckConstraint("status IN ('active', 'deleted')", name="ck_memory_entities_status"),
+        CheckConstraint("coalesce(btrim(name), '') <> '' OR coalesce(btrim(relation), '') <> ''",
+                        name="ck_memory_entities_named"),
+        UniqueConstraint("id", "user_id", name="uq_memory_entities_id_user"),
+        Index("ix_memory_entities_user", "user_id", "status"),
+    )
+
+
+class SemanticMemory(Base, TimestampMixin, TimeFieldsMixin):
     """A durable user fact or generalized belief consolidated from experience.
 
     ``embedding`` is deliberately JSONB for the first version: memory sets are
@@ -497,6 +591,11 @@ class SemanticMemory(Base, TimestampMixin):
         CheckConstraint("status IN ('active', 'superseded', 'deleted')", name="ck_semantic_memory_status"),
         # Recall references check the owner in the key (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md §10).
         UniqueConstraint("id", "user_id", name="uq_semantic_memories_id_user"),
+        ForeignKeyConstraint(["entity_id", "user_id"], ["memory_entities.id", "memory_entities.user_id"],
+                             ondelete="SET NULL (entity_id)", name="fk_semantic_memories_entity"),
+        Index("ix_semantic_memories_entity", "entity_id", postgresql_where=text("entity_id IS NOT NULL")),
+        CheckConstraint("attribute IS NULL OR btrim(attribute) <> ''", name="ck_semantic_memory_attribute"),
+        *_time_checks("semantic_memory"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -530,9 +629,20 @@ class SemanticMemory(Base, TimestampMixin):
     contradicting_episode_ids: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
+    # How often the user said it (each restatement counts); never a change of what it says.
     evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # The content version: it moves only when what the fact says changes (wording, value, entity, time), so a
+    # restatement is never a changed premise for what depends on it.
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    # A claim (stage 3): one assertion about one entity's attribute. Older facts have none of these and may hold
+    # several claims in one sentence; they're split into claims only when the user next changes them.
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    attribute: Mapped[str | None] = mapped_column(String(120), nullable=True)  # "name", "lives_in", "dislikes"
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)  # "Pretzel", "Porto", "rain"
+    qualifier: Mapped[str | None] = mapped_column(Text, nullable=True)  # "as a child", "at work"
+    # It tells how things were, not how they are ("lived in Lisbon for six years"): true, but not current.
+    historical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     user: Mapped["User"] = relationship(back_populates="semantic_memories")
 
@@ -576,8 +686,10 @@ class WorkingMemory(Base, TimestampMixin):
     conversation: Mapped["Conversation"] = relationship(back_populates="working_memory")
 
 
-class EpisodicMemory(Base, TimestampMixin):
-    """A time- and context-bound experience retained with its provenance."""
+class EpisodicMemory(Base, TimestampMixin, TimeFieldsMixin):
+    """A time- and context-bound experience retained with its provenance. ``event_at`` is when it happened as
+    far as code knows (a game stretch's end; for a told episode, the start of its time reading, else when it
+    was told); the ``time_*`` fields keep what the user said about when."""
 
     __tablename__ = "episodic_memories"
     __table_args__ = (
@@ -586,6 +698,7 @@ class EpisodicMemory(Base, TimestampMixin):
         CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_episodic_memory_confidence"),
         CheckConstraint("status IN ('active', 'consolidated', 'superseded', 'deleted')", name="ck_episodic_memory_status"),
         UniqueConstraint("id", "user_id", name="uq_episodic_memories_id_user"),
+        *_time_checks("episodic_memory"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -700,322 +813,6 @@ class MemoryJob(Base, TimestampMixin):
 
 
 # ---------------------------------------------------------------------------
-# Durable Live-Shadow Trace V0 (observational only; never read by live chat)
-# ---------------------------------------------------------------------------
-
-_SHADOW_DIGEST_CHECK = "~ '^[0-9a-f]{64}$'"
-# Fields the queue owns.  Everything else on a shadow job is the immutable
-# turn-time capture and its provenance.
-SHADOW_JOB_QUEUE_FIELDS = (
-    "status", "attempts", "claim_token", "lease_expires_at", "last_error_code",
-    "last_error_safe", "processed_at", "updated_at", "chat_job_id",
-)
-
-
-_REALIZATION_TRACED = (
-    "'accepted_shadow', 'rejected', 'skipped_missing_content', 'skipped_unsupported_action', "
-    "'provider_unavailable', 'provider_failed'"
-)
-# Valid realization combinations on a shadow terminal row (mirrored exactly by
-# migration a7c4e9b2d1f3). No partial realization payload can be stored.
-REALIZATION_TRACE_CHECKS = (
-    CheckConstraint(
-        f"realization_status IN ('not_requested', 'execution_failed', {_REALIZATION_TRACED})",
-        name="ck_cognitive_shadow_traces_realization_status",
-    ),
-    CheckConstraint(
-        "realization_status <> 'not_requested' OR (realization_request_payload IS NULL "
-        "AND realization_request_digest IS NULL AND realization_trace_payload IS NULL "
-        "AND realization_trace_digest IS NULL AND realization_semantic_digest IS NULL "
-        "AND realization_failure_payload IS NULL AND realization_timings IS NULL)",
-        name="ck_cognitive_shadow_traces_realization_not_requested",
-    ),
-    CheckConstraint(
-        "realization_status = 'not_requested' OR (terminal_status = 'completed' AND realization_timings IS NOT NULL)",
-        name="ck_cognitive_shadow_traces_realization_after_completed",
-    ),
-    CheckConstraint(
-        "(realization_request_payload IS NULL) = (realization_request_digest IS NULL)",
-        name="ck_cognitive_shadow_traces_realization_request_pair",
-    ),
-    CheckConstraint(
-        "(realization_trace_payload IS NULL) = (realization_trace_digest IS NULL) "
-        "AND (realization_trace_payload IS NULL) = (realization_semantic_digest IS NULL)",
-        name="ck_cognitive_shadow_traces_realization_trace_digests",
-    ),
-    CheckConstraint(
-        "realization_status <> 'execution_failed' OR (realization_failure_payload IS NOT NULL "
-        "AND realization_trace_payload IS NULL AND realization_request_payload IS NULL)",
-        name="ck_cognitive_shadow_traces_realization_failed",
-    ),
-    CheckConstraint(
-        f"realization_status NOT IN ({_REALIZATION_TRACED}) OR (realization_trace_payload IS NOT NULL "
-        "AND realization_failure_payload IS NULL)",
-        name="ck_cognitive_shadow_traces_realization_traced",
-    ),
-    CheckConstraint(
-        "realization_status NOT IN ('skipped_missing_content', 'skipped_unsupported_action') "
-        "OR realization_request_payload IS NULL",
-        name="ck_cognitive_shadow_traces_realization_skipped",
-    ),
-    CheckConstraint(
-        "realization_status NOT IN ('accepted_shadow', 'rejected', 'provider_unavailable', 'provider_failed') "
-        "OR realization_request_payload IS NOT NULL",
-        name="ck_cognitive_shadow_traces_realization_requested",
-    ),
-    CheckConstraint(
-        f"realization_request_digest IS NULL OR realization_request_digest {_SHADOW_DIGEST_CHECK}",
-        name="ck_cognitive_shadow_traces_realization_request_digest",
-    ),
-    CheckConstraint(
-        f"realization_trace_digest IS NULL OR realization_trace_digest {_SHADOW_DIGEST_CHECK}",
-        name="ck_cognitive_shadow_traces_realization_trace_digest",
-    ),
-    CheckConstraint(
-        f"realization_semantic_digest IS NULL OR realization_semantic_digest {_SHADOW_DIGEST_CHECK}",
-        name="ck_cognitive_shadow_traces_realization_semantic_digest",
-    ),
-)
-
-
-class CognitiveShadowJob(Base, TimestampMixin):
-    """One immutable turn-time capture plus its mutable queue state.
-
-    ``capture_payload`` is append-only (enforced by a database trigger); only
-    the queue-owned fields in ``SHADOW_JOB_QUEUE_FIELDS`` may change, and a
-    terminal status never changes again.  ``chat_job_id`` may only be cleared
-    by its foreign key when the source ChatJob is deleted.
-    """
-
-    __tablename__ = "cognitive_shadow_jobs"
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('pending', 'processing', 'completed', 'failed', 'skipped')",
-            name="ck_cognitive_shadow_jobs_status",
-        ),
-        CheckConstraint("attempts >= 0", name="ck_cognitive_shadow_jobs_attempts"),
-        CheckConstraint(
-            "status <> 'processing' OR (claim_token IS NOT NULL AND lease_expires_at IS NOT NULL)",
-            name="ck_cognitive_shadow_jobs_processing_lease",
-        ),
-        CheckConstraint(f"capture_digest {_SHADOW_DIGEST_CHECK}", name="ck_cognitive_shadow_jobs_capture_digest"),
-        CheckConstraint(
-            "source_channel IN ('web', 'voice', 'whatsapp')", name="ck_cognitive_shadow_jobs_source_channel"
-        ),
-        CheckConstraint(
-            "generation_path IN ('chat_worker', 'local_fallback')",
-            name="ck_cognitive_shadow_jobs_generation_path",
-        ),
-        Index("ix_cognitive_shadow_jobs_status_captured_at", "status", "captured_at"),
-        Index("ix_cognitive_shadow_jobs_conversation_source_turn", "conversation_id", "source_turn_at", "turn_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    turn_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, nullable=False)
-    chat_job_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("chat_jobs.id", ondelete="SET NULL"), nullable=True
-    )
-    user_message_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("chat_messages.id", ondelete="CASCADE"), unique=True, nullable=False
-    )
-    generation_path: Mapped[str] = mapped_column(String(32), nullable=False)
-    capture_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    capture_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    capture_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    sampling_policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    source_channel: Mapped[str] = mapped_column(String(32), nullable=False)
-    # Source-turn order (the focus message's effective chat time), used for
-    # per-conversation serialization and predecessor selection.  Never the
-    # capture or completion time.
-    source_turn_at: Mapped[datetime] = mapped_column(nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
-    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Nested pipeline/stage/subject codes can exceed 128 characters. Preserve
-    # the full diagnostic so failure persistence cannot mask the original error.
-    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_error_safe: Mapped[str | None] = mapped_column(Text, nullable=True)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-
-class CognitiveShadowTrace(Base, TimestampMixin):
-    """The one immutable terminal record of a shadow job.
-
-    Not a ``LearningMemory``: it holds what happened inside the shadow
-    computation, with no reviewed target, feedback, reward, or outcome.  No
-    update path exists (a database trigger rejects every update except the
-    foreign key clearing ``predecessor_trace_id`` when a predecessor is purged).
-    """
-
-    __tablename__ = "cognitive_shadow_traces"
-    __table_args__ = (
-        CheckConstraint(
-            "terminal_status IN ('completed', 'failed', 'skipped')", name="ck_cognitive_shadow_traces_status"
-        ),
-        CheckConstraint(
-            "segment_reset_reason IS NULL OR segment_reset_reason IN "
-            "('initial_conversation', 'predecessor_gap', 'lineage_version_change', 'lineage_unresolved')",
-            name="ck_cognitive_shadow_traces_reset_reason",
-        ),
-        CheckConstraint(
-            "segment_reset_reason IS NULL OR predecessor_trace_id IS NULL",
-            name="ck_cognitive_shadow_traces_reset_has_no_predecessor",
-        ),
-        CheckConstraint(
-            "skip_reason IS NULL OR skip_reason IN ('unsupported_language', 'missing_personality_projection', "
-            "'missing_required_runtime_fact', 'unauthorized_input', 'predecessor_unavailable', "
-            "'capture_schema_unsupported')",
-            name="ck_cognitive_shadow_traces_skip_reason",
-        ),
-        CheckConstraint(f"capture_digest {_SHADOW_DIGEST_CHECK}", name="ck_cognitive_shadow_traces_capture_digest"),
-        CheckConstraint(
-            f"compiled_request_digest IS NULL OR compiled_request_digest {_SHADOW_DIGEST_CHECK}",
-            name="ck_cognitive_shadow_traces_request_digest",
-        ),
-        CheckConstraint(
-            f"trace_payload_digest IS NULL OR trace_payload_digest {_SHADOW_DIGEST_CHECK}",
-            name="ck_cognitive_shadow_traces_trace_digest",
-        ),
-        CheckConstraint(
-            f"semantic_digest IS NULL OR semantic_digest {_SHADOW_DIGEST_CHECK}",
-            name="ck_cognitive_shadow_traces_semantic_digest",
-        ),
-        CheckConstraint(
-            "(compiled_request_payload IS NULL) = (compiled_request_digest IS NULL)",
-            name="ck_cognitive_shadow_traces_request_pair",
-        ),
-        CheckConstraint(
-            "terminal_status <> 'completed' OR (compiled_request_payload IS NOT NULL "
-            "AND pipeline_trace_payload IS NOT NULL AND trace_payload_digest IS NOT NULL "
-            "AND semantic_digest IS NOT NULL AND timings IS NOT NULL "
-            "AND failure_payload IS NULL AND skip_reason IS NULL)",
-            name="ck_cognitive_shadow_traces_completed",
-        ),
-        CheckConstraint(
-            "terminal_status <> 'failed' OR (failure_payload IS NOT NULL AND pipeline_trace_payload IS NULL "
-            "AND trace_payload_digest IS NULL AND semantic_digest IS NULL AND skip_reason IS NULL)",
-            name="ck_cognitive_shadow_traces_failed",
-        ),
-        CheckConstraint(
-            "terminal_status <> 'skipped' OR (skip_reason IS NOT NULL AND compiled_request_payload IS NULL "
-            "AND pipeline_trace_payload IS NULL AND failure_payload IS NULL AND trace_payload_digest IS NULL "
-            "AND semantic_digest IS NULL AND timings IS NULL)",
-            name="ck_cognitive_shadow_traces_skipped",
-        ),
-        Index("ix_cognitive_shadow_traces_conversation_created", "conversation_id", "created_at"),
-        *REALIZATION_TRACE_CHECKS,
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    job_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cognitive_shadow_jobs.id", ondelete="CASCADE"), unique=True, nullable=False
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    turn_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, nullable=False)
-    segment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
-    predecessor_trace_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("cognitive_shadow_traces.id", ondelete="SET NULL"), index=True, nullable=True
-    )
-    segment_reset_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    missing_predecessor_refs: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
-    )
-    terminal_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    terminal_status: Mapped[str] = mapped_column(String(16), nullable=False)
-    skip_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    compiled_request_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    pipeline_trace_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    failure_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    capture_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    compiled_request_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    trace_payload_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    semantic_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    versions: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    # none_as_null: an absent payload is SQL NULL (what the CHECKs test), not JSON null.
-    timings: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    # Realization V0 (shadow-only wording): its own status, payloads, and
-    # digests, so a provider failure never erases the deterministic trace and
-    # model output never enters the core semantic digest. Inherits this row's
-    # retention, cascades, and immutability.
-    realization_status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="not_requested", server_default="not_requested"
-    )
-    realization_request_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    realization_request_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    realization_trace_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    realization_trace_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    realization_semantic_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    realization_failure_payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    realization_timings: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-_SHADOW_JOB_GUARD = DDL(
-    """
-CREATE OR REPLACE FUNCTION cognitive_shadow_jobs_guard() RETURNS trigger AS $$
-BEGIN
-    IF (to_jsonb(NEW) - ARRAY['status', 'attempts', 'claim_token', 'lease_expires_at', 'last_error_code',
-                             'last_error_safe', 'processed_at', 'updated_at', 'chat_job_id'])
-       IS DISTINCT FROM
-       (to_jsonb(OLD) - ARRAY['status', 'attempts', 'claim_token', 'lease_expires_at', 'last_error_code',
-                             'last_error_safe', 'processed_at', 'updated_at', 'chat_job_id']) THEN
-        RAISE EXCEPTION 'cognitive shadow capture fields are immutable' USING ERRCODE = 'check_violation';
-    END IF;
-    IF NEW.chat_job_id IS DISTINCT FROM OLD.chat_job_id AND NEW.chat_job_id IS NOT NULL THEN
-        RAISE EXCEPTION 'cognitive shadow chat job reference is immutable' USING ERRCODE = 'check_violation';
-    END IF;
-    IF OLD.status IN ('completed', 'failed', 'skipped') AND NEW.status IS DISTINCT FROM OLD.status THEN
-        RAISE EXCEPTION 'a terminal cognitive shadow job cannot change status' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER cognitive_shadow_jobs_immutable
-    BEFORE UPDATE ON cognitive_shadow_jobs
-    FOR EACH ROW EXECUTE FUNCTION cognitive_shadow_jobs_guard();
-"""
-)
-
-_SHADOW_TRACE_GUARD = DDL(
-    """
-CREATE OR REPLACE FUNCTION cognitive_shadow_traces_guard() RETURNS trigger AS $$
-BEGIN
-    IF (to_jsonb(NEW) - 'predecessor_trace_id') IS DISTINCT FROM (to_jsonb(OLD) - 'predecessor_trace_id')
-       OR (NEW.predecessor_trace_id IS DISTINCT FROM OLD.predecessor_trace_id
-           AND NEW.predecessor_trace_id IS NOT NULL) THEN
-        RAISE EXCEPTION 'cognitive shadow terminal records are immutable' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER cognitive_shadow_traces_immutable
-    BEFORE UPDATE ON cognitive_shadow_traces
-    FOR EACH ROW EXECUTE FUNCTION cognitive_shadow_traces_guard();
-"""
-)
-
-event.listen(CognitiveShadowJob.__table__, "after_create", _SHADOW_JOB_GUARD.execute_if(dialect="postgresql"))
-event.listen(CognitiveShadowTrace.__table__, "after_create", _SHADOW_TRACE_GUARD.execute_if(dialect="postgresql"))
-
-
-# ---------------------------------------------------------------------------
 # Conversation ledger position (dialogue-message-order-v0.1)
 # ---------------------------------------------------------------------------
 
@@ -1058,225 +855,6 @@ CREATE TRIGGER chat_messages_position_immutable BEFORE UPDATE ON chat_messages
 """
 
 event.listen(ChatMessage.__table__, "after_create", DDL(CHAT_MESSAGE_SEQUENCE_DDL).execute_if(dialect="postgresql"))
-
-
-# ---------------------------------------------------------------------------
-# Dialogue Working Memory V0 (shadow-only; never read by live chat)
-# ---------------------------------------------------------------------------
-
-_DIALOGUE_DIGEST_CHECK = "~ '^[0-9a-f]{64}$'"
-DIALOGUE_MEMORY_JOB_STATUSES = ("pending", "processing", "completed", "failed", "skipped")
-DIALOGUE_MEMORY_TRIGGER_KINDS = ("message_committed", "delivery_settled")
-
-
-class CognitiveDialogueMemorySnapshot(Base):
-    """One immutable, content-addressed dialogue memory snapshot.
-
-    ``snapshot_payload`` is the canonical ``DialogueMemorySnapshot`` JSON; the
-    columns beside it are indexed copies. A trigger rejects every update
-    except the foreign key clearing ``through_message_id`` when that message
-    is deleted; deletion by conversation or user cascade remains allowed.
-    """
-
-    __tablename__ = "cognitive_dialogue_memory_snapshots"
-    __table_args__ = (
-        UniqueConstraint("conversation_id", "revision", name="uq_dialogue_memory_snapshots_revision"),
-        UniqueConstraint(
-            "conversation_id", "through_conversation_sequence", "semantic_digest",
-            name="uq_dialogue_memory_snapshots_position_digest",
-        ),
-        CheckConstraint("revision >= 1", name="ck_dialogue_memory_snapshots_revision"),
-        CheckConstraint("through_conversation_sequence >= 0", name="ck_dialogue_memory_snapshots_through"),
-        CheckConstraint("source_event_count >= 0", name="ck_dialogue_memory_snapshots_event_count"),
-        CheckConstraint(f"source_prefix_digest {_DIALOGUE_DIGEST_CHECK}", name="ck_dialogue_memory_snapshots_prefix_digest"),
-        CheckConstraint(f"semantic_digest {_DIALOGUE_DIGEST_CHECK}", name="ck_dialogue_memory_snapshots_semantic_digest"),
-        Index("ix_dialogue_memory_snapshots_conversation_through", "conversation_id", "through_conversation_sequence"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    predecessor_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    segment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    reset_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    through_conversation_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    through_message_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True
-    )
-    source_event_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    source_prefix_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    snapshot_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    semantic_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    versions: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class CognitiveDialogueMemoryHead(Base):
-    """The one mutable pointer: a conversation's latest committed snapshot.
-
-    Updated only by predecessor compare-and-set in the same transaction that
-    inserts the immutable successor.
-    """
-
-    __tablename__ = "cognitive_dialogue_memory_heads"
-    __table_args__ = (
-        CheckConstraint("revision >= 1", name="ck_dialogue_memory_heads_revision"),
-        CheckConstraint("through_conversation_sequence >= 0", name="ck_dialogue_memory_heads_through"),
-        CheckConstraint(f"semantic_digest {_DIALOGUE_DIGEST_CHECK}", name="ck_dialogue_memory_heads_semantic_digest"),
-    )
-
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    snapshot_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("cognitive_dialogue_memory_snapshots.id"), nullable=False
-    )
-    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    through_conversation_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    semantic_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class CognitiveDialogueMemoryJob(Base):
-    """Durable end-of-turn update request, claimed with leases like the shadow queue.
-
-    Inserted in the transaction that commits the terminal assistant message
-    (or its delivery transition). Redis only wakes the worker; PostgreSQL
-    polling is the source of truth. One row per (trigger message, trigger
-    kind); a settled delivery re-arms its row rather than adding another.
-    """
-
-    __tablename__ = "cognitive_dialogue_memory_jobs"
-    __table_args__ = (
-        UniqueConstraint("trigger_message_id", "trigger_kind", name="uq_dialogue_memory_jobs_trigger"),
-        CheckConstraint(
-            "status IN ('pending', 'processing', 'completed', 'failed', 'skipped')",
-            name="ck_dialogue_memory_jobs_status",
-        ),
-        CheckConstraint(
-            "trigger_kind IN ('message_committed', 'delivery_settled')", name="ck_dialogue_memory_jobs_trigger_kind"
-        ),
-        CheckConstraint("attempts >= 0", name="ck_dialogue_memory_jobs_attempts"),
-        CheckConstraint("target_conversation_sequence >= 1", name="ck_dialogue_memory_jobs_target"),
-        CheckConstraint(
-            "status <> 'processing' OR (claim_token IS NOT NULL AND lease_expires_at IS NOT NULL)",
-            name="ck_dialogue_memory_jobs_processing_lease",
-        ),
-        Index("ix_dialogue_memory_jobs_status_created", "status", "created_at"),
-        Index("ix_dialogue_memory_jobs_conversation", "conversation_id", "target_conversation_sequence"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    trigger_message_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
-    )
-    trigger_kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    target_conversation_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
-    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    last_error_safe: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-DIALOGUE_SNAPSHOT_GUARD_DDL = """
-CREATE OR REPLACE FUNCTION cognitive_dialogue_memory_snapshots_guard() RETURNS trigger AS $$
-BEGIN
-    IF (to_jsonb(NEW) - 'through_message_id') IS DISTINCT FROM (to_jsonb(OLD) - 'through_message_id')
-       OR (NEW.through_message_id IS DISTINCT FROM OLD.through_message_id AND NEW.through_message_id IS NOT NULL) THEN
-        RAISE EXCEPTION 'dialogue memory snapshots are immutable' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER cognitive_dialogue_memory_snapshots_immutable
-    BEFORE UPDATE ON cognitive_dialogue_memory_snapshots
-    FOR EACH ROW EXECUTE FUNCTION cognitive_dialogue_memory_snapshots_guard();
-"""
-
-event.listen(
-    CognitiveDialogueMemorySnapshot.__table__, "after_create",
-    DDL(DIALOGUE_SNAPSHOT_GUARD_DDL).execute_if(dialect="postgresql"),
-)
-
-
-class CognitiveDialogueInterpretation(Base):
-    """Relationships one turn's understanding call read from its own user message.
-
-    ``payload`` is a ``DialogueInterpretationRecord`` (option sets, same-referent
-    links, corrections, as exact user spans). It is a model's validated reading,
-    kept separate from the message-derived dialogue memory and labelled
-    ``interpreted`` wherever it is shown. One row per user message, written by
-    the shadow worker with the turn's terminal trace; an empty ``updates`` list
-    means the message was read and established nothing. Rows are never updated
-    (a trigger rejects it) and are deleted with their message or conversation.
-    """
-
-    __tablename__ = "cognitive_dialogue_interpretations"
-    __table_args__ = (
-        UniqueConstraint("source_message_id", name="uq_dialogue_interpretations_source_message"),
-        CheckConstraint("source_conversation_sequence >= 1", name="ck_dialogue_interpretations_sequence"),
-        CheckConstraint(f"record_digest {_DIALOGUE_DIGEST_CHECK}", name="ck_dialogue_interpretations_digest"),
-        Index("ix_dialogue_interpretations_conversation_sequence", "conversation_id", "source_conversation_sequence"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    source_message_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
-    )
-    source_conversation_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # The shadow trace that produced it; a plain id, since traces expire sooner.
-    shadow_trace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    record_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-DIALOGUE_INTERPRETATION_GUARD_DDL = """
-CREATE OR REPLACE FUNCTION cognitive_dialogue_interpretations_guard() RETURNS trigger AS $$
-BEGIN
-    RAISE EXCEPTION 'cognitive_dialogue_interpretations rows are immutable';
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER cognitive_dialogue_interpretations_immutable
-    BEFORE UPDATE ON cognitive_dialogue_interpretations
-    FOR EACH ROW EXECUTE FUNCTION cognitive_dialogue_interpretations_guard();
-"""
-
-event.listen(
-    CognitiveDialogueInterpretation.__table__, "after_create",
-    DDL(DIALOGUE_INTERPRETATION_GUARD_DDL).execute_if(dialect="postgresql"),
-)
 
 
 # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §6, §17) -------
@@ -1556,12 +1134,17 @@ class MindThought(Base):
     for_hands: Mapped[str | None] = mapped_column(Text, nullable=True)
     question: Mapped[str | None] = mapped_column(Text, nullable=True)
     dropped_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Which source and activity it is about ("minecraft" + a session id, "conversation" + a conversation id).
+    # No foreign key: the activity is a different table per source. session_id stays for game thoughts.
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("level IN ('react', 'light', 'quiet', 'hard')", name="ck_mind_thoughts_level"),
         CheckConstraint("status IN ('done', 'stale', 'unfinished', 'dropped')", name="ck_mind_thoughts_status"),
         Index("ix_mind_thoughts_user_created", "user_id", "created_at"),
+        Index("ix_mind_thoughts_activity_created", "user_id", "activity_id", "created_at"),
     )
 
 
@@ -1843,16 +1426,23 @@ sa_text = text
 
 MEMORY_CONTEXT_KINDS = ("general", "activity", "project", "world")
 MEMORY_CONTEXT_STATUSES = ("active", "paused", "closed")
-WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question")
+WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question", "hypothesis", "decision", "plan")
 # Per kind: (open statuses, closed statuses).
 WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "goal": (("active", "suspended"), ("completed", "abandoned")),
     "commitment": (("open", "needs_review"), ("fulfilled", "cancelled")),
     "intention": (("active",), ("done", "dropped", "lapsed")),
     "question": (("open",), ("answered", "dropped")),
+    # Hers, from her own thinking (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md): a suspicion, and what she decided.
+    "hypothesis": (("open",), ("supported", "disproved", "unresolved")),
+    "decision": (("active",), ("superseded", "withdrawn")),
+    # Something the user means to do at a time ("visit Nora in December"): its time passing without word of
+    # it makes it needs_review, never happened.
+    "plan": (("planned", "needs_review"), ("happened", "cancelled")),
 }
 WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
-MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction")
+# basis: what she read when she thought it; restated: she reached it again. Neither is support.
+MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction", "basis", "restated")
 
 
 def _in(values) -> str:
@@ -1905,10 +1495,11 @@ class MemoryContext(Base):
     )
 
 
-class WorkingItem(Base):
+class WorkingItem(Base, TimeFieldsMixin):
     """Unfinished business: a goal (with sub-goals), a commitment owed by one party to the other, her own
-    intention, or a question waiting for an answer. Stands on its own: its text, status, context and
-    times are complete without its evidence links. Time and plan changes never close a goal."""
+    intention, a question waiting for an answer, or, from her own thinking, a hypothesis or a decision.
+    Stands on its own: its text, status, context and times are complete without its evidence links. Time
+    and plan changes never close a goal."""
 
     __tablename__ = "working_items"
 
@@ -1926,15 +1517,29 @@ class WorkingItem(Base):
     status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # "reported": the user said it; "inferred": she concluded it.
     epistemic: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Why she concluded it, from her own thinking (a thought handed to memory); null for what the user said.
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # Which revision of each fact it was last checked against after that fact changed: {fact id: revision}.
+    checked_facts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict,
+                                                server_default=sa_text("'{}'::jsonb"))
+    # A plan's own words, copied from the user's message ("going to see Nora in Lisbon in December").
+    user_words: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The unresolved disagreement it depends on (a question her mind raised about a conflict): settling the
+    # conflict closes it (services/memory_conflicts.settle).
+    premise_conflict_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     __table_args__ = (
+        ForeignKeyConstraint(["premise_conflict_id", "user_id"], ["memory_conflicts.id", "memory_conflicts.user_id"],
+                             ondelete="SET NULL (premise_conflict_id)", name="fk_working_items_premise_conflict"),
+        Index("ix_working_items_premise_conflict", "premise_conflict_id",
+              postgresql_where=sa_text("premise_conflict_id IS NOT NULL")),
         CheckConstraint(f"kind IN ({_in(WORKING_ITEM_KINDS)})", name="ck_working_items_kind"),
         CheckConstraint(_WORKING_ITEM_STATUS_CHECK, name="ck_working_items_status"),
         CheckConstraint("owner IN ('user', 'columbina', 'shared')", name="ck_working_items_owner"),
@@ -1949,6 +1554,8 @@ class WorkingItem(Base):
                         "AND owner <> owed_to)", name="ck_working_items_commitment_parties"),
         CheckConstraint("kind <> 'intention' OR due_at IS NOT NULL", name="ck_working_items_intention_due"),
         CheckConstraint("revision >= 1", name="ck_working_items_revision"),
+        CheckConstraint("kind <> 'plan' OR coalesce(btrim(user_words), '') <> ''", name="ck_working_items_plan_words"),
+        *_time_checks("working_items"),
         UniqueConstraint("id", "user_id", name="uq_working_items_id_user"),
         UniqueConstraint("id", "context_id", name="uq_working_items_id_context"),
         ForeignKeyConstraint(["context_id", "user_id"], ["memory_contexts.id", "memory_contexts.user_id"],
@@ -2019,8 +1626,10 @@ class MemoryManagerState(Base):
 
 
 class MemoryEvidence(Base):
-    """Where a memory came from: one target (an item or an event) and one source, each a real foreign
-    key. Deleting the source deletes the link and nothing else: the memory stands on its own."""
+    """Where a memory came from: one target (an item, an event, a fact or an entity) and one source, each a
+    real, owner-checked foreign key. Deleting the source deletes the link and nothing else: the memory stands
+    on its own. A fact's links (stage 3): ``origin`` where it was first said, ``restated``/``correction`` where
+    its wording changed, ``support`` where it was said again unchanged."""
 
     __tablename__ = "memory_evidence"
 
@@ -2028,6 +1637,8 @@ class MemoryEvidence(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    fact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
@@ -2042,7 +1653,7 @@ class MemoryEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        CheckConstraint("num_nonnulls(item_id, event_id) = 1", name="ck_memory_evidence_target"),
+        CheckConstraint("num_nonnulls(item_id, event_id, fact_id, entity_id) = 1", name="ck_memory_evidence_target"),
         CheckConstraint("num_nonnulls(message_id, session_event_id, thought_id, experience_id, observation_id) = 1",
                         name="ck_memory_evidence_source"),
         CheckConstraint(f"role IN ({_in(MEMORY_EVIDENCE_ROLES)}) AND (role <> 'resolution' OR item_id IS NOT NULL)",
@@ -2051,11 +1662,17 @@ class MemoryEvidence(Base):
                              ondelete="CASCADE", name="fk_memory_evidence_item"),
         ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
                              ondelete="CASCADE", name="fk_memory_evidence_event"),
-        UniqueConstraint("item_id", "event_id", "role", "message_id", "session_event_id", "thought_id",
-                         "experience_id", "observation_id", name="uq_memory_evidence",
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_evidence_fact"),
+        ForeignKeyConstraint(["entity_id", "user_id"], ["memory_entities.id", "memory_entities.user_id"],
+                             ondelete="CASCADE", name="fk_memory_evidence_entity"),
+        UniqueConstraint("item_id", "event_id", "fact_id", "entity_id", "role", "message_id", "session_event_id",
+                         "thought_id", "experience_id", "observation_id", name="uq_memory_evidence",
                          postgresql_nulls_not_distinct=True),
         Index("ix_memory_evidence_item", "item_id"),
         Index("ix_memory_evidence_event", "event_id"),
+        Index("ix_memory_evidence_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
+        Index("ix_memory_evidence_entity", "entity_id", postgresql_where=sa_text("entity_id IS NOT NULL")),
         Index("ix_memory_evidence_message", "message_id"),
         Index("ix_memory_evidence_session_event", "session_event_id"),
         Index("ix_memory_evidence_thought", "thought_id"),
@@ -2065,12 +1682,47 @@ class MemoryEvidence(Base):
 
 
 
+MEMORY_ENTITY_LINK_ROLES = ("participant", "place", "about")
+
+
+class MemoryEntityLink(Base):
+    """Who or what a plan or an episode involves: the user's sister in "visit Nora in December", the place it's
+    at. One target (an item or an episode) per row, both owner-checked keys; it goes with either side."""
+
+    __tablename__ = "memory_entity_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(item_id, episode_id) = 1", name="ck_memory_entity_links_target"),
+        CheckConstraint(f"role IN ({_in(MEMORY_ENTITY_LINK_ROLES)})", name="ck_memory_entity_links_role"),
+        ForeignKeyConstraint(["entity_id", "user_id"], ["memory_entities.id", "memory_entities.user_id"],
+                             ondelete="CASCADE", name="fk_memory_entity_links_entity"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_memory_entity_links_item"),
+        ForeignKeyConstraint(["episode_id", "user_id"], ["episodic_memories.id", "episodic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_entity_links_episode"),
+        UniqueConstraint("entity_id", "item_id", "episode_id", "role", name="uq_memory_entity_links",
+                         postgresql_nulls_not_distinct=True),
+        Index("ix_memory_entity_links_entity", "entity_id"),
+        Index("ix_memory_entity_links_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
+        Index("ix_memory_entity_links_episode", "episode_id", postgresql_where=sa_text("episode_id IS NOT NULL")),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md): what a source reported
 # --------------------------------------------------------------------------- #
 
 OBSERVATION_ACTORS = ("user", "columbina", "environment", "tool", "system")
-OBSERVATION_EPISTEMIC = ("observed", "reported")
+# inferred: her own reasoning (a thought handed to memory), neither observed nor reported.
+OBSERVATION_EPISTEMIC = ("observed", "reported", "inferred")
 OBSERVATION_ORIGINS = ("user", "external", "system", "model")
 OBSERVATION_SALIENCE = ("routine", "notable", "critical")
 OBSERVATION_PROCESSING_STATUSES = ("pending", "retry", "applied", "skipped", "failed")
@@ -2111,6 +1763,8 @@ class Observation(Base):
         ForeignKey("game_experiences.id", ondelete="CASCADE"), nullable=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True)
+    thought_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mind_thoughts.id", ondelete="CASCADE"), nullable=True)
 
     __table_args__ = (
         CheckConstraint(f"actor IN ({_in(OBSERVATION_ACTORS)})", name="ck_observations_actor"),
@@ -2139,6 +1793,7 @@ class Observation(Base):
         Index("ix_observations_delivery", "delivery_id", postgresql_where=sa_text("delivery_id IS NOT NULL")),
         Index("ix_observations_experience", "experience_id", postgresql_where=sa_text("experience_id IS NOT NULL")),
         Index("ix_observations_session", "session_id", postgresql_where=sa_text("session_id IS NOT NULL")),
+        Index("ix_observations_thought", "thought_id", postgresql_where=sa_text("thought_id IS NOT NULL")),
         Index("ix_observations_caused_by", "caused_by_id", postgresql_where=sa_text("caused_by_id IS NOT NULL")),
         Index("ix_observations_outcome_of", "outcome_of_id", postgresql_where=sa_text("outcome_of_id IS NOT NULL")),
     )
@@ -2379,6 +2034,9 @@ class RecallReference(Base):
     episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A transcript passage she was given (stage 5): its owner is checked by a trigger (messages have no user column).
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
     target_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     span_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -2388,7 +2046,8 @@ class RecallReference(Base):
 
     __table_args__ = (
         CheckConstraint(f"relation IN ({_in(RECALL_RELATIONS)})", name="ck_recall_references_relation"),
-        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id) = 1", name="ck_recall_references_target"),
+        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id, message_id) = 1",
+                        name="ck_recall_references_target"),
         CheckConstraint("(span_start IS NULL) = (span_end IS NULL) AND (span_start IS NULL OR "
                         "(span_start >= 0 AND span_end > span_start))", name="ck_recall_references_span"),
         CheckConstraint("relation = 'referenced' OR span_start IS NULL", name="ck_recall_references_supplied_span"),
@@ -2403,12 +2062,137 @@ class RecallReference(Base):
         ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
                              ondelete="CASCADE", name="fk_recall_references_item"),
         Index("uq_recall_references_supplied", "receipt_id", "fact_id", "episode_id", "event_id", "item_id",
-              unique=True, postgresql_where=sa_text("relation = 'supplied'"), postgresql_nulls_not_distinct=True),
+              "message_id", unique=True, postgresql_where=sa_text("relation = 'supplied'"), postgresql_nulls_not_distinct=True),
         Index("ix_recall_references_receipt", "receipt_id"),
         Index("ix_recall_references_event", "event_id", postgresql_where=sa_text("event_id IS NOT NULL")),
         Index("ix_recall_references_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
         Index("ix_recall_references_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
         Index("ix_recall_references_episode", "episode_id", postgresql_where=sa_text("episode_id IS NOT NULL")),
+        Index("ix_recall_references_message", "message_id", postgresql_where=sa_text("message_id IS NOT NULL")),
+    )
+
+
+RECALL_REFERENCE_MESSAGE_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION recall_references_message_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF NEW.message_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = NEW.message_id AND c.user_id = NEW.user_id) THEN
+        RAISE EXCEPTION 'a recalled message must belong to its owner' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER recall_references_message_owner_check BEFORE INSERT OR UPDATE ON recall_references
+    FOR EACH ROW EXECUTE FUNCTION recall_references_message_owner_check();
+"""
+event.listen(RecallReference.__table__, "after_create",
+             DDL(RECALL_REFERENCE_MESSAGE_OWNER_DDL).execute_if(dialect="postgresql"))
+
+
+RECALL_HISTORY_STATUSES = ("complete", "partial", "no_history", "failed")
+RECALL_HISTORY_SPEAKERS = ("user", "columbina", "source", "memory")
+
+
+class RecallReconstruction(Base):
+    """One history her ``recall_history`` tool rebuilt for a reply (docs/COLUMBINA_SOURCE_BACKED_RECALL.md):
+    what was asked, the checked account (citations as spans into the passages, never copied text), how the
+    collection went, and the reader's model and input digest, so what generation received can be traced
+    later. Its passages are ``recall_reconstruction_sources``. Belongs to the reply's receipt."""
+
+    __tablename__ = "recall_reconstructions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    receipt_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)  # as the tool was asked, bounded
+    about: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reasoning_effort: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    input_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    account: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    coverage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(RECALL_HISTORY_STATUSES)})", name="ck_recall_reconstructions_status"),
+        UniqueConstraint("id", "user_id", name="uq_recall_reconstructions_id_user"),
+        ForeignKeyConstraint(["receipt_id", "user_id"], ["recall_receipts.id", "recall_receipts.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstructions_receipt"),
+        Index("ix_recall_reconstructions_receipt", "receipt_id"),
+    )
+
+
+class RecallReconstructionSource(Base):
+    """One passage a rebuilt history was shown: exactly one real target (a memory, or the message,
+    observation, experience, session event or thought it came from), its version then (``fingerprint``),
+    who asserted it, and whether the account cited it. No text: deleting the source deletes the row, and
+    the reconstruction keeps only its counts. A trigger checks a source row belongs to the owner."""
+
+    __tablename__ = "recall_reconstruction_sources"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    reconstruction_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    label: Mapped[str] = mapped_column(String(8), nullable=False)
+    speaker: Mapped[str] = mapped_column(String(16), nullable=False)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    cited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    in_scope: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    said_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    observation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), nullable=True)
+    experience_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_experiences.id", ondelete="CASCADE"), nullable=True)
+    session_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("desktop_session_events.id", ondelete="CASCADE"), nullable=True)
+    thought_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mind_thoughts.id", ondelete="CASCADE"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"speaker IN ({_in(RECALL_HISTORY_SPEAKERS)})", name="ck_recall_reconstruction_sources_speaker"),
+        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id, message_id, observation_id, "
+                        "experience_id, session_event_id, thought_id) = 1",
+                        name="ck_recall_reconstruction_sources_target"),
+        UniqueConstraint("reconstruction_id", "label", name="uq_recall_reconstruction_sources_label"),
+        ForeignKeyConstraint(["reconstruction_id", "user_id"],
+                             ["recall_reconstructions.id", "recall_reconstructions.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_reconstruction"),
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_fact"),
+        ForeignKeyConstraint(["episode_id", "user_id"], ["episodic_memories.id", "episodic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_episode"),
+        ForeignKeyConstraint(["event_id", "user_id"], ["memory_events.id", "memory_events.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_event"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_recall_reconstruction_sources_item"),
+        Index("ix_recall_reconstruction_sources_reconstruction", "reconstruction_id"),
+        Index("ix_recall_reconstruction_sources_message", "message_id", postgresql_where=sa_text("message_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_event", "event_id", postgresql_where=sa_text("event_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_episode", "episode_id",
+              postgresql_where=sa_text("episode_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_observation", "observation_id",
+              postgresql_where=sa_text("observation_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_experience", "experience_id",
+              postgresql_where=sa_text("experience_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_session_event", "session_event_id",
+              postgresql_where=sa_text("session_event_id IS NOT NULL")),
+        Index("ix_recall_reconstruction_sources_thought", "thought_id",
+              postgresql_where=sa_text("thought_id IS NOT NULL")),
     )
 
 
@@ -2457,6 +2241,34 @@ CREATE TRIGGER recall_receipts_owner_check BEFORE INSERT OR UPDATE ON recall_rec
 """
 
 event.listen(RecallReceipt.__table__, "after_create", DDL(RECALL_RECEIPT_OWNER_DDL).execute_if(dialect="postgresql"))
+
+# A rebuilt history's source rows belong to its owner (memories are checked by their composite keys).
+RECALL_RECONSTRUCTION_SOURCE_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION recall_reconstruction_sources_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF (NEW.message_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = NEW.message_id AND c.user_id = NEW.user_id))
+       OR (NEW.observation_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM observations o WHERE o.id = NEW.observation_id AND o.user_id = NEW.user_id))
+       OR (NEW.experience_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM game_experiences g WHERE g.id = NEW.experience_id AND g.user_id = NEW.user_id))
+       OR (NEW.thought_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM mind_thoughts t WHERE t.id = NEW.thought_id AND t.user_id = NEW.user_id))
+       OR (NEW.session_event_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM desktop_session_events e JOIN desktop_sessions s ON s.id = e.session_id
+            WHERE e.id = NEW.session_event_id AND s.owner_user_id = NEW.user_id)) THEN
+        RAISE EXCEPTION 'a reconstruction source must belong to its owner' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER recall_reconstruction_sources_owner_check BEFORE INSERT OR UPDATE ON recall_reconstruction_sources
+    FOR EACH ROW EXECUTE FUNCTION recall_reconstruction_sources_owner_check();
+"""
+
+event.listen(RecallReconstructionSource.__table__, "after_create",
+             DDL(RECALL_RECONSTRUCTION_SOURCE_OWNER_DDL).execute_if(dialect="postgresql"))
 
 
 # --------------------------------------------------------------------------- #
@@ -2534,3 +2346,389 @@ CREATE TRIGGER memory_corrections_owner_check BEFORE INSERT OR UPDATE OF source_
 
 event.listen(MemoryCorrection.__table__, "after_create",
              DDL(MEMORY_CORRECTION_OWNER_DDL).execute_if(dialect="postgresql"))
+
+
+# pending -> processing -> applying (its corrections are queued) -> done; or failed (retried daily until
+# ``daily_until`` first), or superseded (a newer change of the same fact took its items over). What's held is
+# kept in ``memory_dependencies`` (stage 4), not by this status: a failure never lifts a hold.
+MEMORY_FACT_REVISION_STATUSES = ("pending", "processing", "applying", "done", "failed", "superseded")
+MEMORY_FACT_REVISION_HOLDING = ("pending", "processing", "applying")
+MEMORY_FACT_REVISION_SETTLED = ("done", "failed", "superseded")
+
+
+class MemoryFactRevision(Base):
+    """A fact's wording changed in consolidation (``services/memory_reconcile.py``). Kept as evidence: the old
+    and new versions and the message behind the change, then read for the change it supports (or none: a
+    paraphrase); a supported change becomes a ``memory_corrections`` row that reaches the working items.
+    ``held_item_ids``: open items that share a source with the old version, held from autonomous use until
+    this is settled (only potentially affected, never assumed to state the fact)."""
+
+    __tablename__ = "memory_fact_revisions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    fact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("semantic_memories.id", ondelete="CASCADE"),
+                                               nullable=False)
+    from_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_content: Mapped[str] = mapped_column(Text, nullable=False)
+    new_content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    memory_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True)
+    held_item_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                                server_default=sa_text("'[]'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when its quick retries ran out: retried once a day until then, then failed (its items stay held).
+    daily_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(MEMORY_FACT_REVISION_STATUSES)})", name="ck_memory_fact_revisions_status"),
+        CheckConstraint("to_revision > from_revision", name="ck_memory_fact_revisions_order"),
+        CheckConstraint(f"(status IN ({_in(MEMORY_FACT_REVISION_SETTLED)})) = (settled_at IS NOT NULL)",
+                        name="ck_memory_fact_revisions_settled"),
+        UniqueConstraint("fact_id", "to_revision", name="uq_memory_fact_revisions_once"),
+        Index("ix_memory_fact_revisions_due", "status", "next_attempt_at"),
+        Index("ix_memory_fact_revisions_user", "user_id", "status"),
+    )
+
+
+# required: the item only makes sense while the fact holds ("visit Nora in Lisbon" on where Nora lives);
+# context: it mentions or was thought with the fact, without relying on it; none: checked, unrelated; unknown:
+# not known yet (an older item that shares a source or a person with the fact).
+MEMORY_DEPENDENCY_ROLES = ("required", "context", "none", "unknown")
+# valid: checked against ``checked_revision``; pending: the fact changed and it's being rechecked; review: the
+# recheck couldn't settle it (failed, or the item needs a look): it may be out of date.
+MEMORY_DEPENDENCY_STATES = ("valid", "pending", "review")
+# derived: written when the item was made; judged: by a recheck's reading; candidate: queued for one;
+# confirmed: the user's turn said it still stands.
+MEMORY_DEPENDENCY_ORIGINS = ("derived", "judged", "candidate", "confirmed")
+# Only these hold an item from autonomous use while not valid (an incidental link never blocks it).
+MEMORY_DEPENDENCY_HOLDING_ROLES = ("required", "unknown")
+
+
+class MemoryDependency(Base):
+    """What a working item relies on (stage 4, ``services/memory_dependencies.py``): one row per item and fact,
+    separate from provenance (``memory_evidence`` says where it came from; this says what must still hold for
+    it to be usable). Both ends are owner-keyed and go with either side. ``pending_revision_id``: the fact's
+    change (``memory_fact_revisions``) that owns the recheck; a newer change takes it over."""
+
+    __tablename__ = "memory_dependencies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    checked_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pending_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_fact_revisions.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"role IN ({_in(MEMORY_DEPENDENCY_ROLES)})", name="ck_memory_dependencies_role"),
+        CheckConstraint(f"state IN ({_in(MEMORY_DEPENDENCY_STATES)})", name="ck_memory_dependencies_state"),
+        CheckConstraint(f"origin IN ({_in(MEMORY_DEPENDENCY_ORIGINS)})", name="ck_memory_dependencies_origin"),
+        CheckConstraint("state <> 'valid' OR checked_revision IS NOT NULL", name="ck_memory_dependencies_checked"),
+        ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="CASCADE", name="fk_memory_dependencies_item"),
+        ForeignKeyConstraint(["fact_id", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_dependencies_fact"),
+        UniqueConstraint("item_id", "fact_id", name="uq_memory_dependencies"),
+        Index("ix_memory_dependencies_fact", "user_id", "fact_id"),
+        Index("ix_memory_dependencies_item", "user_id", "item_id"),
+        Index("ix_memory_dependencies_unsettled", "user_id", "state", postgresql_where=sa_text("state <> 'valid'")),
+        Index("ix_memory_dependencies_revision", "pending_revision_id",
+              postgresql_where=sa_text("pending_revision_id IS NOT NULL")),
+    )
+
+
+# open -> known_confirmed (the user settled it: the memory holds), fact_changed (the fact was revised since), or
+# forgotten (the fact was forgotten).
+MEMORY_CONFLICT_STATUSES = ("open", "known_confirmed", "fact_changed", "forgotten")
+
+
+class MemoryConflict(Base):
+    """A message disagreed with a fact without saying it changed or was wrong (services/memory_conflicts.py,
+    docs/COLUMBINA_MEMORY_CONFLICTS.md). Memory never decides which holds: the fact is left as it was, this row
+    keeps the disagreement visible (recall marks the fact unresolved), and her mind gets it as a problem, so
+    cognition chooses whether to ask, think it over or leave it. ``fact_revision`` is the version that was
+    contradicted; a later revision of the fact settles it as ``fact_changed``."""
+
+    __tablename__ = "memory_conflicts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    fact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fact_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    known_content: Mapped[str] = mapped_column(Text, nullable=False)  # the fact as it read then
+    stated: Mapped[str] = mapped_column(Text, nullable=False)
+    user_words: Mapped[str] = mapped_column(Text, nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    memory_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # to her mind
+    settled_by_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # The fact must be this user's: ownership is a key, not a convention.
+        ForeignKeyConstraint(("fact_id", "user_id"), ("semantic_memories.id", "semantic_memories.user_id"),
+                             ondelete="CASCADE", name="fk_memory_conflicts_fact_owner"),
+        CheckConstraint(f"status IN ({_in(MEMORY_CONFLICT_STATUSES)})", name="ck_memory_conflicts_status"),
+        CheckConstraint("(status = 'open') = (settled_at IS NULL)", name="ck_memory_conflicts_settled"),
+        UniqueConstraint("fact_id", "source_message_id", name="uq_memory_conflicts_once"),
+        UniqueConstraint("id", "user_id", name="uq_memory_conflicts_id_user"),
+        Index("ix_memory_conflicts_user", "user_id", "status"),
+        Index("ix_memory_conflicts_fact", "fact_id", "status"),
+    )
+
+
+# ``partial``: forgotten, but some messages that also held other things are set aside whole from memory.
+MEMORY_FORGET_STATUSES = ("pending", "done", "partial", "nothing_found", "failed")
+
+
+class MemoryForget(Base):
+    """A user's request to forget something (services/memory_forget.py). Content-free once settled: the request
+    words live only in ``request`` while it's pending and are cleared when it ends; what remains is which message
+    asked, how many records of each kind went, and the messages they came from (``memory_forgotten_sources``)."""
+
+    __tablename__ = "memory_forgets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    memory_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memory_jobs.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    request: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)  # pending only
+    removed: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    # Hashes of the request's word stems (stage 5), kept once it's done: a reply that went back over the forgotten
+    # history can't make memory learn it again. No words, only hashes.
+    fence: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(MEMORY_FORGET_STATUSES)})", name="ck_memory_forgets_status"),
+        CheckConstraint("(status = 'pending') = (finished_at IS NULL)", name="ck_memory_forgets_finished"),
+        CheckConstraint("status = 'pending' OR request IS NULL", name="ck_memory_forgets_request_cleared"),
+        UniqueConstraint("source_message_id", name="uq_memory_forgets_message"),
+        UniqueConstraint("id", "user_id", name="uq_memory_forgets_id_user"),
+        Index("ix_memory_forgets_due", "next_attempt_at", postgresql_where=sa_text("status = 'pending'")),
+        Index("ix_memory_forgets_user", "user_id", "created_at"),
+    )
+
+
+class MemoryForgottenSource(Base):
+    """A message that something forgotten came from: memory never re-reads it as context or re-extracts from it,
+    so what was forgotten can't come back from its source (the message itself stays in the chat)."""
+
+    __tablename__ = "memory_forgotten_sources"
+
+    forget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Which characters of the message are about what was forgotten, as [start, end) pairs (stage 5); null: the
+    # whole message (it couldn't be separated safely). Memory reads the rest; transcript search keeps it all.
+    spans: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(["forget_id", "user_id"], ["memory_forgets.id", "memory_forgets.user_id"],
+                             ondelete="CASCADE", name="fk_memory_forgotten_sources_forget"),
+        Index("ix_memory_forgotten_sources_message", "user_id", "message_id"),
+    )
+
+
+class ChatMessageEmbedding(Base):
+    """A message's embedding for transcript search by meaning (stage 5, services/transcript_search.py): what was
+    said, as far as it was heard, filled in the background. Search works without it (by words); a vector whose
+    fingerprint no longer matches the heard text is ignored and filled again."""
+
+    __tablename__ = "chat_message_embeddings"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    vector: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(RECALL_EMBEDDING_STATUSES)})", name="ck_chat_message_embeddings_status"),
+        CheckConstraint("(status = 'done') = (vector IS NOT NULL)", name="ck_chat_message_embeddings_vector"),
+        Index("ix_chat_message_embeddings_user", "user_id", postgresql_where=sa_text("status = 'done'")),
+        Index("ix_chat_message_embeddings_due", "status", "next_attempt_at"),
+    )
+
+
+MEMORY_UPKEEP_VERDICTS = ("different", "merged", "skipped")
+
+
+class MemoryUpkeepPair(Base):
+    """Two current facts upkeep looked at as possible duplicates (services/memory_upkeep.py, stage 5), and what it
+    decided. ``different`` pairs aren't judged again until either fact's fingerprint changes. Content-free: ids and
+    fingerprints only. A merged pair's duplicate is gone (its row with it); the row then keeps only the verdict."""
+
+    __tablename__ = "memory_upkeep_pairs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    fact_a: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fact_b: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fingerprint_a: Mapped[str] = mapped_column(String(32), nullable=False)
+    fingerprint_b: Mapped[str] = mapped_column(String(32), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(120), nullable=True)  # a code reason, never memory text
+    judged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"verdict IN ({_in(MEMORY_UPKEEP_VERDICTS)})", name="ck_memory_upkeep_pairs_verdict"),
+        CheckConstraint("fact_a < fact_b", name="ck_memory_upkeep_pairs_order"),
+        ForeignKeyConstraint(["fact_a", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_upkeep_pairs_a"),
+        ForeignKeyConstraint(["fact_b", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_upkeep_pairs_b"),
+        UniqueConstraint("fact_a", "fact_b", name="uq_memory_upkeep_pairs"),
+        Index("ix_memory_upkeep_pairs_user", "user_id", "judged_at"),
+    )
+
+
+class AutonomousDelivery(Base):
+    """What she said on her own in one quiet stretch of a conversation (services/autonomous_speech.py): the stretch
+    is ``after_sequence``, the user's latest message then, so a new user message starts a new one. Reserved in
+    the delivery transaction; ``key`` is the premise it was about (a conflict, an item) and ``words`` its content
+    words, so the same question isn't asked again in other words until the user writes."""
+
+    __tablename__ = "autonomous_deliveries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    after_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # question / decision / guess / ...
+    key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    words: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    work_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("work_id", name="uq_autonomous_deliveries_work"),
+        Index("uq_autonomous_deliveries_key", "conversation_id", "after_sequence", "key", unique=True,
+              postgresql_where=sa_text("key IS NOT NULL")),
+        Index("ix_autonomous_deliveries_stretch", "conversation_id", "after_sequence"),
+    )
+
+
+class CoordinatorWork(Base):
+    """Background work for one user request (docs/SHARED_STATE_STEP4_SPEC.md, "Shared-state additions"): a recall
+    or a mind job the coordinator scheduled, kept apart from the disposable per-turn view and projected into
+    it. Leased like ``chat_jobs``. ``completed`` never means its result was said: that's
+    ``coordinator_outputs``. A new user message in the conversation supersedes unfinished work it raises
+    ``cancellation_generation`` on; the worker checks it before accepting a result and before any delivery."""
+
+    __tablename__ = "coordinator_work"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_coordinator_work_idempotency"),
+        CheckConstraint("kind IN ('recall', 'mind', 'memory', 'observation', 'cognition')", name="ck_coordinator_work_kind"),
+        CheckConstraint("status IN ('queued', 'waiting_for_memory', 'running', 'completed', 'failed', "
+                        "'cancelled', 'expired', 'superseded', 'blocked')", name="ck_coordinator_work_status"),
+        Index("ix_coordinator_work_claim", "status", "lease_expires_at"),
+        Index("ix_coordinator_work_conversation", "conversation_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)  # the turn
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                       nullable=True)
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    trigger_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    dependency_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    input: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # what the work reads (ids, labels)
+    input_versions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    cancellation_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class CoordinatorOutput(Base):
+    """One output decision per phase of a request (immediate reply, result follow-up): what cognition decided
+    (respond / acknowledge / partial / silent / ask / defer), or that it couldn't (``blocked``), and what
+    actually happened. Unique per (request, phase), so a retry or restart never repeats a phase. Silence is
+    a row here, never an empty assistant message."""
+
+    __tablename__ = "coordinator_outputs"
+    __table_args__ = (
+        UniqueConstraint("request_id", "phase", name="uq_coordinator_outputs_phase"),
+        CheckConstraint("phase IN ('immediate', 'follow_up')", name="ck_coordinator_outputs_phase"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                       nullable=False)
+    work_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("coordinator_work.id", ondelete="SET NULL"),
+                                                      nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision_origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    missing_capability: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # decided -> dispatched -> delivered / partial / cancelled / failed; not_sent (silent, blocked, superseded)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="decided")
+    # Set atomically with the saved reply; cleared only after transport publication.
+    announcement_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    chat_job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_jobs.id", ondelete="SET NULL"),
+                                                          nullable=True)
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())

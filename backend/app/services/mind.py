@@ -8,7 +8,7 @@ the rules code owns apply (urgent pressure caps hard thinking, one quick thought
 and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
-  saved, and its line (if any) handed to the one speaking gate, ``agent_say``;
+  saved, and its proposed line (if any) queued through cognition and the mouth;
 - ``hard``: slow thinking about a problem (services/mind_hard.py), with attention shared per
   user across her activities. The gate's ``hard`` level is only one of its triggers (a
   surprise); here it becomes a light thought.
@@ -27,16 +27,16 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import redis
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
 from app.ai.mind import gates as g
 from app.ai.mind.contracts import Moment, Scope, Source
 from app.core.config import get_settings
-from app.db.models import MindThought, User
+from app.db.models import MemoryEvidence, MindThought, RecallReconstructionSource, User
 from app.db.session import SessionLocal
 from app.services import agent_say, desktop_preview, mind_hard
 
@@ -89,11 +89,6 @@ def sources() -> list:
 
         _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE]
     return _sources
-
-
-def enabled() -> bool:
-    """Her mind runs (MIND_ENABLED). Each source has its own switch too (Minecraft: desktop mode)."""
-    return bool(get_settings().mind_enabled)
 
 
 # --------------------------------------------------------------------------- #
@@ -154,12 +149,21 @@ def base_topic(topic: str | None) -> str | None:
 
 def save_thought(db: Session, *, user_id: uuid.UUID, session_id: uuid.UUID | None, level: str, text: str,
                  said: str | None = None, status: str = "done", topic: str | None = None,
-                 kind: str | None = None, **hard) -> MindThought:
-    """Store a thought (caller's transaction is committed here) and show it live. ``hard``: a
-    hard thought's trigger, conclusion_kind, thinking, for_hands, question, dropped_reason."""
+                 kind: str | None = None, source: str | None = None, activity_id: uuid.UUID | None = None,
+                 handoff: Callable[[MindThought], None] | None = None, **hard) -> MindThought:
+    """Store a thought (caller's transaction is committed here) and show it live. ``source``/``activity_id``:
+    what it is about (a game thought defaults to its session). ``handoff``: run in the same transaction once
+    the thought has its id (a finished hard thought handed to memory). ``hard``: a hard thought's trigger,
+    conclusion_kind, thinking, for_hands, question, dropped_reason."""
+    if session_id is not None:
+        source, activity_id = source or "minecraft", activity_id or session_id
     thought = MindThought(user_id=user_id, session_id=session_id, level=level, text=text[:1000],
-                          said=said, status=status, topic=(topic or None) and topic[:TOPIC_CHARS], kind=kind, **hard)
+                          said=said, status=status, topic=(topic or None) and topic[:TOPIC_CHARS], kind=kind,
+                          source=source, activity_id=activity_id, **hard)
     db.add(thought)
+    if handoff is not None:
+        db.flush()
+        handoff(thought)
     db.commit()
     publish(user_id, thought)
     return thought
@@ -171,6 +175,7 @@ def thought_out(thought: MindThought) -> dict:
             "trigger": thought.trigger, "conclusion_kind": thought.conclusion_kind, "thinking": thought.thinking,
             "for_hands": thought.for_hands, "question": thought.question, "dropped_reason": thought.dropped_reason,
             "session_id": str(thought.session_id) if thought.session_id else None,
+            "source": thought.source, "activity_id": str(thought.activity_id) if thought.activity_id else None,
             "created_at": thought.created_at.isoformat() if thought.created_at else
             datetime.now(timezone.utc).isoformat()}
 
@@ -195,9 +200,13 @@ def list_thoughts(db: Session, user_id: uuid.UUID, *, minutes: int = 120, limit:
 
 
 def prune(db: Session) -> int:
+    """Old thoughts go, except the ones a memory or a reconstruction points to (where something she remembers
+    came from)."""
     days = get_settings().mind_thought_retention_days
+    cited = (exists().where(MemoryEvidence.thought_id == MindThought.id)
+             | exists().where(RecallReconstructionSource.thought_id == MindThought.id))
     result = db.execute(delete(MindThought).where(
-        MindThought.created_at < datetime.now(timezone.utc) - timedelta(days=days)))
+        MindThought.created_at < datetime.now(timezone.utc) - timedelta(days=days), ~cited))
     db.commit()
     return result.rowcount or 0
 
@@ -225,25 +234,7 @@ def _gates():
 
 def run_once() -> None:
     global _last_prune
-    if not enabled():
-        return
     with SessionLocal() as db:
-        from app.services import memory_manager, observation
-
-        if observation.enabled() or memory_manager.enabled():
-            # What sources reported: captured, recovered, and taken into working memory (code only).
-            try:
-                observation.tick(db)
-            except Exception:  # noqa: BLE001
-                log.exception("mind: observation tick failed")
-                db.rollback()
-        if memory_manager.enabled():
-            # Her working memory's due checks: code only, with or without a game or a chat open.
-            try:
-                memory_manager.tick_due(db)
-            except Exception:  # noqa: BLE001
-                log.exception("mind: memory due checks failed")
-                db.rollback()
         if time.time() - _last_prune > PRUNE_EVERY_SECONDS:
             _last_prune = time.time()
             try:
@@ -252,6 +243,14 @@ def run_once() -> None:
                 log.exception("mind: pruning thoughts failed")
                 db.rollback()
         for source in sources():
+            if source.rhythm.kind == "event" and hasattr(source, "sweep") and source.enabled():
+                try:  # an event source's slow look for problems nothing announces (promises, quiet time)
+                    offered = source.sweep(db, time.time())
+                    if offered:
+                        _log({"ts": time.time(), "source": source.name, "sweep": offered})
+                except Exception:  # noqa: BLE001
+                    log.exception("mind: sweeping %s failed", source.name)
+                    db.rollback()
             if source.rhythm.kind != "poll" or not source.enabled():
                 continue
             polled = source.poll(db)
@@ -386,12 +385,14 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
                 status = "stale"
             said = None
             outcome = None
+            saved = save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
+                                 text=thought.text, status=status, kind=thought.kind)
             if thought.say and status == "done":
-                outcome = agent_say.deliver(db, user_id=scope.user_id, text=thought.say,
-                                            reasons=[f"{level}: {thought.text}"], **source.speaking(db, scope))
-                said = thought.say if outcome.startswith("Said") else None
-            save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
-                         text=thought.text, said=said, status=status, kind=thought.kind)
+                from app.services import autonomous_speech
+                outcome = autonomous_speech.submit(
+                    db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
+                    event_id=saved.id, text=thought.say, reasons=[f"{level}: {thought.text}"],
+                    ttl=STALE_AFTER[level], **source.speaking(db, scope))
             _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,

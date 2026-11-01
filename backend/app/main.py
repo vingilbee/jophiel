@@ -11,7 +11,7 @@ from app.core.limiter import limiter
 
 from app.ai.tools.macrovision import macrovision_mcp_lifespan, mount_macrovision_mcp
 from app.api.routes import (
-    assets, auth, chat, cognitive, dashboard, desktop, images, integrations, learning, memory, mind, predict,
+    assets, auth, chat, dashboard, desktop, images, integrations, learning, memory, mind, predict,
     whatsapp,
 )
 from app.core.config import get_settings
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(get_predictor)
         logger.info("MacroVision models ready")
 
-    # The live Student 1 (only when COGNITIVE_LIVE_STUDENT is on/ab), loaded in the background for the
+    # The live Student 1, loaded in the background for the
     # local WebSocket fallback path; the chat worker warms its own copy.
     from app.services import cognitive_live
     asyncio.get_running_loop().run_in_executor(None, cognitive_live.warm)
@@ -74,7 +74,6 @@ app.include_router(predict.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
-app.include_router(cognitive.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(desktop.router, prefix="/api")
 app.include_router(learning.router, prefix="/api")

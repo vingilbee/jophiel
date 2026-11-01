@@ -16,7 +16,7 @@ PLAN = {"goal": "kill a sheep", "source": "columbina_user_turn",
 
 
 def session(**over):
-    base = dict(id=SID, owner_user_id=UID, state="running", plan=PLAN, commentary_mode="occasional")
+    base = dict(id=SID, owner_user_id=UID, state="running", plan=PLAN, commentary_mode="occasional", goal_item_id=None)
     return SimpleNamespace(**{**base, **over})
 
 
@@ -97,15 +97,21 @@ class Db:
         pass
 
 
-def _run(monkeypatch, thought: HardThought, sess=None, cancelled=None):
-    sess = sess or session()
+def _run(monkeypatch, thought: HardThought, sess=None, cancelled=None, after=None):
+    """``after``: the session as it is once she has thought (the step finished while she thought)."""
+    now = {"sess": sess or session()}
     saved, sent = [], []
-    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(sess))
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(now["sess"]))
     monkeypatch.setattr(mind_hard, "gather", lambda db, source, scope, problem: (SimpleNamespace(), None, "Vincent"))
     monkeypatch.setattr(mind_hard, "render", lambda inp: "input")
     monkeypatch.setattr(mind_hard, "_log_hard", lambda *a: None)
+    def think(inp, situation):
+        if after is not None:
+            now["sess"] = after
+        return thought
+
     monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
-        think=lambda inp, situation: thought, instructions=lambda trigger, user, situation: "system"))
+        think=think, instructions=lambda trigger, user, situation: "system"))
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw) or SimpleNamespace(id=uuid.uuid4()))
     monkeypatch.setattr(mind_hard, "route", lambda source, scope, tid, problem, t, goal: sent.append(t.kind) or {})
     att = mind_hard.Attention(running=failing_problem(), running_scope=SCOPE, cancelled=cancelled)
@@ -123,13 +129,19 @@ def test_a_landed_thought_is_saved_and_sent_on_unless_dropped(monkeypatch):
     assert {key: saved[0][key] for key in expected} == expected
     assert sent == ["guess"]
     over = session(plan={**PLAN, "steps": [{**PLAN["steps"][0], "state": "done"}]})
-    saved, sent = _run(monkeypatch, guess, sess=over)
+    saved, sent = _run(monkeypatch, guess, after=over)  # the step ended while she thought
     assert (saved[0]["status"], saved[0]["dropped_reason"], sent) == ("dropped", "that step is over", [])
+    saved, sent = _run(monkeypatch, guess, sess=over)  # it had ended before she started: not thought about
+    assert (saved, sent) == ([], [])
     saved, sent = _run(monkeypatch, HardThought(None, None, thinking="nothing to conclude"))
     assert saved == [] and sent == []
 
 
-def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis):  # noqa: F811
+def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis, monkeypatch):  # noqa: F811
+    from app.services import autonomous_speech
+    proposed = []
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(session()))
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: proposed.append(kw) or "Proposed.")
     def send_on(thought):
         return mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), failing_problem(), thought, goal="kill a sheep")
 
@@ -141,8 +153,8 @@ def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis):  # 
                      "keep in mind (your own intention): keep 5 planks"]
     assert [i["text"] for i in mind_hard.intentions(SID)] == ["keep 5 planks"]
     send_on(HardThought("question", "Does he want me up there?", question="Want me on top, or just the move?"))
-    question = mind_hard.take_question(SID)
-    assert question["text"] == "Want me on top, or just the move?" and question["goal"] == "kill a sheep"
+    assert proposed[-1]["text"] == "Want me on top, or just the move?"
+    assert proposed[-1]["question"] is True
     assert mind_hard.take_question(SID) is None  # her reply took it: never also asked at a pause
 
 
@@ -150,12 +162,13 @@ def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch): 
     said, spoke = [], {"recently": True}
     monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: spoke["recently"])
     monkeypatch.setattr(mind_hard, "_reply_in_flight", lambda db, uid: False)
-    monkeypatch.setattr(mind_hard.agent_say, "deliver", lambda db, **kw: said.append(kw) or "Said it.")
+    from app.services import autonomous_speech
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
     mind_hard.set_question(SID, {"text": "Want me on top?", "at": 1.0, "goal": "kill a sheep", "topic": "t"})
     db = Db(session())
     assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 100.0) is None and said == []  # they just spoke
     spoke["recently"] = False
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Said it."
+    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Proposed."
     assert said[0]["text"] == "Want me on top?" and said[0]["reasons"][0].startswith("question:")
     assert said[0]["commentary_mode"] == "occasional"
     assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 120.0) is None  # asked once
@@ -164,7 +177,6 @@ def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch): 
 
 
 def test_her_mouth_hands_a_problem_to_her_slow_thinking(isolated_redis, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(mind, "enabled", lambda: True)
     monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: False)
     from app.services import desktop_game
 

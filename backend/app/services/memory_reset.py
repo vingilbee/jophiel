@@ -3,8 +3,7 @@
 Never touches ``core_memory`` (her identity, not about any user), user accounts,
 logins, integrations, desktop environments, or calorie/weight logs. Deleting a
 conversation cascades to everything built on it: messages, chat/memory jobs,
-working memory, dialogue memory, interpreted dialogue relationships, and cognitive
-shadow jobs/traces.
+and working memory.
 """
 from __future__ import annotations
 
@@ -16,17 +15,21 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
-    GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryContext, MemoryCorrection,
-    MemoryEvent,
+    GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
+    MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
-    ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReference, SemanticMemory, WorkingItem,
+    ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
+    RecallReference, SemanticMemory, WorkingItem,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
 SCOPES: dict[str, tuple[type, ...]] = {
     "conversations": (Conversation,),
     # Corrections go with the consolidation that read them (their memory events, if any, are working memory).
-    "memory": (MemoryCorrection, SemanticMemory, EpisodicMemory, LearningMemory, MemoryJob),
+    # Forget requests and their tombstones too: a test reset starts over (a user's forget never does this).
+    # Entities (who memories are about) go after the facts and episodes that point at them.
+    "memory": (MemoryCorrection, MemoryConflict, MemoryForgottenSource, MemoryForget, MemoryUpkeepPair, SemanticMemory, EpisodicMemory,
+               MemoryEntityLink, MemoryEntity, LearningMemory, MemoryJob),
     # Learned moves before attempts: they point at the attempt they came from.
     "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameChallenge,
              GameLearnedSkill, GameSkillAttempt),
@@ -37,9 +40,10 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md §12): the stream, its receipts and bindings, and
     # source state; capture then starts again from now, so nothing already seen comes back.
     "observation": (ObservationBinding, ObservationProcessing, Observation, ObservationSource),
-    # Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what replies were given, and event embeddings
-    # (rebuilt in the background). Deleting memories elsewhere already removes their references.
-    "recall": (RecallReference, RecallReceipt, MemoryEventEmbedding),
+    # Recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md): what replies were given (with the histories
+    # rebuilt for them), and event embeddings (rebuilt in the background). Deleting memories or their
+    # sources elsewhere already removes their references.
+    "recall": (RecallReconstructionSource, RecallReconstruction, RecallReference, RecallReceipt, MemoryEventEmbedding),
 }
 
 
@@ -54,12 +58,6 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     unknown = set(chosen) - set(SCOPES)
     if unknown:
         raise ValueError(f"unknown scope(s): {', '.join(sorted(unknown))}")
-    conversation_ids: list[uuid.UUID] = []
-    if "conversations" in chosen:
-        query = select(Conversation.id)
-        if ids is not None:
-            query = query.where(Conversation.user_id.in_(ids))
-        conversation_ids = list(db.scalars(query))
     counts: dict[str, int] = {}
     for scope in chosen:
         if scope == "working":
@@ -78,11 +76,6 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
 
         observation.reset_restart(db, ids)
     db.commit()
-    if conversation_ids:
-        from app.services import dialogue_memory
-
-        for conversation_id in conversation_ids:
-            dialogue_memory.delete_cached_conversation(conversation_id)
     return counts
 
 

@@ -1,2 +1,0 @@
-
-Character (character_page, character-page-v1): the page describes who the agent is. Select the moves she would make here, as that person, given the accepted understanding, her state after this message and the dialogue: for example whether she asks a follow-up, plays along, takes a complaint seriously, or keeps it short. Select only from eligible candidates, as always.

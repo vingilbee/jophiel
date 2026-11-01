@@ -26,6 +26,8 @@ class ThoughtOut(BaseModel):
     for_hands: str | None = None
     question: str | None = None
     dropped_reason: str | None = None
+    source: str | None = None  # minecraft / conversation
+    activity_id: uuid.UUID | None = None  # the game session or conversation it is about
     created_at: datetime
 
 
@@ -55,7 +57,6 @@ class InnerStateOut(BaseModel):
     """Her inner state for the debug strip (services/inner_state_live.py). Values come in two
     readings (an unclear size taken as small / as clear); ``words`` names both when they differ."""
 
-    enabled: bool
     config: str
     updated_at: float | None
     values: dict[str, dict[str, float]]

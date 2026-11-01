@@ -40,6 +40,7 @@ MINECRAFT = Situation(
         "hard": "her hands say it failed but she got the loot anyway, something she carried or placed is gone, "
                 "the way her plan takes is blocked",
     },
+    hands=True,
 )
 
 

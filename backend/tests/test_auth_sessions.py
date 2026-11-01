@@ -180,9 +180,9 @@ def test_untrusted_origin_cannot_open_socket(socket_client, monkeypatch, origin)
 
 def test_all_mutating_http_routes_require_origin():
     from app.api.deps import validate_origin
-    from app.api.routes import assets, auth, chat, cognitive, dashboard, images, integrations, predict
+    from app.api.routes import assets, auth, chat, dashboard, images, integrations, predict
 
-    for module in (assets, auth, chat, cognitive, dashboard, images, integrations, predict):
+    for module in (assets, auth, chat, dashboard, images, integrations, predict):
         for route in module.router.routes:
             if getattr(route, "methods", set()) & {"POST", "PUT", "PATCH", "DELETE"}:
                 assert any(
@@ -273,12 +273,13 @@ def test_logout_cancels_streaming_reply(socket_client, monkeypatch):
         assert ws.receive_json()["type"] == "meta"
         assert ws.receive_json()["type"] == "ack"
         # Awareness updates are independent of chat streaming and may arrive
-        # between the acknowledgement and the first model token.
+        # between the acknowledgement and the first model token, as does the
+        # turn's route frame (shared-state pipeline).
         for _ in range(5):
             frame = ws.receive_json()
             if frame["type"] == "token":
                 break
-            assert frame["type"] == "state"
+            assert frame["type"] in ("state", "route")
         else:
             pytest.fail("stream did not produce a token")
         assert client.post("/api/auth/signout", headers=headers).status_code == 204

@@ -11,8 +11,7 @@ transaction, so a report that commits late is still processed: progress is never
 
 - ``services/observation_adapters.py`` turns source records into reports (and recovers missed ones).
 - ``services/observation_memory.py`` is the memory consumer: binding, promotion, the pending view.
-- ``tick`` runs both from the mind loop (``services/mind.run_once``, so it needs MIND_ENABLED);
-  capture needs OBSERVATION_ENABLED, promotion MEMORY_MANAGER_ENABLED.
+- The observation worker runs capture/recovery; the coordinator schedules memory consumption.
 
 Nothing here calls a model.
 """
@@ -44,14 +43,11 @@ from app.db.models import (
 
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-CONSUMERS = ("memory",)
+# Every consumer a receipt can name; each kind lists its own (``registry.KindSpec.consumers``).
+CONSUMERS = ("memory", "thought_memory")
 
 _log_lock = threading.Lock()
 _last_sweep = 0.0
-
-
-def enabled() -> bool:
-    return bool(get_settings().observation_enabled)
 
 
 def _now() -> datetime:
@@ -82,6 +78,7 @@ class Report:
     delivery_id: uuid.UUID | None = None
     experience_id: int | None = None
     session_id: uuid.UUID | None = None
+    thought_id: uuid.UUID | None = None
     caused_by_id: int | None = None
     outcome_of_id: int | None = None
     extra: dict = field(default_factory=dict)
@@ -99,7 +96,7 @@ def record(db: Session, report: Report) -> int | None:
         occurred_at=as_utc(report.occurred_at), summary=shaped.summary, payload=shaped.payload,
         salience=shaped.salience, caused_by_id=report.caused_by_id, outcome_of_id=report.outcome_of_id,
         message_id=report.message_id, delivery_id=report.delivery_id, experience_id=report.experience_id,
-        session_id=report.session_id,
+        session_id=report.session_id, thought_id=report.thought_id,
     )
     new_id = db.execute(insert(Observation).values(**values)
                         .on_conflict_do_nothing(constraint="uq_observations_source_key")
@@ -117,8 +114,13 @@ def record(db: Session, report: Report) -> int | None:
             _log({"op": "conflict", "user": str(report.user_id), "source": report.source,
                   "key": report.source_event_key, "kept": existing.id})
         return None
-    for consumer in CONSUMERS:
+    for consumer in entry.consumers:
         db.add(ObservationProcessing(observation_id=new_id, consumer=consumer, user_id=report.user_id))
+    from app.services import background_components, background_wake
+    if (getattr(get_settings(), "observation_preparation_enabled", False)
+            and report.kind in background_components.ELIGIBLE):
+        db.add(ObservationProcessing(observation_id=new_id, consumer="preparation", user_id=report.user_id))
+    background_wake.mark(db)
     note_source(db, report.user_id, report.source, report.source_instance, received=True)
     return new_id
 
@@ -197,34 +199,32 @@ def lookback(now: datetime) -> datetime:
 
 
 # --------------------------------------------------------------------------- #
-# The tick (from the mind loop)
+# Capture/recovery tick
 # --------------------------------------------------------------------------- #
 
 
-def tick(db: Session, now: datetime | None = None) -> dict:
+def tick(db: Session, now: datetime | None = None, *, consume_memory: bool = True) -> dict:
     """Capture what's new, recover what was missed (every OBSERVATION_SWEEP_SECONDS), prune, and let the
     memory consumer process what's due, all within the tick's time budget. Code only. Returns what it did."""
     global _last_sweep
-    from app.services import memory_manager, observation_adapters, observation_memory
+    from app.services import observation_adapters, observation_memory
 
     settings = get_settings()
     now = now or _now()
     deadline = time.monotonic() + settings.observation_tick_budget_seconds
-    done: dict = {}
-    if enabled():
-        done["captured"] = observation_adapters.pull(db, now, deadline)
-        swept = time.time() - _last_sweep >= settings.observation_sweep_seconds
-        if swept:
-            _last_sweep = time.time()
-            done["recovered"] = observation_adapters.sweep(db, now)
-            done["pruned"] = prune(db, now)
-        if swept or done["captured"]:
-            run = adapter(db, observation_adapters.CONVERSATION)
-            run.last_run_at = now
-            run.last_decision = {"at": now.isoformat(), "decision": "apply" if any(done.values()) else "skip",
-                                 **{k: v for k, v in done.items() if k != "memory"}}
-            db.commit()
-    if memory_manager.enabled():
+    done: dict = {"captured": observation_adapters.pull(db, now, deadline)}
+    swept = time.time() - _last_sweep >= settings.observation_sweep_seconds
+    if swept:
+        _last_sweep = time.time()
+        done["recovered"] = observation_adapters.sweep(db, now)
+        done["pruned"] = prune(db, now)
+    if swept or done["captured"]:
+        run = adapter(db, observation_adapters.CONVERSATION)
+        run.last_run_at = now
+        run.last_decision = {"at": now.isoformat(), "decision": "apply" if any(done.values()) else "skip",
+                             **{k: v for k, v in done.items() if k != "memory"}}
+        db.commit()
+    if consume_memory:
         # A fresh clock: what this tick just captured is due from its insert time, after ``now``.
         done["memory"] = observation_memory.process(db, max(now, _now()), deadline)
     if any(done.values()):
@@ -275,7 +275,6 @@ def inspect(db: Session, user_id: uuid.UUID, now: datetime | None = None) -> dic
     adapters = list(db.scalars(select(ObservationAdapter).order_by(ObservationAdapter.name)))
     db.commit()
     return {
-        "capture_enabled": enabled(),
         "counts": counts,
         "lag_seconds": (now - oldest).total_seconds() if oldest is not None else None,
         "sources": sources,

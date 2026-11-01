@@ -18,6 +18,7 @@ class Situation:
     doing: str  # "playing Minecraft as her own player next to {user}"
     examples: dict[str, str] = field(default_factory=dict)  # per gate level: what that level looks like here
     voice: str = ""  # how her spoken lines sound here (a prompt section), if not her usual voice
+    hands: bool = False  # a body acts here on its own (her hands in a game) and takes tips from her thinking
 
     def describe(self, user: str = "the user") -> str:
         return self.doing.format(user=user)

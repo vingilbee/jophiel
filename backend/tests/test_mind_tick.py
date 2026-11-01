@@ -174,11 +174,12 @@ def test_a_failing_gate_is_a_result_not_an_exception():
     assert result.level is None and result.error == "RuntimeError: HTTP 401: no key" and result.latency_ms >= 0
 
 
-def test_recorder_writes_one_line_per_tick_with_its_own_notice_cursor(tmp_path, monkeypatch):
+def test_ticks_are_written_one_line_each_with_their_own_notice_cursor(tmp_path, monkeypatch):
     import json
     import uuid
     from types import SimpleNamespace
 
+    from app.ai.mind.tick import render
     from app.services import mind_ticks
 
     class Pack:
@@ -194,14 +195,15 @@ def test_recorder_writes_one_line_per_tick_with_its_own_notice_cursor(tmp_path, 
     monkeypatch.setattr(mind_ticks, "tick_path", lambda: path)
     monkeypatch.setattr(mind_ticks, "recent_talk", lambda db, user_id, now: [])
     monkeypatch.setattr(mind_ticks.desktop_commands, "load_driver_state", lambda sid: {"notes": "near the ore"})
-    for registry in (mind_ticks._previous, mind_ticks._notice_seq, mind_ticks._tick_no):
-        registry.clear()
     session = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uuid.uuid4(), state="running",
                               plan={"goal": "get iron", "steps": []})
-    pack = Pack()
-    mind_ticks._record(None, pack, session, state(), 100.0)
-    mind_ticks._record(None, pack, session, state(health=18), 101.0)
-    mind_ticks._record(None, pack, session, state(health=18), 200.0)  # long gap: a fresh start
+    pack, cursors, previous = Pack(), {}, None
+    for number, (pack_state, at) in enumerate(((state(), 100.0), (state(health=18), 101.0),
+                                               (state(health=18), 200.0)), 1):   # long gap: a fresh start
+        tick = mind_ticks.build_tick(None, session, pack_state, mind_ticks.next_notices(pack, cursors, session.id), at)
+        text, pressure, changed, why = render(tick, mind_ticks.fresh_previous(previous, at))
+        mind_ticks.append_tick(session.id, number, tick, text, pressure, changed, why)
+        previous = tick
     first, second, third = (json.loads(line) for line in path.read_text().splitlines())
     assert pack.asked == [0, 5, 6, 6]  # starts from "now", then follows its own cursor
     assert (first["tick"], first["changed"]) == (1, ["(first tick: everything below is new)", "noticed: it's night"])

@@ -50,10 +50,8 @@ _notice_cursors: dict[uuid.UUID, int] = {}
 
 
 def enabled() -> bool:
-    """Her mind is on in Minecraft: the mind and desktop mode both."""
-    from app.services import mind
-
-    return mind.enabled() and bool(get_settings().desktop_agent_enabled)
+    """Her mind reaches Minecraft: desktop mode is on."""
+    return bool(get_settings().desktop_agent_enabled)
 
 
 def situation():
@@ -309,9 +307,8 @@ class MinecraftSource:
         return moment.data["tick"]
 
     def after_tick(self, scope: Scope, moment: Moment, number: int, decision: dict) -> None:
-        if get_settings().mind_tick_recording_enabled:
-            mind_ticks.append_tick(scope.activity, number, moment.data["tick"], moment.text, moment.pressure,
-                                   moment.changed, moment.why, extra={"mind": decision})
+        mind_ticks.append_tick(scope.activity, number, moment.data["tick"], moment.text, moment.pressure,
+                               moment.changed, moment.why, extra={"mind": decision})
 
     def gate_situation(self):
         return MINECRAFT

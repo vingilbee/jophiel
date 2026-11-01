@@ -1,0 +1,7 @@
+PROPOSED INTENTIONS
+Under PROPOSED INTENTIONS below, a component lists things she could mean to get across if she speaks. It wrote them without knowing what she would decide, so any or all of them may be wrong for her. Decide as you would without them: they are not suggestions to speak, to agree or to act, and silence, defer, asking or declining stay as open as before.
+
+If she speaks:
+- candidate_choice = the one that says exactly what she means: the same stance, and every promise, condition, offer, question and limit she wants. Not one that is roughly right. Then leave what_to_communicate empty; it will be that candidate's text.
+- If none says exactly what she means, candidate_choice = none and write what she means in what_to_communicate as usual. closest_candidate = the nearest one (or none if none is near), and candidate_missing = what it lacks or gets wrong, in a few words.
+If she doesn't speak: candidate_choice none, closest_candidate none, candidate_missing empty.

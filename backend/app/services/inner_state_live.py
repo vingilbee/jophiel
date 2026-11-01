@@ -15,7 +15,7 @@ through the frozen layered model (``app/ai/mind/mood_layers.py``,
 - **Each event counts once; updates are atomic.** A per-conversation Redis lock keeps one
   conversation's readings (and its incidents) in order; the per-user state is written with an
   optimistic transaction (WATCH), so readings from two conversations can't overwrite each other.
-- **Never fails a turn.** Off unless ``MIND_INNER_STATE_ENABLED``; every error is logged and dropped.
+- **Never fails a turn.** Every error is logged and dropped.
 """
 from __future__ import annotations
 
@@ -51,10 +51,6 @@ WINDOW = 8
 READINGS = ("small", "clear")
 
 
-def enabled() -> bool:
-    return get_settings().mind_inner_state_enabled
-
-
 @lru_cache(maxsize=1)
 def frozen() -> dict[str, Any]:
     return json.loads((CHARACTER_DIR / "columbina.inner_state.json").read_text())
@@ -79,7 +75,7 @@ def _redis():
 def observe(*, user_id: uuid.UUID, conversation_id: uuid.UUID, history: list[dict[str, Any]], message: str,
             reply: str) -> None:
     """Read this exchange and move her mood, on a background thread. Returns at once."""
-    if not enabled() or not reply:
+    if not reply:
         return
     threading.Thread(target=_safe_observe, name="inner-state", daemon=True,
                      kwargs=dict(user_id=user_id, conversation_id=conversation_id, history=list(history),
@@ -221,11 +217,11 @@ def words(values_by_reading: dict[str, dict[str, float]]) -> dict[str, str]:
 
 def view(user_id: uuid.UUID, now: float | None = None) -> dict[str, Any]:
     now = time.time() if now is None else now
-    raw = _redis().get(STATE_KEY.format(user=user_id)) if enabled() else None
+    raw = _redis().get(STATE_KEY.format(user=user_id))
     stored = json.loads(raw) if raw else {}
     vals = {rd: ml.values(ml.fade(ml.State.from_dict(stored[rd]), config(rd), now), config(rd))
             if rd in stored else dict(frozen()["baseline"]) for rd in READINGS}
-    return dict(enabled=enabled(), config=frozen()["chosen"],
+    return dict(config=frozen()["chosen"],
                 updated_at=stored.get("updated_at"),
                 values={k: {rd: round(vals[rd][k], 3) for rd in READINGS} for k in MOOD_KEYS},
                 baseline=frozen()["baseline"], words=words(vals),

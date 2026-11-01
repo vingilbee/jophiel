@@ -13,7 +13,6 @@ import { uploadAsset } from '../api/assets'
 import profileIcon from '../assets/profile_icon.jpg'
 import chatWallpaper from '../assets/chat-wallpaper.jpg'
 import { ChatContent, DocumentAttachment } from '../components/DocumentAttachment'
-import { CognitiveInspector } from '../components/CognitiveInspector'
 import { useAwareness } from '../hooks/useAwareness'
 import { useChatSocket } from '../hooks/useChatSocket'
 import { useVoiceSession, type VoiceSession } from '../hooks/useVoiceSession'
@@ -75,7 +74,6 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
-  const [cognitiveInspectorOpen, setCognitiveInspectorOpen] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [voiceStarting, setVoiceStarting] = useState(false)
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false)
@@ -94,6 +92,7 @@ export function ChatPage() {
   // assistant reply before the injected message starts against that history.
   const turnQueueRef = useRef<Promise<void>>(Promise.resolve())
   const nudgeMessageRef = useRef<string | null>(null)
+  const seenNudgesRef = useRef(new Set<string>())
   // Her mind's thoughts while playing: their own panel, never messages.
   const [thoughts, setThoughts] = useState<Thought[]>([])
   useEffect(() => {
@@ -197,22 +196,43 @@ export function ChatPage() {
     onAudioSegment: (segment, start, end) => voiceRef.current?.handleAudioSegment(segment, start, end),
     onBargeResolved: (action) => voiceRef.current?.handleBargeResolved(action),
     onReplyInterrupted: () => voiceRef.current?.yieldToEvent(),
+    onConversation: (id) => {
+      conversationIdRef.current = id
+      setConversationId(id)
+    },
     onHistory: ({ conversationId: historyConversationId, messages: historyMessages }) => {
+      if (wsHistoryReceivedRef.current && historyConversationId !== conversationIdRef.current) return
       wsHistoryReceivedRef.current = true
+      for (const message of historyMessages) {
+        if (message.role === 'assistant') seenNudgesRef.current.add(message.id)
+      }
+      while (seenNudgesRef.current.size > 200) seenNudgesRef.current.delete(seenNudgesRef.current.values().next().value!)
       setConversationId(historyConversationId)
-      setMessages(historyMessages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
-        role,
-        parts: content ? partsFromContent(content) : [],
-        turnId: turn_id ?? undefined,
-        status,
-        imageIds: image_ids ?? undefined,
-        assetIds: asset_ids ?? undefined,
-      })))
+      conversationIdRef.current = historyConversationId
+      setMessages(prev => {
+        const restored = historyMessages.map(({ role, content, image_ids, asset_ids, turn_id, status }) => ({
+          role, parts: content ? partsFromContent(content) : [], turnId: turn_id ?? undefined, status,
+          imageIds: image_ids ?? undefined, assetIds: asset_ids ?? undefined,
+          clientId: prev.find(m => m.role === role && m.turnId === turn_id)?.clientId,
+        }))
+        // Keep the pending callback's target bubble, clearing partial text before full replay.
+        const pending = prev.filter(m => m.role === 'assistant' && m.clientId && m.turnId &&
+          historyMessages.some(h => h.role === 'user' && h.turn_id === m.turnId) &&
+          !restored.some(h => h.role === 'assistant' && h.turnId === m.turnId))
+        return [...restored, ...pending.map(m => ({ ...m, parts: [] }))]
+      })
     },
     // The assistant speaking first. It opens its own bubble — there is no user
     // message before it, which is exactly what makes it worth marking.
-    onNudgeStart: ({ conversationId }) => {
-      setConversationId(conversationId)
+    onNudgeStart: ({ conversationId: target, messageId }) => {
+      nudgeMessageRef.current = null
+      // Background output never changes the selected conversation or its composer.
+      if (target !== conversationIdRef.current) return false
+      if (messageId && seenNudgesRef.current.has(messageId)) return false
+      if (messageId) {
+        seenNudgesRef.current.add(messageId)
+        if (seenNudgesRef.current.size > 200) seenNudgesRef.current.delete(seenNudgesRef.current.values().next().value!)
+      }
       const clientId = crypto.randomUUID()
       nudgeMessageRef.current = clientId
       setMessages((prev) => [
@@ -220,12 +240,13 @@ export function ChatPage() {
         { role: 'assistant', parts: [], unprompted: true, clientId },
       ])
     },
+    onNudgeEnd: () => { nudgeMessageRef.current = null },
     onThought: (thought) => setThoughts((prev) =>
       prev.some((t) => t.id === thought.id) ? prev : [...prev, thought].slice(-200)),
-    onNudgeToken: (chunk) => appendToken(chunk, nudgeMessageRef.current ?? undefined),
-    onNudgeSticker: (name) => appendSticker(name, nudgeMessageRef.current ?? undefined),
-    onNudgeSubagentStart: (agent) => startSubagent(agent, nudgeMessageRef.current ?? undefined),
-    onNudgeSubagentToken: (agent, chunk) => appendSubagentToken(agent, chunk, nudgeMessageRef.current ?? undefined),
+    onNudgeToken: (chunk) => { if (nudgeMessageRef.current) appendToken(chunk, nudgeMessageRef.current) },
+    onNudgeSticker: (name) => { if (nudgeMessageRef.current) appendSticker(name, nudgeMessageRef.current) },
+    onNudgeSubagentStart: (agent) => { if (nudgeMessageRef.current) startSubagent(agent, nudgeMessageRef.current) },
+    onNudgeSubagentToken: (agent, chunk) => { if (nudgeMessageRef.current) appendSubagentToken(agent, chunk, nudgeMessageRef.current) },
   })
 
   const { status, sendMessage, sendSense, dismissNudges, stop, awareness } = socket
@@ -521,13 +542,6 @@ export function ChatPage() {
         </div>
 
         <div className="mt-auto flex flex-col gap-2 px-2 text-[11px] text-[#7183A3]">
-          <button
-            type="button"
-            onClick={() => setCognitiveInspectorOpen((open) => !open)}
-            className="text-left transition-colors hover:text-[#8B3158]"
-          >
-            {cognitiveInspectorOpen ? 'Close cognitive test' : 'Cognitive test'}
-          </button>
           <button type="button" onClick={startNewChat} disabled={streaming || voiceBusy || voiceStarting} className="text-left transition-colors hover:text-[#8B3158] disabled:opacity-40">
             New chat
           </button>
@@ -605,20 +619,6 @@ export function ChatPage() {
           )}
           </div>
         </div>
-      </div>
-
-      <div className="fixed inset-y-0 right-0 z-50 pt-14">
-        <CognitiveInspector
-          open={cognitiveInspectorOpen}
-          draft={input}
-          recentMessages={messages
-            .map((message) => `${message.role}: ${message.parts
-              .filter((part): part is Extract<MessagePart, { kind: 'text' }> => part.kind === 'text')
-              .map((part) => part.content).join('\n')}`)}
-          imageCount={attachments.filter((attachment) => attachment.kind === 'image').length}
-          assetCount={attachments.filter((attachment) => attachment.kind === 'asset').length}
-          onClose={() => setCognitiveInspectorOpen(false)}
-        />
       </div>
 
       {/* composer */}
@@ -823,7 +823,9 @@ const MessageBubble = memo(function MessageBubble({
     ? 'Response stopped.'
     : message.status === 'failed'
       ? 'Response failed.'
-      : null
+      : message.status === 'silent'
+        ? 'She chose not to reply.'
+        : null
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>

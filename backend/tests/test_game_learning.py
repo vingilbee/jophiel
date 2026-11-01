@@ -22,7 +22,7 @@ from app.db.models import (
 from app.schemas.game_learning import ReflectedLesson, ReflectedProposal, Reflection
 from app.services import desktop_game, desktop_sessions, game_learning, long_term_memory, memory_reset
 from app.services.game_learning import LearningError, build_timeline, lesson_status, resolve_refs
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_skill_driver import Harness, ScriptedModel, _decide
 
@@ -487,9 +487,12 @@ def test_the_fact_saver_sees_earlier_messages_and_reuses_known_keys(db, user, mo
     conversation = Conversation(user_id=user.id, title="game")
     db.add(conversation)
     db.commit()
+    exchange_turn = None
     for role, text in [("user", "if you find anything, just tell me"), ("assistant", "will do!"),
                        ("user", "there was iron and you didn't say anything"), ("assistant", "sorry, I missed it")]:
-        db.add(ChatMessage(conversation_id=conversation.id, role=role, content=text))
+        if role == "user":
+            exchange_turn = uuid.uuid4()
+        db.add(ChatMessage(conversation_id=conversation.id, role=role, content=text, turn_id=exchange_turn))
         db.commit()
     reply = db.scalar(select(ChatMessage).where(ChatMessage.role == "assistant").order_by(ChatMessage.created_at.desc()))
     db.add(SemanticMemory(user_id=user.id, normalized_key="preference:game_discoveries", kind="preference",
@@ -500,7 +503,7 @@ def test_the_fact_saver_sees_earlier_messages_and_reuses_known_keys(db, user, mo
     db.commit()
     seen = {}
 
-    def extract(user_text, assistant_text, earlier=(), known=()):
+    def extract(user_text, assistant_text, earlier=(), known=(), **_context):
         seen.update(user=user_text, earlier=list(earlier), known=list(known))
         return MemoryExtraction(memories=[MemoryCandidate(
             kind="preference", normalized_key="preference:game_discoveries", importance=0.7, confidence=1.0,

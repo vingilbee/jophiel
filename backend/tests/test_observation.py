@@ -14,7 +14,7 @@ import app.core.config as config
 from app.ai import prompts
 from app.ai.observe import registry
 from app.db.models import (
-    ChannelIdentity, ChatMessage, Conversation, DesktopEnvironment, DesktopSession, GameExperience, MemoryContext,
+    ChannelIdentity, Conversation, DesktopEnvironment, DesktopSession, GameExperience, MemoryContext,
     MemoryEvent, MemoryEvidence, MessageDelivery, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, User,
 )
@@ -23,7 +23,7 @@ from app.services import (
     observation_memory,
 )
 from app.services.observation import Report
-from tests.cognitive_shadow_support import database  # noqa: F401  (fixture)
+from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, bob, db  # noqa: F401  (fixtures)
 
@@ -430,8 +430,14 @@ def test_instructions_in_game_text_stay_quoted_data(db, alice):
 # --- 11. a tick with no game and no socket ------------------------------------------------------
 
 
-def test_the_mind_loop_processes_conversation_without_a_game_or_socket_and_then_skips(database, alice, monkeypatch, on):
-    mind_settings = on.model_copy(update={"mind_enabled": True})
+def test_independent_workers_process_conversation_with_mind_disabled_and_then_skip(database, alice, monkeypatch, on):
+    from app.services import background_components, coordinator
+    from app.workers import observation as capture
+    mind_settings = on.model_copy(update={"mind_enabled": False, "redis_url": None})
+    for module in (background_components, coordinator):
+        monkeypatch.setattr(module, "SessionLocal", database)
+        monkeypatch.setattr(module, "get_settings", lambda: mind_settings)
+    monkeypatch.setattr(capture, "SessionLocal", database)
     monkeypatch.setattr(mind, "get_settings", lambda: mind_settings)
     monkeypatch.setattr(mind, "SessionLocal", database)
     with database() as db:
@@ -443,6 +449,16 @@ def test_the_mind_loop_processes_conversation_without_a_game_or_socket_and_then_
                                          turn_id=turn)
         chat_service.record_heard(db, user_id=alice.id, turn_id=turn, heard_chars=3)
     mind.run_once()
+    with database() as db:
+        assert not _observations(db, alice)  # the removed trigger stays removed
+    capture.run_once()
+    background_components.schedule_due()
+    with database() as db:
+        work, ended = coordinator._claim(db, "memory-test", ("memory",))
+        db.commit()
+        db.expunge(work)
+    assert ended is None
+    coordinator.execute_claim(work, "memory-test")
     with database() as db:
         kinds = sorted(o.kind for o in _observations(db, alice))
         assert kinds == ["reply_interrupted", "reply_recorded", "user_message"]
@@ -605,26 +621,6 @@ def test_working_reset_never_resurrects_and_observation_reset_starts_from_now(db
     _tick(db)
     assert [o.payload["chars"] for o in _observations(db, alice, "user_message")] == [6]
 
-
-# --- 16. capture without promotion --------------------------------------------------------------
-
-
-def test_capture_without_promotion_keeps_the_work_and_enabling_it_processes_it_once(db, alice, monkeypatch, on):
-    off = on.model_copy(update={"memory_manager_enabled": False})
-    for module in (memory_manager, observation, observation_memory, game_learning, config):
-        monkeypatch.setattr(module, "get_settings", lambda: off)
-    session = _pack_session(db, alice)
-    world = memory_manager.open_context(db, alice.id, kind="world", label="World", source=PACK)
-    _fail(db, session)
-    _tick(db)
-    [seen] = _observations(db, alice, "skill_outcome")
-    assert seen.context_id == world.id and _receipt(db, seen.id).status == "pending"
-    assert _events(db, alice, "action_failed") == []
-    for module in (memory_manager, observation, observation_memory, game_learning, config):
-        monkeypatch.setattr(module, "get_settings", lambda: on)
-    _tick(db)
-    _tick(db)
-    assert len(_events(db, alice, "action_failed")) == 1 and _receipt(db, seen.id).status == "applied"
 
 
 # --- the registry, pure -------------------------------------------------------------------------

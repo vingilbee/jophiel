@@ -1,12 +1,10 @@
 """Simple cognition in the live chat (docs/COLUMBINA_LIVE_INTENTION_PATH_DESIGN.md).
 
-Off unless ``COGNITIVE_LIVE_CHARACTER`` or ``COGNITIVE_LIVE_STUDENT`` is set; with both off nothing
-here runs and chat is exactly as before. Per turn:
+Always on. Per turn:
 
 - ``prepare`` (before the reply): her character page and typed, scoped memories for the prompt;
-  Student 1 reads the message (acts, request, tone); the conversation's notes are updated from that
-  reading of *their* message. The reading reaches the prompt only in the ``reading`` arm; in ``ab``
-  mode half the conversations get it, so its effect can be compared.
+  Student 1 reads the message (acts, request, tone), and its reading reaches the prompt; the
+  conversation's notes are updated from that reading of *their* message.
 - ``after_reply`` (after the reply is sent, off the critical path): notes about what *she* did follow
   her actual reply: "she asked" from its text, answered/offered/committed from a small model reading
   that reply. A predicted move never becomes the record of an event.
@@ -18,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import re
 import time
 import uuid
@@ -45,7 +42,6 @@ logger = logging.getLogger(__name__)
 STATE_KEY = 'simple_live'
 BACKEND = Path(__file__).resolve().parents[2]
 DEFAULT_STUDENT_DIR = BACKEND / 'var' / 'cognitive_simple' / 'teacher-1-2' / 'models-1.0'
-ARMS = ('reading', 'page_only')
 
 _NOTE_WORDS = {
     'her_commitment': 'you agreed to', 'correction': 'they corrected you',
@@ -54,11 +50,6 @@ _NOTE_WORDS = {
 }
 _EPISODE = re.compile(r'^\[episode[^\]]*\]\s*')
 _KIND = re.compile(r'^\[[a-z_]+\]\s*')
-
-
-def enabled() -> bool:
-    s = get_settings()
-    return s.cognitive_live_character or s.cognitive_live_student != 'off'
 
 
 @lru_cache(maxsize=1)
@@ -76,8 +67,6 @@ def her_preferences() -> tuple[str, ...]:
 
 def warm() -> None:
     """Load Student 1 ahead of the first turn (about 5 s), so no user waits for it."""
-    if get_settings().cognitive_live_student == 'off':
-        return
     try:
         from app.ai.Cognitive.simple.live import load
         load(get_settings().cognitive_live_student_dir or str(DEFAULT_STUDENT_DIR))
@@ -99,15 +88,19 @@ def split_memories(block: str | None) -> tuple[list[str], list[str]]:
     return about, shared
 
 
-def typed_memory_text(block: str | None) -> str:
+def typed_memory_text(block: str | None, *, searched: bool = True) -> str:
+    """``searched=False``: memory wasn't looked up for this message (the shared-state pipeline), so an empty
+    section of theirs says so, never "nothing relevant"."""
     about, shared = split_memories(block)
+    unknown = 'not looked up for this message'
 
     def section(title: str, items: list[str] | tuple[str, ...], empty: str) -> str:
         return f'{title}:\n' + ('\n'.join(f'- {i}' for i in items) if items else f'- {empty}')
 
     return '\n\n'.join([
-        section("What you know about them (things they told you: their experiences, not yours)", about, 'nothing relevant'),
-        section('What the two of you have done together', shared, 'nothing recorded'),
+        section("What you know about them (things they told you: their experiences, not yours)", about,
+                'nothing relevant' if searched else unknown),
+        section('What the two of you have done together', shared, 'nothing recorded' if searched else unknown),
         section('Your own experiences (things you yourself did or thought)', [], 'none recorded yet'),
         section('What you like (your own preferences and interests)', her_preferences(), 'nothing recorded'),
     ])
@@ -147,57 +140,42 @@ def save_state(user_id: uuid.UUID, conversation_id: uuid.UUID, state: dict[str, 
         db.commit()
 
 
-def arm_for(state: dict[str, Any]) -> str | None:
-    mode = get_settings().cognitive_live_student
-    if mode == 'off':
-        return None
-    if mode == 'on':
-        return 'reading'
-    return state.get('arm') or random.choice(ARMS)
-
-
 # --- the turn ---------------------------------------------------------------------------------
 
 @dataclass
 class LivePrep:
     character_page: str | None = None
     typed_memory: str | None = None
-    reading: str | None = None            # shown only in the 'reading' arm
+    reading: str | None = None            # Student 1's reading, in words for the prompt
+    # The same reading as data (the shared-state pipeline routes on it). None when the student failed.
+    interpretation: dict[str, Any] | None = None
     notes: str | None = None
-    arm: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     log: dict[str, Any] = field(default_factory=dict)
 
 
 def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID, history: list[dict[str, Any]], message: str,
-            long_term_memory: str | None, now: datetime | None = None) -> LivePrep | None:
-    if not enabled():
-        return None
+            long_term_memory: str | None, now: datetime | None = None,
+            memory_searched: bool = True) -> LivePrep | None:
+    """``memory_searched=False``: ``long_term_memory`` is only what was already in hand, not a search for
+    this message (the shared-state pipeline)."""
     try:
         return _prepare(user_id=user_id, conversation_id=conversation_id, history=history, message=message,
-                        long_term_memory=long_term_memory, now=now or datetime.now())
+                        long_term_memory=long_term_memory, now=now or datetime.now(),
+                        memory_searched=memory_searched)
     except Exception:
         logger.exception('cognitive_live.prepare failed; continuing without it')
         return None
 
 
-def _prepare(*, user_id, conversation_id, history, message, long_term_memory, now) -> LivePrep:
+def _prepare(*, user_id, conversation_id, history, message, long_term_memory, now,
+             memory_searched=True) -> LivePrep:
     s = get_settings()
-    prep = LivePrep()
-    if s.cognitive_live_character:
-        prep.character_page = character_page()
-        prep.typed_memory = typed_memory_text(long_term_memory)
+    prep = LivePrep(character_page=character_page(),
+                    typed_memory=typed_memory_text(long_term_memory, searched=memory_searched))
     prep.log = dict(at=datetime.now(timezone.utc).isoformat(), user_id=str(user_id),
-                    conversation_id=str(conversation_id), character=s.cognitive_live_character,
-                    student_mode=s.cognitive_live_student, message=message)
-    if s.cognitive_live_student == 'off':
-        return prep
+                    conversation_id=str(conversation_id), message=message)
     state = load_state(user_id, conversation_id)
-    arm = arm_for(state)
-    if arm != state.get('arm'):
-        # Fix the conversation's arm now, so a failed turn can't move it to the other half.
-        state = dict(state, arm=arm)
-        save_state(user_id, conversation_id, state)
     book = NoteBook([Note.from_dict(n) for n in state.get('notes', [])], state.get('counter', 0))
     earlier = [h for h in history if h.get('content')]
     if earlier and earlier[-1].get('role') == 'user' and earlier[-1]['content'].strip() == message.strip():
@@ -217,13 +195,13 @@ def _prepare(*, user_id, conversation_id, history, message, long_term_memory, no
     reading = read(bundle, s.cognitive_live_student_dir or str(DEFAULT_STUDENT_DIR))
     previous_reply = next((h['content'] for h in reversed(earlier) if h['role'] == 'assistant'), None)
     book.apply_message(turn=turn, message=message, understand=reading['understand'], previous_reply=previous_reply)
-    prep.arm = arm
+    prep.interpretation = dict(acts=reading['acts'], tone=reading['tone'], request=reading['request'],
+                               understand={k: reading['understand'][k] for k in ('acts', 'tone', 'request')})
     prep.notes = notes_text(book.notes)
-    if arm == 'reading':
-        prep.reading = reading_text(reading)
-    prep.state = dict(state, arm=arm, notes=[n.to_dict() for n in book.notes], counter=book.counter,
+    prep.reading = reading_text(reading)
+    prep.state = dict(state, notes=[n.to_dict() for n in book.notes], counter=book.counter,
                       turn=turn, understand=reading['understand'])
-    prep.log.update(arm=arm, student_ms=round((time.monotonic() - started) * 1000), reading=dict(
+    prep.log.update(student_ms=round((time.monotonic() - started) * 1000), reading=dict(
         acts=reading['acts'], tone=reading['tone'], request=reading['request']),
         experimental=reading['experimental'], notes_before_reply=prep.state['notes'],
         shown=dict(reading=prep.reading is not None, notes=prep.notes is not None))
@@ -258,7 +236,7 @@ def after_reply(prep: LivePrep | None, *, user_id: uuid.UUID, conversation_id: u
     if prep is None:
         return
     try:
-        if prep.arm is not None and reply:
+        if prep.interpretation is not None and reply:
             try:
                 events = _reply_events(message, reply)
             except Exception as exc:   # still record what the text shows
@@ -273,7 +251,7 @@ def after_reply(prep: LivePrep | None, *, user_id: uuid.UUID, conversation_id: u
             state.pop('understand', None)
             save_state(user_id, conversation_id, state)
             prep.log.update(events=events.to_dict(), notes_after_reply=state['notes'])
-            # A question of theirs still open: her (shadow) slow thinking, off unless enabled.
+            # A question of theirs still open: a problem for her slow thinking.
             from app.services import mind_conversation
             mind_conversation.observe(user_id=user_id, conversation_id=conversation_id, notes=state['notes'])
         prep.log.update(reply=reply)

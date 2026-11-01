@@ -63,7 +63,7 @@ def exploring(session: DesktopSession | None) -> bool:
     player (a game pack), and keep playing (otherwise she stops after a goal anyway)."""
     from app.services import game_pack
 
-    return (session is not None and get_settings().game_explore_enabled and bool(session.explore)
+    return (session is not None and bool(session.explore)
             and game_pack.is_pack_profile(session.profile_id) and session.autonomy == "continue")
 
 
@@ -230,7 +230,7 @@ def summary_lines(db: Session, session: DesktopSession) -> list[str]:
 
 def tick_line(db: Session, session_id: uuid.UUID) -> str | None:
     """For her mind's tick: the challenge she's on, or how one just ended."""
-    if db is None or not get_settings().game_explore_enabled:
+    if db is None:
         return None
     row = _active(db, session_id)
     if row is not None:
@@ -257,8 +257,6 @@ def set_explore(db: Session, user_id: uuid.UUID, *, enabled: bool) -> str:
     if enabled:
         session.autonomy = "continue"
     db.commit()
-    if not get_settings().game_explore_enabled:
-        return "Exploring is switched off in the app's settings, so this changes nothing for now."
     return ("Exploring is on: after each goal you pick your own next challenge." if enabled else
             "Exploring is off: after a goal you pick what's next as before (or stop, if keep playing is off). "
             "Your current goal carries on.")

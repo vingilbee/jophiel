@@ -198,13 +198,6 @@ def _consume_link_code(
         db, assistant_message_id=assistant.id,
         channel_identity_id=identity.id, content=assistant.content,
     )
-    from app.services import dialogue_memory
-
-    # Delivered only through the outbox: dialogue memory records it as pending
-    # until a settled delivery status arrives.
-    dialogue_memory.schedule_update(
-        db, user_id=link.user_id, conversation_id=conversation.id, trigger_message_id=assistant.id,
-    )
     return identity
 
 
@@ -313,46 +306,27 @@ def ingest_message(
 
 def apply_delivery_status(
     db: Session, *, provider_message_id: str, status: str, error: str | None = None
-) -> bool:
-    """Apply one provider status; True when a dialogue memory update was scheduled."""
+) -> None:
+    """Apply one provider status."""
     delivery = db.scalar(select(MessageDelivery).where(
         MessageDelivery.provider_message_id == provider_message_id
     ))
     if delivery is None:
-        return False
+        return
     allowed = {"sent", "delivered", "read", "failed"}
     if status not in allowed:
-        return False
+        return
     rank = {"pending": 0, "retry": 0, "sending": 0, "accepted": 1,
             "sent": 2, "delivered": 3, "read": 4}
     if status != "failed" and rank.get(status, 0) < rank.get(delivery.status, 0):
-        return False
+        return
     if status == "failed" and delivery.status in {"delivered", "read"}:
-        return False
+        return
     delivery.status = status
     delivery.last_error = error if status == "failed" else None
     if status in {"delivered", "read", "failed"}:
-        return schedule_exposure_update(db, assistant_message_id=delivery.assistant_message_id)
-    return False
-
-
-def schedule_exposure_update(db: Session, *, assistant_message_id: uuid.UUID) -> bool:
-    """A delivery reached a settled state: let dialogue memory re-check its exposure."""
-    from app.services import dialogue_memory
-
-    if not dialogue_memory.enabled():
-        return False
-    owner = db.execute(
-        select(Conversation.user_id, Conversation.id)
-        .join(ChatMessage, ChatMessage.conversation_id == Conversation.id)
-        .where(ChatMessage.id == assistant_message_id)
-    ).one_or_none()
-    if owner is None:
-        return False
-    return dialogue_memory.schedule_update(
-        db, user_id=owner.user_id, conversation_id=owner.id, trigger_message_id=assistant_message_id,
-        trigger_kind=dialogue_memory.TRIGGER_DELIVERY_SETTLED,
-    )
+        from app.services import background_wake
+        background_wake.mark(db)
 
 
 def dispatch_due_batch(db: Session) -> ChatJob | None:

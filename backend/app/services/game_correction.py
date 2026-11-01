@@ -7,8 +7,9 @@ line correcting it, as a person does ("Oh wait, it just worked: I've got the tri
 Seen live (2026-10-17): she said she hadn't learned the jump-and-place move 2 s after
 learning it, while her hands were already using it.
 
-The line goes out through ``agent_say`` (kind ``correction``: any commentary mode, no
-gap), so the socket says it right after the reply has finished playing.
+The line is an autonomous proposal (``autonomous_speech.submit``, reason ``correction:``): result
+cognition (Student 2) decides whether it is said, and the mouth says it in the session's conversation. When
+it can't decide, the line is kept, not said.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ import uuid
 from app.core.config import get_settings
 from app.db.models import DesktopSession, User
 from app.db.session import SessionLocal
-from app.services import agent_say, game_moment
+from app.services import autonomous_speech, game_moment
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ SCHEMA = {
 
 def enabled() -> bool:
     settings = get_settings()
-    return settings.game_corrections_enabled and bool(settings.openai_api_key)
+    return bool(settings.openai_api_key)
 
 
 def write(said: str, changed: list[str], *, user: str, voice: str = "") -> str | None:
@@ -103,8 +104,10 @@ def check(user_id: uuid.UUID, said: str, moment: game_moment.Moment) -> str | No
     outcome = None
     if line:
         with SessionLocal() as db:
-            outcome = agent_say.deliver(db, user_id=user_id, text=line,
-                                        reasons=[f"correction: {'; '.join(changed)}"[:400]], commentary_mode=mode)
+            outcome = autonomous_speech.submit(
+                db, user_id=user_id, activity_id=moment.session_id, source="minecraft",
+                event_id=uuid.uuid5(moment.session_id, f"correction:{moment.at}:{line}"), text=line,
+                reasons=[f"correction: {'; '.join(changed)}"[:400]], commentary_mode=mode)
     mind._log({"ts": time.time(), "session": str(moment.session_id), "correction": line, "said": said[:300],
                "changed": changed, "outcome": outcome, "ms": round((time.time() - started) * 1000)})
     return outcome

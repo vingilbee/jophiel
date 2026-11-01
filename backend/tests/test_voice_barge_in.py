@@ -16,9 +16,8 @@ from unittest.mock import Mock
 import pytest
 
 from app.services import chat as chat_service
-from app.services import cognitive_shadow as shadow_service
 from app.workers import chat as chat_worker
-from cognitive_shadow_support import create_conversation, create_user, database, shadow_env  # noqa: F401
+from db_support import create_conversation, create_user, database, db_env  # noqa: F401
 from test_auth_sessions import auth_client, socket_client  # noqa: F401  (fixtures)
 
 # Each token ends a clause, so every token is spoken as its own clause.
@@ -27,7 +26,7 @@ REPLY = ("Two large eggs have twelve grams of protein. ", "That is a solid break
 
 
 @pytest.fixture
-def voice_turn(shadow_env, monkeypatch):
+def voice_turn(db_env, monkeypatch):
     """Run the real worker `_generate` for a voice job with a fake sidecar."""
 
     published: list[dict] = []
@@ -55,7 +54,7 @@ def voice_turn(shadow_env, monkeypatch):
     async def no_token(db, *, user_id):
         return None
 
-    monkeypatch.setattr(chat_worker, "SessionLocal", shadow_env.db)
+    monkeypatch.setattr(chat_worker, "SessionLocal", db_env.db)
     monkeypatch.setattr(chat_worker, "stream_chat", fake_stream_chat)
     monkeypatch.setattr(chat_worker, "publish", lambda turn_id, event: published.append(event))
     monkeypatch.setattr(chat_worker, "_cancelled", cancelled)
@@ -63,14 +62,13 @@ def voice_turn(shadow_env, monkeypatch):
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "retrieve_for_prompt", lambda user_id, content: None)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", Mock())
-    monkeypatch.setattr(shadow_service, "capture_turn", lambda **kwargs: None)
 
     def run(*, cancel_after: int | None = None):
         published.clear()
         synthesized.clear()
         closed.clear()
         cancel_after_chunks["n"] = cancel_after
-        with shadow_env.db() as db:
+        with db_env.db() as db:
             user = create_user(db)
             conversation = create_conversation(db, user)
             turn_id = uuid.uuid4()
@@ -132,7 +130,6 @@ def test_route_stop_is_tagged_with_the_stopped_turn(socket_client, monkeypatch) 
     monkeypatch.setattr(chat.google_account, "get_for_user", Mock(return_value=None))
     monkeypatch.setattr(chat.memory_service, "retrieve_for_prompt", Mock(return_value=""))
     monkeypatch.setattr(chat.memory_service, "schedule_consolidation", Mock())
-    monkeypatch.setattr(chat.cognitive_shadow, "capture_enabled", lambda: False)
     headers = {"Cookie": f"{get_settings().session_cookie_name}={auth.create_session(user)}"}
 
     turn_id = str(uuid.uuid4())
@@ -204,7 +201,6 @@ def test_audio_after_voice_interrupt_reaches_the_new_utterance(socket_client, mo
     monkeypatch.setattr(chat.google_account, "get_for_user", Mock(return_value=None))
     monkeypatch.setattr(chat.memory_service, "retrieve_for_prompt", Mock(return_value=""))
     monkeypatch.setattr(chat.memory_service, "schedule_consolidation", Mock())
-    monkeypatch.setattr(chat.cognitive_shadow, "capture_enabled", lambda: False)
 
     old_turn, new_turn = str(uuid.uuid4()), str(uuid.uuid4())
     pre_roll, live = b"\x01\x00" * 4800, b"\x02\x00" * 1280
@@ -311,7 +307,6 @@ def held_reply(socket_client, monkeypatch):
         monkeypatch.setattr(chat.google_account, "get_for_user", Mock(return_value=None))
         monkeypatch.setattr(chat.memory_service, "retrieve_for_prompt", Mock(return_value=""))
         monkeypatch.setattr(chat.memory_service, "schedule_consolidation", Mock())
-        monkeypatch.setattr(chat.cognitive_shadow, "capture_enabled", lambda: False)
         return SimpleNamespace(client=client, headers=headers, heard=heard, cancelled=cancelled,
                                add_message=add_message, conversation=conversation)
 

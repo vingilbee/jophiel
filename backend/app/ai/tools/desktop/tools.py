@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from app.ai.context import GameEvent
 from app.db.session import SessionLocal
 from app.core.config import get_settings
-from app.services import agent_say, desktop_game, game_challenges, game_moment, game_practice, mind_hard
+from app.services import agent_say, autonomous_speech, desktop_game, game_challenges, game_moment, game_practice, mind_hard
 from app.services.desktop_sessions import DesktopError
 
 
@@ -413,11 +413,14 @@ def build_desktop_tools(
             return ("Not said yet." + changed + " Check your words still fit; then call say again, or leave it.")
 
         def call() -> str:
+            if since is None:
+                return "Not said: no game session to say it in."
             with SessionLocal() as db:
-                return agent_say.deliver(db, user_id=user_id, text=text, reasons=list(event.reasons),
-                                         commentary_mode=event.commentary_mode)
+                return autonomous_speech.deliver_worded(
+                    db, user_id=user_id, activity_id=since.session_id, source="minecraft", text=text,
+                    reasons=list(event.reasons), commentary_mode=event.commentary_mode)
         result = await asyncio.to_thread(call)
-        said = result.startswith("Said")
+        said = result.startswith("Queued")
         return result
 
     @tool
@@ -440,17 +443,20 @@ def build_desktop_tools(
             return f"Not offered: {USER_SPOKE}."
 
         def call() -> str:
+            if since is None:
+                return "Not offered: no game session to ask in."
             with SessionLocal() as db:
                 try:
                     task_ = game_practice.offer(db, user_id, task=task)
                 except DesktopError as exc:
                     return f"Not offered: {exc.message}."
-                result = agent_say.deliver(db, user_id=user_id, text=question, reasons=list(event.reasons),
-                                           commentary_mode=event.commentary_mode)
+                result = autonomous_speech.deliver_worded(
+                    db, user_id=user_id, activity_id=since.session_id, source="minecraft", text=question,
+                    reasons=list(event.reasons), commentary_mode=event.commentary_mode)
                 return result + (f' Offered to learn "{task_}"; if they say yes, it starts from their turn.'
-                                 if result.startswith("Said") else "")
+                                 if result.startswith("Queued") else "")
         result = await asyncio.to_thread(call)
-        said = result.startswith("Said")
+        said = result.startswith("Queued")
         return result
 
     @tool

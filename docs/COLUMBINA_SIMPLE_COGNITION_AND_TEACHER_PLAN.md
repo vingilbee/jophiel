@@ -3,7 +3,8 @@
 Status: **built 2026-10-18; pilot data generated; not audited.** See
 [Implementation status](#implementation-status-2026-10-18). The open questions at the end use the
 proposed defaults until changed. The current v0/v1 cognitive pipeline
-(`backend/app/ai/Cognitive/system/v0`) stays as it is; this is built next to it.
+(`backend/app/ai/Cognitive/system/v0`) stays as it is; this is built next to it. (Update 2026-10-22: v0/v1 is
+retired and removed, see `LEGACY_CLEANUP_2026-10-22.md`; this chain is the only cognition.)
 
 A review on 2026-10-18 raised nine implementation concerns. Their resolutions are folded into
 the sections below and summarised in [Review concerns and resolutions](#review-concerns-and-resolutions-2026-10-18).

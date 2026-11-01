@@ -89,8 +89,6 @@ class Settings(BaseSettings):
     chat_model: str = "gpt-6-luna"
     # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*).
     chat_reasoning_effort: str | None = "none"
-    # Optional override for the isolated, single-call cognitive inspector.
-    cognitive_model: str | None = None
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
     # remains the complete transcript; this is the agent's bounded working
@@ -105,7 +103,6 @@ class Settings(BaseSettings):
     subagent_recursion_limit: int = 12
 
     # --- Long-term memory ---
-    long_term_memory_enabled: bool = True
     # A small model extracts durable, explicitly stated facts after a turn.
     # gpt-4o-mini ignored the rules on real game turns (it saved "the assistant doesn't have the
     # bread"); gpt-6-luna got 10/10 (2026-10-12). One call per reply, in the memory worker.
@@ -240,132 +237,37 @@ class Settings(BaseSettings):
     whatsapp_worker_poll_seconds: float = 1.0
     whatsapp_queue_name: str = "macrovision:whatsapp:wakeups"
 
-    # --- Cognitive live shadow (observational only; see
-    # app/ai/Cognitive/system/v0/DURABLE_LIVE_SHADOW_TRACE_V0_IMPLEMENTATION.md) ---
-    # Kill switch. False ⇒ no capture, no shadow worker thread. Existing
-    # captures and traces are retained untouched (pending jobs wait, unmodified,
-    # until the feature is re-enabled or retention/deletion removes them).
-    cognitive_live_shadow_enabled: bool = False
     # --- Simple cognition, live (docs/COLUMBINA_LIVE_INTENTION_PATH_DESIGN.md; services/cognitive_live.py) ---
-    # Both off by default: with both off, chat is exactly as before.
-    # Her character page (v0.6) and typed, scoped memories in the reply model's prompt.
-    cognitive_live_character: bool = False
-    # Student 1's reading (acts, request, tone) in the prompt: "off", "on", or "ab" (per conversation,
-    # half with and half without, for comparing). Notes and logs run whenever this isn't "off".
-    cognitive_live_student: Literal["off", "on", "ab"] = "off"
+    # Always on: her character page (v0.6), typed scoped memories and Student 1's reading (acts, request, tone)
+    # in the reply model's prompt, with the notes and logs.
     # Trained Student 1 (student_one.pt); None = var/cognitive_simple/teacher-1-2/models-1.0.
     cognitive_live_student_dir: str | None = None
     # Reads her actual reply after it's sent, for the notes (offered / committed / answered). None = subagent_model.
     cognitive_live_events_model: str | None = None
     cognitive_live_log_path: str = "var/cognitive_live.jsonl"
-    # Deterministic per-turn sample over hash(sampling policy version, turn_id).
-    cognitive_live_shadow_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
-    cognitive_live_shadow_sampling_policy_version: str = Field(
-        default="shadow-sampling-v0.1", min_length=1
-    )
-    cognitive_live_shadow_queue_name: str = "macrovision:cognitive-shadow:wakeups"
-    cognitive_live_shadow_worker_lease_seconds: int = Field(default=300, gt=0)
-    cognitive_live_shadow_worker_poll_seconds: float = Field(default=2.0, gt=0)
-    cognitive_live_shadow_max_attempts: int = Field(default=3, gt=0)
-    # True ⇒ `python -m app.workers` also runs a shadow thread (local/staging).
-    # For production isolation set False and run the shadow worker as its own
-    # process, `python -m app.workers.cognitive_shadow`, so shadow CPU work
-    # never competes with chat generation for the same interpreter.
-    cognitive_live_shadow_run_in_shared_worker: bool = True
-    # No default on purpose: captures are sensitive conversation data, and
-    # capture refuses to run until a reviewed retention period is configured.
-    cognitive_live_shadow_retention_days: int | None = Field(default=None, gt=0)
-    # The configured application locale recorded with each capture. Nothing
-    # detects language; V0 compiles only "en" and skips anything else.
-    cognitive_live_shadow_language_tag: str = Field(default="en", min_length=1)
-    # The core identity whose version lineage every personality projection
-    # must share.
-    cognitive_live_shadow_core_memory_name: str = "columbina"
-    # Where a capture's personality projection comes from. No automatic
-    # fallback between the two:
-    # - "runtime_mapper": compile the active CoreMemory with Personality
-    #   Runtime Mapper V0 at capture time (the normal source);
-    # - "reviewed_baseline": use only the reviewed baseline file below
-    #   (explicit compatibility / emergency staging rollback).
-    # Changing this does not enable capture; the kill switch above does.
-    cognitive_live_shadow_personality_source: Literal["runtime_mapper", "reviewed_baseline"] = "runtime_mapper"
-    # Reviewed baseline projection (JSON matching ShadowPersonalityProjection),
-    # read only in "reviewed_baseline" mode. It can never claim
-    # projection_kind=runtime_mapper.
-    cognitive_live_shadow_personality_baseline_path: str | None = None
-
-    # Required semantic parser for every live-shadow observation. There is no
-    # deterministic parser fallback. It never enters the live chat path. The
-    # provider receives bounded messages plus the code-owned predicate/evidence
-    # schema -- no memory, relationship, personality, biases, goals, actions,
-    # or runtime facts.
-    # Experimental shadow appraisal; deterministic remains the default.
-    # Opt-in combined shadow orchestration; legacy stages remain replayable.
-    cognitive_shadow_orchestration: Literal["staged", "two_call"] = "staged"
-    cognitive_shadow_two_call_protocol: Literal["legacy-v0.1", "context-conditioned-two-call-v0.1", "cognitive-two-call-v1"] = "context-conditioned-two-call-v0.1"
-    cognitive_shadow_orchestration_max_output_tokens: int = Field(default=6000, ge=1000, le=12000)
-    cognitive_shadow_appraisal_implementation: Literal["deterministic", "model"] = "deterministic"
-    cognitive_shadow_appraisal_model: str | None = "gpt-6-luna"
-    cognitive_shadow_appraisal_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    cognitive_shadow_semantic_parser_model: str = "gpt-6-luna"
-    cognitive_shadow_semantic_parser_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    # Two-call v1: reasoning for the reader (Call 1) only; "none" sends the model's default setting.
-    cognitive_shadow_call_one_reasoning_effort: Literal["none", "low", "medium"] = "none"
-
-    # --- Collaborative Content V0 inside the cognitive shadow (see
-    # app/ai/Cognitive/system/v0/CONVERSATIONAL_WORKSPACE_AND_COLLABORATIVE_CONTENT_V0_IMPLEMENTATION.md) ---
-    # Shadow-only structured proposals for conversational deliverables (meal
-    # plans, outlines, summaries). Proposals stay on the shadow trace and are
-    # never delivered. Disabled => every deliverable is a typed
-    # provider_not_configured failure that Action can only decline. An explicit
-    # model id is required; there is no fallback to any other model.
-    cognitive_shadow_collaboration_enabled: bool = False
-    cognitive_shadow_collaboration_model: str | None = None
-    cognitive_shadow_collaboration_timeout_seconds: int = Field(default=25, gt=0, le=120)
-
-    # --- Realization V0 inside the cognitive shadow (see
-    # app/ai/Cognitive/system/v0/REALIZATION_V0_IMPLEMENTATION.md) ---
-    # Shadow-only wording of the selected Action plan. Candidates are persisted
-    # on the shadow trace for review and are never delivered to chat; no
-    # setting permits delivery in V0. Enabling this does not enable live shadow
-    # (the kill switch above does), and disabling it leaves the core shadow
-    # trace unchanged.
-    cognitive_shadow_realization_enabled: bool = False
-    # Default cognitive model; an explicitly empty/missing id when enabled yields provider_unavailable.
-    # There is deliberately no fallback to chat_model, cognitive_model, or a
-    # sub-agent model. Uses `openai_api_key`.
-    cognitive_shadow_realization_model: str | None = "gpt-6-luna"
-    cognitive_shadow_realization_timeout_seconds: int = Field(default=20, gt=0, le=120)
-    # At most two single-call generation attempts per turn (V0 ceiling).
-    cognitive_shadow_realization_max_attempts: int = Field(default=2, ge=1, le=2)
-    cognitive_shadow_realization_max_characters: int = Field(default=1200, gt=0, le=4000)
-
-    # --- Dialogue Working Memory V0 (see
-    # app/ai/Cognitive/system/v0/DIALOGUE_WORKING_MEMORY_V0_IMPLEMENTATION.md) ---
-    # Short-term, conversation-scoped dialogue state for the cognitive shadow.
-    # Shadow-only: enabling it never enables live shadow, Realization, or any
-    # live-response change, and it never writes long-term, relationship,
-    # episodic, core, or learning memory. False ⇒ no update jobs are scheduled
-    # and live-shadow captures stay at cognitive-shadow-capture-v0.2.
-    cognitive_dialogue_memory_enabled: bool = False
-    # Interpreted dialogue relationships (Call 1 registry v1.7): the shadow
-    # worker stores each turn's option sets, same-referent links and
-    # corrections, and later captures (cognitive-shadow-capture-v0.4) carry
-    # them. Needs dialogue memory; shadow-only like it.
-    cognitive_dialogue_interpretation_enabled: bool = False
-    # Newest contiguous messages a first-use bootstrap reconstructs; older
-    # history is an explicit omission, never presented as complete.
-    cognitive_dialogue_memory_bootstrap_messages: int = Field(default=30, ge=1, le=500)
-    # May lower, never raise, the contract cap of 200 items per snapshot.
-    cognitive_dialogue_memory_max_items: int = Field(default=200, ge=1, le=200)
-    # Optional acceleration only; PostgreSQL stays authoritative and every
-    # cache mode yields identical snapshots. Uses `redis_url`.
-    cognitive_dialogue_memory_cache_enabled: bool = False
-    cognitive_dialogue_memory_cache_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
-    cognitive_dialogue_memory_queue_name: str = "macrovision:dialogue-memory:wakeups"
-    cognitive_dialogue_memory_worker_lease_seconds: int = Field(default=120, gt=0)
-    cognitive_dialogue_memory_worker_poll_seconds: float = Field(default=2.0, gt=0)
-    cognitive_dialogue_memory_max_attempts: int = Field(default=5, gt=0)
+    # Student 2, her decision model (services/student_two.py): a folder made by `scripts/student_model.py prepare`
+    # (weights + student.json), served by `scripts/student_model.py serve` at COGNITION_STUDENT_URL. Swapping the
+    # model is pointing both at another prepared folder. Relative paths resolve against the backend root.
+    cognition_student_dir: str = "var/cognitive_simple/qwen-4/serve/mlx-8bit"
+    cognition_student_url: str = "http://127.0.0.1:8792"
+    cognition_student_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    cognition_student_log_path: str = "var/student_two.jsonl"
+    # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
+    # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
+    # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is
+    # named to her and in the trace. A turn whose student fails is a degraded one.
+    shared_state_log_path: str = "var/shared_state.jsonl"
+    # Background work for requests that need thinking (services/coordinator.py, `coordinator` worker thread):
+    # a mind item (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when recall is needed too. The
+    # deadline ends unfinished work as expired. Follow-ups are said only when cognition decides to.
+    shared_state_work_deadline_seconds: int = Field(default=180, ge=10, le=3600)
+    coordinator_heartbeat_seconds: float = Field(default=1.0, ge=1, le=60)
+    coordinator_executor_slots: int = Field(default=2, ge=1, le=16)  # per component; no local waiting queue
+    coordinator_max_pending: int = Field(default=1000, ge=10, le=100000)
+    coordinator_receipt_retention_days: int = Field(default=30, ge=1, le=3650)
+    coordinator_max_attempts: int = Field(default=3, ge=1, le=10)
+    observation_preparation_enabled: bool = False  # adapter exists; production transformation unavailable
+    coordinator_queue_name: str = "macrovision:coordinator:wakeups"
 
     # --- Desktop agent (docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md) ---
     # Off by default: the /api/desktop routes answer 404 and the UI hides the
@@ -430,7 +332,6 @@ class Settings(BaseSettings):
     # recorded per session; when a session ends, one reflection call turns them
     # into an episode, lessons (applied to her hands automatically) and code
     # proposals (shown on the Learning page, never applied by the app).
-    game_learning_enabled: bool = True
     # The A/B switch for measuring learning: False keeps recording and
     # reflecting but leaves lessons out of her hands' prompt.
     game_learning_apply_lessons: bool = True
@@ -451,7 +352,6 @@ class Settings(BaseSettings):
     # program over her skills, the pack's sandbox runs it, a critic checks the
     # counted result, and she fixes it, up to MAX_TRIES times. Started only from a
     # turn where the user spoke. Each try is a writer call and a critic call.
-    game_practice_enabled: bool = True
     game_practice_model: str = "gpt-6-luna"
     # Writing a program benefits from thinking; it isn't on the moment-to-moment path.
     game_practice_reasoning_effort: str | None = "low"
@@ -461,27 +361,19 @@ class Settings(BaseSettings):
     game_practice_queue_name: str = "macrovision:game-practice:wakeups"
     # A move that worked is tidied once (one more call on the same model): fixed positions
     # and ids looked up instead, leftovers gone. The original is kept until the tidy works.
-    game_practice_tidy_enabled: bool = True
     # Ask the user before learning (offer_to_learn in background turns). Off since
     # 2026-10-18 (the user's choice, "for now"): she starts lessons herself and says so.
     game_practice_ask_first: bool = False
     # Explore and learn (stage H3, services/game_challenges.py): when a goal is done she
     # picks her own next challenge (one call), does it with her skills, and learns what
-    # they lack. Per session it can be switched off ("stop exploring"); this turns it off
-    # everywhere. No budget yet, by the user's choice: the report shows the cost.
-    game_explore_enabled: bool = True
+    # they lack. Per session it can be switched off ("stop exploring"). No budget yet, by the
+    # user's choice: the report shows the cost.
     game_explore_model: str = "gpt-6-luna"
     game_explore_reasoning_effort: str | None = "low"
-    # Mind tick recording (app/ai/mind): while a pack session is live, write what
-    # each ~1 s tick of her mind would see to MIND_TICK_PATH, so candidate gates
-    # (how hard to think) can be compared offline with scripts/mind_gate_eval.py.
-    # Observation only: nothing reads it back into play.
-    mind_tick_recording_enabled: bool = False
-    # Her mind (docs/COLUMBINA_MIND_DESIGN.md): every tick a gate decides how hard
-    # she should think (none/react/light/hard); quick thoughts use a fast model,
-    # hard ones are a background Luna game turn. Replaces game-event wakeups for
-    # commentary (danger, warnings, discoveries) while on. Needs DESKTOP_AGENT_ENABLED.
-    mind_enabled: bool = False
+    # Her mind (docs/COLUMBINA_MIND_DESIGN.md), always running: every tick a gate decides how hard
+    # she should think (none/react/light/hard); quick thoughts use a fast model, hard ones end in
+    # one conclusion. Replaces game-event wakeups for commentary (danger, warnings, discoveries).
+    # Its Minecraft source needs DESKTOP_AGENT_ENABLED.
     mind_gate: str = Field(default="jev", pattern="^(jev|decisions)$")
     # How sure the gate must be that a moment needs thought (light and hard together).
     mind_think_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
@@ -492,7 +384,6 @@ class Settings(BaseSettings):
     # After a reply in a game, if the game changed while she said it, a small model checks
     # whether that made something she said wrong, and if so she corrects herself out loud
     # (services/game_correction.py).
-    game_corrections_enabled: bool = True
     game_correction_model: str = "gpt-6-luna"
     # Quiet thinking: after this long with no thought, and nothing urgent, she thinks ahead,
     # about the user or about herself (never describing the moment). 0 turns it off.
@@ -507,50 +398,48 @@ class Settings(BaseSettings):
     mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
     mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
     mind_hard_log_path: str = "var/mind_hard.jsonl"
-    # A conversation as a source of her mind, in shadow (services/mind_conversation.py): after a reply,
-    # a question of theirs still open becomes a hard thought written only to MIND_SHADOW_LOG_PATH
-    # (never saved, said or shown). Needs COGNITIVE_LIVE_CHARACTER (its notes). Costs one model call each.
-    mind_conversation_shadow_enabled: bool = False
+    # A shadow source's thoughts go only here (never saved, said or shown). No shadow source runs today:
+    # conversation is live (services/mind_conversation.py).
     mind_shadow_log_path: str = "var/mind_shadow.jsonl"
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
-    # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of her game plan.
-    # On: a new goal from a reply, stuck, struggling, the last step and a finished goal all go to
-    # one planning call (reasoning on, no tools), which keeps or revises the plan; replies set
-    # goals and one-step commands, background turns and hard thoughts no longer write plans.
-    # Off: every turn writes plans as before. Needs MIND_ENABLED.
-    mind_planner_enabled: bool = False
+    # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of a game pack's plan.
+    # A new goal from a reply, stuck, struggling, the last step and a finished goal all go to one
+    # planning call (reasoning on, no tools), which keeps or revises the plan; replies set goals
+    # and one-step commands, background turns and hard thoughts never write plans.
     mind_plan_model: str = "gpt-6-luna"
     mind_plan_reasoning_effort: str | None = "low"
-    # Her inner state, live but without influence (docs/COLUMBINA_INNER_STATE_PLAN.md step 5.2;
+    # Her inner state, always live but without influence (docs/COLUMBINA_INNER_STATE_PLAN.md step 5.2;
     # services/inner_state_live.py): after each delivered reply a background thread reads the
     # exchange (two model calls: the teacher's thought, then appraisal-v3.1 labels) and moves her
     # mood (app/ai/mind/mood_layers.py, frozen config). Shown in the chat page's debug strip and at
     # GET /api/mind/state; nothing reads it into a reply, thought, plan or action.
-    mind_inner_state_enabled: bool = False
     mind_inner_state_model: str = "gpt-6-luna"
     mind_inner_state_log_path: str = "var/inner_state.jsonl"
+    # Every tick of her mind in a game, for comparing gates offline (scripts/mind_gate_eval.py).
     mind_tick_path: str = "var/mind_ticks.jsonl"
     # Her working memory (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md; services/memory_manager.py):
     # contexts, goals that outlive their steps, commitments, intentions, questions and recent
-    # events, in Postgres. On: every reply reads it and gets the memory tools, game plans point
-    # at the goal they serve, and the mind loop runs its due checks (needs MIND_ENABLED for those).
-    memory_manager_enabled: bool = False
+    # events, in Postgres. Every reply reads it and gets the memory tools, game plans point at
+    # the goal they serve, and the coordinator runs its due checks.
     memory_intention_hours: float = Field(default=2.0, gt=0, le=720)
     memory_context_idle_hours: float = Field(default=2.0, gt=0, le=720)
     memory_manager_log_path: str = "var/memory_manager.jsonl"
     # Corrections (docs/COLUMBINA_MEMORY_CORRECTIONS.md; services/memory_corrections.py): semantic
     # consolidation also reads explicit corrections, and the memory manager applies each one to the facts and
-    # current working items it affects (one model call to judge them, code for every write). Needs
-    # MEMORY_MANAGER_ENABLED too. Off: corrections are neither read nor applied; facts are consolidated as before.
-    memory_corrections_enabled: bool = False
+    # current working items it affects (one model call to judge them, code for every write).
     # Who judges which memories a correction affects. None: memory_model.
     memory_correction_model: str | None = None
+    # Her thoughts reaching memory (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md; services/thought_memory.py): a hard
+    # thought's conclusion is handed over as an observation; one small call judges keep/skip and whether it
+    # repeats or replaces an open memory. None: subagent_model. A suspicion nothing settles is unresolved after
+    # memory_hypothesis_days.
+    memory_thought_model: str | None = None
+    memory_hypothesis_days: float = Field(default=14.0, gt=0, le=365)
     # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md; services/observation*.py): what sources
-    # reported, as one immutable stream. On: game outcomes are recorded as they happen, and the mind
-    # loop (needs MIND_ENABLED) pulls conversation messages, interruptions and deliveries. Promoting
-    # them into working memory also needs MEMORY_MANAGER_ENABLED; until then the work waits.
-    observation_enabled: bool = False
+    # reported, as one immutable stream. Game outcomes are recorded as they happen, the observation
+    # worker pulls conversation messages, interruptions and deliveries, and the coordinator promotes
+    # them into working memory.
     # Routine observations everyone has dealt with may be deleted after this; notable ones are kept.
     observation_retention_days: float = Field(default=14.0, ge=2, le=3650)
     observation_batch: int = Field(default=100, ge=1, le=1000)
@@ -563,22 +452,32 @@ class Settings(BaseSettings):
     observation_context_wait_hours: float = Field(default=24.0, gt=0, le=720)
     observation_log_path: str = "var/observation.jsonl"
     # Shared recall (docs/COLUMBINA_MEMORY_SESSION3_RECALL_SPEC.md; services/recall*.py): one read service
-    # over facts, episodes, memory events and working items. On: replies get a recall section with typed
+    # over facts, episodes, memory events and working items. Replies get a recall section with typed
     # references, the read tools (search_memories / read_memory / read_timeline), and a receipt of what
     # they were given; hard thoughts read through it too; memory events are embedded in the background.
-    # Off: the same service still ranks the old fact/episode block, so nothing else changes.
-    recall_enabled: bool = False
     recall_auto_limit: int = Field(default=6, ge=1, le=12)
     recall_tool_calls_per_reply: int = Field(default=3, ge=0, le=10)
     # Recent events always considered, so facts can't crowd them out; and the episode window.
     recall_event_candidates: int = Field(default=300, ge=10, le=5000)
     recall_episode_candidates: int = Field(default=200, ge=10, le=5000)
     # After a reply that was given memories: which ones its words are about (one small call, off the
-    # reply path). None = subagent_model. Off: the next turn treats what was supplied as candidates.
-    recall_association_enabled: bool = True
+    # reply path). None = subagent_model.
     recall_association_model: str | None = None
     recall_embedding_batch: int = Field(default=32, ge=1, le=256)
     recall_log_path: str = "var/recall.jsonl"
+    # Source-backed history (docs/COLUMBINA_SOURCE_BACKED_RECALL.md; services/recall_history.py): her
+    # recall_history tool follows the evidence links from what search found to the user's own words and
+    # the memories they touched, across contexts, then one structured call rebuilds how the thing changed,
+    # every step citing exact words. Read-only toward memory.
+    recall_history_model: str = "gpt-6-luna"
+    recall_history_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
+    # Expansion budgets: how far from what search found, how many records, how much source text, how long.
+    recall_history_max_depth: int = Field(default=6, ge=1, le=12)
+    recall_history_max_nodes: int = Field(default=128, ge=8, le=1000)
+    recall_history_max_fanout: int = Field(default=24, ge=2, le=200)  # records reached from one source
+    recall_history_max_chars: int = Field(default=16000, ge=1000, le=100000)
+    recall_history_passage_chars: int = Field(default=1500, ge=200, le=10000)
+    recall_history_seconds: float = Field(default=3.0, gt=0, le=30)
     # Gates under test: Jev from TypeSafe directly (or through OpenRouter),
     # Strands Decider served locally.
     typesafe_api_key: str = ""

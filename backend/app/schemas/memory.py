@@ -90,12 +90,14 @@ class MemoryCorrectionOut(BaseModel):
 
 
 class WorkingMemoryOut(BaseModel):
-    enabled: bool
-    state: ManagerStateOut | None = None
+    state: ManagerStateOut
     contexts: list[MemoryContextOut] = []
     items: list[WorkingItemOut] = []
     events: list[MemoryEventOut] = []
     corrections: list[MemoryCorrectionOut] = []
+    # Stage 4: items on hold because a fact they rely on changed ("pending": being rechecked; "review": may
+    # be out of date), and dependency counts by role/state.
+    dependencies: dict = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -150,8 +152,6 @@ class ObservationAdapterOut(BaseModel):
 
 
 class ObservationsOut(BaseModel):
-    capture_enabled: bool
-    promotion_enabled: bool
     counts: dict[str, int] = {}
     # Age of the oldest report memory hasn't dealt with yet.
     lag_seconds: float | None = None
@@ -174,10 +174,10 @@ class RecallReceiptOut(BaseModel):
     association_note: str | None = None
     referenced: list[str] = []
     supplied: list[str] = []
+    histories: list[dict] = []  # rebuilt histories: status, account (spans only), coverage, passage sources
     created_at: datetime
 
 
 class RecallOut(BaseModel):
-    enabled: bool
     embeddings: dict[str, int] = {}
     receipts: list[RecallReceiptOut] = []

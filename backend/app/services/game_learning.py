@@ -82,10 +82,6 @@ def game_for_profile(profile_id: str | None) -> str | None:
     return GAME_BY_PROFILE.get(profile_id or "")
 
 
-def _enabled() -> bool:
-    return get_settings().game_learning_enabled
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -97,8 +93,6 @@ def _now() -> datetime:
 
 def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: dict) -> None:
     """Append one experience for a game session (no-op for games without learning)."""
-    if not _enabled():
-        return
     session = db.get(DesktopSession, session_id)
     game = game_for_profile(session.profile_id) if session is not None else None
     if game is None:
@@ -110,12 +104,9 @@ def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: di
         db.add(row)
         return row
 
-    from app.services import observation, observation_adapters
+    from app.services import observation_adapters
 
     row = experience()
-    if not observation.enabled():
-        db.commit()
-        return
     # Observed in the same transaction (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md §6); if that fails, the
     # experience is still kept and its source state says where to recover from.
     try:
@@ -162,7 +153,7 @@ def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
     settings = get_settings()
     session = db.get(DesktopSession, session_id)
     game = game_for_profile(session.profile_id) if session is not None else None
-    if not _enabled() or game is None:
+    if game is None:
         return []
     applied = settings.game_learning_apply_lessons
     lessons = active_lessons(db, session.owner_user_id, game, settings.game_learning_prompt_lessons) if applied else []
@@ -179,7 +170,7 @@ def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
 def plan_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]:
     """Plan lessons for Columbina's game summary (none when the A/B switch is off)."""
     settings = get_settings()
-    if not _enabled() or not settings.game_learning_apply_lessons:
+    if not settings.game_learning_apply_lessons:
         return []
     return [lesson for lesson in active_lessons(db, user_id, game)
             if lesson.level == "plan"][:settings.game_learning_prompt_lessons]
@@ -188,7 +179,7 @@ def plan_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]
 def skill_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]:
     """Skill lessons (how her moves behave), for Columbina too: she plans with them."""
     settings = get_settings()
-    if not _enabled() or not settings.game_learning_apply_lessons:
+    if not settings.game_learning_apply_lessons:
         return []
     return [lesson for lesson in active_lessons(db, user_id, game)
             if lesson.level == "skill"][:settings.game_learning_prompt_lessons]
@@ -200,8 +191,6 @@ KNOWN_GAPS_SHOWN = 6
 def known_gaps(db: Session, user_id: uuid.UUID, game: str) -> list[GameProposal]:
     """Changes she proposed that aren't built yet (open or accepted): what she knows she can't
     do, so she can say so (and ask for help) instead of trying."""
-    if not _enabled():
-        return []
     return list(db.scalars(
         select(GameProposal)
         .where(GameProposal.user_id == user_id, GameProposal.game == game,
@@ -231,7 +220,7 @@ def schedule_reflection(db: Session, session: DesktopSession, to_state: str) -> 
     session leaves play with enough new outcomes (in the caller's transaction;
     the worker polls). Runs in a savepoint and never fails the transition."""
     game = game_for_profile(session.profile_id)
-    if not _enabled() or game is None or to_state not in ENDING_STATES | PAUSE_STATES:
+    if game is None or to_state not in ENDING_STATES | PAUSE_STATES:
         return
     settings = get_settings()
     needed = (settings.game_learning_min_outcomes if to_state in ENDING_STATES
