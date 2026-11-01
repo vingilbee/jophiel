@@ -4,6 +4,8 @@ Status: **design only, revised 2026-11-01. No implementation is authorized by th
 The user accepted the architectural direction below: three learning loops, evidence before learning products,
 multidimensional reward, attribution, and explicit prediction. Capture and ownership decisions were accepted on 2026-11-01 in
 [Capture and ownership](learning-system/01-capture-and-ownership.md), which is authoritative for that scope.
+Evidence and attribution decisions were accepted on 2026-11-01 in
+[Evidence and attribution](learning-system/02-evidence-and-attribution.md), which is authoritative for that scope.
 Other concrete schemas, algorithms, thresholds, and operational policies remain proposals.
 
 Parent: [Memory and learning design](COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md).
@@ -11,7 +13,7 @@ Parent: [Memory and learning design](COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md).
 **Execution planning update, 2026-10-31:** This document remains the architectural reference.
 Use the [step-by-step plan index](learning-system/README.md) for the smaller planning units,
 their dependencies, and subsequent user decisions. Affinity and mood are excluded from V1.
-The split plans do not authorize implementation. Step 1 now records accepted capture decisions and was built on request on 2026-11-01 ([implementation](learning-system/01-implementation.md)); other listed open decisions remain unsettled.
+The split plans do not authorize implementation. Step 1 now records accepted capture decisions and was built on request on 2026-11-01 ([implementation](learning-system/01-implementation.md)); Step 2 was built on request on 2026-11-01 ([implementation](learning-system/02-implementation.md)); other listed open decisions remain unsettled.
 This revision replaces the earlier two-speed roadmap in this file. Existing game learning and memory capabilities
 are foundations to reuse; the general learning system described here is not implemented.
 
@@ -151,6 +153,13 @@ Do not reconstruct them afterward and represent them as contemporaneous.
 
 ## 6. Attribution: which part should change?
 
+The accepted [Step 2 decisions](learning-system/02-evidence-and-attribution.md) separate feedback-target linking from
+causal attribution. Learning owns retrospective assessment; code checks concrete facts and an LLM proposes grounded
+explanations. V1 uses evidence-backed qualitative uncertainty, not generated confidence percentages. Assessments run
+automatically for explicit corrections and execution failures, with ordinary interactions sampled as well. There is no
+fixed investigation budget: stop when supported, awaiting missing evidence, or stuck without a useful next step.
+Assessments can support later adaptation and training but do not automatically create either product.
+
 Track the causal chain available to the system:
 
 ```text
@@ -207,7 +216,7 @@ Keep three separate layers:
 For example, laughter is an observation, enjoyment is a possible interpretation, and valuing shared playfulness
 is an appraisal. None alone proves that interrupting or repeating that joke is a good general policy.
 
-| Proposed dimension | Question |
+| Accepted V1 dimension | Question |
 | --- | --- |
 | Goal progress | Did this advance the current intention? |
 | Understanding | Did the interpretation fit the evidence? |
@@ -216,15 +225,14 @@ is an appraisal. None alone proves that interrupting or repeating that joke is a
 | Cost | What time, resources, interruption, damage, or recovery did it require? |
 | Character fit | Was it consistent with her values and chosen manner? |
 
-These dimensions are proposed engineering choices, not a literal biological reward function. Store each with
+These six dimensions are accepted V1 engineering choices, not a literal biological reward function. Store each with
 its evidence and uncertainty; missing dimensions are unknown, not zero. Domain adapters define measurements.
 A learner may combine relevant dimensions into a scalar for an algorithm, but must preserve the original vector,
 normalization, weights, and evaluator version. No universal numeric weights are settled here.
 
-Personality affects valuation; it must not rewrite what happened. Proposed starting policy: relatively stable
-core values, adaptable habits and preferences, and revisable beliefs. The degree to which personality itself
-learns remains an open design decision. Temporary mood may affect attention or exploration without automatically
-becoming a durable value update.
+Personality affects valuation; it must not rewrite what happened. The accepted policy keeps core values fixed,
+with adaptable preferences and strategies and revisable beliefs. V1 assessments need no numeric scores or overall
+good/bad score. Affinity and mood are excluded from V1; their later role remains open.
 
 Conversation has partial, ambiguous, often delayed reward signals. Silence is generally missing information,
 not punishment. Immediate user approval alone can reinforce agreement or flattery; self-rated satisfaction alone
@@ -382,8 +390,10 @@ Start by walking the two complete loops through concrete inputs, records, owners
    and derivative handling. Concrete schemas and queue/retry settings remain implementation design work.
 2. **Adaptation interface:** what Student 1/2, thought, mouth, and hands actually receive; Student 2 version migration;
    lesson scope, retrieval budgets, and conflict handling.
-3. **Attribution and assessment:** what code measures, what models judge, uncertainty representation, review rules,
-   reward dimensions, normalization, and evaluator versioning.
+3. **Attribution and assessment:** accepted responsibilities, qualitative uncertainty, automatic assessment, six
+   dimensions, revision rules, and stopping conditions are in [Step 2](learning-system/02-evidence-and-attribution.md).
+   Concrete contracts, domain measurements, sampling, stalled-reasoning detection, and broader evaluation thresholds
+   remain implementation planning work. Numeric normalization and weights are not required for V1 assessment.
 4. **Prediction and exploration:** initial predictor, candidate generator, observation windows, test budgets,
    allowed conversation/game trials, and what counts as useful information gain.
 5. **Personality:** which values are stable, which preferences can evolve, and whether/how mood influences learning.

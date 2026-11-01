@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AgentEventJob, CaptureBlob, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
+    AgentEventJob, CaptureBlob, LearningAssessment, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
@@ -49,6 +49,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Training examples derived from them, with deletion tombstones (a test reset starts over; a user's own
     # source deletion never removes examples, and their explicit deletion keeps the tombstone).
     "training": (TrainingExampleDeletion, TrainingExample),
+    # Learning's assessments (docs/learning-system/02-implementation.md): revisions, links, evidence and uses
+    # cascade with them. Training examples they flagged stay flagged (scope training resets those).
+    "assessment": (LearningAssessment,),
 }
 
 

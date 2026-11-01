@@ -112,3 +112,86 @@ export interface LearnedSkill {
   created_at: string
   updated_at: string
 }
+
+/** Learning's retrospective assessments (docs/learning-system/02-implementation.md). */
+export type AssessmentStatus = 'supported' | 'plausible' | 'unresolved' | 'contradicted'
+export type AssessmentOutcome = 'concluded' | 'unresolved' | 'no_feedback'
+
+export interface AssessmentConclusion {
+  status: AssessmentStatus
+  cites: string[]
+  independent: number
+  why?: string
+  note?: string
+  basis?: string | null
+}
+
+export interface AssessmentTarget extends AssessmentConclusion {
+  ref: string
+  also: string[]
+  target_roots: string[]
+}
+
+export interface AssessmentCause extends AssessmentConclusion {
+  target: string
+  component: string
+}
+
+export interface AssessmentResult {
+  feedback: 'yes' | 'no' | 'unclear'
+  targets: AssessmentTarget[]
+  causes: AssessmentCause[]
+  user_stated: (AssessmentConclusion & { kind: 'intended_meaning' | 'preference'; quote: string })[]
+  dimensions: (AssessmentConclusion & { dimension: string; target: string; value: string })[]
+  choice_vs_outcome: { target: string; choice: string; outcome: string; note: string; cites: string[] }[]
+  missing: { what: string; needed_for: string }[]
+  clarification: { propose: boolean; question: string }
+  explanation: string
+  target_labels: Record<string, string>
+  trigger: string
+}
+
+export interface AssessmentRevision {
+  revision: number
+  evaluator: string
+  reason: string
+  outcome: AssessmentOutcome
+  target_status: string
+  cause_status: string
+  stop_reason: 'concluded' | 'missing_evidence' | 'stuck'
+  independent: number
+  explanation: string
+  result: AssessmentResult
+  dropped: { what: string; why: string }[]
+  rounds: { plan: Record<string, unknown>; chars: number; skipped?: string }[]
+  superseded_by: number | null
+  created_at: string
+}
+
+export interface AssessmentSummary {
+  id: string
+  trigger_kind: 'correction' | 'complaint' | 'execution' | 'sample'
+  trigger: { why?: string }
+  state: 'pending' | 'running' | 'done' | 'failed'
+  outcome: AssessmentOutcome | null
+  target_status: string | null
+  cause_status: string | null
+  stop_reason: string | null
+  explanation: string | null
+  revision: number
+  last_error: string | null
+  awaiting: string[]
+  anchor_at: string
+  updated_at: string
+}
+
+export interface AssessmentDetail extends AssessmentSummary {
+  evidence: { ref: string; reason: string | null; detail: { text?: string }; added_at: string }[]
+  revisions: AssessmentRevision[]
+  uses: { consumer: string; ref: string; revision: number; state: 'current' | 'reconsider'; reason: string | null }[]
+}
+
+export interface AssessmentListing {
+  counts: Record<string, number>
+  items: AssessmentSummary[]
+}

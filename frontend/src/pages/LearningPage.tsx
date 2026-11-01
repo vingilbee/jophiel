@@ -2,7 +2,17 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AppHeader } from '../components/AppHeader'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { learningApi } from '../api/learning'
-import type { Challenge, LearnedSkill, Lesson, Proposal, ProposalStatus, Reflection } from '../types/learning'
+import type {
+  AssessmentDetail,
+  AssessmentListing,
+  AssessmentSummary,
+  Challenge,
+  LearnedSkill,
+  Lesson,
+  Proposal,
+  ProposalStatus,
+  Reflection,
+} from '../types/learning'
 
 const STATUS_STYLES: Record<string, string> = {
   open: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
@@ -19,6 +29,43 @@ const STATUS_STYLES: Record<string, string> = {
   'gave up': 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
   'you changed it': 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
   'session ended': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  supported: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
+  concluded: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
+  plausible: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+  unresolved: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
+  contradicted: 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
+  failed: 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
+  'no feedback': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  pending: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  running: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+}
+
+const TRIGGER_LABELS: Record<AssessmentSummary['trigger_kind'], string> = {
+  correction: 'a correction',
+  complaint: 'a complaint',
+  execution: 'something that failed',
+  sample: 'an ordinary exchange (sampled)',
+}
+
+const PART_LABELS: Record<string, string> = {
+  student_1: 'how she understood it',
+  student_2: 'what she chose to do',
+  mouth: 'her wording',
+  delivery: 'delivery',
+  timing: 'timing',
+  hands: "her hands' choice",
+  skill: 'the skill itself',
+  planner: 'the planner',
+  memory: 'memory',
+  environment: 'the world around her',
+  user_side: 'nothing on her side',
+  unclear: 'unclear',
+}
+
+const STOP_LABELS: Record<string, string> = {
+  concluded: 'the evidence was enough',
+  missing_evidence: 'needs evidence that is missing',
+  stuck: 'stopped: nothing new to look at',
 }
 
 const CHALLENGE_LABELS: Record<Challenge['status'], string> = {
@@ -79,27 +126,31 @@ export function LearningPage() {
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
   const [reflections, setReflections] = useState<Reflection[] | null>(null)
+  const [assessments, setAssessments] = useState<AssessmentListing | null>(null)
+  const [onlyOpen, setOnlyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [c, s, p, l, r] = await Promise.all([
+      const [c, s, p, l, r, a] = await Promise.all([
         learningApi.challenges(),
         learningApi.skills(),
         learningApi.proposals(),
         learningApi.lessons(),
         learningApi.reflections(),
+        learningApi.assessments(onlyOpen ? 'unresolved' : undefined),
       ])
       setChallenges(c)
       setSkills(s)
       setProposals(p)
       setLessons(l)
       setReflections(r)
+      setAssessments(a)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load what she learned.')
     }
-  }, [])
+  }, [onlyOpen])
 
   useEffect(() => {
     void load()
@@ -134,6 +185,21 @@ export function LearningPage() {
         {error && (
           <p className="mb-5 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">{error}</p>
         )}
+
+        <Section
+          title="How it went"
+          hint="After a correction, a complaint, something failing, or a sampled ordinary exchange, she looks back: what it was about, which part of her (if any) was responsible, and how sure the evidence makes that. Unresolved means the evidence doesn't settle it. Add a note to correct her reading."
+        >
+          <label className="mb-1 flex items-center gap-2 text-xs text-[#7183A3]">
+            <input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />
+            Only unresolved
+          </label>
+          {assessments === null && !error && <Loading />}
+          {assessments?.items.length === 0 && <Empty text="Nothing assessed yet. Corrections and failures are looked at automatically, a minute after they happen." />}
+          {assessments?.items.map((a) => (
+            <AssessmentCard key={a.id} summary={a} onChanged={load} onError={setError} />
+          ))}
+        </Section>
 
         <Section
           title="Challenges she set herself"
@@ -337,6 +403,139 @@ function ProposalCard({
           <button onClick={() => onStatus('open')} className={SMALL_BUTTON}>Reopen</button>
         )}
       </div>
+    </article>
+  )
+}
+
+function AssessmentCard({
+  summary: a,
+  onChanged,
+  onError,
+}: {
+  summary: AssessmentSummary
+  onChanged: () => Promise<void>
+  onError: (message: string) => void
+}) {
+  const [detail, setDetail] = useState<AssessmentDetail | null>(null)
+  const [note, setNote] = useState('')
+
+  async function open(isOpen: boolean) {
+    if (!isOpen || detail) return
+    try {
+      setDetail(await learningApi.assessment(a.id))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not load the assessment.')
+    }
+  }
+
+  async function sendNote() {
+    if (!note.trim()) return
+    try {
+      setDetail(await learningApi.noteAssessment(a.id, note.trim()))
+      setNote('')
+      await onChanged()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not add the note.')
+    }
+  }
+
+  const status = a.state === 'done' ? (a.outcome === 'no_feedback' ? 'no feedback' : a.outcome ?? 'pending') : a.state
+  const current = detail?.revisions[0]
+  return (
+    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="mr-auto text-sm font-medium">After {TRIGGER_LABELS[a.trigger_kind]}</h3>
+        {a.target_status && a.target_status !== 'none' && <span className="text-[11px] text-[#7183A3]">about it: {a.target_status}</span>}
+        {a.cause_status && a.cause_status !== 'none' && <span className="text-[11px] text-[#7183A3]">· cause: {a.cause_status}</span>}
+        <Chip label={status} />
+      </div>
+      <p className="mt-1 text-[11px] text-[#7183A3]">
+        {day(a.anchor_at)} · {a.trigger.why ?? ''}
+        {a.revision > 1 && ` · revised ${a.revision - 1}×`}
+        {a.stop_reason && ` · ${STOP_LABELS[a.stop_reason] ?? a.stop_reason}`}
+      </p>
+      {a.explanation && <p className="mt-2 text-xs text-[#40506F]">{a.explanation}</p>}
+      {a.state === 'failed' && a.last_error && <p className="mt-2 text-xs text-[#8B3158]">Couldn't assess it: {a.last_error}</p>}
+      <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer text-xs text-[#7183A3]">Evidence and history</summary>
+        {!detail && <Loading />}
+        {current && (
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+            {current.result.targets.map((t) => (
+              <p key={`t-${t.ref}`}>
+                <Chip label={t.status} /> about {current.result.target_labels[t.ref] ?? t.ref}
+                {t.also.length > 0 && ` (with ${t.also.map((x) => current.result.target_labels[x] ?? x).join(', ')})`}: {t.why}
+                <span className="text-[#7183A3]"> · cites {t.cites.join(', ') || 'nothing'} · {t.independent} independent</span>
+              </p>
+            ))}
+            {current.result.causes.map((c, i) => (
+              <p key={`c-${i}`}>
+                <Chip label={c.status} /> cause: {PART_LABELS[c.component] ?? c.component} ({c.target}): {c.why}
+                {c.basis === 'missing_capture' && <span className="text-[#6A4FA0]"> · its record is missing</span>}
+              </p>
+            ))}
+            {current.result.user_stated.map((u, i) => (
+              <p key={`u-${i}`}>
+                They said ({u.kind === 'preference' ? 'what they prefer' : 'what they meant'}): “{u.quote}”
+              </p>
+            ))}
+            {current.result.dimensions.length > 0 && (
+              <p>
+                {current.result.dimensions
+                  .map((d) => `${d.dimension.replace('_', ' ')}: ${d.value} (${d.status})`)
+                  .join(' · ')}
+              </p>
+            )}
+            {current.result.choice_vs_outcome.map((c, i) => (
+              <p key={`o-${i}`}>
+                Choice {c.choice}, outcome {c.outcome} ({c.target}){c.note && `: ${c.note}`}
+              </p>
+            ))}
+            {current.result.missing.length > 0 && (
+              <p className="text-[#6A4FA0]">Missing: {current.result.missing.map((m) => m.what).join('; ')}</p>
+            )}
+            {current.result.clarification.propose && (
+              <p className="text-[#7183A3]">A question that would settle it (not asked): {current.result.clarification.question}</p>
+            )}
+            {current.dropped.length > 0 && (
+              <details>
+                <summary className="cursor-pointer text-[#7183A3]">What code set aside ({current.dropped.length})</summary>
+                <ul className="mt-1 list-disc pl-5">
+                  {current.dropped.map((d, i) => (
+                    <li key={i}>{d.what}: {d.why}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {detail.uses.length > 0 && (
+              <p className="text-[#7183A3]">
+                Acted on: {detail.uses.map((u) => `${u.consumer} ${u.ref.slice(0, 16)} (${u.state})`).join(', ')}
+              </p>
+            )}
+            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+              {detail.revisions.map((r) => (
+                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#617698]">
+                  Revision {r.revision} · {day(r.created_at)} · {r.outcome} · {r.reason} · {r.rounds.length} round
+                  {r.rounds.length === 1 ? '' : 's'}
+                  {r.superseded_by && ` · superseded by ${r.superseded_by}`}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {detail && !current && <p className="mt-2 text-xs text-[#7183A3]">Not assessed yet.</p>}
+        {detail && (
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Correct her reading (e.g. I wasn't upset, I was joking)"
+              className="min-w-0 flex-1 rounded-xl border border-[#EAF0FA] px-3 py-1.5 text-xs"
+            />
+            <button onClick={() => void sendNote()} className={SMALL_BUTTON}>Add note</button>
+          </div>
+        )}
+      </details>
     </article>
   )
 }

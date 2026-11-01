@@ -13,6 +13,8 @@ their goal link). Deleting conversations alone leaves goals in place, without th
 observation (what sources reported, its processing and source state; capture restarts from now).
 Resetting working alone keeps observations but skips any memory hadn't taken in, so none are replayed.
 recall (what replies were given from memory, and memory-event embeddings; rebuilt in the background).
+capture (raw decision captures), training (training examples and their tombstones),
+assessment (learning's retrospective assessments, with their revisions, links and uses).
 Never touches core_memory, accounts, integrations or calorie/weight logs.
 Asks before deleting unless --yes.
 """

@@ -1,5 +1,15 @@
 import { api } from './client'
-import type { Challenge, LearnedSkill, Lesson, LessonStatus, Proposal, ProposalStatus, Reflection } from '../types/learning'
+import type {
+  AssessmentDetail,
+  AssessmentListing,
+  Challenge,
+  LearnedSkill,
+  Lesson,
+  LessonStatus,
+  Proposal,
+  ProposalStatus,
+  Reflection,
+} from '../types/learning'
 
 /** What she learned from playing: moves she taught herself, lessons, code proposals, reflections. */
 export const learningApi = {
@@ -18,4 +28,10 @@ export const learningApi = {
   skills: () => api.get<LearnedSkill[]>('/learning/skills'),
   setSkillEnabled: (id: string, enabled: boolean) => api.patch<LearnedSkill>(`/learning/skills/${id}`, { enabled }),
   deleteSkill: (id: string) => api.delete<void>(`/learning/skills/${id}`),
+
+  /** What feedback and outcomes said about what she did (retrospective assessment). */
+  assessments: (outcome?: string) =>
+    api.get<AssessmentListing>(`/learning/assessments${outcome ? `?outcome=${encodeURIComponent(outcome)}` : ''}`),
+  assessment: (id: string) => api.get<AssessmentDetail>(`/learning/assessments/${id}`),
+  noteAssessment: (id: string, text: string) => api.post<AssessmentDetail>(`/learning/assessments/${id}/notes`, { text }),
 }

@@ -2964,3 +2964,180 @@ class TrainingExampleDeletion(Base):
     deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_training_example_deletions_attempt", "attempt_id"),)
+
+
+# --------------------------------------------------------------------------- #
+# Retrospective assessment (docs/learning-system/02-evidence-and-attribution.md; implementation, statuses and
+# settings: docs/learning-system/02-implementation.md). Learning's own derivatives, written only by
+# services/learning_assessment.py: what feedback or an outcome is about (targets), which part of her caused it
+# (causes), the six dimensions, what's missing; each revision kept, a newer one superseding an older one.
+# Links are opaque refs (``attempt:<id>``, ``message:<id>``, ``turn:<id>``): raw captures expire, assessments stay
+# until their conversation, game session, trigger message or user goes, or a forget removes them.
+# --------------------------------------------------------------------------- #
+
+ASSESSMENT_TRIGGERS = ("correction", "complaint", "execution", "sample")
+ASSESSMENT_STATES = ("pending", "running", "done", "failed")
+ASSESSMENT_OUTCOMES = ("concluded", "unresolved", "no_feedback")
+ASSESSMENT_STOPS = ("concluded", "missing_evidence", "stuck")
+ASSESSMENT_LINK_ROLES = ("target", "cause", "cited")
+ASSESSMENT_USE_STATES = ("current", "reconsider")
+
+
+class LearningAssessment(Base):
+    """One thing worth assessing (a correction, a complaint, an execution failure, a sampled exchange) and its
+    current conclusion. ``trigger_key`` makes reprocessing idempotent; ``epoch`` counts evidence arriving, so a run
+    that started before new evidence came is followed by another; ``revision`` is the current revision."""
+
+    __tablename__ = "learning_assessments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    trigger_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    trigger_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    trigger: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
+    game_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=True)
+    anchor_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
+    anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    cause_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Records whose arrival would add evidence (an attempt still missing from capture): ``attempt:<id>``.
+    awaiting: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("trigger_kind", ASSESSMENT_TRIGGERS), name="ck_learning_assessments_trigger"),
+        CheckConstraint(_in("state", ASSESSMENT_STATES), name="ck_learning_assessments_state"),
+        CheckConstraint(f"outcome IS NULL OR {_in('outcome', ASSESSMENT_OUTCOMES)}",
+                        name="ck_learning_assessments_outcome"),
+        CheckConstraint(f"stop_reason IS NULL OR {_in('stop_reason', ASSESSMENT_STOPS)}",
+                        name="ck_learning_assessments_stop"),
+        CheckConstraint("attempts >= 0 AND revision >= 0 AND epoch >= 0", name="ck_learning_assessments_counts"),
+        UniqueConstraint("user_id", "trigger_key", name="uq_learning_assessments_trigger"),
+        Index("ix_learning_assessments_due", "next_attempt_at",
+              postgresql_where=sa_text("state IN ('pending', 'running')")),
+        Index("ix_learning_assessments_user", "user_id", "updated_at"),
+        Index("ix_learning_assessments_conversation", "conversation_id"),
+    )
+
+
+class LearningAssessmentEvidence(Base):
+    """Evidence attached to an assessment beyond what its window shows (a memory correction of the message, a
+    later message another assessment found relevant, a capture that arrived late, the user's note), once each."""
+
+    __tablename__ = "learning_assessment_evidence"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    ref: Mapped[str] = mapped_column(String(100), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "ref", name="uq_learning_assessment_evidence"),
+        Index("ix_learning_assessment_evidence_ref", "user_id", "ref"),
+    )
+
+
+class LearningAssessmentRevision(Base):
+    """One evaluation of an assessment, kept whole: what it read (digest), each investigation round, what the
+    evaluator proposed and code kept or dropped, the conclusions, and which revision superseded it."""
+
+    __tablename__ = "learning_assessment_revisions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    evaluator: Mapped[str] = mapped_column(String(120), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(32), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    dropped: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    rounds: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    cause_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    stop_reason: Mapped[str] = mapped_column(String(24), nullable=False)
+    independent: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    explanation: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    usage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    superseded_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("outcome", ASSESSMENT_OUTCOMES), name="ck_learning_assessment_revisions_outcome"),
+        CheckConstraint(_in("stop_reason", ASSESSMENT_STOPS), name="ck_learning_assessment_revisions_stop"),
+        UniqueConstraint("assessment_id", "revision", name="uq_learning_assessment_revisions"),
+    )
+
+
+class LearningAssessmentLink(Base):
+    """What one revision linked to, as opaque refs: its targets (with status), the records a cause is about
+    (with component and status), and everything it cited. How later evidence and forgetting find assessments."""
+
+    __tablename__ = "learning_assessment_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(12), nullable=False)
+    ref: Mapped[str] = mapped_column(String(100), nullable=False)
+    component: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(_in("role", ASSESSMENT_LINK_ROLES), name="ck_learning_assessment_links_role"),
+        UniqueConstraint("assessment_id", "revision", "role", "ref", "component", name="uq_learning_assessment_links"),
+        Index("ix_learning_assessment_links_ref", "user_id", "ref"),
+    )
+
+
+class LearningAssessmentUse(Base):
+    """A conclusion another owner acted on (today: training examples flagged for review). When a newer revision
+    changes the conclusions, the use becomes ``reconsider`` and its owner is told; the owner decides what changes."""
+
+    __tablename__ = "learning_assessment_uses"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    consumer: Mapped[str] = mapped_column(String(32), nullable=False)
+    ref: Mapped[str] = mapped_column(String(100), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    noted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(_in("state", ASSESSMENT_USE_STATES), name="ck_learning_assessment_uses_state"),
+        UniqueConstraint("assessment_id", "consumer", "ref", name="uq_learning_assessment_uses"),
+        Index("ix_learning_assessment_uses_ref", "user_id", "consumer", "ref"),
+    )

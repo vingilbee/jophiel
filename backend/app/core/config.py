@@ -271,6 +271,22 @@ class Settings(BaseSettings):
     # The user's learning setting: Columbina may turn her decisions into training examples without asking each
     # time. Off: nothing new is derived (existing examples stay, and stay deletable).
     learning_derive_examples: bool = True
+    # Retrospective assessment (docs/learning-system/02-implementation.md; services/learning_assessment.py): what
+    # feedback or an outcome says about what she did. Corrections, complaints and execution failures are assessed
+    # automatically; ordinary exchanges are sampled at this rate (by message id, so a retry samples the same).
+    # An assessment waits SETTLE seconds after its trigger (a burst of failures, the reply to a correction) and up to
+    # TRIAGE_WAIT for Student 1's capture of the message. WINDOW: conversation lines shown before the trigger at
+    # first (an investigation can look further back, doubling it). MAX_CHARS: the most evidence read at once.
+    learning_assessment_model: str = "gpt-6-luna"
+    learning_assessment_reasoning_effort: str | None = "low"
+    learning_assessment_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    learning_assessment_sample_rate: float = Field(default=0.1, ge=0.0, le=1.0)
+    learning_assessment_settle_seconds: float = Field(default=60.0, ge=0)
+    learning_assessment_triage_wait_seconds: float = Field(default=120.0, ge=0)
+    learning_assessment_window_messages: int = Field(default=12, ge=2, le=200)
+    learning_assessment_max_chars: int = Field(default=60000, ge=4000)
+    learning_assessment_max_attempts: int = Field(default=4, ge=1)
+    learning_assessment_log_path: str = "var/learning_assessment.jsonl"
     # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
     # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
     # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is
