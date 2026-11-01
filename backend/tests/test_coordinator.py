@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.ai.mind.hard import HardThought
 from app.ai.state.decisions import ResultDecision
+from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, CoordinatorOutput, CoordinatorWork
 from app.services import chat as chat_service
 from app.services import cognition_decisions, cognitive_live, coordinator, recall_references, student_two
@@ -27,13 +28,15 @@ REPLY = ("Let me think ", "about that.")
 
 @pytest.fixture
 def env(db_env, monkeypatch, tmp_path):
-    settings = SimpleNamespace(
+    # Keep the production settings contract while scripting the local decision provider.
+    settings = get_settings().model_copy(update=dict(
+        cognition_decision_provider="student",
         shared_state_log_path=str(tmp_path / "shared.jsonl"),
         cognitive_live_student="on", cognitive_live_character=False, cognitive_live_student_dir=None,
         recall_enabled=True, mind_enabled=False, mind_inner_state_enabled=False, memory_manager_enabled=False,
         cognition_student_log_path=str(tmp_path / "student_two.jsonl"),
         shared_state_work_deadline_seconds=180, coordinator_queue_name="q", redis_url=None,
-        recall_tool_calls_per_reply=3)
+        recall_tool_calls_per_reply=3))
     for module in (shared_state, coordinator, student_two, background_components):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     for module in (shared_state, coordinator, chat_worker, background_components):

@@ -89,7 +89,7 @@ def test_real_worker_loops_progress_while_mind_is_held(bg,monkeypatch,adapters):
     try:
         assert started.wait(8)
         wait_for(lambda:job_done(first));mark('first_immediate_reply_completed')
-        bg.calls['jev']=('not_required','not_required')
+        bg.calls['student']=('not_required','not_required')
         with bg.db() as db:
             other=create_conversation(db,bg.user)
             item=memory_manager.note_commitment(db,bg.user.id,'Synthetic overdue fixture',owner='user',
