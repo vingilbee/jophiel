@@ -1,5 +1,10 @@
 """Student 2 live: read her situation from the stores, ask the decision model, carry out what it decides.
 
+The default provider is EventTeacher's single structured decision call. Full training examples go to
+qwen-6/live_teacher.jsonl on a background writer when the caller logs the decision. Pending writes drain on
+normal process exit; an abrupt process termination can lose queued examples. No training conversion runs here.
+Set COGNITION_DECISION_PROVIDER=student to use the local model described below instead.
+
 The model is whatever ``COGNITION_STUDENT_DIR`` points at: a folder made by ``scripts/student_model.py prepare``,
 served by ``scripts/student_model.py serve`` at ``COGNITION_STUDENT_URL``. Its ``student.json`` says how to talk to
 it (system prompt, how its training situations were rendered, chat-template switches), so swapping qwen-4 for
@@ -20,6 +25,7 @@ One JSON line per decision in ``COGNITION_STUDENT_LOG_PATH`` (ids, choices, timi
 from __future__ import annotations
 
 import json
+import fcntl
 import logging
 import os
 import time
@@ -27,6 +33,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -47,6 +54,7 @@ logger = logging.getLogger(__name__)
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 THOUGHT_WINDOW = timedelta(minutes=15)
 GOALS_SHOWN = 4
+_capture_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="teacher-data")
 
 
 def _path(path: str) -> str:
@@ -72,6 +80,8 @@ def manifest() -> dict[str, Any]:
 
 def rendering() -> str | None:
     """How the served model's training situations were rendered (None: unknown or no model)."""
+    if get_settings().cognition_decision_provider == "teacher":
+        return "memory-v1"
     try:
         return manifest().get("rendering")
     except (OSError, ValueError):
@@ -308,6 +318,7 @@ class Outcome:
     error: str | None = None
     effect: str | None = None  # what ``apply`` did with the work part
     decision_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    teacher_capture: dict[str, Any] | None = field(default=None, repr=False)
 
     @property
     def ok(self) -> bool:
@@ -328,6 +339,8 @@ def _ask(model: dict[str, Any], text: str) -> str:
 def decide(live: S.Live, ask=None) -> Outcome:
     """One decision. Never raises: what went wrong is the outcome's status and error."""
     started = time.monotonic()
+    if get_settings().cognition_decision_provider == "teacher":
+        return _teacher_decide(live, started, ask=ask)
     try:
         model = manifest()
     except (OSError, ValueError) as exc:
@@ -343,6 +356,69 @@ def decide(live: S.Live, ask=None) -> Outcome:
     problems = [unreadable] if unreadable else S.check(decision, situation)
     return Outcome("invalid" if problems else "ok", situation, None if unreadable else decision, problems,
                    model.get("name"), round((time.monotonic() - started) * 1000))
+
+
+@lru_cache(maxsize=1)
+def _teacher_client(api_key: str, timeout: float):
+    from openai import OpenAI
+
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=0)
+
+
+def _ask_teacher(model: dict[str, Any], text: str) -> str:
+    s = get_settings()
+    result = _teacher_client(s.openai_api_key, s.cognition_teacher_timeout_seconds).chat.completions.create(
+        model=model["name"], store=False, reasoning_effort="low", max_completion_tokens=4000,
+        messages=[{"role": "system", "content": model["system"]}, {"role": "user", "content": text}],
+        response_format={"type": "json_schema", "json_schema": {
+            "name": "event_decide", "strict": True, "schema": model["schema"]}})
+    return result.choices[0].message.content or ""
+
+
+def _teacher_decide(live: S.Live, started: float, *, ask=None) -> Outcome:
+    """Only EventTeacher's decision call: no sample reply, critic, or additional training samples."""
+    from app.ai.Cognitive.simple import events as E
+    from app.services.cognitive_live import character_page
+
+    s = get_settings()
+    outcome = Outcome("unavailable", model=s.cognition_teacher_model)
+    capture = {"format_version": 1, "at": datetime.now(timezone.utc).isoformat(),
+               "snapshot_version": E.SNAPSHOT_VERSION, "decision_version": E.DECISION_VERSION,
+               "rendering": "memory-v1", "reasoning_effort": "low", "max_completion_tokens": 4000}
+    outcome.teacher_capture = capture
+    try:
+        situation = S.snapshot(live)
+        outcome.situation = situation
+        text = S.render(situation, "memory-v1")
+        model = {"name": s.cognition_teacher_model,
+                 "system": f'{E.prompt("decide_events_v1")}\n\n{E.SCHEMA_GUIDE}\n\nCHARACTER PAGE\n{character_page()}',
+                 "schema": E.decision_schema([ref for ref, _ in E.candidates(situation.snapshot)])}
+        capture.update(snapshot=situation.snapshot, refs=situation.refs, prompt=text,
+                       system=model["system"], schema=model["schema"])
+        output = (ask or _ask_teacher)(model, text)
+        capture["raw_output"] = output
+        decision, unreadable = S.parse(output)
+        outcome.decision = None if unreadable else decision
+        outcome.problems = [unreadable] if unreadable else S.check(decision, situation)
+        outcome.status = "invalid" if outcome.problems else "ok"
+    except Exception as exc:  # a provider failure is degraded cognition, never a Qwen fallback
+        logger.exception("student_two: teacher decision failed")
+        outcome.error = f"{type(exc).__name__}: {exc}"[:200]
+    outcome.latency_ms = round((time.monotonic() - started) * 1000)
+    return outcome
+
+
+def _append_capture(path: str, line: str) -> None:
+    """One writer per process, with a file lock for API/worker processes sharing the capture file."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            f.write(line)
+            f.flush()
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        logger.exception("student_two: teacher training capture failed (%s)", path)
 
 
 # --------------------------------------------------------------------------- #
@@ -409,7 +485,20 @@ def apply(db: Session, outcome: Outcome, *, user_id: uuid.UUID, message_id: uuid
 
 
 def log(outcome: Outcome, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigger: str) -> None:
-    """The decision's trace line: no message text, no words she meant to say."""
+    """Summary trace plus, for the teacher, a full training example on the background writer."""
+    if outcome.teacher_capture is not None:
+        try:
+            capture = outcome.teacher_capture | {
+                "decision_id": outcome.decision_id, "user_id": str(user_id),
+                "conversation_id": str(conversation_id) if conversation_id else None, "trigger": trigger,
+                "model": outcome.model, "status": outcome.status, "latency_ms": outcome.latency_ms,
+                "error": outcome.error, "problems": outcome.problems, "decision": outcome.decision,
+                "effect": outcome.effect, "training_eligible": outcome.ok, "review_status": "unreviewed"}
+            # Freeze the record before handing it to another thread; later state changes cannot alter it.
+            line = json.dumps(capture, ensure_ascii=False) + "\n"
+            _capture_writer.submit(_append_capture, _path(get_settings().cognition_teacher_data_path), line)
+        except Exception:
+            logger.exception("student_two: queuing teacher training capture failed")
     try:
         d = outcome.decision or {}
         record = {"at": datetime.now(timezone.utc).isoformat(), "decision": outcome.decision_id,

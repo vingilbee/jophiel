@@ -252,6 +252,11 @@ class Settings(BaseSettings):
     cognition_student_url: str = "http://127.0.0.1:8792"
     cognition_student_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     cognition_student_log_path: str = "var/student_two.jsonl"
+    # Live Student 2 uses the teacher's single decision call; student keeps the local Qwen option.
+    cognition_decision_provider: Literal["teacher", "student"] = "teacher"
+    cognition_teacher_model: str = "gpt-6-luna"
+    cognition_teacher_timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    cognition_teacher_data_path: str = "var/cognitive_simple/qwen-6/live_teacher.jsonl"
     # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
     # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
     # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is

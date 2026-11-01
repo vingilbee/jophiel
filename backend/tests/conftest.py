@@ -36,3 +36,5 @@ def _no_served_student(monkeypatch):
         raise ConnectionRefusedError("no decision model in tests")
 
     monkeypatch.setattr(student_two, "_ask", refuse)
+    monkeypatch.setattr(student_two, "_ask_teacher", refuse)
+    monkeypatch.setattr(student_two.get_settings(), "cognition_decision_provider", "student")
