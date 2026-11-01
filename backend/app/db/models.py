@@ -21,8 +21,8 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Computed, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -274,6 +274,10 @@ class Conversation(Base, TimestampMixin):
     )
 
 
+CHAT_MESSAGE_SEARCH_EXPRESSION = ("to_tsvector('english'::regconfig, CASE WHEN heard_chars IS NULL THEN content "
+                                  "ELSE left(content, heard_chars) END)")
+
+
 class ChatMessage(Base, TimestampMixin):
     """A single turn within a conversation (a user prompt or an assistant reply)."""
 
@@ -286,6 +290,8 @@ class ChatMessage(Base, TimestampMixin):
         CheckConstraint("conversation_sequence >= 1", name="ck_chat_messages_conversation_sequence"),
         # Interrupted replies, for observation recovery (services/observation_adapters._sweep_heard).
         Index("ix_chat_messages_heard", "created_at", postgresql_where=text("heard_chars IS NOT NULL")),
+        # Transcript search (stage 5, services/transcript_search.py): what was said, as far as it was heard.
+        Index("ix_chat_messages_search", "search_tsv", postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -323,6 +329,10 @@ class ChatMessage(Base, TimestampMixin):
     # `content` keeps the full generated text; history and memory read the
     # heard part via services/heard.py.
     heard_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # What transcript search matches (stage 5): the heard part only, kept by Postgres itself. Its last word may be
+    # half heard; services/transcript_search.py checks every hit against the text snapped to a whole word.
+    search_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed(CHAT_MESSAGE_SEARCH_EXPRESSION, persisted=True), nullable=True, deferred=True)
     # The message's durable position in its conversation ledger
     # (dialogue-message-order-v0.1). Allocated by a BEFORE INSERT trigger under
     # the conversation row lock -- never by the application, never reused, and
@@ -2024,6 +2034,9 @@ class RecallReference(Base):
     episode_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A transcript passage she was given (stage 5): its owner is checked by a trigger (messages have no user column).
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
     target_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     span_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -2033,7 +2046,8 @@ class RecallReference(Base):
 
     __table_args__ = (
         CheckConstraint(f"relation IN ({_in(RECALL_RELATIONS)})", name="ck_recall_references_relation"),
-        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id) = 1", name="ck_recall_references_target"),
+        CheckConstraint("num_nonnulls(fact_id, episode_id, event_id, item_id, message_id) = 1",
+                        name="ck_recall_references_target"),
         CheckConstraint("(span_start IS NULL) = (span_end IS NULL) AND (span_start IS NULL OR "
                         "(span_start >= 0 AND span_end > span_start))", name="ck_recall_references_span"),
         CheckConstraint("relation = 'referenced' OR span_start IS NULL", name="ck_recall_references_supplied_span"),
@@ -2048,13 +2062,32 @@ class RecallReference(Base):
         ForeignKeyConstraint(["item_id", "user_id"], ["working_items.id", "working_items.user_id"],
                              ondelete="CASCADE", name="fk_recall_references_item"),
         Index("uq_recall_references_supplied", "receipt_id", "fact_id", "episode_id", "event_id", "item_id",
-              unique=True, postgresql_where=sa_text("relation = 'supplied'"), postgresql_nulls_not_distinct=True),
+              "message_id", unique=True, postgresql_where=sa_text("relation = 'supplied'"), postgresql_nulls_not_distinct=True),
         Index("ix_recall_references_receipt", "receipt_id"),
         Index("ix_recall_references_event", "event_id", postgresql_where=sa_text("event_id IS NOT NULL")),
         Index("ix_recall_references_item", "item_id", postgresql_where=sa_text("item_id IS NOT NULL")),
         Index("ix_recall_references_fact", "fact_id", postgresql_where=sa_text("fact_id IS NOT NULL")),
         Index("ix_recall_references_episode", "episode_id", postgresql_where=sa_text("episode_id IS NOT NULL")),
+        Index("ix_recall_references_message", "message_id", postgresql_where=sa_text("message_id IS NOT NULL")),
     )
+
+
+RECALL_REFERENCE_MESSAGE_OWNER_DDL = """
+CREATE OR REPLACE FUNCTION recall_references_message_owner_check() RETURNS trigger AS $$
+BEGIN
+    IF NEW.message_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM chat_messages m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = NEW.message_id AND c.user_id = NEW.user_id) THEN
+        RAISE EXCEPTION 'a recalled message must belong to its owner' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER recall_references_message_owner_check BEFORE INSERT OR UPDATE ON recall_references
+    FOR EACH ROW EXECUTE FUNCTION recall_references_message_owner_check();
+"""
+event.listen(RecallReference.__table__, "after_create",
+             DDL(RECALL_REFERENCE_MESSAGE_OWNER_DDL).execute_if(dialect="postgresql"))
 
 
 RECALL_HISTORY_STATUSES = ("complete", "partial", "no_history", "failed")
@@ -2471,7 +2504,8 @@ class MemoryConflict(Base):
     )
 
 
-MEMORY_FORGET_STATUSES = ("pending", "done", "nothing_found", "failed")
+# ``partial``: forgotten, but some messages that also held other things are set aside whole from memory.
+MEMORY_FORGET_STATUSES = ("pending", "done", "partial", "nothing_found", "failed")
 
 
 class MemoryForget(Base):
@@ -2492,6 +2526,9 @@ class MemoryForget(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
     request: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)  # pending only
     removed: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
+    # Hashes of the request's word stems (stage 5), kept once it's done: a reply that went back over the forgotten
+    # history can't make memory learn it again. No words, only hashes.
+    fence: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                       nullable=False)
@@ -2520,11 +2557,73 @@ class MemoryForgottenSource(Base):
     message_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Which characters of the message are about what was forgotten, as [start, end) pairs (stage 5); null: the
+    # whole message (it couldn't be separated safely). Memory reads the rest; transcript search keeps it all.
+    spans: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     __table_args__ = (
         ForeignKeyConstraint(["forget_id", "user_id"], ["memory_forgets.id", "memory_forgets.user_id"],
                              ondelete="CASCADE", name="fk_memory_forgotten_sources_forget"),
         Index("ix_memory_forgotten_sources_message", "user_id", "message_id"),
+    )
+
+
+class ChatMessageEmbedding(Base):
+    """A message's embedding for transcript search by meaning (stage 5, services/transcript_search.py): what was
+    said, as far as it was heard, filled in the background. Search works without it (by words); a vector whose
+    fingerprint no longer matches the heard text is ignored and filled again."""
+
+    __tablename__ = "chat_message_embeddings"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
+    vector: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(RECALL_EMBEDDING_STATUSES)})", name="ck_chat_message_embeddings_status"),
+        CheckConstraint("(status = 'done') = (vector IS NOT NULL)", name="ck_chat_message_embeddings_vector"),
+        Index("ix_chat_message_embeddings_user", "user_id", postgresql_where=sa_text("status = 'done'")),
+        Index("ix_chat_message_embeddings_due", "status", "next_attempt_at"),
+    )
+
+
+MEMORY_UPKEEP_VERDICTS = ("different", "merged", "skipped")
+
+
+class MemoryUpkeepPair(Base):
+    """Two current facts upkeep looked at as possible duplicates (services/memory_upkeep.py, stage 5), and what it
+    decided. ``different`` pairs aren't judged again until either fact's fingerprint changes. Content-free: ids and
+    fingerprints only. A merged pair's duplicate is gone (its row with it); the row then keeps only the verdict."""
+
+    __tablename__ = "memory_upkeep_pairs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    fact_a: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fact_b: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fingerprint_a: Mapped[str] = mapped_column(String(32), nullable=False)
+    fingerprint_b: Mapped[str] = mapped_column(String(32), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(120), nullable=True)  # a code reason, never memory text
+    judged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"verdict IN ({_in(MEMORY_UPKEEP_VERDICTS)})", name="ck_memory_upkeep_pairs_verdict"),
+        CheckConstraint("fact_a < fact_b", name="ck_memory_upkeep_pairs_order"),
+        ForeignKeyConstraint(["fact_a", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_upkeep_pairs_a"),
+        ForeignKeyConstraint(["fact_b", "user_id"], ["semantic_memories.id", "semantic_memories.user_id"],
+                             ondelete="CASCADE", name="fk_memory_upkeep_pairs_b"),
+        UniqueConstraint("fact_a", "fact_b", name="uq_memory_upkeep_pairs"),
+        Index("ix_memory_upkeep_pairs_user", "user_id", "judged_at"),
     )
 
 

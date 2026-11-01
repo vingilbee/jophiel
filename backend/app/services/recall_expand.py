@@ -36,7 +36,7 @@ from app.db.models import (
     ChatMessage, Conversation, DesktopSession, DesktopSessionEvent, EpisodicMemory, GameExperience, MemoryEvent,
     MemoryEvidence, MindThought, Observation, SemanticMemory, WorkingItem,
 )
-from app.services import heard, recall
+from app.services import recall
 
 log = logging.getLogger(__name__)
 
@@ -331,16 +331,21 @@ def _passages(walk: _Walk, seeds: list[MemoryRecord], scope: set[uuid.UUID] | No
                               record.context_label, in_scope, status, record.source_label, record)
 
     if by_kind.get("message"):
+        from app.services import memory_forget
+
+        wanted = [uuid.UUID(i) for i in by_kind["message"]]
+        # What was forgotten never comes back through a memory's sources: its spans are marked, a message fenced
+        # whole is left out (docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md, stage 5).
+        cuts = memory_forget.memory_cuts(walk.db, user_id, wanted)
         for message in walk.scalars(select(ChatMessage).join(Conversation, Conversation.id == ChatMessage.conversation_id)
-                                    .where(Conversation.user_id == user_id,
-                                           ChatMessage.id.in_([uuid.UUID(i) for i in by_kind["message"]]))):
+                                    .where(Conversation.user_id == user_id, ChatMessage.id.in_(wanted))):
             node = NodeRef("message", str(message.id))
             content = message.content or ""
-            if message.role == "user":
-                speaker, text = "user", content
-            else:
-                # Her words count only as far as the user heard them, and only as hers.
-                speaker, text = "columbina", heard.heard_text(content, message.heard_chars)
+            # Her words count only as far as the user heard them, and only as hers.
+            text = memory_forget.memory_view(content, message.heard_chars, message.role, cuts.get(message.id, False))
+            if text is None:
+                continue
+            speaker = "user" if message.role == "user" else "columbina"
             said = recall._utc(message.created_at)
             drafts[node] = _Draft(node, speaker, text, said, (said, 0, message.conversation_sequence or 0),
                                   _digest("message", message.id, content, message.heard_chars))

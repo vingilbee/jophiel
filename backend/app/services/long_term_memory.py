@@ -145,8 +145,8 @@ EARLIER_MESSAGES = 6  # before the latest exchange, so "yes, always" or a repeat
 
 
 def _earlier_messages(db: Session, conversation_id: uuid.UUID, before_message_id: uuid.UUID) -> list[str]:
-    """The few messages before the extracted exchange, oldest first, as "USER: ..." lines. A message something
-    forgotten came from is left out (services/memory_forget.py): memory never reads it again."""
+    """The few messages before the extracted exchange, oldest first, as "USER: ..." lines. What was forgotten is
+    left out (services/memory_forget.py): its spans are marked, a message fenced whole is skipped."""
     from app.services import memory_forget
 
     before = db.get(ChatMessage, before_message_id)
@@ -159,12 +159,13 @@ def _earlier_messages(db: Session, conversation_id: uuid.UUID, before_message_id
         .limit(EARLIER_MESSAGES)
     ).all()
     conversation = db.get(Conversation, conversation_id)
-    forgotten = memory_forget.forgotten_messages(db, conversation.user_id, [m.id for m in rows]) if conversation else set()
+    cuts = memory_forget.memory_cuts(db, conversation.user_id, [m.id for m in rows]) if conversation else {}
     lines = []
     for message in reversed(rows):
-        if message.id in forgotten:
-            continue
-        text = heard_text(message.content, message.heard_chars) if message.role == "assistant" else message.content
+        text = memory_forget.memory_view(message.content, message.heard_chars, message.role,
+                                         cuts.get(message.id, False))
+        if text is None:
+            continue  # the whole message is fenced
         text = " ".join(text.split())
         if text:
             lines.append(f"{message.role.upper()}: {text}")
@@ -497,12 +498,29 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
     db.commit()
     try:
         turn = _turn_for_job(db, job)
-        from app.services import memory_conflicts, memory_forget
+        from app.services import memory_conflicts, memory_corrections, memory_forget
 
-        if turn is not None and memory_forget.forgotten_messages(db, job.user_id, [turn[2]]):
-            # Something from this message was forgotten (a late or retried job): it is never read again.
-            logger.info("Memory job %s: its message was forgotten; nothing extracted", job_id)
-            turn = None
+        fence: set[str] = set()
+        if turn is not None:
+            # What was forgotten is never read again (a late or retried job): its spans are marked, a message
+            # fenced whole gives nothing.
+            cuts = memory_forget.memory_cuts(db, job.user_id, [turn[2], job.assistant_message_id])
+            user_text = memory_forget.memory_view(turn[0], None, "user", cuts.get(turn[2], False))
+            if user_text is None:
+                logger.info("Memory job %s: its message was forgotten; nothing extracted", job_id)
+                turn = None
+            else:
+                reply = turn[1]
+                if job.assistant_message_id in cuts:
+                    assistant = db.get(ChatMessage, job.assistant_message_id)
+                    reply = memory_forget.memory_view(assistant.content, assistant.heard_chars, "assistant",
+                                                      cuts[assistant.id]) or ""
+                fence = memory_forget.history_fence(db, job.user_id, job.assistant_message_id)
+                if fence:
+                    # Her reply went back over forgotten history: what she told them of it is history, not
+                    # something to learn again (docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md, stage 5).
+                    reply = ""
+                turn = (user_text, reply, turn[2])
         earlier = _earlier_messages(db, job.conversation_id, turn[2]) if turn else []
 
         from app.services import memory_entities
@@ -519,6 +537,23 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
         extraction = _extract(turn[0], turn[1], earlier, known, entities=memory_entities.lines(by_ref),
                               plans=_plan_lines(plans), said=memory_time.anchor(said_at, zone)) if turn else MemoryExtraction()
         candidates = extraction.memories
+        if turn is not None and extraction.forget:
+            # A message asking to forget something never writes it again, nor rewrites an older memory of it (that
+            # would make the older one look like the asking message's own and keep it out of the forget's reach).
+            # Its other wishes ("don't keep health stuff") stay.
+            said = memory_corrections._norm(turn[0])
+            for request in extraction.forget:
+                if memory_corrections._contains(said, memory_corrections._norm(request.user_words)):
+                    fence |= memory_forget.fence_hashes(request.user_words) | memory_forget.fence_hashes(request.about)
+        if fence:
+            kept = [c for c in candidates if c.operation == "forget" or not (memory_forget.fence_hashes(
+                " ".join([c.content, c.normalized_key.replace(":", " ").replace("_", " "), c.value or "",
+                          c.user_words or ""]))
+                & fence)]
+            if len(kept) < len(candidates):
+                logger.info("Memory job %s: %d memories about forgotten history not kept", job_id,
+                            len(candidates) - len(kept))
+            candidates = kept
         source_message_id = turn[2] if turn else None
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         shown_by_key = {m.normalized_key: m for m in shown}
@@ -745,6 +780,8 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
 
 def next_pending_job_id(db: Session) -> uuid.UUID | None:
     now = datetime.now(timezone.utc)
+    from app.services import memory_forget
+
     return db.scalar(
         select(MemoryJob.id)
         .where(
@@ -752,7 +789,9 @@ def next_pending_job_id(db: Session) -> uuid.UUID | None:
                 MemoryJob.status == "pending",
                 (MemoryJob.status == "processing")
                 & (MemoryJob.lease_expires_at.is_(None) | (MemoryJob.lease_expires_at <= now)),
-            )
+            ),
+            # A forget asked before it is still being carried out: it waits, so it can't write what's going.
+            ~memory_forget.waiting_forget(MemoryJob.user_id, MemoryJob.created_at),
         )
         .order_by(MemoryJob.created_at)
         .limit(1)

@@ -1,6 +1,6 @@
 # Columbina memory system: connected implementation plan
 
-Date: 2026-10-30. Status: proposed design; implementation has not started in this task.
+Date: 2026-10-30. Stage-5 design aligned with user decisions on 2026-10-31; built the same day (see the status file, stage 5). For built stages and remaining gates, see [implementation status](COLUMBINA_MEMORY_SYSTEM_STATUS.md). Stage-5 details and superseding policy decisions are in the stage-5 spec (COLUMBINA_MEMORY_SYSTEM_STATUS.md, stage 5).
 
 This plan extends the current PostgreSQL, worker, recall and cognition architecture. It incorporates the small-index design and the completed memory test in [the test report](reports/memory-e2e-2026-10-30/report.md). It does not require a graph database, Markdown memory store, or wholesale replacement of the existing fact table.
 
@@ -53,23 +53,23 @@ The existing `memory_reset.py` is a broad testing/reset utility. It is not the i
 
 Create a compact, derived view named distinctly from `core_memory`, for example `user_memory_core`. It contains references to current canonical records, not another independently editable copy of their facts.
 
-Include standing constraints such as the peanut allergy and explicit privacy preferences. Use a deterministic, indexed lookup for these records; semantic-search failure must not remove them. Include a bounded relationship directory or selected relationship pointers so “my sister” can resolve to the correct entity. Multiple sisters or ambiguous roles must remain ambiguous rather than arbitrarily selecting Nora.
+Include standing constraints such as the peanut allergy. Explicit privacy preferences guide conversational judgment; they do not add special search authorization gates or automatic sensitive-topic hiding. Use a deterministic, indexed lookup for these records; semantic-search failure must not remove them. Include a bounded relationship directory or selected relationship pointers so “my sister” can resolve to the correct entity. Multiple sisters or ambiguous roles must remain ambiguous rather than arbitrarily selecting Nora.
 
 Constraint status, scope and uncertainty must remain visible. A broad privacy preference is not automatic authorization to erase every health fact; execute the scope requested by the user. For the regression fixture, forgetting the knee must preserve the allergy.
 
-### Small topic index
+### Small topic directory (built on read)
 
-Maintain owner-scoped entries such as:
+Stage-5 decision: build an owner-scoped directory from current eligible records when read, rather than storing a separately rebuilt index. It covers facts, episodes (including standalone episodes) and working items. Example entries:
 
 - Family: sister Nora; residence history and visit plan available → entity and record references.
 - Pets: dog Pretzel; childhood cat Biscuit → entities and independent claims.
 - Activities: pottery class; schedule history available → class, schedule and source references.
 
-An entry has a topic/entity key, short routing description, referenced record IDs, source/content versions, index generation and freshness state. It helps choose records and supports broad-rundown coverage. It is never the only copy of a detail and never silently outranks the underlying fact.
+An entry has a topic/entity key, short routing description, referenced record IDs and current content versions. Counts and examples come from a consistent read, with omitted domains, pages and stores stated explicitly. It helps choose records and supports broad-rundown coverage. It is never the only copy of a detail and never silently outranks the underlying fact.
 
 Keep the prompt-visible index small. The complete searchable directory can be larger. Select relevant entries plus a bounded topic inventory for broad requests; do not place an unbounded list of people or facts in every prompt.
 
-Index maintenance is incremental and idempotent. A committed mutation invalidates affected entries immediately; background rebuilding may follow. Readers must fetch current records or bypass stale entries. Forgetting invalidates entries before acknowledging completion. A stale rebuild must be fenced by its generation so it cannot resurrect deleted content.
+There is no stored topic index or background rebuild in stage 5. Construct the directory from current eligible records, respecting forget fences and dependency state. Entity/relationship routing for initial recall remains required; the full rundown is available through a tool rather than injected into every prompt. Forgetting excludes the affected active records before acknowledging completion.
 
 ### Detailed stores
 
@@ -161,7 +161,7 @@ Introduce a versioned typed bundle shared by the turn services:
 - Search status: matched, no_match, partial, unavailable; searched stores and omitted coverage.
 - Current constraints and claims, historical claims, future plans, unresolved conflicts and relevant open items in distinct sections.
 - Stable record references, content versions, evidence/source references, temporal precision and uncertainty.
-- Index generation and dependency validity; stale and unchecked records clearly marked.
+- Directory as-of state, record versions and dependency validity; stale and unchecked records clearly marked.
 - Bounded rendered text plus machine-readable records, available expansions and budget usage.
 
 Student 1's memory-related reading, Student 2 and the mouth must receive consistent evidence versions. They can receive different sized renderings, but consumer-specific receipts must identify exactly what each saw. Never silently replace the evidence after a decision without recording the delta and reconsidering a decision whose premises changed.
@@ -178,15 +178,15 @@ Additional searches use the existing tools/coordinator with an explicit query, p
 
 ### Retrieval strategies
 
-| Request | Initial strategy and expansion |
+| Request | Retrieval strategy and expansion |
 | --- | --- |
 | Dog name | Resolve pet entity; current name claim; identity corrections when needed |
 | “My sister in Lisbon” | Resolve relationship without requiring “Nora”; fetch residence and open conflicts |
 | Dinner/snack | Standing allergy constraints plus participants' food preferences |
 | Pottery current time/history | Current schedule, superseded schedule and supporting messages |
 | Visit date | Future plan, scheduled interval, original time expression and uncertainty |
-| Earlier rivers/oceans answer | Owner-scoped delivered/heard assistant transcript search |
-| Quick rundown | Index-guided coverage across domains, current records and explicit coverage limits |
+| Earlier rivers/oceans answer | Tool-only owner-scoped delivered/heard transcript search; exact and differently worded questions must pass |
+| Quick rundown | Read-time directory tool covering facts, episodes and working items; consistent counts and explicit omissions |
 
 For same-turn discrepancies, retrieving a disagreeing fact permits an uncertain clarification, not a persistent overwrite. Background consolidation remains the durable conflict writer unless a later design explicitly moves that operation. Distinguish a provisional comparison from a persisted conflict so the two paths cannot create duplicates or disagree about settlement.
 
@@ -194,11 +194,11 @@ For same-turn discrepancies, retrieving a disagreeing fact permits an uncertain 
 
 Create a dedicated user-facing operation service, separate from memory_reset. Detect a plausible forget request before ordinary response routing; use a typed intent resolver where language is ambiguous. Validate and resolve its target scope from the user's own words and relevant records. Ask only when the scope is genuinely unclear, not when an explicit target is already known.
 
-First fence the target against recall and autonomous use with a versioned deletion/invalidation state. Then remove or redact the applicable claims, episodes, working items, summaries, index entries, embeddings, pending proposals and retained trace payloads. Purge or invalidate replicas/caches and prevent jobs based on older source versions from reinserting it. Completion is idempotent and observable.
+First fence the target against active-memory recall and autonomous use with a versioned deletion/invalidation state. Then remove or redact the applicable claims, episodes, working items, summaries, index entries, embeddings, pending proposals and retained trace payloads. Purge or invalidate replicas/caches and prevent jobs based on older source versions from reinserting it. Completion is idempotent and observable.
 
-Original transcript retention is a separate explicit policy. “Forget this detail” need not silently erase the visible chat, but retained source spans must be excluded from future memory/transcript recall and re-extraction for that forgotten scope. “Delete this conversation” has broader semantics. Account for source references and multi-topic messages without deleting unrelated facts.
+Stage-5 policy: “forget this detail” removes active memory and stops unprompted use, while the original conversation and forget request remain searchable when the user asks to revisit history. Historical evidence must not automatically recreate active knowledge, including through background extraction or processing a retrieved transcript. Preserve unrelated source spans in multi-topic messages; if separation is uncertain, temporarily exclude the whole source from ordinary recall/extraction, retain unrelated independently stored facts and report partial completion. This fallback does not block explicit historical transcript access. Scan relevant history resumably: 30 messages is a batch size, not total coverage. Do not claim completion if scoped cleanup or source fencing is unfinished. “Delete this conversation” has broader semantics, and actual deletions remain excluded from search and receipt rereads. See the stage-5 spec §4.
 
-Keep minimal content-free tombstones/receipts where needed to prevent resurrection. Do not retain the forgotten text in a convenient audit field. Acknowledge completed forgetting only after its required operations have succeeded; if delayed or failed, report that state accurately. In the regression case, remove the knee information while retaining peanuts.
+Keep minimal content-free tombstones/receipts where needed to prevent resurrection. Do not create an audit copy of the forgotten text; retained original transcripts follow the explicit historical-access policy above. Acknowledge completed forgetting only after its required operations have succeeded; if delayed or failed, report that state accurately. In the regression case, remove the knee information while retaining peanuts.
 
 ## 9. Autonomous speech and quiet-time behavior
 
@@ -224,7 +224,7 @@ A correctness fence can suppress stale speech; it does not make memory choose to
 
 Extend existing recall/shared-state/Student 2 traces rather than creating an unrelated tracing system. Capture initial and additional recall, candidates/selection reasons where practical, supplied references and versions, the exact bounded renderings each consumer received, decision and delivery identifiers, and explicit degraded states.
 
-Exact payload retention should be configurable and time-bounded, owner-scoped, and subject to forgetting. In normal operation retain references/hashes plus the minimum needed diagnostics; detailed payload capture can be enabled for isolated tests. Include the index/core generation and temporal interpretation so later replay does not substitute today's state for answer-time evidence.
+Exact payload retention should be configurable and time-bounded, owner-scoped, and subject to forgetting. In normal operation retain references/hashes plus the minimum needed diagnostics; detailed payload capture can be enabled for isolated tests. Include the directory as-of state, core versions and temporal interpretation so later replay does not substitute today's state for answer-time evidence.
 
 Record mutation events, dependency invalidations, reconciliation attempts and terminal failures, conflict settlement, question closure, delivery suppression and duplicate prevention. Provide an inspection view connecting a source message to changed records, dependent work, recall receipts and actual speech.
 
@@ -239,7 +239,7 @@ Measure factual coverage, constraint inclusion, correction preservation, success
 | 2: Forgetting and autonomous consistency | Add scoped forgetting; explicit conflict→question dependencies; settlement events; final delivery fences; quiet-episode deduplication | Knee gone from all eligible memory paths without losing allergy; D8 closes pet question; no repeat during 15-minute idle; racing queued speech suppressed |
 | 3: Claims and time | Add stable entities/attributes, independent claims and time fields; update extractor; expand dependency/evidence endpoint schema | Name correction preserves rain aversion; December and anchored last-month recall work; multiple entities/attributes stay distinct; source-backed migration validated |
 | 4: Full dependency reconciliation | Extend stage-2 links to plans, decisions, summaries and relevant episode interpretations; replace legacy shared-source assumptions | Nonempty holds, multi-change corrections, terminal failures and concurrent updates preserve validity; no unchecked autonomous use |
-| 5: Transcript search and maintenance | Search delivered/heard transcripts; index-guided rundown; bounded deduplication and summary refresh | Rivers/oceans answer found with correct attribution; rundown covers known domains; forgetting respected by search and maintenance |
+| 5: Transcript search and maintenance | Tool-only delivered/heard transcript search; read-time rundown directory; bounded duplicate-fact merging; selective active-memory forgetting and relearning fences. No summary refresh or automatic entity merging | Exact/paraphrased rivers/oceans recall with correct attribution; rundown covers all stores and domains with omissions explicit; active forgetting survives extraction/upkeep while explicit historical access works; stored/supplied/said evidence over repeated conversational runs |
 
 Stages share the contracts from stage 0. Stage 2 uses existing fact/conflict IDs, so it need not wait for an atomic-claim migration. Stage 3 must retain or explicitly map those references. Each stage includes storage, supplied-evidence and delivered-answer checks; passing a database assertion alone is insufficient.
 
@@ -264,15 +264,15 @@ Stages share the contracts from stage 0. Stage 2 uses existing fact/conflict IDs
 | Conflict settlement with unchanged wording | known_confirmed plus dependent question resolved | No obsolete open question or unresolved annotation for the settled dog | No delayed or quiet-time repeat; waiting thought dropped with reason |
 | Real nonempty dependency hold | Related item held; unrelated item sharing the message remains usable | Pending/failed status visible | Autonomous action blocked until valid; terminal retry failure stays safe |
 | Concurrent edit or delete during thought | Expected-version write/fence rejects stale results | Fresh versions or explicit unavailability | Stale prepared speech does not deliver |
-| Forget knee | Episode/derived records removed or excluded; sources cannot re-extract it; allergy remains | No knee through search, history, transcript or cache | Completion claim truthful; health answer recalls allergy |
+| Forget knee | Named active records removed or excluded; old sources and retrieved history cannot re-extract it; unrelated allergy remains | No knee in active recall, rundown or cache; original mentions and forget request available as labelled history when asked; actual deletion still enforced | No unprompted knee recall; truthful completion/partial state; health answer retains allergy; historical access does not restore active memory |
 | December and last month | Original words plus uncertain/precise anchored intervals | Plan time distinguished from recorded time | No “this month” drift or invented precise date |
 | Historical Lisbon visit | Historical episode remains true; future destination reviewed separately | Past/current/future clearly distinguished | Does not rewrite the past |
 | Old fact outside recent extraction window | Correct older claim found and matched | Relevant old record supplied | Correct correction/conflict behavior |
-| Original assistant wording | Delivered/heard transcript searchable and attributed | Actual river/ocean answer, not reconstructed guess | Faithful answer with uncertainty if missing |
-| Broad rundown | Canonical records and index consistent | Topic coverage and omissions explicit | Useful rundown without private/forgotten facts |
+| Original assistant wording | Delivered/heard transcript searchable and attributed, including paraphrased queries | Actual river/ocean answer, not reconstructed guess; cross-user/deletion/heard checks enforced | Actual tool use and faithful answer over repeated conversational runs; uncertainty if missing |
+| Broad rundown | Read-time directory and canonical facts, episodes and working items consistent | Counts/examples agree; domain, store and page omissions explicit | Useful rundown without forgotten active facts; privacy handled by conversational judgment, without automatic count-only hiding |
 | Idle for 15 minutes / worker restart | Quiet episode and consumed question state survive | Settled/pending states current | No paraphrased repeats; speech remains Student 2's choice |
 | Student 2 invalid/incompatible / recall timeout | No unsupported mutations | Constraints retained; failure distinct from empty results | Honest bounded fallback; no invented success |
-| Cross-user references and deletion races | Database and service ownership enforced | No foreign or tombstoned content | No leakage or resurrection |
+| Cross-user references and deletion races | Database and service ownership enforced; actual deletion distinct from active-memory forget fences | No foreign or deleted content; forgotten sources available only for requested historical access | No leakage or automatic resurrection of forgotten active memory |
 
 Use unfamiliar contrast cases as well as Nora/Pretzel/Leo so the extractor and decision model cannot pass by memorizing the regression script. Record repetitions and variation in model-based results. Keep the original 14-question score comparable, and score forgetting, dependency holds, concurrency and autonomous repetition separately.
 

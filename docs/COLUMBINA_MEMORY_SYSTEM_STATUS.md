@@ -16,7 +16,7 @@ further". A memory input for Student 2 is a later snapshot version plus a model 
 | 2: forgetting and autonomous consistency | done; gate passed (e2e: 10 pass / 2 fail / 2 gaps) |
 | 3: claims and time | built (committed in `2aab645`); every gate item passes except the live e2e, not run yet (below) |
 | 4: full dependency reconciliation | built (migration `b6f2d8a4c1e7`, not applied to the dev DB); scripted gate and real-model probe pass (below) |
-| 5: transcript search and maintenance | not started |
+| 5: transcript search and maintenance | built (migration `c8e4a6f2d9b3`, not applied to the dev DB, uncommitted); scripted gate and real-model conversational gate pass (below) |
 
 ## Stage 0: ownership map and contracts
 
@@ -236,3 +236,75 @@ already makes (no extra call).
 - **Failed recheck (stage 4):** when reconciling a changed fact keeps failing, held items stay blocked for unprompted use and recall marks them "may be out of date". It retries once a day for 7 days, then they stay marked until the topic comes up again. The hold is never just lifted.
 - **Order:** 3 → 4 → 5.
 - **Transcript search (stage 5):** Postgres full-text over user messages and heard replies first; embeddings only if it misses paraphrases.
+
+## Stage 5 design decisions (2026-10-31; built, see below)
+
+The user confirmed the revised stage-5 design and authorized updating it and the parent plan. Building was approved afterwards, the same day. Earlier stage descriptions above record implementation history, not the revised target policy.
+
+- Transcript search is tool-only; the topic directory is built on read and covers facts, episodes and working items with consistent counts and explicit omissions.
+- Forgetting removes active knowledge and unprompted use. Original conversations and the forget request remain searchable when asked, but cannot automatically recreate forgotten active memories. Existing whole-message tombstones must retain their extraction protection while read paths distinguish active recall from explicit historical access. Actual deletion still blocks access.
+- Preserve unrelated spans in mixed-topic sources. If separation is uncertain, temporarily hide the whole source from ordinary recall/extraction, retain unrelated independent facts and report partial completion. Historical transcript access remains available. Thirty messages is a scan batch, not a total limit.
+- Privacy requests guide conversational judgment, without added search gates or automatic sensitive count-only displays.
+- Duplicate-fact merging must preserve temporal/qualified meaning, evidence, uncertainty and dependency validity; duplicate copies are not new confirmation. No automatic entity merging or summary refresh.
+- Completion requires repeated stored/supplied/said conversational evidence, including paraphrased transcript questions. Add message embeddings within stage 5 if required to pass that gate, superseding the earlier deferred-follow-up wording.
+
+## Stage 5: transcript search, rundown, upkeep (2026-10-31, migration `c8e4a6f2d9b3`, uncommitted)
+
+The design decisions are in the section above.
+
+### What changed
+
+- **Transcript search** (`services/transcript_search.py`): `chat_messages.search_tsv`, a generated `english` tsvector over the heard text, with a GIN index. Every word is tried first, then any word, ranked with a small recency term, and each hit on an interrupted reply is rechecked against the heard text snapped back to a whole word. When the words find too little, a meaning pass runs over `chat_message_embeddings` (cosine >= 0.3; a vector whose heard text changed since is ignored). Those embeddings are filled by the recall-embeddings worker after memory events. Searchable: the user's messages and her delivered or heard replies; failed or cancelled replies with nothing delivered are excluded, and so is the message being answered. Records are kind `message` (`message:<uuid>`) and labelled unmistakably ("Your own words (you, Columbina…)" / "The user's own words…") as history, not checked fact.
+- **Her tools:** `search_memories(kinds=["said"], who=me|user|either)` (it can be combined with the memory kinds) and `what_i_know(topic?)`, within the same 3-call budget. Transcripts are never part of the check before every message.
+- **Receipts:** `recall_references.message_id` (one more exactly-one target; a trigger checks the owner). The next reply rereads supplied passages. A passage something was forgotten from is set aside there (`references_set_aside`), but stays readable when asked for.
+- **Rundown** (`services/memory_directory.py`): built when read, from current facts, active episodes and open items, in one read-only snapshot. Grouping order: standing constraints first, then by entity (family by relation, people, pets, places, activities…), then by fact kind, experiences, or the item's activity/project context. Without a topic: up to 10 areas, each with counts and its first 3 records. With a topic: that area, paged. It always says what it left out, including what is no longer current. No area is hidden as sensitive.
+- **Forgetting** (`memory_forget.py`):
+  - The scan is resumable, in batches of 30 with no total limit up to 3,000 messages (past that the forget is `partial` and says so). It reads request-word matches before the request, the 2 messages after each match, and the matched records' sources.
+  - The judge quotes the words about the forgotten thing. Code places the quotes exactly and fences by span (`memory_forgotten_sources.spans`), or fences the whole message when it can't. A whole fence on a message that also said other things makes the forget `partial`, and recall says so.
+  - The asking message is fenced only on the request's own words. It can't write or rewrite memories sharing those words, and an older fact it touched stays within the forget's reach.
+  - Later memory jobs wait for a pending forget.
+  - Memory readers use `memory_view` (forgotten spans marked): extraction context, the job's own turn, source expansion, and hard-thought conversation lines.
+  - `memory_forgets.fence` (hashed word stems) means an exchange whose reply was given forgotten history doesn't learn it again: her reply is withheld from the extractor and memories sharing the fence are dropped. A later plain "please remember X" is not fenced.
+- **Upkeep** (`services/memory_upkeep.py`, memory worker, every 10 min, one user, at most 20 pairs per run) merges duplicate facts only, as specified in §3. Pairs judged different are kept in `memory_upkeep_pairs` by fingerprint.
+
+### Gate
+
+| Gate item | Evidence | Result |
+|---|---|---|
+| Original answer found with correct attribution; never unheard or partial-word hits | `tests/test_transcript_search.py` (word-for-word, who filter, heard-only, half-word dropped, undelivered excluded) | pass |
+| Cross-user isolation on search, paging, reread, receipts | `test_another_users_conversations_are_never_found_or_read`, `test_pages_and_filters`, the owner trigger in `test_a_supplied_passage_is_a_receipt_reference_owned_and_reread` | pass |
+| Forgotten material absent from active recall, rundown, expansion, cache; explicit history labelled | `test_memory_forget_history.py`, `test_a_message_something_was_forgotten_from_is_history_marked_and_not_carried_on`, `test_a_passage_her_last_answer_used_comes_along_to_the_next_reply_unless_it_was_forgotten` | pass |
+| No relearning from history, the request, or her replies; deletion stays deletion | `test_going_back_over_forgotten_history_never_relearns_it`, `test_the_asking_message_never_rewrites_or_restates_what_it_asks_to_forget`, the deleted-conversation reread | pass |
+| More than 30 mentions across conversations, indirect ones, retries, concurrent extraction | `test_every_mention_is_found_past_one_batch_and_indirect_ones_too` (40 mentions + 40 indirect replies), `test_a_scan_that_fails_part_way_resumes_and_never_claims_done`, `test_later_memory_jobs_wait_for_a_forget_in_progress` | pass |
+| Mixed message: unrelated spans kept; uncertain → whole, partial, allergy kept | `test_a_mixed_message_keeps_what_isnt_about_it`, `test_when_it_cant_be_separated_the_whole_message_is_set_aside_and_that_is_said` | pass |
+| Rundown covers all three stores with consistent counts and explicit gaps | `tests/test_memory_directory.py` | pass |
+| Merges keep evidence, wording, uncertainty, dependencies, receipts; no double counting; look-alikes stay separate; holds never lifted | `tests/test_memory_upkeep.py` | pass |
+| Paraphrases (required) | words alone failed 2/3 in the first real run; message embeddings added; `test_a_question_worded_unlike_the_answer_is_found_by_meaning` | pass |
+| Migration | Scratch DB: upgrade, downgrade, re-upgrade clean; `alembic check` shows no drift for stage-5 tables (pre-existing drift in channel/chat-job/delivery tables) | pass |
+| Real conversational gate | `scripts/memory_stage5_probe.py 3` (2026-10-31, gpt-6-luna, real tools, extractor and forget judge) | pass, see below |
+
+**Real-model runs.** Run 1 found three problems:
+- Paraphrase questions were missed by words alone (1/3).
+- In 1 of 3 forget runs, a fact survived because the asking message's extraction re-touched it.
+- In 1 of 3 forget runs, the asking message created a preference naming the forgotten topic.
+
+Two probe checks were also wrong (curly apostrophes). After the fixes, run 2 passed 17 of 18 runs. The miss was a speaker swap: she said "You said:" for her own words, copying the old "You said" label. With the relabelling, the three speaker scenarios passed 9/9. Final results:
+
+| Scenario | Runs passing every check |
+|---|---|
+| Her own answer, exact question | 3/3 |
+| Her own answer, paraphrased question | 3/3 |
+| The user's words ("what did I say about my boiler?") | 3/3 |
+| Never said ("what did you tell me about volcanoes in Iceland?"): says she can't find it, no invented quote | 3/3 |
+| Fresh-conversation rundown (covered 6/6 areas each time, said it isn't the whole picture) | 3/3 |
+| Forget therapy/anxiety → gone, not raised unprompted, explicit history answered honestly, nothing relearned | 3/3 (run 2) |
+
+Replies and tool calls are in `backend/var/memory_stage5_probe.jsonl`.
+
+### Known limits after stage 5
+
+- Meaning search compares the newest 3,000 embedded messages in Python (no vector index). Older messages are reachable by words only.
+- The relearning fence is word-based (hashed stems of the request): a later memory about the topic in entirely different words, from an exchange that went back over the forgotten history, isn't caught.
+- A fence on a message's spans doesn't follow the quoted words if the message is later edited (messages aren't edited today).
+- Live chat history (the last 24 messages a reply sees) isn't redacted after a forget; the stage-2 behaviour is unchanged. She is told by prompt not to bring it up.
+- WhatsApp replies count as delivered when stored as completed; their delivery receipts aren't consulted.

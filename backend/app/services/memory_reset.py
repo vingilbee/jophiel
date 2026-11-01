@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     AgentEventJob, Conversation, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
-    MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource,
+    MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
     RecallReference, SemanticMemory, WorkingItem,
@@ -28,7 +28,7 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Corrections go with the consolidation that read them (their memory events, if any, are working memory).
     # Forget requests and their tombstones too: a test reset starts over (a user's forget never does this).
     # Entities (who memories are about) go after the facts and episodes that point at them.
-    "memory": (MemoryCorrection, MemoryConflict, MemoryForgottenSource, MemoryForget, SemanticMemory, EpisodicMemory,
+    "memory": (MemoryCorrection, MemoryConflict, MemoryForgottenSource, MemoryForget, MemoryUpkeepPair, SemanticMemory, EpisodicMemory,
                MemoryEntityLink, MemoryEntity, LearningMemory, MemoryJob),
     # Learned moves before attempts: they point at the attempt they came from.
     "game": (AgentEventJob, GameReflectionJob, GameExperience, GameLesson, GameProposal, GameChallenge,

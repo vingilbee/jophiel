@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "recall-receipt-v1"
 BUNDLE_VERSION = "evidence-bundle-v1"  # the reply's sectioned evidence (recall.render_bundle)
-_TARGET = {"fact": "fact_id", "episode": "episode_id", "event": "event_id", "item": "item_id"}
+_TARGET = {"fact": "fact_id", "episode": "episode_id", "event": "event_id", "item": "item_id", "message": "message_id"}
 
 
 @dataclass
@@ -64,6 +64,7 @@ class TurnRecall:
     # (refs and a hash of its rendering), so a receipt says exactly what Student 1, Student 2 and the mouth saw.
     bundle_id: uuid.UUID = field(default_factory=uuid.uuid4)
     consumers: dict[str, dict] = field(default_factory=dict)
+    user_message_id: uuid.UUID | None = None  # the message being answered: never a transcript search hit
 
     def supply(self, records: list[MemoryRecord]) -> None:
         for record in records:
@@ -179,7 +180,7 @@ def for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messag
         rendered += f"\n{forgetting}"
     turn = TurnRecall(user_id, conversation_id, zone, now, None, result, rendered,
                       recall.render_legacy(result), prior_note=note,
-                      tool_budget=get_settings().recall_tool_calls_per_reply)
+                      tool_budget=get_settings().recall_tool_calls_per_reply, user_message_id=user_message_id)
     turn.supply(result.records)
     return turn
 
@@ -211,13 +212,16 @@ def cached_for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user
     else:
         lines = ["Memories from your last answer, re-read now:"]
         lines += recall.render_records(result.records, now=now, zone=zone)
+    if result.coverage.get("references_set_aside"):
+        lines.append("(Conversation history your last answer told them was about something they asked you to "
+                     "forget: it isn't carried on as something you remember.)")
     if (result.coverage.get("references_gone") or deleted) and not note:
         lines.append("(Something your last answer used has since been removed or changed.)")
     if note:
         lines.append(f"(About these: {note}.)")
     turn = TurnRecall(user_id, conversation_id, zone, now, None, result, "\n".join(lines),
                       recall.render_legacy(result), prior_note=note,
-                      tool_budget=get_settings().recall_tool_calls_per_reply)
+                      tool_budget=get_settings().recall_tool_calls_per_reply, user_message_id=user_message_id)
     turn.supply(result.records)
     recall._log({"op": "cache_reread", "status": result.status, "refs": [str(r) for r in result.refs()],
                  "gone": len(result.coverage.get("references_gone", [])) + deleted})

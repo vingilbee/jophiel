@@ -20,7 +20,7 @@ from app.db.session import SessionLocal
 
 log = logging.getLogger(__name__)
 
-KindName = Literal["facts", "episodes", "events", "goals_and_promises"]
+KindName = Literal["facts", "episodes", "events", "goals_and_promises", "said"]
 _KIND = {"facts": "fact", "episodes": "episode", "events": "event", "goals_and_promises": "item"}
 
 
@@ -73,15 +73,18 @@ def build_recall_tools(turn) -> list[BaseTool]:
             return "Memory search FAILED: you couldn't check just now. Don't say nothing is recorded."
         if show is not None:
             return show(result)
-        turn.tool_statuses.append(result.status)
-        turn.supply(result.records)
-        return recall.render(result, now=turn.now, zone=turn.zone)
+        results = result if isinstance(result, list) else [result]
+        for one in results:
+            turn.tool_statuses.append(one.status if one.searched_kinds != ("message",) else f"said_{one.status}")
+            turn.supply(one.records)
+        return "\n\n".join(recall.render(one, now=turn.now, zone=turn.zone) for one in results)
 
     @tool
     async def search_memories(query: str, context: str | None = None, kinds: list[KindName] | None = None,
                               time_from: str | None = None, time_to: str | None = None,
                               time_basis: Literal["occurred", "scheduled", "recorded"] = "occurred",
-                              historical: bool = False, page: str | None = None) -> str:
+                              historical: bool = False, page: str | None = None,
+                              who: Literal["me", "user", "either"] = "either") -> str:
         """Search everything you remember, across every context (games, projects, ordinary talk), without
         changing what you're focused on. Use it when what you recalled for this reply isn't enough to
         answer a question about the past, or is ambiguous.
@@ -92,8 +95,24 @@ def build_recall_tools(turn) -> list[BaseTool]:
         end), worked out from the current time you know. time_basis: "occurred" (when it happened),
         "scheduled" (when it's due) or "recorded" (when it was written down). historical: true to include
         what no longer holds (finished goals, replaced facts). page: the token from a previous result.
+
+        kinds ["said"] searches what was actually said in your conversations instead (their messages, and your
+        replies as far as they heard them): for "what did you tell me about...?" or "what did I say about...?".
+        who: "me" (only what you said), "user" (only what they wrote) or "either". It's history, not checked
+        fact. With "said" and other kinds together, both are searched.
         """
+        def said(db):
+            from app.services import transcript_search
+
+            return transcript_search.search(
+                db, turn.user_id, query, now=turn.now, who=who,
+                time_range=_range(time_from, time_to, "recorded", zone),
+                exclude=(turn.user_message_id,) if turn.user_message_id else (), page_token=page)
+
         def run(db):
+            wanted = set(kinds or ())
+            if wanted == {"said"}:
+                return said(db)
             context_ids: tuple[uuid.UUID, ...] = ()
             context_query = None
             if context:
@@ -104,10 +123,12 @@ def build_recall_tools(turn) -> list[BaseTool]:
             req = RecallRequest(
                 user_id=turn.user_id, query=query, purpose="explicit_search", now=turn.now, zone=turn.zone,
                 conversation_id=turn.conversation_id, context_ids=context_ids, context_query=context_query,
-                kinds=tuple(_KIND[k] for k in kinds) if kinds else recall_references.KINDS,
+                kinds=tuple(_KIND[k] for k in kinds if k != "said") if kinds else recall_references.KINDS,
                 time_range=_range(time_from, time_to, time_basis, zone),
-                intent="historical" if historical else "relevance", limit=TOOL_LIMIT, page_token=page)
-            return recall.search(db, req)
+                intent="historical" if historical else "relevance", limit=TOOL_LIMIT,
+                page_token=None if "said" in wanted else page)
+            memories = recall.search(db, req)
+            return [memories, said(db)] if "said" in wanted else memories
         return await asyncio.to_thread(budgeted, run)
 
     @tool
@@ -146,7 +167,26 @@ def build_recall_tools(turn) -> list[BaseTool]:
                                    page_token=page)
         return await asyncio.to_thread(budgeted, run)
 
-    tools = [search_memories, read_memory, read_timeline]
+    @tool
+    async def what_i_know(topic: str | None = None, page: str | None = None) -> str:
+        """A rundown of what you know about the user, by area (family, pets, preferences, plans, experiences...),
+        each with how much is there and its first few memories, and what wasn't shown. For "what do you know
+        about me?" or a quick catch-up. topic: one area or who it's about ("family", "my sister", "pottery") for
+        that area in full. page: the token from a previous result. Counts as one memory tool call."""
+        def run(db):
+            from app.services import memory_directory
+
+            return memory_directory.build(db, turn.user_id, topic=topic, page_token=page, now=turn.now)
+
+        def show(directory) -> str:
+            from app.services import memory_directory
+
+            turn.tool_statuses.append(f"know_{directory.status}")
+            turn.supply(directory.records)
+            return memory_directory.render(directory, now=turn.now, zone=turn.zone)
+        return await asyncio.to_thread(budgeted, run, show)
+
+    tools = [search_memories, read_memory, read_timeline, what_i_know]
     from app.services import recall_history as histories
 
     def shown(run) -> str:

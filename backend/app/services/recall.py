@@ -72,7 +72,8 @@ REFERENCE_BONUS = 0.3  # the message names or points at it
 _POSSESSIVE_RE = re.compile(r"\b(?:my|our)\s+([a-z]+)(?:['’]s|s['’])?(?:\s+([a-z]+))?", re.IGNORECASE)
 _NAME_RE = re.compile(r"\b[A-Z][a-zA-Z]+")
 _WORD = re.compile(r"[A-Za-z]+")
-KIND_LABEL = {"fact": "facts", "episode": "episodes", "event": "events", "item": "goals, promises and your own conclusions"}
+KIND_LABEL = {"fact": "facts", "episode": "episodes", "event": "events", "item": "goals, promises and your own conclusions",
+              "message": "what was said in your conversations"}
 
 
 def _utc(moment: datetime | None) -> datetime | None:
@@ -235,6 +236,10 @@ def search(db: Session, req: RecallRequest) -> RecallResult:
     direct: dict[MemoryRef, MemoryRecord] = {}
     for ref in req.prior_refs:
         record = _read_one(db, req.user_id, ref, s)
+        if record is not None and record.forgotten:
+            # History she was shown when asked; never carried on as memory (docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md, stage 5).
+            s.coverage.setdefault("references_set_aside", []).append(str(ref))
+            continue
         if record is None:
             s.coverage.setdefault("references_gone", []).append(str(ref))
         else:
@@ -774,6 +779,8 @@ def _with_evidence(db: Session, records: list[MemoryRecord]) -> list[MemoryRecor
             if record.ref.kind == "event" and lifecycle is None and any(ended.get(link.id) for link in mine):
                 lifecycle = "its game session has ended"
             out.append(replace(record, evidence=evidence, lifecycle=lifecycle))
+        elif record.ref.kind == "message":
+            out.append(record)
         elif record.ref.kind == "fact":
             fact = db.get(SemanticMemory, uuid.UUID(record.ref.id))
             evidence = (Evidence("origin", "message", str(fact.source_message_id)),) if fact and fact.source_message_id else ()
@@ -828,6 +835,10 @@ def _ended_sessions(db: Session, links: list[MemoryEvidence]) -> dict[int, bool]
 
 def _read_one(db: Session, user_id: uuid.UUID, ref: MemoryRef, s: _Search | None = None) -> MemoryRecord | None:
     """The latest version of one memory, or None when it's gone or not this user's (the same answer)."""
+    if ref.kind == "message":
+        from app.services import transcript_search
+
+        return transcript_search.read(db, user_id, ref.id)
     model = {"event": MemoryEvent, "item": WorkingItem, "fact": SemanticMemory, "episode": EpisodicMemory}[ref.kind]
     row = db.get(model, int(ref.id) if ref.kind == "event" else uuid.UUID(ref.id))
     if row is None or row.user_id != user_id or getattr(row, "status", None) == "deleted":
@@ -868,17 +879,20 @@ def reread(db: Session, user_id: uuid.UUID, refs: list[MemoryRef]) -> RecallResu
     try:
         s = _Search(db, RecallRequest(user_id=user_id, query="", purpose="explicit_search",
                                       now=datetime.now(timezone.utc)))
-        records, gone = [], []
+        records, gone, aside = [], [], []
         for ref in refs:
             record = _read_one(db, user_id, ref, s)
-            if record is None:
+            if record is not None and record.forgotten:
+                aside.append(str(ref))  # history she was shown when asked: not carried on as memory
+            elif record is None:
                 gone.append(str(ref))
             else:
                 records.append(replace(record, matched=("direct_reference",)))
     except Exception:  # noqa: BLE001
         log.exception("recall: rereading %d references failed", len(refs))
         return RecallResult.failed("read_failed", tuple(sorted({r.kind for r in refs})))
-    coverage = {"source": "cache"} | ({"references_gone": gone} if gone else {})
+    coverage = ({"source": "cache"} | ({"references_gone": gone} if gone else {})
+                | ({"references_set_aside": aside} if aside else {}))
     kinds = tuple(sorted({r.kind for r in refs}))
     if not records:
         return RecallResult("not_searched", searched_kinds=kinds, coverage=coverage | {"reason": "nothing cached"})
@@ -986,7 +1000,22 @@ def _when(moment: datetime, now: datetime, zone: ZoneInfo) -> str:
 _WHOSE = {"fact": "something they told you", "episode": "an episode", "event": "an event", "item": ""}
 
 
+def _message_line(record: MemoryRecord, now: datetime, zone: ZoneInfo) -> str:
+    """A transcript passage: who said it, when, where, and that it's what was said, not a checked fact."""
+    where = f' in "{record.context_label}"' if record.context_label else ""
+    parts = [f"{origin_label(record)}, {_when(record.occurred_at, now, zone)}{where}",
+             "conversation history, not a checked fact"]
+    if record.lifecycle and "stopped it here" in record.lifecycle:
+        parts.append("the user stopped this reply here and didn't hear the rest")
+    if record.forgotten:
+        parts.append("they asked you to forget something in it: you may tell them what was said if they ask about "
+                     "that conversation, but it isn't something you remember, and don't bring it up yourself")
+    return f"- [{record.ref}] " + " · ".join(parts) + f'\n  "{record.content}"'
+
+
 def _record_line(record: MemoryRecord, now: datetime, zone: ZoneInfo) -> str:
+    if record.ref.kind == "message":
+        return _message_line(record, now, zone)
     where = record.context_label or ("no context recorded (older memory)" if record.ref.kind in ("fact", "episode")
                                      else "unknown context")
     head = f"- [{record.ref}] {record.subkind}"
@@ -1039,6 +1068,11 @@ def status_line(result: RecallResult) -> str:
         notes.append("more matched than is shown")
     if result.coverage.get("references_gone"):
         notes.append("something your last answer used has since been removed or changed")
+    if result.coverage.get("references_set_aside"):
+        notes.append("conversation history your last answer quoted was about something they asked you to forget: "
+                     "not carried on")
+    if result.coverage.get("dropped_unheard"):
+        notes.append("some matches were in words the user never heard and are left out")
     if result.coverage.get("contexts_matched"):
         notes.append("several contexts match: " + ", ".join(result.coverage["contexts_matched"]))
     tail = (" (" + "; ".join(notes) + ")") if notes else ""
@@ -1072,6 +1106,8 @@ BUNDLE_SECTIONS = (
 def section_of(record: MemoryRecord) -> str:
     """Where a record goes in a reply's evidence: standing constraints, unresolved disagreements, what holds
     now, open work, the past. Each record goes in exactly one, the first that fits."""
+    if record.ref.kind == "message":
+        return "past"
     if "standing" in record.matched and record.applicability != "no_longer_current":
         return "standing"
     if any(part.startswith("unresolved:") for part in (record.lifecycle or "").split("; ")):

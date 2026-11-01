@@ -315,8 +315,16 @@ def conversation(db: Session, user_id: uuid.UUID, now: datetime,
         select(ChatMessage.role, ChatMessage.content, ChatMessage.created_at, ChatMessage.id)
         .where(ChatMessage.conversation_id == conversation_id, ChatMessage.content != "")
         .order_by(ChatMessage.created_at.desc()).limit(CONVERSATION_KEPT)).all()
+    from app.services import memory_forget
+
+    # What they asked her to forget isn't something she thinks over again (marked; a message fenced whole is left out).
+    cuts = memory_forget.memory_cuts(db, user_id, [row[3] for row in rows])
     out = []
     for role, content, created, message_id in reversed(rows):
+        if message_id in cuts:
+            content = memory_forget.memory_view(content, None, "user", cuts[message_id])
+            if content is None:
+                continue
         created = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
         out.append({"role": role, "content": content[:500], "ago": (now - created).total_seconds(),
                     "id": str(message_id)})

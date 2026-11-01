@@ -365,7 +365,17 @@ _RECALL_HISTORY_PROMPT = """\
 recall_history rebuilds it from the user's own words. Its summary is a reading of the passages it shows: \
 the passages are the source. A step it marks as resting only on your own earlier words is something you \
 said, not something the user told you; an earlier answer of yours can have been wrong. "Unsettled" or \
-"partial" means part of it couldn't be traced, not that it didn't happen."""
+"partial" means part of it couldn't be traced, not that it didn't happen.
+- For what was actually said ("what did you tell me about...?", "what did I say about...?"), search_memories \
+with kinds ["said"] finds the words in your conversations: theirs, and yours as far as they heard them. Quote \
+only what it shows, and say who said it. It's what was said, not a checked fact: your own earlier answer can \
+have been wrong. If it finds nothing, say you can't find those words; never rebuild a quote from memory.
+- A passage marked as something they asked you to forget is history: if they ask about that conversation you \
+may tell them what was said, but it isn't something you remember, so don't treat it as current or bring it up \
+yourself.
+- For "what do you know about me?" or a catch-up, what_i_know gives a rundown by area with what it didn't \
+show. Answer from it naturally; if it says not everything is shown, say there's more rather than presenting \
+it as all you know."""
 
 
 _CACHED_MEMORY_PROMPT = """\

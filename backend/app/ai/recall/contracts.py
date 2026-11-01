@@ -12,8 +12,11 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
-Kind = Literal["fact", "episode", "event", "item"]
+Kind = Literal["fact", "episode", "event", "item", "message"]
+# The stores a memory search reads. ``message`` (a transcript passage: what was said, not a memory) is its own
+# search (services/transcript_search.py) and only ever a reference here.
 KINDS: tuple[Kind, ...] = ("fact", "episode", "event", "item")
+REF_KINDS: tuple[Kind, ...] = (*KINDS, "message")
 Purpose = Literal["reply", "hard_thought", "explicit_search"]
 Intent = Literal["relevance", "current", "historical"]
 Basis = Literal["occurred", "scheduled", "recorded"]
@@ -50,7 +53,7 @@ class MemoryRef:
     @classmethod
     def parse(cls, text: str) -> MemoryRef:
         kind, _, key = (text or "").strip().strip("[]").partition(":")
-        if kind not in KINDS or not key:
+        if kind not in REF_KINDS or not key:
             raise RecallInvalid(f"not a memory reference: {text[:60]!r}")
         if kind == "event":
             if not key.isdigit():
@@ -173,6 +176,10 @@ class MemoryRecord:
     about: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
     user_words: str | None = None  # a plan's own words, as the user said them
+    # A transcript passage (kind ``message``): its conversation, and whether something in it was asked to be
+    # forgotten (it's still history the user can ask about; it's never remembered again from it).
+    conversation_id: uuid.UUID | None = None
+    forgotten: bool = False
 
 
 _SUSPECTED = {"open": "You suspected (not confirmed)", "supported": "You suspected, later confirmed",
@@ -198,6 +205,11 @@ def origin_label(record: MemoryRecord) -> str | None:
         if record.epistemic == "reported":
             return "The user told you"
         return "You concluded" if record.epistemic == "inferred" else None
+    if record.ref.kind == "message":
+        # Unmistakable either way: she reads these and quotes them back ("I said..." / "you said...").
+        return ("Your own words (you, Columbina, said this to them: quote it as \"I said\")"
+                if record.subkind == "columbina" else
+                "The user's own words (they wrote this to you: quote it as \"you said\")")
     if record.ref.kind == "fact":
         return "The user told you"
     if record.ref.kind == "event":
