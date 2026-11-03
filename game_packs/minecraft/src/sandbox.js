@@ -80,13 +80,23 @@ const log = (...args) => _log.applySync(undefined,
 // code: the body of an async function (her program). Resolves with
 // { status, reason, value, calls, log, seconds, body }; never rejects for anything her code does.
 // body is counted while it runs: { in_water_seconds, lowest_health }.
-export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, state = null, cpuMs = CPU_MS } = {}) {
+// limits (a bounded experiment, backend services/learning_trials.py): { place: n } refuses the block that would
+// be one more than n placed (single place actions and place skills that ended done), ending the program with
+// status 'limit'. actions.done counts the single actions that ended done, by name.
+export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, state = null, cpuMs = CPU_MS, limits = null } = {}) {
   assertFree(runner)
   const { bot } = runner
   const readNow = state ?? (() => readState(bot))
   const started = Date.now()
   const calls = []
-  const actions = { total: 0, by: {}, last: [] } // single actions: counted, the last few kept
+  const actions = { total: 0, by: {}, done: {}, last: [] } // single actions: counted, the last few kept
+  const placeLimit = Number.isInteger(limits?.place) && limits.place >= 0 ? limits.place : null
+  let placed = 0 // blocks placed by this program (single actions and place skills that ended done)
+  const overPlaceLimit = () => {
+    if (placeLimit === null || placed < placeLimit) return false
+    stopProgram('limit', `placed ${placed} block${placed === 1 ? '' : 's'}: the limit for this experiment`)
+    return true
+  }
   let acting = false
   const lines = []
   let end = null
@@ -134,6 +144,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     // Her breathing reflex may be swimming her up between two calls: wait for it to finish.
     if (runner.current?.source === 'reflex') await runner.wait(runner.current.id, REFLEX_WAIT_MS)
     if (end) throw end
+    if (name === 'place' && overPlaceLimit()) throw end
     let record
     try {
       record = runner.start(name, JSON.parse(paramsText), { source: 'program' })
@@ -149,6 +160,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     calls.push(record) // the runner fills in its outcome; a stopped one shows up as stopped
     const finished = await runner.wait(record.id, (seconds + 5) * 1000)
     const outcome = { status: finished.status, reason: finished.reason, data: finished.data }
+    if (name === 'place' && outcome.status === 'done') placed++
     if (!end && ENDS_PROGRAM.has(outcome.status)) stopProgram(outcome.status, `${name}: ${outcome.reason ?? outcome.status}`)
     if (end) throw end
     return JSON.stringify(outcome)
@@ -171,6 +183,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     }
     if (runner.current?.source === 'reflex') await runner.wait(runner.current.id, REFLEX_WAIT_MS)
     if (end) throw end
+    if (name === 'place' && overPlaceLimit()) throw end
     const args = safeParse(argsText)
     let outcome
     if (acting) outcome = { status: 'busy', reason: 'another action is still going: await each one', data: {} }
@@ -188,6 +201,10 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     }
     actions.total++
     actions.by[name] = (actions.by[name] ?? 0) + 1
+    if (outcome.status === 'done') {
+      actions.done[name] = (actions.done[name] ?? 0) + 1
+      if (name === 'place') placed++
+    }
     actions.last.push({ action: name, args, status: outcome.status, reason: outcome.reason })
     if (actions.last.length > ACTIONS_SHOWN) actions.last.shift()
     if (end) throw end
@@ -254,6 +271,7 @@ export async function runProgram (runner, code, { seconds = PROGRAM_SECONDS, sta
     value: end.value,
     calls: calls.map((c) => ({ skill: c.skill, params: c.params, status: c.status, reason: c.reason, data: c.data, seconds: c.seconds })),
     actions,
+    placed,
     log: lines,
     seconds: Math.round((Date.now() - started) / 100) / 10,
     body: { ...body, in_water_seconds: Math.round(body.in_water_seconds * 10) / 10 }

@@ -14,7 +14,8 @@
 //                                        item or mine a block (src/needs.js), against what she has
 //   GET  /modes                       -> background modes { guard, gather: [blocks], pickup }
 //   POST /modes {guard?, gather?, pickup?} -> sets the ones given; 400 for an unknown block name
-//   POST /programs {code, seconds?}   -> 202 { id, status }: runs her code in the sandbox
+//   POST /programs {code, seconds?, limits?} -> 202 { id, status }: runs her code in the sandbox
+//                                     (limits: { place: n }, a bounded experiment's block budget)
 //                                        (src/sandbox.js) | 409 busy; POST /skills/stop stops it
 //   GET  /programs/<id>?wait=<s>      -> the program: status, reason, value, calls, log
 //   GET  /blocks?x=&y=&z=&r=          -> { center, radius, counts: {block: n}, unloaded }: blocks
@@ -130,7 +131,15 @@ export function startApi ({ host, port, token, pack }) {
       if (typeof body.code !== 'string' || !body.code.trim()) throw new ParamError('code is required')
       const seconds = body.seconds === undefined ? undefined : Number(body.seconds)
       if (seconds !== undefined && !(seconds > 0 && seconds <= 600)) throw new ParamError('seconds must be 1-600')
-      return send(res, 202, startProgram(runner, body.code, { seconds }))
+      let limits = null
+      if (body.limits !== undefined && body.limits !== null) {
+        const place = body.limits.place
+        if (typeof body.limits !== 'object' || !(Number.isInteger(place) && place >= 0 && place <= 256)) {
+          throw new ParamError('limits.place must be a whole number 0-256')
+        }
+        limits = { place }
+      }
+      return send(res, 202, startProgram(runner, body.code, { seconds, limits }))
     }
     const program = /^\/programs\/([0-9a-f-]{36})$/.exec(path)
     if (program && req.method === 'GET') {

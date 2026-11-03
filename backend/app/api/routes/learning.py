@@ -30,6 +30,11 @@ Lessons (docs/learning-system/03-implementation.md), memory's, read only:
     GET    /api/learning/adaptation/lessons            lessons by status (?status=), counts, recent lesson jobs
     GET    /api/learning/adaptation/lessons/{id}       one lesson: revisions, evidence, the decisions that had it
     GET    /api/learning/adaptation/decisions/{id}     one decision (capture attempt): the lessons it had, and why
+
+Bounded game trials (docs/learning-system/04-implementation.md), learning's, read only:
+
+    GET    /api/learning/trials                        counts, recent trials (?status=), recent investigations
+    GET    /api/learning/trials/{id}                   one trial: every revision, its events, every assessment
 """
 from __future__ import annotations
 
@@ -55,8 +60,8 @@ from app.schemas.game_learning import (
 )
 from app.schemas.learning_capture import AssessmentNote, TrainingExampleOut, TrainingExampleReview
 from app.services import (
-    capture_chains, game_challenges, game_learning, game_skills, learning_assessment, learning_lessons, memory_lessons,
-    training_examples,
+    capture_chains, game_challenges, game_learning, game_skills, learning_assessment, learning_lessons, learning_trials,
+    memory_lessons, training_examples,
 )
 from app.services.game_learning import LearningError
 
@@ -247,3 +252,26 @@ def get_adaptation_decision(attempt_id: uuid.UUID, user: User = Depends(get_curr
                             db: Session = Depends(get_db)):
     """Which lesson revisions one decision had, whether it received them, what it said about them."""
     return {"attempt_id": str(attempt_id), "lessons": memory_lessons.uses_for_attempt(db, user.id, attempt_id)}
+
+
+# --------------------------------------------------------------------------- #
+# Bounded game trials (docs/learning-system/04-implementation.md): read only here
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/trials")
+def list_trials(status_filter: str | None = Query(default=None, alias="status"),
+                user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.db.models import TRIAL_STATUSES
+
+    if status_filter is not None and status_filter not in TRIAL_STATUSES:
+        raise HTTPException(status_code=422, detail={"code": "bad_status", "message": "Unknown trial status."})
+    return learning_trials.listing(db, user.id, status=status_filter)
+
+
+@router.get("/trials/{trial_id}")
+def get_trial(trial_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    found = learning_trials.detail(db, user.id, trial_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such trial."})
+    return found

@@ -5,7 +5,9 @@
 - ``assess_once`` (docs/learning-system/02-implementation.md): its own thread, since an assessment is one or more
   model calls: triage new observations, sweep for failures and late captures, then run one due assessment.
 - ``lessons_once`` (docs/learning-system/03-implementation.md): its own thread: read one due assessment revision
-  for lessons and hand the checked changes to memory."""
+  for lessons and hand the checked changes to memory.
+- ``trials_once`` (docs/learning-system/04-implementation.md): its own thread, in desktop mode: bounded game
+  trials, from investigation to assessment (services/learning_trials.run_once)."""
 from __future__ import annotations
 
 import logging
@@ -44,4 +46,10 @@ def lessons_once() -> bool:
     return learning_lessons.run_once()
 
 
-__all__ = ["run_once", "assess_once", "lessons_once"]
+def trials_once() -> bool:
+    from app.services import learning_trials
+
+    return learning_trials.run_once()
+
+
+__all__ = ["run_once", "assess_once", "lessons_once", "trials_once"]

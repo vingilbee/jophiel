@@ -260,6 +260,9 @@ def last_result(db: Session, session_id: uuid.UUID, within: float = 120.0) -> di
 
 def _ended_text(attempt: GameSkillAttempt) -> str:
     tries = len(attempt.tries or [])
+    if attempt.origin == "trial":
+        return (f'ran an experiment ("{attempt.task}"): {attempt.status}, {tries} '
+                f'{"try" if tries == 1 else "tries"}')
     if attempt.status == "learned":
         from app.services.game_skills import name_for
 
@@ -277,6 +280,8 @@ def summary_lines(db: Session, session: DesktopSession, now: float) -> list[str]
         return []
     lines = []
     attempt = active(db, session.id)
+    if attempt is not None and attempt.origin == "trial":
+        attempt = None  # an experiment: learning_trials.summary_lines says it
     if attempt is not None:
         tries = len(attempt.tries or [])
         if attempt.status == "queued":
@@ -306,7 +311,9 @@ def tick_line(db: Session, session_id: uuid.UUID) -> str | None:
     if db is None or not enabled():
         return None
     attempt = active(db, session_id)
-    if attempt is not None:
+    if attempt is not None and attempt.origin == "trial":
+        text = f'running an experiment ("{attempt.task}"): try {len(attempt.tries or []) + 1}'
+    elif attempt is not None:
         text = (f'about to learn "{attempt.task}"' if attempt.status == "queued" else
                 f'learning "{attempt.task}": try {len(attempt.tries or []) + 1} of {get_settings().game_practice_max_tries}')
     else:
@@ -392,15 +399,29 @@ def _model():
 
 
 def run_once(*, pack=None, model=None) -> bool:
-    """Run at most one attempt to its end (minutes). True if one ran."""
+    """Run at most one attempt to its end (minutes). True if one ran. An attempt with origin "trial" is the
+    execution of a bounded experiment cognition selected (services/learning_trials.py): its approach, budget and
+    readiness check come from the trial, and code (not the critic) says whether it worked."""
     if not enabled():
         return False
+    trial = None
     with SessionLocal() as db:
         attempt = _claim(db)
         if attempt is None:
             return False
         attempt_id, session_id, task = attempt.id, attempt.session_id, attempt.task
-    log.info("learning %r for session %s", task, session_id)
+        if attempt.origin == "trial":
+            from app.services import learning_trials
+
+            trial = learning_trials.spec_for(db, attempt)
+            db.commit()
+            if trial is None:
+                from app.ai.desktop.practice import PracticeResult
+
+                _finish(attempt_id, session_id, PracticeResult("stopped", "its experiment is no longer running",
+                                                               ending="not_started"))
+                return True
+    log.info("learning %r for session %s%s", task, session_id, " (a trial)" if trial else "")
     from app.ai.desktop.driver import DriverModelError
     from app.ai.desktop.pack_client import PackClient
     from app.ai.desktop.practice import PracticeDeps, PracticeResult, PracticeRun
@@ -413,15 +434,17 @@ def run_once(*, pack=None, model=None) -> bool:
             should_stop=lambda: _should_stop(attempt_id, session_id),
             save=lambda tries: _save_tries(attempt_id, tries),
             metric=lambda record: log.info("practice %s", record),
-        ), max_tries=settings.game_practice_max_tries, program_seconds=settings.game_practice_program_seconds)
+        ), max_tries=settings.game_practice_max_tries, program_seconds=settings.game_practice_program_seconds,
+            trial=trial)
         result = run.run()
     except DriverModelError as exc:
-        result = PracticeResult("failed", f"couldn't think it through: {exc}")
+        result = PracticeResult("failed", f"couldn't think it through: {exc}", ending="failed" if trial else None)
     except Exception as exc:  # noqa: BLE001 - an attempt must never take the worker down
         log.exception("learning %r crashed", task)
-        result = PracticeResult("failed", f"something broke: {type(exc).__name__}")
+        result = PracticeResult("failed", f"something broke: {type(exc).__name__}",
+                                ending="interrupted" if trial else None)
     _finish(attempt_id, session_id, result)
-    if result.status == "learned":
+    if result.status == "learned" and trial is None:  # a trial's move is kept only once its assessment supports it
         _tidy(attempt_id, task, result, pack=pack, model=model)
     return True
 
@@ -461,6 +484,16 @@ def _finish(attempt_id: uuid.UUID, session_id: uuid.UUID, result) -> None:
         if result.tries:
             row.tries = json.loads(json.dumps(result.tries, default=str))
         row.ended_at = _now()
+        if row.origin == "trial":
+            from app.services import learning_trials
+
+            text = learning_trials.on_execution_finished(db, row, result)
+            db.commit()
+            if text:
+                desktop_sessions.driver_noticed(db, session_id, kind="learning", text=text)
+            learning_trials.wake()
+            log.info("trial attempt %s: %s", result.ending, result.reason)
+            return
         if row.status == "learned":
             from app.services import game_skills
 

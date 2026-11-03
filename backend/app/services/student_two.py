@@ -208,7 +208,28 @@ def _work(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID | None,
             out.append(S.Work(f"step:{game.id}:{step.get('id')}", "execution", step.get("do", "a step"),
                               "running" if game.state == "running" else "paused", _aware(game.updated_at),
                               goal_key=str(game.goal_item_id) if game.goal_item_id else None))
+    if game is not None:
+        out += _trial_work(db, game)
     return out
+
+
+_TRIAL_STATE = {"selected": "queued", "preparing": "queued", "executing": "running", "paused": "paused"}
+
+
+def _trial_work(db: Session, game: DesktopSession) -> list[S.Work]:
+    """A bounded experiment cognition chose, while it's under way: work she can pause, resume or stop."""
+    from app.ai.learning import trials as T
+    from app.db.models import LearningTrial
+    from app.services import learning_trials
+
+    trial = db.scalar(select(LearningTrial).where(LearningTrial.session_id == game.id,
+                                                  LearningTrial.status.in_(tuple(_TRIAL_STATE))))
+    if trial is None:
+        return []
+    proposal = learning_trials.current_revision(db, trial, trial.selected_revision).proposal
+    alt = T.alternative(proposal, trial.selected_alternative) or {}
+    return [S.Work(f"trial:{trial.id}", "execution", f"experiment: {alt.get('action', 'a trial')}"[:160],
+                   _TRIAL_STATE[trial.status], _aware(trial.selected_at or trial.created_at))]
 
 
 _THOUGHT_KIND = {"question": "question", "intention": "intention"}
@@ -308,6 +329,33 @@ def gather(db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None
         activity=_activity(game), memory=memory,
         sources=_sources(seen, goals, work, (thought, *earlier),
                          f"message:{trigger_message_id}" if trigger_message_id else "", *memory_refs), **lessons)
+
+
+def gather_trial(db: Session, trial, proposal: dict, game: DesktopSession, *, zone: str | None = None,
+                 now: datetime | None = None) -> S.Live:
+    """A trial learning proposes, as Student 2 reads it (trigger component_proposal): each alternative one
+    proposal [P*] with its prediction, cost, uncertainty and whether learning recommends it, competing with the
+    goal the game plays for (her hands do one thing at a time). The game and its talk are read as they are now."""
+    from app.ai.learning import trials as T
+
+    now = now or datetime.now(timezone.utc)
+    thought, earlier = _thoughts(db, game.id, now)
+    seen: list[str] = []
+    lines = tuple(_lines(db, game.conversation_id, None, seen)) if game.conversation_id else ()
+    goals = tuple(_goals(db, trial.user_id, _goal_context(db, trial.user_id, game), game))
+    work = tuple(_work(db, trial.user_id, game.conversation_id, game))
+    competes = str(game.goal_item_id) if game.goal_item_id and any(g.key == str(game.goal_item_id) for g in goals) \
+        else None
+    because = [d.get("reason") or "" for d in trial.deferrals or []]
+    proposals = tuple(S.Proposal(f"trial:{trial.id}:{trial.revision}:{v['key']}", "curriculum", v["goal"],
+                                 v["purpose"], competes) for v in T.proposal_views(proposal, deferred_because=because))
+    lessons = _lessons(db, trial.user_id, proposal.get("hypothesis") or "")
+    earlier_all = tuple(t for t in (thought, *earlier) if t is not None)
+    return S.Live(
+        trigger="component_proposal", domain="minecraft", now=now.astimezone(_zone(zone)), lines=lines,
+        new_message="", goals=goals, work=work, thought=None, earlier_thoughts=earlier_all, activity=_activity(game),
+        proposals=proposals,
+        sources=_sources(seen, goals, work, earlier_all, f"trial:{trial.id}"), **lessons)
 
 
 def _game_of(db: Session, work: CoordinatorWork) -> DesktopSession | None:
@@ -645,6 +693,21 @@ def apply(db: Session, outcome: Outcome, *, user_id: uuid.UUID, message_id: uuid
             effect = "nothing changed"
         elif work in S.RECALL_WORK | S.E.THINKING and routed:
             effect = "background work, routed by the turn"
+        elif target.startswith("P") and work in ("pursue", "decline_proposal", "defer_proposal"):
+            from app.services import learning_trials
+
+            if work == "pursue":
+                effect = learning_trials.on_pursue(db, user_id, key, decision=d, decision_id=outcome.decision_id,
+                                                   goal_handling=d.get("other_goal_handling"))
+            elif work == "decline_proposal":
+                effect = learning_trials.on_decline(db, user_id, key, decision=d, decision_id=outcome.decision_id)
+            else:
+                effect = learning_trials.on_defer(db, user_id, key, decision=d, decision_id=outcome.decision_id,
+                                                  situation=outcome.situation)
+        elif target.startswith("W") and key and key.startswith("trial:") and work in ("pause", "resume", "cancel"):
+            from app.services import learning_trials
+
+            effect = learning_trials.on_work(db, user_id, key, work, reason=d["intention"].strip()[:200] or work)
         elif work in S.E.THINKING:
             from app.services import mind_conversation
             effect = mind_conversation.wake(user_id=user_id, conversation_id=conversation_id,
@@ -698,6 +761,8 @@ def _effect_result(effect: str, work: str, routed: bool) -> str:
         return "not_executed"
     if effect == "goal on hold: being rechecked":
         return "not_executed"
+    if effect.startswith("experiment selected"):
+        return "succeeded"
     if (work in S.RECALL_WORK | S.E.THINKING and routed) or work == "pursue":
         return "handed_off"
     return "succeeded"

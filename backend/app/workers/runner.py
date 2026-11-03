@@ -108,6 +108,9 @@ def run(stop: threading.Event | None = None) -> None:
             worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
             # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
             worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
+            # Bounded game trials (docs/learning-system/04-implementation.md): investigation, cognition's choice,
+            # preparation, execution's bounds, assessment. Model calls, so its own thread.
+            worker_specs.append(("learning-trials", learning.trials_once, "macrovision:learning-trials:wakeups", 2.0))
         # Embedding memory events for recall: background, batched; recall works before it catches up.
         worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                              "macrovision:recall-embeddings:wakeups", 5.0))

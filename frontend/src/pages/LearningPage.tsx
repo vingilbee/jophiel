@@ -15,6 +15,10 @@ import type {
   Proposal,
   ProposalStatus,
   Reflection,
+  TrialDetail,
+  TrialListing,
+  TrialStatus,
+  TrialSummary,
 } from '../types/learning'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -150,12 +154,13 @@ export function LearningPage() {
   const [reflections, setReflections] = useState<Reflection[] | null>(null)
   const [assessments, setAssessments] = useState<AssessmentListing | null>(null)
   const [adaptation, setAdaptation] = useState<AdaptationListing | null>(null)
+  const [trials, setTrials] = useState<TrialListing | null>(null)
   const [onlyOpen, setOnlyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [c, s, p, l, r, a, ad] = await Promise.all([
+      const [c, s, p, l, r, a, ad, tr] = await Promise.all([
         learningApi.challenges(),
         learningApi.skills(),
         learningApi.proposals(),
@@ -163,6 +168,7 @@ export function LearningPage() {
         learningApi.reflections(),
         learningApi.assessments(onlyOpen ? 'unresolved' : undefined),
         learningApi.adaptationLessons(),
+        learningApi.trials(),
       ])
       setChallenges(c)
       setSkills(s)
@@ -171,6 +177,7 @@ export function LearningPage() {
       setReflections(r)
       setAssessments(a)
       setAdaptation(ad)
+      setTrials(tr)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load what she learned.')
@@ -235,6 +242,15 @@ export function LearningPage() {
           {adaptation?.items.map((l) => (
             <AdaptationCard key={l.id} lesson={l} onError={setError} />
           ))}
+        </Section>
+
+        <Section
+          title="Experiments she ran"
+          hint="When something keeps failing in a game, her learning proposes a small test: a hunch, a few ways to try it, what each should do, and limits (3 tries, 5 minutes, 8 blocks). She decides whether, when and which way; the game's counts decide what it showed. Unresolved means it didn't settle anything, and nothing is kept from it."
+        >
+          {trials === null && !error && <Loading />}
+          {trials?.trials.length === 0 && <Empty text="No experiments yet. They come from a step her hands keep failing at while you play." />}
+          {trials?.trials.map((t) => <TrialCard key={t.id} trial={t} onError={setError} />)}
         </Section>
 
         <Section
@@ -645,6 +661,121 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
                 ))}
               </ul>
             )}
+          </div>
+        )}
+      </details>
+    </article>
+  )
+}
+
+const TRIAL_STATUS_LABELS: Record<TrialStatus, string> = {
+  proposed: 'waiting for her decision',
+  presented: 'being decided',
+  deferred: 'put off',
+  rejected: 'turned down',
+  expired: 'never taken up',
+  selected: 'chosen',
+  preparing: 'getting ready',
+  executing: 'running',
+  paused: 'paused',
+  observing: 'watching what happens',
+  assessing: 'being assessed',
+  assessed: 'assessed',
+}
+
+function TrialCard({ trial: t, onError }: { trial: TrialSummary; onError: (message: string) => void }) {
+  const [detail, setDetail] = useState<TrialDetail | null>(null)
+
+  async function open(isOpen: boolean) {
+    if (!isOpen || detail) return
+    try {
+      setDetail(await learningApi.trial(t.id))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not load the experiment.')
+    }
+  }
+
+  const reading = detail?.assessments.find((a) => a.current)
+  return (
+    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="mr-auto text-sm font-medium">{t.hypothesis ?? t.problem}</h3>
+        {t.created_at && <span className="text-[11px] text-[#7183A3]">{day(t.created_at)}</span>}
+        <Chip label={TRIAL_STATUS_LABELS[t.status]} />
+      </div>
+      <p className="mt-1 text-xs text-[#40506F]">
+        {t.problem}
+        {t.ending && <> · ended: {t.ending}</>}
+        {t.stop_reason && <> ({t.stop_reason})</>}
+      </p>
+      {t.deferral && <p className="mt-1 text-xs text-[#617698]">Put off: {t.deferral.reason}</p>}
+      <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer text-xs text-[#7183A3]">Predictions, her choice, what happened</summary>
+        {!detail && <Loading />}
+        {detail && (
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+            {detail.revisions.map((r) => (
+              <div key={r.revision} className="rounded-xl border border-[#EAF0FA] px-3 py-2">
+                <p className="text-[11px] text-[#7183A3]">
+                  Proposal revision {r.revision} · {day(r.at)} · {r.reason}
+                </p>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {r.proposal.alternatives.map((a) => (
+                    <li key={a.key}>
+                      <strong>{a.action}</strong>
+                      {a.key === r.proposal.recommendation && ' (recommended)'}
+                      {detail.selection?.alternative === a.key && r.revision === detail.revision && ' (her choice)'}: {a.expected} ·{' '}
+                      {a.uncertainty} uncertainty
+                      {a.prerequisites.length > 0 && <> · needs {a.prerequisites.map((p) => `${p.count} ${p.item}`).join(', ')}</>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {detail.selection && (
+              <p>
+                Her choice: {detail.selection.reason || '(no reason given)'}
+                {!detail.selection.recommended && ' (not the recommended one)'}
+              </p>
+            )}
+            {detail.deferrals.length > 0 && (
+              <p className="text-[#617698]">Put off before: {detail.deferrals.map((d) => d.reason).join('; ')}</p>
+            )}
+            {reading && (
+              <div className="rounded-xl border border-[#EAF0FA] px-3 py-2">
+                <p>
+                  <Chip label={reading.hypothesis} /> {reading.result.why}
+                  {!reading.test_started && ' (the test never started)'}
+                </p>
+                <ul className="mt-1">
+                  {reading.prediction_checks.map((c) => (
+                    <li key={c.ref} className="text-[11px] text-[#617698]">
+                      {c.prediction}: <strong>{c.status.replace('_', ' ')}</strong> ({c.why})
+                    </li>
+                  ))}
+                </ul>
+                {reading.missing.length > 0 && (
+                  <p className="text-[11px] text-[#7183A3]">Not measured: {reading.missing.join(', ')}</p>
+                )}
+                {reading.result.explanations.map((e, i) => (
+                  <p key={i} className="text-[11px] text-[#617698]">
+                    Could be: {e.text} ({e.status})
+                  </p>
+                ))}
+                {reading.result.lesson && (
+                  <p className="text-[11px] text-[#617698]">
+                    Lesson (tentative): when {reading.result.lesson.situation}, {reading.result.lesson.advice}
+                  </p>
+                )}
+              </div>
+            )}
+            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+              {detail.events.map((e, i) => (
+                <li key={i} className="px-3 py-1.5 text-[11px] text-[#617698]">
+                  {day(e.at)} · {e.kind}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </details>

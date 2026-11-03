@@ -125,11 +125,14 @@ class PackClient:
     def notices(self, since: int = 0, *, wait: float = 0) -> dict:
         return self._call("GET", "/notices", params={"since": since, "wait": wait}, timeout=wait + 3.0)
 
-    def start_program(self, code: str, *, seconds: float | None = None) -> dict:
-        """Run her code in the pack's sandbox (stage H): ``{"id", "status": "running"}``; 409 busy."""
+    def start_program(self, code: str, *, seconds: float | None = None, limits: dict | None = None) -> dict:
+        """Run her code in the pack's sandbox (stage H): ``{"id", "status": "running"}``; 409 busy.
+        ``limits``: ``{"place": n}``, a bounded experiment's block budget (the pack refuses the block past it)."""
         body: dict = {"code": code}
         if seconds is not None:
             body["seconds"] = seconds
+        if limits:
+            body["limits"] = limits
         return self._call("POST", "/programs", json=body)
 
     def get_program(self, program_id: str, *, wait: float = 0) -> dict:

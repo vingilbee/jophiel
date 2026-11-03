@@ -12,6 +12,8 @@ import type {
   Proposal,
   ProposalStatus,
   Reflection,
+  TrialDetail,
+  TrialListing,
 } from '../types/learning'
 
 /** What she learned from playing: moves she taught herself, lessons, code proposals, reflections. */
@@ -42,4 +44,8 @@ export const learningApi = {
   adaptationLessons: (status?: AdaptationLessonStatus) =>
     api.get<AdaptationListing>(`/learning/adaptation/lessons${status ? `?status=${status}` : ''}`),
   adaptationLesson: (id: string) => api.get<AdaptationLessonDetail>(`/learning/adaptation/lessons/${id}`),
+
+  /** Bounded game trials: what she tested, what she predicted, what cognition chose, what happened (read only). */
+  trials: () => api.get<TrialListing>('/learning/trials'),
+  trial: (id: string) => api.get<TrialDetail>(`/learning/trials/${id}`),
 }

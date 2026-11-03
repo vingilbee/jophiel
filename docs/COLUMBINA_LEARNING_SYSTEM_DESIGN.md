@@ -1,12 +1,16 @@
 # Columbina: learning-system design and implementation roadmap
 
-Status: **design only, revised 2026-11-01. No implementation is authorized by this document.**
+Status: **design only, revised 2026-11-03. No implementation is authorized by this document.**
 The user accepted the architectural direction below: three learning loops, evidence before learning products,
 multidimensional reward, attribution, and explicit prediction. Capture and ownership decisions were accepted on 2026-11-01 in
 [Capture and ownership](learning-system/01-capture-and-ownership.md), which is authoritative for that scope.
 Evidence and attribution decisions were accepted on 2026-11-01 in
 [Evidence and attribution](learning-system/02-evidence-and-attribution.md), which is authoritative for that scope.
-Other concrete schemas, algorithms, thresholds, and operational policies remain proposals.
+Prediction and game-trial decisions were accepted on 2026-11-03 in
+[Predictions and bounded game trials](learning-system/04-predictions-and-trials.md), authoritative for that scope:
+autonomous proposals, cognition selection, linked persistence and execution, prerequisite preparation,
+bounded climbing trials, and evidence-based assessment. Other concrete schemas, algorithms, thresholds,
+and operational policies remain proposals unless settled in the corresponding step plan.
 
 Parent: [Memory and learning design](COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md).
 
@@ -254,8 +258,10 @@ student has estimated the expected utility of all actions. Explore at the level 
 | Assess and revise | Learning through memory/learner interfaces | Revised hypothesis, lesson, skill, or no conclusion |
 
 Prefer informative trials with manageable costs. Curiosity should target useful uncertainty reduction, not endless
-novelty. Repeated reflection or unpredictable noise must not count as repeated progress. Exploration budgets,
-risk categories, candidate generation, and selection algorithms remain to be designed.
+novelty. Repeated reflection or unpredictable noise must not count as repeated progress. The accepted
+[Step 4 design](learning-system/04-predictions-and-trials.md) specifies initial LLM-generated candidates,
+cognition selection, preparation, and configurable game-trial budgets. Broader risk categories and selection
+algorithms remain to be designed.
 
 Games can support bounded routes, tools, and skill variants. Conversation can support appropriate alternatives,
 clarifying questions, and expression of her own views. The allowed scope of deliberate interpersonal experiments

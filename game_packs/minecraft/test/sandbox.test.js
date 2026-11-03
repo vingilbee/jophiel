@@ -42,6 +42,14 @@ function fakeSkills () {
       }
     },
     {
+      name: 'place',
+      params: { block: { type: 'string' }, time_limit: timeLimitParam(5, 10) },
+      async run (ctx) {
+        await ctx.sleep(5)
+        return done({})
+      }
+    },
+    {
       name: 'ouch',
       params: { time_limit: timeLimitParam(5, 10) },
       async run () {
@@ -172,4 +180,25 @@ test('while her program runs, nobody else starts a skill, and only one program a
   await pending
   assert.equal((await runProgram(runner, 'return 2', { state })).value, 2) // free again
   runner.detach()
+})
+
+test('an experiment\'s block limit: the block past it is refused and the program ends with limit', async () => {
+  const { runner, state } = setup()
+  const result = await runProgram(runner, `
+    for (let i = 0; i < 4; i++) await skills.place({ block: 'dirt' })
+    return 'all placed'`, { state, limits: { place: 2 } })
+  runner.detach()
+  assert.equal(result.status, 'limit')
+  assert.equal(result.placed, 2)
+  assert.equal(result.calls.filter((c) => c.skill === 'place').length, 2)
+  assert.match(result.reason, /placed 2 blocks/)
+})
+
+test('without limits nothing is refused, and placed counts what ended done', async () => {
+  const { runner, state } = setup()
+  const result = await runProgram(runner, "await skills.place({ block: 'dirt' }); return 1", { state })
+  runner.detach()
+  assert.equal(result.status, 'done')
+  assert.equal(result.placed, 1)
+  assert.deepEqual(result.actions.done, {})
 })

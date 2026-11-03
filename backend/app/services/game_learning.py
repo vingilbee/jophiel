@@ -91,12 +91,12 @@ def _now() -> datetime:
 # --------------------------------------------------------------------------- #
 
 
-def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: dict) -> None:
-    """Append one experience for a game session (no-op for games without learning)."""
+def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: dict) -> int | None:
+    """Append one experience for a game session (no-op for games without learning). Commits; returns its id."""
     session = db.get(DesktopSession, session_id)
     game = game_for_profile(session.profile_id) if session is not None else None
     if game is None:
-        return
+        return None
 
     def experience() -> GameExperience:
         row = GameExperience(user_id=session.owner_user_id, session_id=session_id, game=game,
@@ -125,6 +125,7 @@ def record_experience(db: Session, session_id: uuid.UUID, kind: str, payload: di
         except Exception:  # noqa: BLE001
             log.exception("game learning: could not mark experience %s for recovery", row.id)
         db.commit()
+    return row.id
 
 
 # --------------------------------------------------------------------------- #
@@ -543,6 +544,46 @@ def lesson_status(support: int, contradict: int) -> str:
 
 def _seen_in(evidence: list, session_id: uuid.UUID) -> bool:
     return any(entry.get("session_id") == str(session_id) for entry in evidence)
+
+
+def note_trial_lesson(db: Session, *, user_id: uuid.UUID, game: str, session_id: uuid.UUID, key: str,
+                      situation: str, advice: str, level: str, verdict: str, experience_ids: list[int],
+                      trial_id: uuid.UUID) -> str:
+    """A bounded trial's lesson, under the same rules as a reflection's (no commit): new lessons start as
+    ``trial``; one session counts once, so a second trial in the same session never confirms it; trust comes
+    from distinct sessions (``lesson_status``); a retired lesson stays retired. ``verdict``: supports /
+    contradicts. Returns what happened, in a word or two."""
+    key = normalize_key("trial:" + key)
+    if not key or not advice.strip() or not experience_ids:
+        return "dropped: no key, advice or experience"
+    entry = {"session_id": str(session_id), "verdict": "new" if verdict == "supports" else verdict,
+             "experience_ids": experience_ids, "at": _now().isoformat(), "trial_id": str(trial_id)}
+    lesson = db.scalar(select(GameLesson).where(GameLesson.user_id == user_id, GameLesson.game == game,
+                                                GameLesson.normalized_key == key).with_for_update())
+    if lesson is None:
+        if verdict != "supports":
+            return "dropped: nothing to contradict"
+        active = db.scalar(select(func.count()).select_from(GameLesson).where(
+            GameLesson.user_id == user_id, GameLesson.game == game, GameLesson.status != "retired")) or 0
+        if active >= get_settings().game_learning_max_active_lessons:
+            return "dropped: full"
+        db.add(GameLesson(user_id=user_id, game=game, normalized_key=key, situation=_clause(situation),
+                          advice=advice.strip(), level=level, support_count=1, contradict_count=0, status="trial",
+                          evidence=[entry]))
+        db.flush()
+        return "new (tentative)"
+    if lesson.status == "retired":
+        return "dropped: retired"
+    if _seen_in(lesson.evidence, session_id):
+        return "dropped: same session"
+    if verdict == "contradicts":
+        lesson.contradict_count += 1
+    else:
+        lesson.support_count += 1
+    lesson.evidence = [*lesson.evidence, entry]
+    lesson.status = lesson_status(lesson.support_count, lesson.contradict_count)
+    lesson.revision += 1
+    return f"{'contradicted' if verdict == 'contradicts' else 'supported'} ({lesson.status})"
 
 
 def apply_reflection(db: Session, *, user_id: uuid.UUID, game: str, session: DesktopSession,

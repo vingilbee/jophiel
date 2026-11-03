@@ -302,6 +302,24 @@ class Settings(BaseSettings):
     learning_lessons_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     learning_lessons_max_attempts: int = Field(default=4, ge=1)
     learning_lessons_log_path: str = "var/learning_lessons.jsonl"
+    # Predictions and bounded game trials (docs/learning-system/04-implementation.md; services/learning_trials.py).
+    # LEARNING_TRIALS_ENABLED off: no new investigations or proposals (live trials still finish and are assessed).
+    # The per-trial limits are the first scenario's starting defaults (climbing a small obstacle): execution
+    # attempts, active seconds including preparation, blocks placed; whichever comes first ends the trial. A
+    # proposal may ask for less, never more. WINDOW: how long after execution ends observations still count.
+    learning_trials_enabled: bool = True
+    learning_trials_model: str = "gpt-6-luna"
+    learning_trials_reasoning_effort: str | None = "low"
+    learning_trials_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    learning_trials_max_attempts: int = Field(default=4, ge=1)
+    trial_max_attempts: int = Field(default=3, ge=1, le=10)
+    trial_max_seconds: int = Field(default=300, ge=30, le=3600)
+    trial_max_blocks: int = Field(default=8, ge=0, le=64)
+    trial_window_seconds: int = Field(default=20, ge=0, le=600)
+    # How long a deferral is kept when cognition names no expiry, and how far she may be from the obstacle.
+    trial_defer_hours: float = Field(default=2.0, gt=0, le=168)
+    trial_near_m: float = Field(default=24.0, gt=0, le=128)
+    learning_trials_log_path: str = "var/learning_trials.jsonl"
     # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
     # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
     # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is

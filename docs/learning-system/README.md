@@ -1,10 +1,15 @@
 # Columbina learning system: staged plans
 
-Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); Step 2 design decisions were accepted on 2026-11-01 and it was built on request the same day ([implementation](02-implementation.md)); Step 3 likewise ([implementation](03-implementation.md)). No other step is authorized by this split.
+Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); Step 2 design decisions were accepted on 2026-11-01 and it was built on request the same day ([implementation](02-implementation.md)); Step 3 likewise ([implementation](03-implementation.md)). Step 4's design decisions were accepted on 2026-11-03 and it was built on request the same day ([implementation](04-implementation.md)). No other step is authorized by this split.
 
 Architecture: [original design](../COLUMBINA_LEARNING_SYSTEM_DESIGN.md). This index organizes that design into smaller plans. Step 1 records capture decisions accepted 2026-11-01 and supersedes earlier conflicting capture and retention proposals.
 
 ## Decisions already made
+
+- [Step 4](04-predictions-and-trials.md) records prediction and game-trial decisions accepted 2026-11-03:
+  autonomous proposals, cognition's final selection, persistent deferral, planner-owned preparation, linked
+  execution and assessment, bounded climbing trials, and changed-condition evaluation. This remains design
+  only. Conversational experiments require a separate discussion on the shared foundation.
 
 - [Step 2](02-evidence-and-attribution.md) records accepted evidence and attribution decisions: learning-owned
   retrospective assessment, separate target and cause judgments, qualitative uncertainty, six assessment dimensions,
