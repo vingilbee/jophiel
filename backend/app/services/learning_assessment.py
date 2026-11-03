@@ -22,7 +22,8 @@ Learning reads what happened and what the evidence supports. It never speaks, ne
    and kept. Reading the same evidence again is not a revision (repetition is not evidence). New evidence
    (a capture that arrives late, a correction, a later message another assessment found relevant, the user's
    note) reopens an assessment. When conclusions change, every owner that acted on the earlier one is told to
-   reconsider (today: training examples flagged when Student 2's choice in that turn was found at fault).
+   reconsider (training examples flagged when Student 2's choice in that turn was found at fault; lessons that
+   rested on the earlier reading, docs/learning-system/03-implementation.md).
 """
 from __future__ import annotations
 
@@ -965,6 +966,9 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
     row.explanation = result["explanation"] or found.stop_why
     row.awaiting = sorted(set(gathered.awaiting))
     _owners(db, row, n, result, gathered, changed=current is None or current.fingerprint != found.fingerprint)
+    # Lessons (docs/learning-system/03-implementation.md): learning reads this revision for what should persist.
+    from app.services import learning_lessons
+    learning_lessons.on_revision(db, row, n, result)
     for entry in result["reopens"]:
         other = db.scalar(select(LearningAssessment).where(LearningAssessment.id == _uuid(entry["id"]),
                                                            LearningAssessment.user_id == row.user_id).with_for_update())
@@ -1081,8 +1085,15 @@ def _examples_reconsider(db: Session, use: LearningAssessmentUse, row: LearningA
                                      note=f"assessment {row.id} was revised (revision {n}) and no longer supports it")
 
 
+def _lessons_reconsider(db: Session, use: LearningAssessmentUse, row: LearningAssessment, n: int) -> None:
+    from app.services import learning_lessons
+
+    learning_lessons.reconsider(db, use, row, n)
+
+
 RECONSIDER: dict[str, Callable[[Session, LearningAssessmentUse, LearningAssessment, int], None]] = {
     "training_examples": _examples_reconsider,
+    "lessons": _lessons_reconsider,
 }
 
 

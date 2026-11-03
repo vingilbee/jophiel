@@ -12,6 +12,12 @@ records the mouth gets, by section, an unresolved disagreement with the user's w
 fits, whether the check failed), so it can notice a message that doesn't match what she remembers. A model trained
 before v5 (``rendering`` older than ``memory-v1``) gets the situation without that section.
 
+Since lessons (docs/learning-system/03-implementation.md) it can also read LESSONS: a bounded selection of accepted
+lessons from earlier conversations, each saying whose it is, where it applies and its exceptions, placed after
+MEMORY. Only a model whose rendering shows them gets them (``LESSON_RENDERINGS``: the teacher's ``lessons-v1``);
+without any lessons the text is exactly ``memory-v1``. Which lessons a decision had, and whether it received them,
+is recorded by ``services/memory_lessons.record_uses``.
+
 Three triggers are live: a user message; a thought that just finished (her background thinking for a request, or a
 thought of her own proposed to be said: [T1] with the thinking work behind it, for [T1]); and work that finished
 without a conclusion (failed or ran out of time). The last two have no new message: what she decides is whether
@@ -29,6 +35,7 @@ from datetime import datetime
 from typing import Any
 
 from app.ai.Cognitive.simple import events as E
+from app.ai.learning import lessons as LS
 
 TRIGGERS = ("user_message", "thought_result", "work_outcome")
 MESSAGE_CHARS = 700  # one conversation line, as the student sees it
@@ -42,7 +49,9 @@ DEFAULTS: dict[str, Any] = dict(E._QUIET) | dict(work="no_change", target="none"
 RECALL_WORK = frozenset({"request_recall", "recall_then_thinking"})
 # Renderings that show MEMORY; for any other the section is left out (that model never saw it), and its recall choice
 # means "search further" either way: the check already ran.
-MEMORY_RENDERINGS = frozenset({"memory-v1"})
+MEMORY_RENDERINGS = frozenset({"memory-v1", LS.RENDERING})
+# Renderings that show LESSONS (after MEMORY); for any other the section is left out (that model never saw it).
+LESSON_RENDERINGS = frozenset({LS.RENDERING})
 SNAPSHOT_MEMORY_NOTE = "this model has no memory input (trained before snapshot v5); its recall choice means searching further"
 
 
@@ -131,6 +140,10 @@ class Live:
     # What the snapshot was read from ("message:<id>", "item:<id>", "fact:<id>", ...): never rendered; the learning
     # capture keeps it so a forgotten or corrected source finds the copies made from it.
     sources: tuple[str, ...] = ()
+    # Accepted lessons offered to this decision (refs L1..), and those left out by the budget: (id, revision, why).
+    lessons: tuple[LS.LessonView, ...] = ()
+    lessons_left_out: tuple[tuple[str, int, str], ...] = ()
+    lessons_note: str | None = None  # why there are none when retrieval didn't run or failed
 
 
 @dataclass
@@ -138,6 +151,15 @@ class Situation:
     snapshot: dict[str, Any]
     text: str
     refs: dict[str, str] = field(default_factory=dict)  # "G1" -> goal key, "W1" -> work key, "A1" -> session id
+    # Lessons offered with it (rendered only for LESSON_RENDERINGS); kept apart from the event snapshot, whose shape
+    # is the trained models' contract.
+    lessons: tuple[LS.LessonView, ...] = ()
+    lessons_cut: int = 0
+    lessons_shown: bool = False  # set by ``render``: whether the text it made shows them
+
+    @property
+    def lesson_refs(self) -> list[str]:
+        return [v.ref for v in self.lessons] if self.lessons_shown else []
 
 
 def _time_of_day(hour: int) -> str:
@@ -206,7 +228,7 @@ def snapshot(live: Live) -> Situation:
     s["memory"] = _memory(live, now) if s["new_message"] else E.no_memory(checked=False)
     if not s["new_message"]:
         s["seconds_since_user_message"] = last["user"]
-    return Situation(s, "", refs)
+    return Situation(s, "", refs, lessons=tuple(live.lessons), lessons_cut=len(live.lessons_left_out))
 
 
 def _days(now: datetime, at: datetime) -> int:
@@ -227,10 +249,18 @@ def _memory(live: Live, now: datetime) -> dict[str, Any]:
 def render(situation: Situation, rendering: str | None) -> str:
     """The text the student reads. ``rendering`` is how its training data was rendered (the model's manifest):
     None = before the exchange line existed (qwen-4), so the line is left out; anything before ``memory-v1`` never
-    saw MEMORY, so the section is left out."""
+    saw MEMORY, so the section is left out. LESSONS (after MEMORY, before the requests) only for
+    ``LESSON_RENDERINGS`` and only when there are lessons: otherwise the text is the rendering without them."""
     text = E.render(situation.snapshot, memory=rendering in MEMORY_RENDERINGS)
     if rendering is None:
         text = "\n".join(line for line in text.split("\n") if line not in E.EXCHANGE)
+    situation.lessons_shown = False
+    if rendering in LESSON_RENDERINGS and situation.lessons:
+        lines = text.split("\n")
+        at = next(i for i, line in enumerate(lines) if line.startswith("REQUESTS FROM THE USER"))
+        lines[at:at] = LS.decision_lines(situation.lessons, cut=situation.lessons_cut)
+        text = "\n".join(lines)
+        situation.lessons_shown = True
     situation.text = text
     return text
 

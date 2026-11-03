@@ -3,7 +3,9 @@
 - ``run_once`` (docs/learning-system/01-implementation.md): derive training examples from captured decisions, and
   remove raw captures past their retention (every PRUNE_SECONDS).
 - ``assess_once`` (docs/learning-system/02-implementation.md): its own thread, since an assessment is one or more
-  model calls: triage new observations, sweep for failures and late captures, then run one due assessment."""
+  model calls: triage new observations, sweep for failures and late captures, then run one due assessment.
+- ``lessons_once`` (docs/learning-system/03-implementation.md): its own thread: read one due assessment revision
+  for lessons and hand the checked changes to memory."""
 from __future__ import annotations
 
 import logging
@@ -36,4 +38,10 @@ def assess_once() -> bool:
     return learning_assessment.run_once()
 
 
-__all__ = ["run_once", "assess_once"]
+def lessons_once() -> bool:
+    from app.services import learning_lessons
+
+    return learning_lessons.run_once()
+
+
+__all__ = ["run_once", "assess_once", "lessons_once"]

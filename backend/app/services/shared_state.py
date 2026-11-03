@@ -635,7 +635,10 @@ def _student_trace(outcome: student_two.Outcome | None) -> dict[str, Any] | None
     return {"id": outcome.decision_id, "status": outcome.status, "model": outcome.model,
             "latency_ms": outcome.latency_ms, "error": outcome.error, "problems": outcome.problems,
             "communication": d.get("communication"), "work": d.get("work"), "target": d.get("target"),
-            "effect": outcome.effect}
+            "effect": outcome.effect,
+            "lessons": {"offered": len(outcome.situation.lessons) if outcome.situation else 0,
+                        "received": outcome.lessons_received, "reason": outcome.lessons_reason,
+                        "weighed": [w["use"] for w in outcome.lessons_weighed]}}
 
 
 def _write(record: dict[str, Any]) -> None:

@@ -3,6 +3,9 @@ import { AppHeader } from '../components/AppHeader'
 import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
 import { learningApi } from '../api/learning'
 import type {
+  AdaptationLesson,
+  AdaptationLessonDetail,
+  AdaptationListing,
   AssessmentDetail,
   AssessmentListing,
   AssessmentSummary,
@@ -38,6 +41,25 @@ const STATUS_STYLES: Record<string, string> = {
   'no feedback': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
   pending: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
   running: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
+  hypothesis: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
+  'one episode': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  withdrawn: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+}
+
+const LESSON_STATUS_LABELS: Record<AdaptationLesson['status'], string> = {
+  accepted: 'accepted',
+  hypothesis: 'hypothesis',
+  episode_only: 'one episode',
+  withdrawn: 'withdrawn',
+}
+
+const USE_CASE_LABELS: Record<string, string> = {
+  not_received: "didn't reach her",
+  no_decision: 'no valid decision',
+  no_account: 'reached her, not accounted for',
+  applied: 'she says she applied it',
+  unclear: "she couldn't tell",
+  set_aside: 'she chose not to follow it',
 }
 
 const TRIGGER_LABELS: Record<AssessmentSummary['trigger_kind'], string> = {
@@ -127,18 +149,20 @@ export function LearningPage() {
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
   const [reflections, setReflections] = useState<Reflection[] | null>(null)
   const [assessments, setAssessments] = useState<AssessmentListing | null>(null)
+  const [adaptation, setAdaptation] = useState<AdaptationListing | null>(null)
   const [onlyOpen, setOnlyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [c, s, p, l, r, a] = await Promise.all([
+      const [c, s, p, l, r, a, ad] = await Promise.all([
         learningApi.challenges(),
         learningApi.skills(),
         learningApi.proposals(),
         learningApi.lessons(),
         learningApi.reflections(),
         learningApi.assessments(onlyOpen ? 'unresolved' : undefined),
+        learningApi.adaptationLessons(),
       ])
       setChallenges(c)
       setSkills(s)
@@ -146,6 +170,7 @@ export function LearningPage() {
       setLessons(l)
       setReflections(r)
       setAssessments(a)
+      setAdaptation(ad)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load what she learned.')
@@ -198,6 +223,17 @@ export function LearningPage() {
           {assessments?.items.length === 0 && <Empty text="Nothing assessed yet. Corrections and failures are looked at automatically, a minute after they happen." />}
           {assessments?.items.map((a) => (
             <AssessmentCard key={a.id} summary={a} onChanged={load} onError={setError} />
+          ))}
+        </Section>
+
+        <Section
+          title="What she carries forward with you"
+          hint="Lessons from those assessments, kept by her memory and weighed (never obeyed) in later decisions. A preference is what you said you want, in your words; a hypothesis is her guess, not used until another occasion supports it; one episode corrects that time only. Each decision records which lessons it had and what it made of them: having a lesson isn't proof it shaped anything."
+        >
+          {adaptation === null && !error && <Loading />}
+          {adaptation?.items.length === 0 && <Empty text="No lessons yet. They come from corrections and outcomes once an assessment supports them." />}
+          {adaptation?.items.map((l) => (
+            <AdaptationCard key={l.id} lesson={l} onError={setError} />
           ))}
         </Section>
 
@@ -533,6 +569,82 @@ function AssessmentCard({
               className="min-w-0 flex-1 rounded-xl border border-[#EAF0FA] px-3 py-1.5 text-xs"
             />
             <button onClick={() => void sendNote()} className={SMALL_BUTTON}>Add note</button>
+          </div>
+        )}
+      </details>
+    </article>
+  )
+}
+
+function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onError: (message: string) => void }) {
+  const [detail, setDetail] = useState<AdaptationLessonDetail | null>(null)
+
+  async function open(isOpen: boolean) {
+    if (!isOpen || detail) return
+    try {
+      setDetail(await learningApi.adaptationLesson(l.id))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not load the lesson.')
+    }
+  }
+
+  return (
+    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="mr-auto text-sm font-medium">{l.statement}</h3>
+        <span className="text-[11px] text-[#7183A3]">
+          {l.kind === 'preference' ? 'what you said you want' : 'her own finding'} · {l.scope} · revision {l.revision}
+        </span>
+        <Chip label={LESSON_STATUS_LABELS[l.status]} />
+      </div>
+      <p className="mt-1 text-xs text-[#40506F]">
+        Applies {l.applies_when}
+        {l.exceptions.length > 0 && <> · except {l.exceptions.join('; ')}</>}
+      </p>
+      {l.user_words.length > 0 && (
+        <p className="mt-1 text-xs text-[#617698]">Your words: {l.user_words.map((w) => `“${w}”`).join(' / ')}</p>
+      )}
+      <p className="mt-1 text-[11px] text-[#7183A3]">
+        Supported on {l.support} occasion{l.support === 1 ? '' : 's'} · found against on {l.counter}
+        {l.conflicts_with.length > 0 && ` · points against ${l.conflicts_with.length} other lesson${l.conflicts_with.length === 1 ? '' : 's'}`}
+        {l.status_reason && ` · ${l.status_reason}`}
+      </p>
+      <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer text-xs text-[#7183A3]">Evidence, revisions and decisions that had it</summary>
+        {!detail && <Loading />}
+        {detail && (
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+            {detail.evidence.map((e, i) => (
+              <p key={`e-${i}`}>
+                <Chip label={e.role === 'support' ? 'supported' : 'contradicted'} /> {day(e.occasion_at)}
+                {e.quote && <> · “{e.quote}”</>}
+                {e.why && <> · {e.why}</>}
+                <span className="text-[#7183A3]">
+                  {' '}
+                  · assessment {e.assessment_id?.slice(0, 8) ?? '?'} rev {e.assessment_revision ?? '?'}
+                  {!e.current && ' · not counted until its revised assessment is read'}
+                </span>
+              </p>
+            ))}
+            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+              {detail.revisions.map((r) => (
+                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#617698]">
+                  Revision {r.revision} · {day(r.at)} · {r.op} · {LESSON_STATUS_LABELS[r.status]} · {r.statement}
+                  {r.exceptions.length > 0 && ` (except ${r.exceptions.join('; ')})`} · {r.reason}
+                </li>
+              ))}
+            </ul>
+            {detail.uses.length === 0 && <p className="text-[#7183A3]">No decision has had it yet.</p>}
+            {detail.uses.length > 0 && (
+              <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+                {detail.uses.map((u) => (
+                  <li key={`${u.attempt_id}-${u.consumer}`} className="px-3 py-2 text-[11px] text-[#617698]">
+                    {day(u.at)} · {u.consumer} · revision {u.revision} · <strong>{USE_CASE_LABELS[u.case] ?? u.case}</strong>:{' '}
+                    {u.explanation}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </details>

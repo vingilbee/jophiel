@@ -24,6 +24,12 @@ Retrospective assessment (docs/learning-system/02-implementation.md):
     GET    /api/learning/assessments                   counts and recent assessments (?outcome=)
     GET    /api/learning/assessments/{id}              one, with its evidence, every revision, links and uses
     POST   /api/learning/assessments/{id}/notes        the user's correction: new evidence, assessed again
+
+Lessons (docs/learning-system/03-implementation.md), memory's, read only:
+
+    GET    /api/learning/adaptation/lessons            lessons by status (?status=), counts, recent lesson jobs
+    GET    /api/learning/adaptation/lessons/{id}       one lesson: revisions, evidence, the decisions that had it
+    GET    /api/learning/adaptation/decisions/{id}     one decision (capture attempt): the lessons it had, and why
 """
 from __future__ import annotations
 
@@ -49,7 +55,8 @@ from app.schemas.game_learning import (
 )
 from app.schemas.learning_capture import AssessmentNote, TrainingExampleOut, TrainingExampleReview
 from app.services import (
-    capture_chains, game_challenges, game_learning, game_skills, learning_assessment, training_examples,
+    capture_chains, game_challenges, game_learning, game_skills, learning_assessment, learning_lessons, memory_lessons,
+    training_examples,
 )
 from app.services.game_learning import LearningError
 
@@ -208,3 +215,35 @@ def note_assessment(assessment_id: uuid.UUID, data: AssessmentNote, user: User =
     if learning_assessment.add_note(db, user.id, assessment_id, data.text) is None:
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such assessment."})
     return learning_assessment.detail(db, user.id, assessment_id)
+
+
+# --------------------------------------------------------------------------- #
+# Lessons (docs/learning-system/03-implementation.md): memory owns them; read only here
+# --------------------------------------------------------------------------- #
+
+_STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
+
+
+@router.get("/adaptation/lessons")
+def list_adaptation_lessons(status_filter: str | None = Query(default=None, alias="status"),
+                            user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if status_filter is not None and status_filter not in _STATUSES:
+        raise HTTPException(status_code=422, detail={"code": "bad_status", "message": "Unknown lesson status."})
+    found = memory_lessons.listing(db, user.id, status=status_filter)
+    return {**found, "jobs": learning_lessons.jobs(db, user.id)}
+
+
+@router.get("/adaptation/lessons/{lesson_id}")
+def get_adaptation_lesson(lesson_id: uuid.UUID, user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    found = memory_lessons.detail(db, user.id, lesson_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such lesson."})
+    return found
+
+
+@router.get("/adaptation/decisions/{attempt_id}")
+def get_adaptation_decision(attempt_id: uuid.UUID, user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Which lesson revisions one decision had, whether it received them, what it said about them."""
+    return {"attempt_id": str(attempt_id), "lessons": memory_lessons.uses_for_attempt(db, user.id, attempt_id)}

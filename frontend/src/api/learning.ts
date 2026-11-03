@@ -1,5 +1,8 @@
 import { api } from './client'
 import type {
+  AdaptationLessonDetail,
+  AdaptationLessonStatus,
+  AdaptationListing,
   AssessmentDetail,
   AssessmentListing,
   Challenge,
@@ -34,4 +37,9 @@ export const learningApi = {
     api.get<AssessmentListing>(`/learning/assessments${outcome ? `?outcome=${encodeURIComponent(outcome)}` : ''}`),
   assessment: (id: string) => api.get<AssessmentDetail>(`/learning/assessments/${id}`),
   noteAssessment: (id: string, text: string) => api.post<AssessmentDetail>(`/learning/assessments/${id}/notes`, { text }),
+
+  /** Lessons she keeps from supported assessments, and which decisions had them (read only). */
+  adaptationLessons: (status?: AdaptationLessonStatus) =>
+    api.get<AdaptationListing>(`/learning/adaptation/lessons${status ? `?status=${status}` : ''}`),
+  adaptationLesson: (id: string) => api.get<AdaptationLessonDetail>(`/learning/adaptation/lessons/${id}`),
 }
