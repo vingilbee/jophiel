@@ -3,7 +3,6 @@ import { test } from 'node:test'
 import { createRequire } from 'node:module'
 
 import { ParamError, SkillEnd, manifestEntry, validateParams } from '../src/skills/contract.js'
-import { nextFrontier, parseGoal } from '../src/skills/explore.js'
 import { pickTarget } from '../src/skills/fight.js'
 import { isHostile } from '../src/skills/common.js'
 import { dropNames } from '../src/skills/mine.js'
@@ -53,12 +52,6 @@ test('go_to targets', () => {
   assert.throws(() => parseTarget('the big tree'), ParamError)
 })
 
-test('explore goals', () => {
-  assert.equal(parseGoal(undefined), null)
-  assert.deepEqual(parseGoal('mob:villager'), { kind: 'mob', name: 'villager' })
-  assert.throws(() => parseGoal('village'), ParamError)
-})
-
 test('fight order: creeper, then skeletons, then zombies, nearest first within a rank', () => {
   const bot = { entity: { position: new Vec3(0, 0, 0) } }
   const mob = (name, x) => ({ name, position: new Vec3(x, 0, 0) })
@@ -70,17 +63,6 @@ test('fight order: creeper, then skeletons, then zombies, nearest first within a
   assert.equal(pickTarget(bot, [zombie, skeleton, spider]), skeleton)
   assert.equal(pickTarget(bot, [mob('zombie', 5), zombie, spider]), zombie)
   assert.equal(pickTarget(bot, []), null)
-})
-
-test('explore frontier: nearest unexplored chunk within the radius', () => {
-  const start = { x: 8, z: 8 }
-  const visited = new Set(['0,0'])
-  const next = nextFrontier(visited, start, { x: 8, z: 8 }, 32)
-  assert.ok(next && next.key !== '0,0')
-  assert.equal(Math.hypot(next.x - 8, next.z - 8), 16) // a neighbouring chunk
-  const all = new Set()
-  for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) all.add(`${x},${z}`)
-  assert.equal(nextFrontier(all, start, start, 32), null) // covered
 })
 
 test('mining counts what a block drops, not the block', () => {

@@ -615,16 +615,18 @@ def _announce(job: ChatJob, reply: str, message_id: uuid.UUID) -> bool:
     try:
         from app.db.models import CoordinatorWork
         interrupt = False
+        voice_socket_id = None
         with SessionLocal() as db:
             work_id = (job.payload or {}).get("work_id")
             work = db.get(CoordinatorWork, uuid.UUID(work_id)) if work_id else None
             if work is not None and work.input.get("autonomous"):
                 interrupt = agent_say.interrupts(work.input["reasons"])
+                voice_socket_id = work.input.get("voice_socket_id")
             elif (job.payload or {}).get("phase") == "deliver":
                 interrupt = agent_say.interrupts(job.payload["reasons"])
         r.publish(agent_say.channel(job.user_id), json.dumps({
             "conversation_id": str(job.conversation_id), "text": reply, "reason": "follow_up",
-            "message_id": str(message_id), "interrupt": interrupt}))
+            "message_id": str(message_id), "interrupt": interrupt, "voice_socket_id": voice_socket_id}))
         return True
     except Exception:
         logger.warning("Follow-up announcement will be retried: %s", message_id)

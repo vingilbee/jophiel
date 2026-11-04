@@ -77,7 +77,7 @@ DEATH_GRACE_SECONDS = 60.0
 REPEAT_WARN = 3
 REPEAT_STUCK = 6
 # Outcomes that count as a failed try at the current step. Failing in different ways never
-# reaches REPEAT_STUCK (last session: a bed craft failed 4 times, explore 3 times), so after
+# reaches REPEAT_STUCK (for example, several failed attempts to craft a bed), so after
 # this many failed tries on one step Columbina is told (she keeps playing) and can fix the plan
 # or ask the user for what's missing.
 FAILED = frozenset({"failed", "lost", "blocked", "refused", "timeout"})
@@ -233,7 +233,7 @@ way", "that direction", "go this way" from the user means the way THEY face (the
 blocks"). "The other way" is the opposite side of where you were going. When they point at a spot ("go there", \
 "stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
 - A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways are the passages; \
-pick the longest one you haven't walked). explore is for new ground on the surface: never use it for a cave.
+pick the longest one you haven't walked). For a search on the surface, use go_to toward a reachable spot from Ways, then reassess.
 - "Land", "Highest ground (peak)", "Way out" and "Surface" are the bigger picture: where the land rises and \
 falls, the highest ground near and how steep the way up is, and underground the way to the sky. "Climb the \
 mountain" / "go to the top": go_to target "peak"; steps higher than 1 block need dig="yes" (it digs steps). \
@@ -244,7 +244,7 @@ with the step, or wait.
 - An action that ends instantly with nothing changed (you were already there) did nothing: don't choose it \
 again. Move somewhere else, look for the user, or wait.
 - Background modes (the "Background modes" line in your state) run by themselves while you follow, walk, \
-explore or mine: guard fights hostiles close to you or the player you're with, gather mines the listed blocks \
+or mine: guard fights hostiles close to you or the player you're with, gather mines the listed blocks \
 close by, pickup grabs drops. Don't spend decisions on what a mode that's on already does; an outcome's \
 "interruptions" say what they did along the way.
 - Jophiel's messages to you are how to play: follow them.

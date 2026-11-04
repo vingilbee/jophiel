@@ -136,7 +136,7 @@ from app.services import cognitive_live, inner_state_live
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import coordinator, shared_state
+from app.services import coordinator, shared_state, voice_target
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -535,6 +535,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     # client has told us about its time zone, route, and microphone. Lives for
     # exactly as long as the socket — see services/awareness.py.
     session = awareness_service.AwarenessSession(user_id)
+    voice_socket_id = uuid.uuid4()
 
     # Send an authoritative snapshot on every new/reconnected socket. REST
     # remains available as a fallback if the snapshot query fails.
@@ -594,6 +595,8 @@ async def chat_ws(websocket: WebSocket) -> None:
             try:
                 if not await check_session():
                     return
+                if voice_conversation_id is not None:
+                    await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, voice_open())
                 state = await asyncio.to_thread(read_awareness)
                 await send_json({"type": "state", "awareness": state.to_dict()})
                 await consider_nudging(state)
@@ -823,6 +826,9 @@ async def chat_ws(websocket: WebSocket) -> None:
                     if sees_thoughts:
                         await send_json({"type": "thought", "thought": data.get("thought")})
                     continue
+                if target_socket := data.get("voice_socket_id"):
+                    if target_socket != str(voice_socket_id) or data["conversation_id"] != str(voice_conversation_id):
+                        continue
                 message_id = data.get("message_id")
                 if message_id:
                     if message_id in seen_messages:
@@ -1163,6 +1169,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         the whole request: there is nothing to answer, and persisting it
         would make the next turn respond to the word "stop".
         """
+        nonlocal voice_conversation_id
         # When the user started speaking (what they were looking at): the end
         # of the recording minus its length, measured here, not by the browser.
         spoke_at = time.time() - len(pcm) / 2 / max(sample_rate, 1)
@@ -1200,6 +1207,9 @@ async def chat_ws(websocket: WebSocket) -> None:
                          "zone": state.zone_name, "vision_enabled": state.senses.vision_enabled,
                          "screen_image_id": state.senses.screen_image_id},
             )
+            voice_conversation_id = conversation.id
+            if connected and voice_open():
+                await asyncio.to_thread(voice_target.claim, user_id, voice_socket_id, conversation.id)
             voice_latency.mark("job_enqueued", turn_id, source="api")
             await send_json({"type": "meta", "conversation_id": str(conversation.id)})
             await send_json({"type": "ack", "turn_id": str(turn_id),
@@ -1315,6 +1325,11 @@ async def chat_ws(websocket: WebSocket) -> None:
     # The thread this socket is actually in, so an unprompted message lands in
     # the conversation the user is looking at rather than an arbitrary one.
     last_conversation_id: uuid.UUID | None = None
+    voice_conversation_id: uuid.UUID | None = None
+
+    def voice_open() -> bool:
+        return (settings.voice_enabled and session.report.hearing_enabled
+                and session.report.voice_state in ("idle", "listening", "thinking", "speaking"))
 
     # Open-utterance state, reset on voice_start / voice_end / voice_cancel.
     utterance: bytearray | None = None
@@ -1537,7 +1552,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                     if frame and frame == session.report.screen_image_id
                     else (datetime.now(timezone.utc) if frame else None)
                 )
+                was_open = voice_open()
                 session.update(**fields)
+                if voice_conversation_id is not None and was_open != voice_open():
+                    if voice_open():
+                        await asyncio.to_thread(voice_target.claim, user_id, voice_socket_id, voice_conversation_id)
+                    else:
+                        await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, False)
                 # Echo the derived state straight back rather than making the
                 # client wait up to a heartbeat to see its own change land.
                 with contextlib.suppress(Exception):
@@ -1719,6 +1740,8 @@ async def chat_ws(websocket: WebSocket) -> None:
         connected = False
         heartbeat_task.cancel()
         agent_messages_task.cancel()
+        if voice_conversation_id is not None:
+            await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, False)
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await heartbeat_task
         with contextlib.suppress(asyncio.CancelledError, Exception):

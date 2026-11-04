@@ -312,26 +312,6 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
     assert.equal(r.data.ate, 'cooked_beef')
   })
 
-  test('explore finds a goal block and remembers where it has been', async () => {
-    await reset()
-    await mc(`forceload add ${origin.x - 64} ${origin.z - 64} ${origin.x + 64} ${origin.z + 64}`, /chunks?|Marked|already/i, 15000).catch(() => {})
-    await mc(`setblock ${at(40, 0, 25)} minecraft:diamond_block`)
-    const r = await run('explore', { goal: 'block:diamond_block', radius: 64 }, 120000)
-    assert.equal(r.status, 'done', JSON.stringify(r))
-    assert.equal(r.data.found.name, 'diamond_block')
-    assert.ok(r.data.explored_chunks >= 1)
-    await mc(`forceload remove all`)
-  })
-
-  test('explore stops at night', async () => {
-    await reset()
-    await mc('time set midnight')
-    await until(() => bot.time.timeOfDay > 17000)
-    const r = await run('explore', { radius: 32 })
-    assert.equal(r.status, 'failed')
-    assert.equal(r.reason, 'night is coming')
-  })
-
   test('sleep in a bed until morning', async () => {
     await reset()
     let r = await run('sleep')
@@ -383,7 +363,7 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
 
       const skills = await call('GET', '/skills')
       assert.deepEqual(skills.body.map((s) => s.name), [
-        'go_to', 'mine', 'fight', 'explore', 'eat', 'sleep', 'craft', 'follow_player',
+        'go_to', 'mine', 'fight', 'eat', 'sleep', 'craft', 'follow_player',
         'place', 'collect_items', 'give', 'look_at', 'store', 'take', 'smelt', 'wear', 'hold', 'put_in_hotbar', 'surface'
       ])
       assert.equal((await call('POST', '/skills/run', { skill: 'go_to', params: { target: 'block:nope' } })).status, 400)
