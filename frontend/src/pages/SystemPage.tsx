@@ -1,10 +1,10 @@
 import '@fontsource-variable/schibsted-grotesk'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { systemApi } from '../api/system'
 import { FieldMap } from '../components/system/FieldMap'
-import { PartPanel } from '../components/system/PartPanel'
-import { PART_BY_ID } from '../components/system/anatomy'
+import { PartPage } from '../components/system/PartPage'
+import { PARTS, PART_BY_ID } from '../components/system/anatomy'
 import { tabsFor } from '../components/tabs'
 import { useAuth } from '../hooks/useAuth'
 import { useSignals } from '../hooks/useSignals'
@@ -17,7 +17,14 @@ export function SystemPage() {
   const { user } = useAuth()
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<PartId | null>(null)
+  // The part whose page is open comes from the address (/system/mind), so back and forward work.
+  const params = useParams()
+  const navigate = useNavigate()
+  const selected: PartId | null = PARTS.some((p) => p.id === params.part) ? (params.part as PartId) : null
+  const [diving, setDiving] = useState(false)
+  useEffect(() => {
+    if (!selected) setDiving(false)
+  }, [selected])
   const { signals, live } = useSignals()
   const last = signals.length ? signals[signals.length - 1] : null
 
@@ -50,15 +57,19 @@ export function SystemPage() {
     return { running, trouble, down }
   }, [status])
 
-  const close = useCallback(() => setSelected(null), [])
+  const open = useCallback((id: PartId) => navigate(`/system/${id}`), [navigate])
+  const close = useCallback(() => navigate('/system'), [navigate])
   const nav = tabsFor(user).filter((t) => t.to !== '/system')
 
   return (
     <div className="system-page fixed inset-0 overflow-hidden bg-[#040506] text-[#E9EDF0]">
       <h1 className="sr-only">Jophiel, her parts</h1>
-      <FieldMap statuses={statuses} selected={selected} onSelect={setSelected} panelOpen={selected !== null} signals={signals} />
+      <FieldMap statuses={statuses} selected={selected} onSelect={open} signals={signals} onDive={() => setDiving(true)} />
 
-      <div className="pointer-events-none absolute top-0 left-0 z-10 max-w-[calc(100vw-2rem)] p-4 sm:p-6">
+      <div
+        className={`pointer-events-none absolute top-0 left-0 z-10 max-w-[calc(100vw-2rem)] p-4 transition-opacity duration-300 sm:p-6 ${selected || diving ? 'opacity-0' : 'opacity-100'}`}
+        aria-hidden={selected !== null}
+      >
         <div className="pointer-events-auto">
           <p className="text-[19px] leading-none font-semibold tracking-[-0.02em]">
             Jophiel <span className="font-normal text-[#8C97A3]">· live field</span>
@@ -89,7 +100,7 @@ export function SystemPage() {
         </div>
       </div>
 
-      {selected && <PartPanel part={PART_BY_ID[selected]} status={statuses[selected]} onClose={close} />}
+      {selected && <PartPage key={selected} part={PART_BY_ID[selected]} status={statuses[selected]} signals={signals} onClose={close} />}
     </div>
   )
 }

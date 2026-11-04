@@ -5,6 +5,7 @@ import { MAX_MAG, PARTS, SUBS_FROM, SUBS_FULL, WIRES, layoutFor } from './anatom
 import type { PartAnatomy } from './anatomy'
 import { axon, filaments, reachToward, rng, seedOf } from './shapes'
 import { FitIcon, MinusIcon, PlusIcon } from './icons'
+import { FAIL, PERIOD, STATE_WORD } from './nodeStates'
 
 interface View {
   x: number
@@ -12,23 +13,71 @@ interface View {
   k: number
 }
 
-const STATE_WORD: Record<PartState, string> = {
-  alive: 'alive',
-  busy: 'working',
-  partial: 'partly down',
-  down: 'down',
-  failing: 'failing',
-  off: 'off',
-}
-
-/** How often a core charges and discharges in each state, in seconds; none when it isn't running. */
-const PERIOD: Partial<Record<PartState, number>> = { alive: 2.8, busy: 1.05, partial: 4.4, failing: 1.6 }
 /** How long a pulse takes to run a fibre, in milliseconds. */
 const PULSE_MS = 760
-const FAIL = '#FF4136'
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const easeOutExpo = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t))
+const easeInCubic = (t: number) => t * t * t
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
+
+/** How long the jump into a part takes, and the way back out, in milliseconds. */
+const DIVE_MS = 900
+const SURFACE_MS = 800
+/** How far the camera flies in, as a multiple of the fitted zoom: the core fills the screen. */
+const DIVE_ZOOM = 22
+
+/** The jump to lightspeed: stars streak out from a point, longer and brighter as the warp builds.
+ * ``dir`` "in" builds it, "out" lets it fall away. Resolves when it's done (the canvas is left clear). */
+function runWarp(canvas: HTMLCanvasElement, w: number, h: number, from: [number, number], to: [number, number],
+  dir: 'in' | 'out', ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return resolve()
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    const rand = rng(Math.floor(performance.now()))
+    const reach = Math.hypot(w, h)
+    const stars = Array.from({ length: 340 }, () => {
+      const tint = rand()
+      return {
+        a: rand() * Math.PI * 2,
+        d: 12 + Math.pow(rand(), 0.7) * reach * 0.6,
+        color: tint < 0.4 ? `rgb(${STAR_TINTS[Math.floor(rand() * STAR_TINTS.length)]})` : '#FFFFFF',
+      }
+    })
+    const t0 = performance.now()
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - t0) / ms)
+      const e = dir === 'in' ? easeInCubic(t) : 1 - easeOutCubic(t)
+      // The streaks' vanishing point follows the node as the camera brings it to the middle.
+      const m = dir === 'in' ? easeOutCubic(t) : 1 - t
+      const cx = from[0] + (to[0] - from[0]) * m
+      const cy = from[1] + (to[1] - from[1]) * m
+      ctx.clearRect(0, 0, w, h)
+      ctx.lineCap = 'round'
+      for (const s of stars) {
+        const r1 = s.d * (1 + e * 1.8)
+        const r2 = r1 + 2 + e * e * (s.d / reach) * 900
+        ctx.strokeStyle = s.color
+        ctx.globalAlpha = Math.min(1, 0.2 + e * 0.9)
+        ctx.lineWidth = 0.7 + e * 1.6
+        ctx.beginPath()
+        ctx.moveTo(cx + Math.cos(s.a) * r1, cy + Math.sin(s.a) * r1)
+        ctx.lineTo(cx + Math.cos(s.a) * r2, cy + Math.sin(s.a) * r2)
+        ctx.stroke()
+      }
+      if (t < 1) requestAnimationFrame(frame)
+      else {
+        ctx.clearRect(0, 0, w, h)
+        resolve()
+      }
+    }
+    requestAnimationFrame(frame)
+  })
+}
 
 function prefersReducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -55,7 +104,8 @@ function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
       const r = 0.35 + m * 1.6
       const alpha = 0.18 + m * 0.75
       const tint = rand()
-      const color = tint < 0.12 ? '200, 220, 255' : tint < 0.18 ? '255, 236, 214' : '255, 255, 255'
+      // About a third of the stars carry one of her parts' colours, so the sky belongs to the same system.
+      const color = tint < 0.34 ? STAR_TINTS[Math.floor(rand() * STAR_TINTS.length)] : tint < 0.42 ? '200, 220, 255' : '255, 255, 255'
       if (m > 0.55) {
         const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5)
         g.addColorStop(0, `rgba(${color}, ${alpha * 0.25})`)
@@ -73,6 +123,12 @@ function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
   }, [canvas, W, H])
 }
 
+/** The parts' colours as rgb triples, for tinted stars. */
+const STAR_TINTS = PARTS.map((p) => {
+  const n = parseInt(p.color.slice(1), 16)
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`
+})
+
 /** A few stars that twinkle, placed in the star canvas's own pixels. */
 const TWINKLES = (() => {
   const rand = rng(23)
@@ -83,13 +139,13 @@ interface Props {
   statuses: Partial<Record<PartId, PartStatus>>
   selected: PartId | null
   onSelect: (id: PartId) => void
-  /** The details panel is open beside the field (wide screens): keep the controls clear of it. */
-  panelOpen?: boolean
   /** Hand-offs to draw as pulses; each id fires once. */
   signals?: Signal[]
+  /** The jump into a part has begun (the page's own text should step aside). */
+  onDive?: () => void
 }
 
-export function FieldMap({ statuses, selected, onSelect, panelOpen = false, signals = [] }: Props) {
+export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [view, setView] = useState<View | null>(null)
@@ -184,20 +240,31 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false, sign
   )
 
   const animateTo = useCallback(
-    (target: View) => {
+    (target: View, ms = 420, ease: (t: number) => number = easeOutExpo, focus?: { x: number; y: number }) => {
       if (anim.current) cancelAnimationFrame(anim.current)
       const start = viewRef.current ?? target
       if (prefersReducedMotion()) {
         commit(target)
         return
       }
+      // With a focus (a point in the field), that point glides straight between where it is on screen at the
+      // start and at the end while the zoom changes, so the camera flies into or out of it, never past others.
+      const f = focus ?? { x: 0, y: 0 }
+      const s0 = { x: start.x + f.x * start.k, y: start.y + f.y * start.k }
+      const s1 = { x: target.x + f.x * target.k, y: target.y + f.y * target.k }
       const t0 = performance.now()
       const step = (now: number) => {
-        const t = Math.min(1, (now - t0) / 420)
-        const e = easeOutExpo(t)
+        const t = Math.min(1, (now - t0) / ms)
+        const e = ease(t)
         // Interpolate zoom in log space so it feels even at every magnification.
         const k = Math.exp(Math.log(start.k) + (Math.log(target.k) - Math.log(start.k)) * e)
-        commit({ k, x: start.x + (target.x - start.x) * e, y: start.y + (target.y - start.y) * e })
+        if (focus) {
+          const sx = s0.x + (s1.x - s0.x) * e
+          const sy = s0.y + (s1.y - s0.y) * e
+          commit({ k, x: sx - f.x * k, y: sy - f.y * k })
+        } else {
+          commit({ k, x: start.x + (target.x - start.x) * e, y: start.y + (target.y - start.y) * e })
+        }
         anim.current = t < 1 ? requestAnimationFrame(step) : null
       }
       anim.current = requestAnimationFrame(step)
@@ -205,16 +272,76 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false, sign
     [commit],
   )
 
-  // On a phone the panel is a sheet over the lower field: bring the chosen cell into the strip above it.
-  useEffect(() => {
-    if (!selected || !panelOpen || size.w >= 640 || !viewRef.current) return
-    const p = layout.byId[selected]
+  // The jump into a part and back out. The camera flies into the node, the stars streak out from it, and its
+  // light floods the screen; then the part's own page opens over it. Closing the page plays it in reverse.
+  const warp = useRef<HTMLCanvasElement>(null)
+  const saved = useRef<View | null>(null)
+  const diving = useRef(false)
+  const [flare, setFlare] = useState<{ x: number; y: number; color: string; phase: 'in' | 'held' | 'out' } | null>(null)
+  const divedView = useCallback(
+    (id: PartId): View => {
+      const p = layout.byId[id]
+      const k = kFit * DIVE_ZOOM
+      return { k, x: size.w / 2 - p.x * k, y: size.h / 2 - p.y * k }
+    },
+    [layout, kFit, size.w, size.h],
+  )
+
+  const dive = (id: PartId) => {
     const v = viewRef.current
-    atFit.current = false
-    const headerBottom = 150
-    const sheetTop = size.h * 0.32
-    animateTo({ k: v.k, x: size.w / 2 - p.x * v.k, y: (headerBottom + sheetTop) / 2 + 20 - p.y * v.k })
-  }, [selected, panelOpen, size.w, size.h, layout, animateTo])
+    if (!v || diving.current) return
+    onDive?.()
+    if (prefersReducedMotion()) {
+      saved.current = v
+      commit(divedView(id))
+      onSelect(id)
+      return
+    }
+    diving.current = true
+    saved.current = v
+    const p = layout.byId[id]
+    const from: [number, number] = [v.x + p.x * v.k, v.y + p.y * v.k]
+    animateTo(divedView(id), DIVE_MS, easeInCubic, { x: p.x, y: p.y })
+    if (warp.current) void runWarp(warp.current, size.w, size.h, from, [size.w / 2, size.h / 2], 'in', DIVE_MS)
+    setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'in' })
+    window.setTimeout(() => {
+      diving.current = false
+      onSelect(id)
+    }, DIVE_MS)
+  }
+
+  const previous = useRef<PartId | null>(null)
+  const hasView = view !== null
+  // What the effect below needs, read fresh; it runs only when the open part changes (or the field first appears).
+  const latest = useRef({ divedView, fitView, commit, animateTo, layout, size })
+  useEffect(() => {
+    latest.current = { divedView, fitView, commit, animateTo, layout, size }
+  })
+  useEffect(() => {
+    const { divedView, fitView, commit, animateTo, layout, size } = latest.current
+    const before = previous.current
+    previous.current = selected
+    if (!viewRef.current) return
+    if (selected && !before && !diving.current && !saved.current) {
+      // Opened straight onto a part (a link, or forward): be inside it already, so going back still surfaces.
+      saved.current = viewRef.current
+      commit(divedView(selected))
+      setFlare({ x: size.w / 2, y: size.h / 2, color: layout.byId[selected].color, phase: 'held' })
+    } else if (selected && !before) {
+      setFlare((f) => (f ? { ...f, phase: 'held' } : f))
+    } else if (!selected && before) {
+      // Back out: the light falls away, the streaks shrink back into stars, the camera returns.
+      const back = saved.current ?? fitView()
+      saved.current = null
+      const p = layout.byId[before]
+      setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'out' })
+      animateTo(back, SURFACE_MS, easeOutCubic, { x: p.x, y: p.y })
+      if (warp.current && !prefersReducedMotion()) {
+        void runWarp(warp.current, size.w, size.h, [size.w / 2, size.h / 2], [back.x + p.x * back.k, back.y + p.y * back.k], 'out', SURFACE_MS)
+      }
+      window.setTimeout(() => setFlare(null), SURFACE_MS)
+    }
+  }, [selected, hasView])
 
   /** The buttons zoom toward the cell nearest the middle of the screen, so a part stays framed. */
   const zoomButton = (factor: number) => {
@@ -336,7 +463,7 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false, sign
 
   const select = (id: PartId) => {
     if (dragged.current) return
-    onSelect(id)
+    dive(id)
   }
 
   // Geometry that never changes: cores, filaments, fibres, sub-cores.
@@ -474,7 +601,13 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false, sign
       </div>
 
       {v && (
-        <svg width={size.w} height={size.h} className="absolute inset-0">
+        <svg
+          width={size.w}
+          height={size.h}
+          className="absolute inset-0 transition-opacity duration-300"
+          style={{ opacity: selected ? 0 : 1 }}
+          aria-hidden={selected !== null}
+        >
           <defs>
             {PARTS.map((p) => (
               <g key={p.id}>
@@ -560,10 +693,21 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false, sign
       )}
 
       <div aria-hidden="true" className="field-vignette pointer-events-none absolute inset-0" />
+      <canvas ref={warp} aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ width: size.w, height: size.h }} />
+      {flare && (
+        <div
+          aria-hidden="true"
+          className={`flare flare-${flare.phase} pointer-events-none absolute rounded-full`}
+          style={{
+            left: flare.x, top: flare.y, width: Math.hypot(size.w, size.h) * 2.2, height: Math.hypot(size.w, size.h) * 2.2,
+            background: `radial-gradient(circle, #FFFFFF 0%, ${flare.color} 16%, ${flare.color}55 34%, transparent 62%)`,
+          }}
+        />
+      )}
 
       <div
         data-chrome
-        className={`pointer-events-none absolute bottom-0 left-0 flex items-end justify-between gap-4 p-4 transition-[right] duration-300 ease-out sm:p-6 ${panelOpen ? 'right-0 sm:right-[460px]' : 'right-0'}`}
+        className={`pointer-events-none absolute right-0 bottom-0 left-0 flex items-end justify-between gap-4 p-4 transition-opacity duration-300 sm:p-6 ${selected || flare ? 'opacity-0' : 'opacity-100'}`}
       >
         <Magnification mag={mag} />
         <div className="pointer-events-auto flex items-center gap-1.5">
@@ -622,8 +766,8 @@ function Cell({
   const coreR = part.r * (0.36 - 0.14 * subsAlpha)
   const ringColor = state === 'failing' ? FAIL : part.color
   const pace = { ['--period' as string]: `${period ?? 3}s`, ['--delay' as string]: `${-delay}s` }
-  // Up close the filaments draw in toward the ring instead of growing into long zigzags.
-  const filamentScale = Math.min(1, Math.pow(2 / Math.max(2, magnification), 0.45))
+  // Lines thicken a little as you zoom in, so the filaments, ring and fibres keep their proportions to the node.
+  const line = Math.pow(magnification, 0.5)
 
   return (
     <g transform={`translate(${part.x} ${part.y})`}>
@@ -648,22 +792,18 @@ function Cell({
           {period && <circle className="ca" r={part.r * 2} fill={`url(#halo-${part.id})`} style={{ ...pace, ['--peak' as string]: 1 }} />}
           {/* An arriving pulse flashes the core (one flash per pulse: the key restarts it). */}
           {hits > 0 && <circle key={hits} className="hit" r={part.r * 1.9} fill={`url(#halo-${part.id})`} />}
-          <g
-            className={state && state !== 'down' && state !== 'off' ? 'flicker' : undefined}
-            style={pace}
-            transform={`scale(${filamentScale})`}
-          >
+          <g className={state && state !== 'down' && state !== 'off' ? 'flicker' : undefined} style={pace}>
             {fils.map((d, i) => (
-              <path key={i} d={d} fill="none" stroke={part.color} strokeWidth={1.1} strokeOpacity={0.75} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              <path key={i} d={d} fill="none" stroke={part.color} strokeWidth={1.1 * line} strokeOpacity={0.75} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
             ))}
           </g>
           {/* The charged ring: it fills with light, then lets it go. Broken when partly down, red when failing. */}
-          <circle r={ringR} fill="none" stroke={ringColor} strokeWidth={1.2} strokeOpacity={0.3} vectorEffect="non-scaling-stroke" />
+          <circle r={ringR} fill="none" stroke={ringColor} strokeWidth={1.2 * line} strokeOpacity={0.3} vectorEffect="non-scaling-stroke" />
           <circle
             r={ringR}
             fill="none"
             stroke={ringColor}
-            strokeWidth={state === 'failing' ? 2.6 : 2}
+            strokeWidth={(state === 'failing' ? 2.6 : 2) * line}
             strokeDasharray={state === 'partial' ? `${ringR * 0.5} ${ringR * 0.32}` : state === 'off' ? `${ringR * 0.12} ${ringR * 0.2}` : undefined}
             vectorEffect="non-scaling-stroke"
             className={period ? (state === 'failing' ? 'fail-rim' : 'charge') : undefined}

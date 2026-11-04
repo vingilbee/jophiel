@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-04T02:05:45.414918+00:00",
+  "generatedAt": "2026-11-04T02:31:37.087925+00:00",
   "title": "Design System: Jophiel",
   "extensions": {
-    "scope": "Owner-only System page (/system) only. The rest of the app is an unrecorded light incumbent; no tokens here describe it.",
+    "scope": "Owner-only System page (/system) and its part pages (/system/:part) only. The rest of the app is an unrecorded light incumbent; no tokens here describe it.",
     "colorMeta": {
       "cognition-cyan": {
         "role": "primary",
@@ -163,21 +163,6 @@
           "#DCEBFF"
         ]
       },
-      "star-warm": {
-        "role": "neutral",
-        "displayName": "Star Warm",
-        "canonical": "#FFECD6",
-        "tonalRamp": [
-          "#1E0A00",
-          "#3E2412",
-          "#5F4129",
-          "#826144",
-          "#A68262",
-          "#CAA584",
-          "#EFCAA8",
-          "#FFF0DE"
-        ]
-      },
       "field-black": {
         "role": "neutral",
         "displayName": "Field Black",
@@ -191,22 +176,6 @@
           "#808385",
           "#A3A5A7",
           "#C8C9CB",
-          "#EDEFF0"
-        ]
-      },
-      "slide-sheet": {
-        "role": "neutral",
-        "displayName": "Slide Sheet",
-        "canonical": "#07090B",
-        "oklch": "oklch(13.8% 0.006 245.0)",
-        "tonalRamp": [
-          "#0A0B0C",
-          "#242527",
-          "#404244",
-          "#5F6264",
-          "#808385",
-          "#A3A5A8",
-          "#C7C9CB",
           "#EDEFF0"
         ]
       },
@@ -226,22 +195,6 @@
           "#ECEFF1"
         ]
       },
-      "hover-wash": {
-        "role": "neutral",
-        "displayName": "Hover Wash",
-        "canonical": "#151A1F",
-        "oklch": "oklch(21.5% 0.012 248.4)",
-        "tonalRamp": [
-          "#090B0E",
-          "#222529",
-          "#3E4347",
-          "#5C6268",
-          "#7D8389",
-          "#A0A6AB",
-          "#C5CACE",
-          "#EBEFF2"
-        ]
-      },
       "hairline": {
         "role": "neutral",
         "displayName": "Hairline",
@@ -256,6 +209,22 @@
           "#A0A6AB",
           "#C5CACE",
           "#EBEFF2"
+        ]
+      },
+      "entry-rule": {
+        "role": "neutral",
+        "displayName": "Entry Rule",
+        "canonical": "#12171B",
+        "oklch": "oklch(20.1% 0.011 242.3)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#232527",
+          "#3F4245",
+          "#5D6266",
+          "#7D8388",
+          "#A0A6AA",
+          "#C5CACD",
+          "#ECEFF1"
         ]
       },
       "reticle-rule": {
@@ -306,20 +275,20 @@
           "#E9EFF5"
         ]
       },
-      "dark-pixel": {
+      "ink-title": {
         "role": "neutral",
-        "displayName": "Dark Pixel",
-        "canonical": "#3A434B",
-        "oklch": "oklch(37.8% 0.018 245.1)",
+        "displayName": "Ink Title",
+        "canonical": "#F1F4F6",
+        "oklch": "oklch(96.5% 0.004 236.5)",
         "tonalRamp": [
-          "#080C0F",
-          "#21262A",
-          "#3C4349",
-          "#5A626A",
-          "#7A848C",
-          "#9EA6AE",
-          "#C3CAD0",
-          "#EAEFF4"
+          "#0B0B0B",
+          "#242526",
+          "#414243",
+          "#5F6163",
+          "#808384",
+          "#A3A5A7",
+          "#C8C9CA",
+          "#EDEFEF"
         ]
       },
       "ink-bright": {
@@ -434,22 +403,6 @@
           "#EAEFF3"
         ]
       },
-      "ink-role": {
-        "role": "neutral",
-        "displayName": "Ink Role",
-        "canonical": "#9AA5B1",
-        "oklch": "oklch(71.7% 0.021 250.5)",
-        "tonalRamp": [
-          "#080C10",
-          "#20262C",
-          "#3B434B",
-          "#59626C",
-          "#7A838E",
-          "#9DA6AF",
-          "#C3CAD2",
-          "#E9EFF5"
-        ]
-      },
       "ink-muted": {
         "role": "neutral",
         "displayName": "Ink Muted",
@@ -516,50 +469,67 @@
       }
     },
     "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The part's name at the top of its page rail."
+      },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Part name in the details panel."
+        "purpose": "Timeline section headings on a part page."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Specimen label top left."
-      },
-      "body": {
-        "displayName": "Body",
-        "purpose": "Entry text in the panel."
-      },
-      "label": {
-        "displayName": "Label",
-        "purpose": "Panel section headings (600); status line and page links (400)."
-      },
-      "meta": {
-        "displayName": "Meta",
-        "purpose": "Entry meta lines in the part color, relative times, the last-signal line, the ruler hint; tabular figures."
-      },
-      "sub-label": {
-        "displayName": "Sub-label",
-        "purpose": "Sub-core names once they resolve past ×1.9."
+        "purpose": "Specimen label top left of the field."
       },
       "node-label": {
         "displayName": "Node Label",
         "purpose": "Part names on the field; scales with magnification^0.22; 650 when selected."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Timeline entry text, max 68ch."
+      },
+      "body-small": {
+        "displayName": "Body Small",
+        "purpose": "Role line, sub-part names, page state word (500), empty states, reasoning."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Rail block headings (600); status line, page links, back link, worker and hand-off lines (400)."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Timeline meta lines in the part color or Error Text."
+      },
+      "time": {
+        "displayName": "Time",
+        "purpose": "Timeline time column, hand-off ages, last-signal line, ruler hint; tabular figures."
+      },
+      "sub-label": {
+        "displayName": "Sub-label",
+        "purpose": "Sub-core names once they resolve past x1.9."
       }
     },
     "shadows": [
       {
-        "name": "sheet-edge",
-        "value": "-24px 0 48px rgba(0,0,0,0.55)",
-        "purpose": "Details panel over the field."
-      },
-      {
         "name": "part-dot-glow",
-        "value": "0 0 14px <part color>",
-        "purpose": "The panel's part dot."
+        "value": "0 0 8px <part color>",
+        "purpose": "Sub-part dots in the part page rail."
       },
       {
         "name": "twinkle-glow",
         "value": "0 0 4px rgba(255,255,255,0.8)",
         "purpose": "A twinkling star."
+      },
+      {
+        "name": "part-page-veil",
+        "value": "radial-gradient(ellipse 80% 70% at 30% 20%, rgba(4,5,6,0.86), rgba(4,5,6,0.94))",
+        "purpose": "Background of a part page over the field it was jumped into (not a shadow; carried here as the page material)."
+      },
+      {
+        "name": "jump-flood",
+        "value": "radial-gradient(circle, #FFFFFF 0%, <part> 16%, <part>55 34%, transparent 62%), 2.2x the viewport diagonal",
+        "purpose": "The part's light flooding the screen during the jump."
       }
     ],
     "motion": [
@@ -639,30 +609,65 @@
         "purpose": "Pan, zoom and fit animations."
       },
       {
-        "name": "chrome-shift",
-        "value": "300ms ease-out",
-        "purpose": "Bottom chrome making room for the open panel."
-      },
-      {
         "name": "disclosure",
         "value": "160ms",
         "purpose": "Chevron turning 90° as details open."
       },
       {
+        "name": "jump-in",
+        "value": "900ms ease-in cubic to 22x the fitted zoom, node held on the camera path",
+        "purpose": "Flying into a node."
+      },
+      {
+        "name": "warp",
+        "value": "340 streaks (40% part-tinted) radiating from the node; ease-in cubic building, vanishing point eased to centre",
+        "purpose": "Stars streaking out during the jump (canvas)."
+      },
+      {
+        "name": "flood-in",
+        "value": "900ms cubic-bezier(0.55, 0, 0.9, 0.4); hidden to 45%, 0.6 at 70%, full at 100%",
+        "purpose": "The part's light flooding the screen."
+      },
+      {
+        "name": "flood-held",
+        "value": "700ms ease-out, opacity 1 -> 0.4",
+        "purpose": "The light settling under the open page."
+      },
+      {
+        "name": "page-in",
+        "value": "380ms cubic-bezier(0.16, 1, 0.3, 1), opacity 0 -> 1, scale 1.03 -> 1",
+        "purpose": "A part page appearing."
+      },
+      {
+        "name": "jump-out",
+        "value": "800ms ease-out cubic; flood shrinks, streaks fall back, camera returns to the saved view",
+        "purpose": "Esc, back or the back link."
+      },
+      {
+        "name": "overlay-fade",
+        "value": "300ms",
+        "purpose": "Top-left text fades as a jump begins; bottom chrome and map nodes fade while a page is open."
+      },
+      {
         "name": "reduced-motion",
         "value": "none",
-        "purpose": "Charge, discharge, crackle, twinkle, drift and the fail pulse stop; pulses land as a bare arrival; view changes jump."
+        "purpose": "Charge, discharge, crackle, twinkle, drift and the fail pulse stop; pulses land as a bare arrival; view changes and the jump happen instantly (flood and page-in run 1ms)."
       }
     ],
     "breakpoints": [
       {
         "name": "sm",
         "value": "640px",
-        "purpose": "Panel becomes a 460px right sheet; gutters 16px -> 24px."
+        "purpose": "Overlay gutters 16px -> 24px; part page sides 20px -> 32px; time column 56px -> 72px."
+      },
+      {
+        "name": "lg",
+        "value": "1024px",
+        "purpose": "Part page becomes a sticky 288px rail beside the timeline."
       },
       {
         "name": "portrait",
-        "value": "height > 1.15 × width",
+        "value": "height > 1.15 x width",
         "purpose": "Field turned on its side."
       }
     ],
@@ -670,16 +675,18 @@
       "min": "×1 (fit)",
       "max": "×6",
       "subsFrom": "×1.9",
-      "subsFull": "×2.7"
+      "subsFull": "×2.7",
+      "diveZoom": "22x the fitted zoom",
+      "lineScale": "filament and ring strokes x magnification^0.5; fibres fixed"
     },
     "stars": {
-      "density": "1 per 1900px² of canvas",
+      "density": "1 per 1900px^2 of canvas",
       "size": "0.35-1.95px",
       "alpha": "0.18-0.93",
-      "tints": "~12% cool, ~6% warm",
+      "tints": "~34% part colors, ~8% cool, rest white",
       "parallax": "half the pan, never scales with zoom",
       "twinkles": 34,
-      "canvasMargin": "2.6× the field at the fitted scale"
+      "canvasMargin": "2.6x the field at the fitted scale"
     }
   },
   "components": [
@@ -692,12 +699,12 @@
       "css": ".ds-chrome-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9999px;border:1px solid #2A3138;background:rgba(10,13,16,0.9);color:#DDE3E8;cursor:pointer;transition:border-color 150ms,color 150ms}.ds-chrome-btn:hover{border-color:#5A6670;color:#fff}.ds-chrome-btn:focus-visible{outline:1.5px solid #3FD3F0;outline-offset:3px}.ds-chrome-btn:disabled{opacity:.35;cursor:default}"
     },
     {
-      "name": "Panel Close",
-      "kind": "button",
-      "refersTo": "panel-close",
-      "description": "Borderless round close button in the details panel header.",
-      "html": "<button class=\"ds-close\" aria-label=\"Close details\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg></button>",
-      "css": ".ds-close{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9999px;border:0;background:transparent;color:#AEB7BF;cursor:pointer;transition:background 150ms,color 150ms}.ds-close:hover{background:#151A1F;color:#fff}.ds-close:focus-visible{outline:1.5px solid #FF5C8A;outline-offset:3px}"
+      "name": "Back Link",
+      "kind": "nav",
+      "refersTo": "back-link",
+      "description": "\"System\" back link at the top of a part page rail; plays the jump in reverse.",
+      "html": "<button class=\"ds-back\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 3.5 5.5 8 10 12.5\"/></svg>System<span>Esc</span></button>",
+      "css": ".ds-back{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;display:inline-flex;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:9999px;background:#040506;color:#AEB7BF;font-size:13px;cursor:pointer;transition:color 150ms}.ds-back span{color:#5A6670;transition:color 150ms}.ds-back:hover{color:#fff}.ds-back:hover span{color:#8C97A3}.ds-back:focus-visible{outline:1.5px solid #FF5C8A;outline-offset:3px}"
     },
     {
       "name": "Specimen Label",
@@ -715,14 +722,6 @@
       "css": ".ds-mag{display:flex;align-items:center;gap:12px;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;color:#AEB7BF;background:#040506;padding:16px}.ds-mag-r{width:48px;font-size:13px;font-weight:500;color:#E9EDF0;font-variant-numeric:tabular-nums}.ds-mag-l{position:relative;display:block;height:1px;width:160px;background:#2A3138}.ds-mag-l i{position:absolute;top:0;height:5px;width:1px;background:#4A545D}.ds-mag-l b{position:absolute;top:0;left:0;height:1px;background:#E9EDF0}.ds-mag-l u{position:absolute;top:-4px;height:9px;width:1px;background:#E9EDF0}.ds-mag-h{font-size:12px}"
     },
     {
-      "name": "Details Panel",
-      "kind": "card",
-      "refersTo": "part-panel",
-      "description": "Plain dark sheet for one part, carrying its color in dot, border and meta.",
-      "html": "<aside class=\"ds-panel\" style=\"--part:#FF5C8A\"><header class=\"ds-panel-h\"><span class=\"ds-dot\"></span><div><h2>Mind</h2><p>Thinks on her own: quick and hard thoughts, her game planner, and her mood.</p></div></header><h3>Her thoughts</h3><ol class=\"ds-feed\"><li><div class=\"ds-meta\"><span>hard thought · intention · quiet</span><time>53 s ago</time></div><div class=\"ds-text\">I’ll ask how the interview went once they’re back, not before.</div></li><li><div class=\"ds-meta\"><span>hard thought · guess · stale</span><time>7 min ago</time></div><div class=\"ds-text\">The cave entrance north of the base probably connects to the ravine.</div></li></ol></aside>",
-      "css": ".ds-panel{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;width:460px;max-width:100%;background:#07090B;border-left:1px solid color-mix(in srgb,var(--part) 33%,transparent);box-shadow:-24px 0 48px rgba(0,0,0,.55);padding:24px;color:#D5DBE0}.ds-panel-h{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.ds-dot{margin-top:8px;width:10px;height:10px;border-radius:9999px;flex-shrink:0;background:var(--part);box-shadow:0 0 14px var(--part)}.ds-panel h2{margin:0;font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#EEF1F3}.ds-panel-h p{margin:6px 0 0;font-size:13px;line-height:1.625;color:#9AA5B1}.ds-panel h3{margin:0 0 8px;font-size:13px;font-weight:600;color:#DDE3E8}.ds-feed{list-style:none;margin:0;padding:0}.ds-feed li{padding:12px 0;border-bottom:1px solid #151A1F}.ds-feed li:last-child{border-bottom:0}.ds-meta{display:flex;gap:12px;font-size:12px}.ds-meta span{flex:1;color:var(--part)}.ds-meta time{color:#7D8790;font-variant-numeric:tabular-nums}.ds-text{margin-top:4px;font-size:13.5px;line-height:1.625}"
-    },
-    {
       "name": "Node",
       "kind": "custom",
       "description": "A part as an electric neuron: halo, crackling filaments, charging ring, white-hot core, ringed label and state word.",
@@ -735,67 +734,88 @@
       "description": "A conducting fibre (1.1px line in a 6px glow, sender-to-receiver gradient) with a tapered spike running it.",
       "html": "<svg class=\"ds-fibre\" width=\"320\" height=\"80\" viewBox=\"0 0 320 80\"><defs><linearGradient id=\"dsfg\" x1=\"20\" x2=\"300\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0\" stop-color=\"#3FD3F0\"/><stop offset=\"1\" stop-color=\"#4BE37A\"/></linearGradient></defs><path d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"url(#dsfg)\" stroke-width=\"6\" stroke-opacity=\".12\" stroke-linecap=\"round\"/><path d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"url(#dsfg)\" stroke-width=\"1.1\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-t\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#3FD3F0\" stroke-width=\"1.2\" stroke-opacity=\".25\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-m\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#F4FFFE\" stroke-width=\"1.8\" stroke-opacity=\".5\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-h\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.6\" stroke-linecap=\"round\"/></svg>",
       "css": ".ds-fibre{background:#040506}.ds-sp{animation:ds-run 1.6s cubic-bezier(.45,0,.25,1) infinite}.ds-sp-h{stroke-dasharray:14 340}.ds-sp-m{stroke-dasharray:42 340}.ds-sp-t{stroke-dasharray:98 340}@keyframes ds-run{0%{stroke-dashoffset:100}60%,100%{stroke-dashoffset:-310}}@media (prefers-reduced-motion:reduce){.ds-sp{animation:none;opacity:0}}"
+    },
+    {
+      "name": "Part Page Rail",
+      "kind": "nav",
+      "refersTo": "part-rail",
+      "description": "Sticky left rail of a part page: name, state, role, sub-parts as section links (only those with a section), workers.",
+      "html": "<aside class=\"ds-rail\" style=\"--part:#FF5C8A\"><h1>Mind</h1><p class=\"ds-rail-st\">alive</p><p class=\"ds-rail-role\">Thinks on her own: quick and hard thoughts, her game planner, and her mood.</p><section><h2>Inside</h2><ul><li><a href=\"#\">Quick thoughts</a></li><li><a href=\"#\">Hard thoughts</a></li><li><span>Sleep</span></li></ul></section><section><h2>Running as</h2><p class=\"ds-rail-w\"><span>mind</span><span>alive · 1 s</span></p></section></aside>",
+      "css": ".ds-rail{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;width:288px;background:#040506;padding:24px;color:#AEB7BF}.ds-rail h1{margin:0;font-size:30px;line-height:1;font-weight:600;letter-spacing:-0.025em;color:#F1F4F6}.ds-rail-st{margin:8px 0 0;font-size:14px;font-weight:500;color:var(--part)}.ds-rail-role{margin:16px 0 0;font-size:14px;line-height:1.625;max-width:260px}.ds-rail section{margin-top:28px;border-top:1px solid #151A1F;padding-top:16px}.ds-rail h2{margin:0 0 10px;font-size:13px;font-weight:600;color:#DDE3E8}.ds-rail ul{list-style:none;margin:0;padding:0}.ds-rail li{margin:6px 0}.ds-rail li a,.ds-rail li span{display:flex;align-items:center;gap:10px;font-size:14px;text-decoration:none}.ds-rail li a{color:#D5DBE0;transition:color 150ms}.ds-rail li a:hover{color:#fff}.ds-rail li a:focus-visible{outline:1.5px solid var(--part);outline-offset:3px}.ds-rail li span{color:#8C97A3}.ds-rail li a::before,.ds-rail li span::before{content:\"\";width:8px;height:8px;border-radius:9999px;background:var(--part);box-shadow:0 0 8px var(--part)}.ds-rail-w{display:flex;justify-content:space-between;margin:0;font-size:13px;color:#C5CDD5}.ds-rail-w span:last-child{color:#8C97A3;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Timeline Entry",
+      "kind": "card",
+      "refersTo": "timeline-entry",
+      "description": "Rule-divided timeline entries on a part page: time column, part-color meta line, text, optional reasoning disclosure.",
+      "html": "<section class=\"ds-tl\" style=\"--part:#FF5C8A\"><h2>Hard thoughts</h2><ol><li><time>46 s</time><div><p class=\"ds-tl-m\">intention · quiet · conversation</p><div class=\"ds-tl-t\">I’ll ask how the interview went once they’re back, not before.</div><details><summary>Her reasoning</summary><p>They said it was on Friday; asking now would be early.</p></details></div></li><li class=\"ds-tl-muted\"><time>7 min</time><div><p class=\"ds-tl-m\">guess · handoff · minecraft · stale</p><div class=\"ds-tl-t\">The cave entrance north of the base probably connects to the ravine.</div></div></li></ol></section>",
+      "css": ".ds-tl{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;background:#040506;padding:24px;max-width:760px}.ds-tl h2{margin:0 0 4px;font-size:19px;line-height:1.25;font-weight:600;letter-spacing:-0.015em;color:#EEF1F3}.ds-tl ol{list-style:none;margin:12px 0 0;padding:0}.ds-tl li{display:grid;grid-template-columns:72px minmax(0,1fr);column-gap:16px;padding:16px 0;border-top:1px solid #12171B}.ds-tl li:first-child{border-top:0}.ds-tl time{font-size:12px;color:#7D8790;font-variant-numeric:tabular-nums;padding-top:1px}.ds-tl-m{margin:0;font-size:12.5px;color:var(--part)}.ds-tl-t{margin-top:6px;max-width:68ch;font-size:15px;line-height:1.625;color:#DDE3E8}.ds-tl-muted .ds-tl-t{color:#8C97A3}.ds-tl details{margin-top:10px;font-size:14px}.ds-tl summary{cursor:pointer;color:#AEB7BF;list-style:none;transition:color 150ms}.ds-tl summary:hover{color:#fff}.ds-tl summary:focus-visible{outline:1.5px solid var(--part);outline-offset:3px}.ds-tl details p{margin:8px 0 0;padding-left:16px;border-left:1px solid color-mix(in srgb,var(--part) 40%,transparent);color:#AEB7BF}"
     }
   ],
   "narrative": {
     "northStar": "The Live Field",
-    "overview": "Jophiel's parts are electric neurons hanging in a night sky. Each part is a charged node: a white-hot core in its own color, a thin ring around it that fills with light over the part's beat and then discharges in one flare, and fine jagged filaments that crackle while it's alive. Between the nodes run conducting fibres, hairlines inside a faint glow that blend from one part's color to the other's. When one part really hands work to another, a spike of light runs the fibre and the core it reaches flares. Behind everything is a still star field at infinity. Everything the visitor reads besides the nodes is quiet instrument overlay: a specimen label with live counts and the last signal top left, a magnification readout on a tick ruler bottom left, round zoom controls bottom right. The world refuses the category default for \"system status\": no node-graph dashboard of rounded boxes, neon edges and a stats sidebar.\n\nThe field is full-bleed and spatial, not paged. It is a map you drag, wheel, pinch and key around, from ×1 (the whole field) to ×6; past ×1.9 each node's sub-cores resolve inside its ring, fully legible by ×2.7, while the core shrinks to make room. Clicking a node opens a plain dark sheet on the right (a bottom sheet on phones) that carries that part's color in its dot, its border and its meta lines, and lists the part's real recent records as quiet rule-divided entries. The density is low on the field and comfortable in the sheet.\n\n**Scope.** This world is built only on the owner-only System page (`/system`). The rest of the app (chat, voice dashboard, login, integrations, predict) predates it, uses a light pale-blue and lavender look written as hardcoded Tailwind hexes, and is an **unrecorded incumbent**: this file records no tokens for it, and nothing here should be read as describing it. The older dark `@theme` block at the top of `frontend/src/index.css` (Space Grotesk, teal accent) is not this world either; the System page does not use it.\n\n**History and divergences.** This refresh replaces the first build's fluorescence-microscope look (somata, dendrites, beaded axons, blurred tissue) with the electric-neuron world, at the user's request, so pulses read as current. The part colors, type, chrome and panel carried over unchanged. There is still no physical scale bar: magnification is a tick ruler marked at ×1, ×2, ×4 and ×6, because a µm unit would be a made-up claim. The overlay keeps the instrument words \"specimen label\" and \"live field\".",
+    "overview": "Jophiel's parts are electric neurons hanging in a night sky. Each part is a charged node: a white-hot core in its own color, a thin ring around it that fills with light over the part's beat and then discharges in one flare, and fine jagged filaments that crackle while it's alive. Between the nodes run conducting fibres, hairlines inside a faint glow that blend from one part's color to the other's. When one part really hands work to another, a spike of light runs the fibre and the core it reaches flares. Behind everything is a still star field at infinity, about a third of it tinted with the parts' own colors so the sky belongs to the same system. Everything the visitor reads on the field besides the nodes is quiet instrument overlay: a specimen label with live counts and the last signal top left, a magnification readout on a tick ruler bottom left, round zoom controls bottom right. The world refuses the category default for \"system status\": no node-graph dashboard of rounded boxes, neon edges and a stats sidebar.\n\nThe field is full-bleed and spatial, not paged. It is a map you drag, wheel, pinch and key around, from ×1 (the whole field) to ×6; past ×1.9 each node's sub-cores resolve inside its ring, fully legible by ×2.7, while the core shrinks to make room. Clicking a node is a jump, not a panel: the stars streak out from the node like a jump to lightspeed, the camera flies in with the node held on its path, the node's light floods the screen, and the part opens as its own page at `/system/:part`. The page sits over the field it was jumped into, the stars still faintly there: a sticky left rail with the live node, its name, state, role, sub-parts, workers and hand-offs, beside a readable timeline of the part's real recent records. Esc, the back button or \"← System\" plays the jump in reverse. The density is low on the field and comfortable, editorial-readable, on the part page.\n\n**Scope.** This world is built only on the owner-only System page (`/system`) and its part pages (`/system/:part`). The rest of the app (chat, voice dashboard, login, integrations, predict) predates it, uses a light pale-blue and lavender look written as hardcoded Tailwind hexes, and is an **unrecorded incumbent**: this file records no tokens for it, and nothing here should be read as describing it. The older dark `@theme` block at the top of `frontend/src/index.css` (Space Grotesk, teal accent) is not this world either; the System page does not use it.\n\n**History and divergences.** The first build was a fluorescence-microscope look; the electric-neuron world replaced it so pulses read as current. This refresh replaces the right-hand details sheet (and its bottom-sheet form on phones) with the jump into a part page. The part colors, type, chrome and node anatomy carried over. There is still no physical scale bar: magnification is a tick ruler marked at ×1, ×2, ×4 and ×6, because a µm unit would be a made-up claim. The direction contract says fibres thicken with zoom along with filaments and rings; the build thickens only filaments and rings, and fibres stay a fixed 1.1px hairline. The build is recorded here.",
     "keyCharacteristics": [
-      "Night field (#040506) of white star points, a few twinkling, fixed at infinity and moving at half the pan.",
-      "One color per part, kept everywhere that part appears.",
+      "Night field (#040506) of star points, about a third tinted in part colors, a few twinkling, fixed at infinity and moving at half the pan.",
+      "One color per part, kept everywhere that part appears, on the field and on its page.",
       "Nodes as charge: white-hot core, charging ring, crackling jagged filaments, discharge flare on the state's beat.",
       "Fibres as conductors: a 1.1px line in a 6px glow, sender-to-receiver gradient; real hand-offs run them as tapered spikes.",
+      "A node opens by a jump: streaking stars, a fly-in, the part's light flooding the screen, then its own page; back plays it in reverse.",
+      "Part pages are a sticky rail plus a rule-divided timeline with a time column, never cards.",
       "Overlay chrome in Schibsted Grotesk with tabular figures; round glass zoom buttons.",
-      "Reduced motion gets a still field."
+      "Reduced motion gets a still field and a jump without animation."
     ],
     "rules": [
       {
         "name": "The One Color Rule",
-        "body": "A part has exactly one color, and that color appears wherever the part does: core, ring, filaments, fibre ends, pulse tail, sub-cores, panel dot, panel border, panel meta, panel focus ring. A part is never given a second hue, and a part color is never borrowed for anything that isn't its part (Cognition cyan as the page's default focus ring is the one shared use).",
+        "body": "A part has exactly one color, and that color appears wherever the part does: core, ring, filaments, fibre ends, pulse tail, sub-cores, the flood of the jump, and on its page the glyph, state word, sub-part dots, meta lines, reasoning rule and focus ring. A part is never given a second hue, and a part color is never borrowed for anything that isn't its part. The shared uses are Cognition cyan as the map's default focus ring, and the tinted stars, which only ever carry the seven part colors.",
         "section": "colors"
       },
       {
         "name": "The Red Means Failing Rule",
-        "body": "Fail Red (#FF4136) is reserved for a failing part or worker: the ring, its state word, its worker dot. Error prose uses the softer Error Text (#FF8A80). No other surface uses red.",
+        "body": "Fail Red (#FF4136) is reserved for a failing part: its ring and its state word, on the field and on its page. Error prose (a failed record, a worker error, a load failure) uses the softer Error Text (#FF8A80). No other surface uses red.",
         "section": "colors"
       },
       {
         "name": "The Light Is State Rule",
-        "body": "State is told by charge, not badges: the ring charges and discharges on the state's period (alive 2.8 s, working 1.05 s, partly down 4.4 s, failing 1.6 s); the node dims to 72% when partly down, 45% unknown, 28% down and 14% off.",
+        "body": "State is told by charge, not badges: the ring charges and discharges on the state's period (alive 2.8 s, working 1.05 s, partly down 4.4 s, failing 1.6 s); the node dims to 72% when partly down, 45% unknown, 28% down and 14% off on the field (the page glyph uses 75%, 45%, 30% and 16%).",
         "section": "colors"
       },
       {
         "name": "The Sentence Case Rule",
-        "body": "All overlay and panel text is sentence case and untracked (beyond the -0.02em on names). No uppercase tracked labels.",
+        "body": "All overlay and page text is sentence case and untracked (beyond the negative tracking on names and headings). No uppercase tracked labels.",
         "section": "typography"
       },
       {
         "name": "The Tabular Figures Rule",
-        "body": "Any number that updates live (counts, magnification, \"seen 3 s ago\") is set in tabular figures so it doesn't jitter.",
+        "body": "Any number that updates live (counts, magnification, \"1 s\", \"46 s\", \"7 min\") is set in tabular figures so it doesn't jitter.",
         "section": "typography"
       },
       {
         "name": "The Stars At Infinity Rule",
-        "body": "The sky never scales with the zoom and never carries meaning; only nodes, fibres and pulses are signal. Nothing sits on a card above the field except the details panel.",
+        "body": "The sky never scales with the zoom and never carries meaning; only nodes, fibres and pulses are signal. Star tints are the parts' colors for belonging, not for state. Nothing sits on a card above the field; a part page replaces the view rather than floating over it.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do give every part its one color and carry it to its ring, filaments, fibres, pulse tails, sub-cores and panel (The One Color Rule).",
+      "Do give every part its one color and carry it to its ring, filaments, fibres, pulse tails, sub-cores, its jump and its page (The One Color Rule).",
       "Do show state as charge: the ring's beat, the discharge flare, dimming, a broken ring, a red ring.",
       "Do keep the field full-bleed on Field Black (#040506) with the star field at infinity behind the nodes.",
       "Do run a pulse only for a real hand-off between two parts.",
       "Do set live numbers in tabular figures and ring field labels in Field Black.",
-      "Do list a part's records as rule-divided entries with a part-color meta line.",
-      "Do stop charging, discharge, crackle, twinkle, drift and the failing pulse under `prefers-reduced-motion`, let pulses land as a bare arrival, and jump view changes instead of animating them."
+      "Do open a part by jumping into it and close it by playing the jump in reverse; give each part page its own address.",
+      "Do show a part's records as a timeline: a time column, a part-color meta line, rule-divided entries.",
+      "Do link a sub-part in the rail only when it has a section on the page.",
+      "Do stop charging, discharge, crackle, twinkle, drift and the failing pulse under `prefers-reduced-motion`, let pulses land as a bare arrival, and jump view changes and dives instead of animating them."
     ],
     "donts": [
       "Don't draw parts as rounded boxes, neon edges or a stats sidebar: the node-graph dashboard is the default this world refuses.",
-      "Don't put records in rounded cards on this page; the panel is rule-divided.",
+      "Don't put records in rounded cards on this page; part pages are rule-divided timelines.",
+      "Don't bring back a side sheet or modal card for a part; the jump and its page replace it.",
       "Don't add a physical scale bar or µm units; magnification is the ×1–×6 tick ruler.",
       "Don't use red for anything but failure.",
-      "Don't let the stars scale with the zoom or carry state.",
-      "Don't set uppercase, letter-spaced labels on the field or panel (The Sentence Case Rule).",
+      "Don't let the stars scale with the zoom or carry state, or tint them with anything but the part colors.",
+      "Don't set uppercase, letter-spaced labels on the field or pages (The Sentence Case Rule).",
       "Don't extend these tokens to the rest of the app; the light incumbent there is a separate, unrecorded look."
     ]
   }

@@ -45,7 +45,7 @@ export default function App() {
         }
       />
       <Route
-        path="/system"
+        path="/system/:part?"
         element={
           <ProtectedRoute ownerOnly>
             <SystemPage />

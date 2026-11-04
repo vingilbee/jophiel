@@ -86,11 +86,48 @@ body {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
-.system-page .part-panel {
+/* A part's own page: over the field it was jumped into, the stars still faintly there. */
+.system-page .part-page {
+  background: radial-gradient(ellipse 80% 70% at 30% 20%, rgba(4, 5, 6, 0.86), rgba(4, 5, 6, 0.94));
   scrollbar-color: #2a3138 transparent;
+  animation: page-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.system-page .part-panel :focus-visible {
+.system-page .part-page :focus-visible {
   outline-color: var(--part, #3fd3f0);
+}
+@keyframes page-in {
+  from { opacity: 0; transform: scale(1.03); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The part's light flooding the screen as the camera flies in, and falling away on the way out. */
+.flare {
+  transform: translate(-50%, -50%) scale(0.01);
+  opacity: 0;
+}
+.flare-in {
+  animation: flare-in 900ms cubic-bezier(0.55, 0, 0.9, 0.4) forwards;
+}
+.flare-held {
+  transform: translate(-50%, -50%) scale(1);
+  animation: flare-held 700ms ease-out forwards;
+}
+.flare-out {
+  animation: flare-out 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+/* The streaks own the first half of the jump; her light only floods in at the end. */
+@keyframes flare-in {
+  0%, 45% { transform: translate(-50%, -50%) scale(0.04); opacity: 0; }
+  70% { opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+@keyframes flare-held {
+  from { opacity: 1; }
+  to { opacity: 0.4; }
+}
+@keyframes flare-out {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  to { transform: translate(-50%, -50%) scale(0.01); opacity: 0; }
 }
 
 /* Labels keep a ring of the field's black around them, so they read over glow and wires. */
@@ -208,7 +245,7 @@ body {
   .ca, .charge, .flicker, .twinkle, .drift-1, .drift-2, .drift-3, .fail-rim {
     animation: none;
   }
-  .hit {
+  .hit, .flare-in, .flare-out, .part-page {
     animation-duration: 1ms;
   }
 }
