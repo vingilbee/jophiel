@@ -4,7 +4,7 @@ import { Button } from '../components/Button'
 import { SenseStrip } from '../components/SenseStrip'
 import { VoiceOrb } from '../components/VoiceOrb'
 import { heardCut } from '../audio/heardText'
-import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
+import { Feathers } from '../components/Feathers'
 import { DesktopSessionPanel } from '../components/DesktopSessionPanel'
 import { useAwareness } from '../hooks/useAwareness'
 import { useScreenSense } from '../hooks/useScreenSense'
@@ -43,7 +43,7 @@ function copyFor(state: VoiceState, wakeWordAvailable: boolean): Copy {
       }
     case 'idle':
       return {
-        title: wakeWordAvailable ? 'Waiting for “columbina”' : 'Ready when you are',
+        title: wakeWordAvailable ? 'Waiting for “jophiel”' : 'Ready when you are',
         detail: wakeWordAvailable
           ? 'Say the wake word, or tap to start talking right away.'
           : 'Tap the orb or press Space, then just talk.',
@@ -182,7 +182,7 @@ export function DashboardPage() {
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center opacity-[0.12]"
         />
-        <ColumbinaFeathers className="pointer-events-none absolute top-8 left-1/2 w-80 -translate-x-1/2 opacity-50" />
+        <Feathers className="pointer-events-none absolute top-8 left-1/2 w-80 -translate-x-1/2 opacity-50" />
         <div className="relative z-10 mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-14">
           {/* voice stage */}
           <section className="relative flex flex-col items-center">
@@ -309,7 +309,7 @@ function TranscriptTurn({
   return (
     <div className={isUser ? 'text-right' : 'text-left'}>
       <span className={`text-[10px] font-semibold tracking-[0.08em] uppercase ${isUser ? 'text-[#7183A3]' : 'text-[#8B3158]'}`}>
-        {isUser ? 'You' : 'Columbina'}
+        {isUser ? 'You' : 'Jophiel'}
       </span>
       {/* Label it. An unprompted message the user can't distinguish from a
           reply reads as the app talking to itself. */}
@@ -348,18 +348,6 @@ function TranscriptTurn({
           </span>
         )}
       </div>
-      {(message.stickers ?? []).length > 0 && (
-        <div className={`mt-1 flex flex-wrap gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
-          {message.stickers?.map((sticker, index) => (
-            <img
-              key={`${sticker}-${index}`}
-              src={`/api/chat/stickers/${encodeURIComponent(sticker)}.png`}
-              alt={`Columbina sticker: ${sticker}`}
-              className="h-28 w-28 object-contain"
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

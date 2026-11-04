@@ -1,7 +1,7 @@
 """One background turn for a desktop game event (plan §8.2, stage D2b).
 
 The source half of the event mechanism for ``source="desktop"``: given a job,
-build Columbina's context (her prompt, recent conversation, the game summary,
+build Jophiel's context (her prompt, recent conversation, the game summary,
 why she woke), run her once with the background game tools, and let her act
 and maybe ``say``. Her written reply is discarded; only ``say`` reaches the
 user. Waits for a user turn already in flight, so it never talks over a reply.

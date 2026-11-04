@@ -20,7 +20,7 @@ from app.db.models import Conversation, CoreMemory, User
 
 # The Columbina CoreMemory groups exactly as seeded by migration d8f1a2b3c4e5.
 COLUMBINA_CORE_GROUPS = {
-    "identity": {"name": "Columbina", "role": "cognitive companion"},
+    "identity": {"name": "Jophiel", "role": "cognitive companion"},
     "traits": {"openness": 0.85, "conscientiousness": 0.70, "sociability": 0.55, "agreeableness": 0.82,
                "emotional_stability": 0.72},
     "perception_priors": {"novelty_sensitivity": 0.80, "social_cue_sensitivity": 0.68, "threat_sensitivity": 0.25,

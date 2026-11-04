@@ -93,7 +93,7 @@ export function SenseStrip({
               : senses.voice_state === 'listening'
                 ? 'Listening'
                 : senses.wake_armed
-                  ? 'Waiting for “columbina”'
+                  ? 'Waiting for “jophiel”'
                   : 'Mic live'
           }
           glyph={<EarGlyph closed={!senses.hearing_enabled} />}

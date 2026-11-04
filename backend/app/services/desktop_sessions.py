@@ -845,7 +845,7 @@ def driver_progress(
 
 
 def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) -> None:
-    """A report from the driver: wakes Columbina if the session's commentary mode
+    """A report from the driver: wakes Jophiel if the session's commentary mode
     allows that kind (game_event_kinds). Untrusted game text."""
     session = db.get(DesktopSession, session_id)
     if session is None or session.state != "running":
@@ -872,7 +872,7 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
 
 
 def auto_goals_set(db: Session, session_id: uuid.UUID) -> int:
-    """How many goals Columbina picked herself (background turns) since the user
+    """How many goals Jophiel picked herself (background turns) since the user
     last took part: a goal set on their turn, or their resume. The cap stops her
     playing unattended forever; counted over the whole session, it ran out at 21:03
     in a session that lasted until 01:33, and every finished goal after it paused."""
@@ -965,7 +965,7 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
 
 
 def _game_event(db: Session, session: DesktopSession, reason: str) -> None:
-    """Wake Columbina about this session (in the caller's transaction; the
+    """Wake Jophiel about this session (in the caller's transaction; the
     caller commits, then calls ``agent_events.wake``). News about the plan goes to
     her planner instead when it writes this session's plan (services/game_planning)."""
     from app.services import agent_events, game_planning

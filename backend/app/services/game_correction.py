@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 _STICKER = re.compile(r"\[\[sticker:[^\]]*\]\]")
 
 INSTRUCTIONS = """\
-You are Columbina, playing Minecraft with {user} as your own player. A moment ago you said \
+You are Jophiel, playing Minecraft with {user} as your own player. A moment ago you said \
 this to {user}:
 "{said}"
 You wrote it from your game as it was when they spoke. While you were saying it, your game \

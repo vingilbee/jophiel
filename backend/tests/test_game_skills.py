@@ -52,7 +52,7 @@ def test_a_learned_move_is_one_more_skill_in_the_hands_schema_and_prompt():
     assert f'- {PILLAR["name"]}(times?: how many times in a row' in prompt
     assert 'A move you taught yourself: "pillar upward by jumping and placing a block". Used 2 times, worked 1.' \
         in prompt
-    assert "Skills named learned_... are moves Columbina taught herself" in prompt
+    assert "Skills named learned_... are moves Jophiel taught herself" in prompt
     # times out of bounds is clamped like any skill's numbers
     assert to_action(_decide(PILLAR["name"], {"times": 40, "time_limit": None}), manifest) == \
         (PILLAR["name"], {"times": game_skills.MAX_TIMES})

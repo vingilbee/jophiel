@@ -62,7 +62,7 @@ export function ChatSessionTools({ eye, voice, awareness, thoughts, onPanelChang
           Senses: {eyes} · {mic}
         </button>
         {live && desktop.session && <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#527998]">
-          <span role="status">{desktop.releasePending ? 'Releasing controls…' : desktop.environment?.hosting_kind === 'game_pack' ? 'Columbina’s own player' : desktop.session.control_owner === 'gameplay' ? 'Columbina has control' : desktop.session.control_owner === 'manual' ? 'You have control' : 'Controls released'}</span>
+          <span role="status">{desktop.releasePending ? 'Releasing controls…' : desktop.environment?.hosting_kind === 'game_pack' ? 'Jophiel’s own player' : desktop.session.control_owner === 'gameplay' ? 'Jophiel has control' : desktop.session.control_owner === 'manual' ? 'You have control' : 'Controls released'}</span>
           {desktop.session.state === 'running' && <button type="button" className={CHIP} disabled={desktop.busy} onClick={() => void desktop.pause()}>Pause</button>}
           {desktop.session.control_owner === 'gameplay' && <button type="button" className={CHIP} disabled={desktop.busy} onClick={() => void desktop.takeover()}>Take over</button>}
           <button type="button" className={CHIP} disabled={desktop.busy} onClick={() => void desktop.end()}>End game</button>

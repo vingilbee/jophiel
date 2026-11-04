@@ -1,4 +1,4 @@
-"""Worker for agent event jobs: Columbina acting on events (plan §8.2).
+"""Worker for agent event jobs: Jophiel acting on events (plan §8.2).
 
 One job per call, in this runner thread: claim (leased, never two for the
 same session at once), run the source's background turn, finish or retry.

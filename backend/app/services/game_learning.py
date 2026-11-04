@@ -16,13 +16,13 @@ Three stages, each with its own rule about trust:
    - *lessons* (level 1) are applied automatically: ``skill`` lessons (how an
      action behaves) in her hands' prompt (``lessons_for_run``, which shows
      plan lessons too, as background), ``plan`` lessons (what to do, in what
-     order, when) in Columbina's game summary (``plan_lessons``), where she
+     order, when) in Jophiel's game summary (``plan_lessons``), where she
      sets goals and steps and can hand a rule down as a plan constraint. A lesson starts ``trial``; later sessions that
      support or contradict it move it to ``confirmed`` or ``retired``
      (``lesson_status``). Only reflections on *different* sessions count.
    - *proposals* (level 3) are changes to the game code. The app never applies
      them: the Learning page lists them for the user to hand to a coding agent.
-   - the *episode* becomes an ``EpisodicMemory`` so Columbina can recall it in
+   - the *episode* becomes an ``EpisodicMemory`` so Jophiel can recall it in
      conversation.
 
 Learned skills (level 2, stage H) will build on the same experience log.
@@ -170,7 +170,7 @@ def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
 
 
 def plan_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]:
-    """Plan lessons for Columbina's game summary (none when the A/B switch is off)."""
+    """Plan lessons for Jophiel's game summary (none when the A/B switch is off)."""
     settings = get_settings()
     if not settings.game_learning_apply_lessons:
         return []
@@ -179,7 +179,7 @@ def plan_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]
 
 
 def skill_lessons(db: Session, user_id: uuid.UUID, game: str) -> list[GameLesson]:
-    """Skill lessons (how her moves behave), for Columbina too: she plans with them."""
+    """Skill lessons (how her moves behave), for Jophiel too: she plans with them."""
     settings = get_settings()
     if not settings.game_learning_apply_lessons:
         return []
@@ -423,7 +423,7 @@ def reflection_system_prompt(game: str, skills: list[str], who: str | None = Non
     name = GAME_NAMES.get(game, game)
     skill_list = ", ".join(skills) if skills else "(see the timeline)"
     who = who or "the user"
-    return f"""You are Columbina, looking back on a stretch of {name} you just played with your own player, \
+    return f"""You are Jophiel, looking back on a stretch of {name} you just played with your own player, \
 together with {who}. \
 Your hands choose one skill at a time ({skill_list}); each ends with an outcome (done, failed and why, lost, \
 blocked, hurt, timeout, stopped, refused). The timeline is recorded by code and is accurate. Entries with an \

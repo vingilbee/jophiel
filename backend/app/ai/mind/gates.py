@@ -45,12 +45,12 @@ def level_guide(situation: Situation = GENERAL) -> dict[str, str]:
 
 
 def question(situation: Situation = GENERAL) -> str:
-    return (f"How hard should Columbina think about this moment? She is an AI companion; right now she is "
+    return (f"How hard should Jophiel think about this moment? She is an AI companion; right now she is "
             f"{situation.describe()}. Judge the 'Changed since last tick' lines first; the rest is context.")
 
 
 def instructions(situation: Situation = GENERAL, *, judge: bool = False) -> str:
-    text = (f"You are the attention gate of Columbina, an AI companion. Right now she is {situation.describe()}. "
+    text = (f"You are the attention gate of Jophiel, an AI companion. Right now she is {situation.describe()}. "
             "Every second you see what changed since the last tick, how much time she has (pressure), and the "
             "whole situation. Decide how hard she should think about this moment:\n"
             + "\n".join(f"- {level}: {guide}" for level, guide in level_guide(situation).items())

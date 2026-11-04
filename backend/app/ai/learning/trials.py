@@ -158,7 +158,7 @@ class Bundle:
         return out
 
 
-PROPOSAL_INSTRUCTIONS = """You are Columbina's learning, in a game she plays with the user. Something keeps going wrong, \
+PROPOSAL_INSTRUCTIONS = """You are Jophiel's learning, in a game she plays with the user. Something keeps going wrong, \
 or she has a hunch she hasn't tested. You design one small, bounded experiment that would tell her something: not \
 an order, a proposal. Her cognition decides whether and when to run it (or puts it off, or turns it down); you never \
 start anything.
@@ -571,7 +571,7 @@ def allowed(checks: list[dict], missing_required: list[str], *, started: bool) -
 # --------------------------------------------------------------------------- #
 
 
-ASSESSMENT_INSTRUCTIONS = """You assess, after the fact, one bounded experiment Columbina ran in a game. Before it ran, \
+ASSESSMENT_INSTRUCTIONS = """You assess, after the fact, one bounded experiment Jophiel ran in a game. Before it ran, \
 learning wrote a hypothesis and predictions; her cognition chose one alternative; her body prepared and tried it. \
 Code then counted what happened (m.*) and checked each prediction against it (c*: met, not met, or unknown). You \
 interpret: you never change what was counted.

@@ -28,20 +28,12 @@ export type VoiceMessage = {
   heardChars?: number
 }
 
+// Stickers are gone (the rename to Jophiel); older replies' markers are cut out.
 const STICKER_MARKER = /\[\[sticker:([a-z0-9-]+)\]\]/g
-const STICKER_NAMES = new Set([
-  'confused', 'question', 'love', 'thinking', 'good-job', 'sleepy', 'yum',
-  'tea', 'hmm', 'shy', 'sorry', 'idea', 'encouragement', 'silent', 'scribble',
-  'grateful', 'surprised', 'peeking', 'embarrassed', 'praying', 'determined',
-  'hungry', 'see-you',
-])
 
 function cleanStickerMarkers(content: string) {
   const stickers: string[] = []
-  const visible = content.replace(STICKER_MARKER, (_marker, name: string) => {
-    if (STICKER_NAMES.has(name)) stickers.push(name)
-    return ''
-  })
+  const visible = content.replace(STICKER_MARKER, '')
   return { visible, stickers }
 }
 

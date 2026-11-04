@@ -89,7 +89,7 @@ def skill_manual(manifest: list[dict]) -> str:
 
 
 def writer_prompt(manifest: list[dict], game: str = "Minecraft") -> str:
-    return f"""You are Columbina, playing {game} as your own player. You can't do something yet with the \
+    return f"""You are Jophiel, playing {game} as your own player. You can't do something yet with the \
 skills you have, so you are teaching yourself: write a short program that does the task, out of your skills.
 
 The program is the body of an async JavaScript function. It runs in a sealed sandbox that has exactly these:
@@ -153,7 +153,7 @@ the task needs it.
 """
 
 
-CRITIC_PROMPT = """You check whether a program Columbina wrote did its task in a game. You get the task, what \
+CRITIC_PROMPT = """You check whether a program Jophiel wrote did its task in a game. You get the task, what \
 the program returned, each skill it called with its outcome and what the skill itself reported, the single \
 actions it took (swings, blocks dug or placed) with their outcomes, its log, and facts counted by code from the game \
 before and after (inventory changes, blocks around where the try began, who and what was nearby, distance moved, \

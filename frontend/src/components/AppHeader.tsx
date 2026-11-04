@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import profileIcon from '../assets/profile_icon.jpg'
+import { InitialAvatar } from './Avatar'
 import { tabsFor } from './tabs'
 
 /**
@@ -25,7 +25,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
       <aside className="hidden w-56 shrink-0 flex-col border-r border-[#EAF0FA] bg-white px-4 py-7 md:flex">
         <Link to="/dashboard" className="flex items-center gap-2 px-2 text-[17px] font-semibold tracking-[-0.02em] text-[#23314F]">
           <span className="flex h-6 w-6 items-center justify-center text-[18px]">✦</span>
-          Columbina
+          Jophiel
         </Link>
         <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
 
@@ -49,7 +49,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
           <p className="px-2 text-[9px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">Profile</p>
           <div className="mt-4 flex items-center gap-2 px-2">
             <span className="h-8 w-8 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
-              <img src={profileIcon} alt="Profile" className="h-full w-full object-cover" />
+              <InitialAvatar name={user?.name} />
             </span>
             <p className="text-[13px] font-medium text-[#23314F]">{user?.name ?? 'Profile'}</p>
           </div>
@@ -63,7 +63,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
 
       <header className="flex flex-col gap-3 border-b border-[#EAF0FA] bg-white/95 px-4 py-3 text-[#23314F] backdrop-blur-sm md:hidden">
         <div className="flex items-center justify-between">
-          <Link to="/dashboard" className="flex items-center gap-2 text-[17px] font-semibold">✦ Columbina</Link>
+          <Link to="/dashboard" className="flex items-center gap-2 text-[17px] font-semibold">✦ Jophiel</Link>
           <button onClick={handleSignout} className="text-[11px] text-[#7183A3]">Sign out</button>
         </div>
         <nav className="flex gap-4 overflow-x-auto" aria-label="Main navigation">

@@ -1,4 +1,4 @@
-"""Columbina's view of, and say over, the user's game (plan §8.4, §21; stage D2a).
+"""Jophiel's view of, and say over, the user's game (plan §8.4, §21; stage D2a).
 
 Two halves, both scoped to one user:
 
@@ -251,7 +251,7 @@ def _times_set(db: Session, session: DesktopSession, goal: str) -> int:
 
 
 def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> GameContext | None:
-    """The game summary for one of Columbina's turns, or None when the user has
+    """The game summary for one of Jophiel's turns, or None when the user has
     no game environment (then she gets neither the summary nor the tools).
     ``for_reply``: a reply to the user, which takes her open question (to ask it)."""
     if not get_settings().desktop_agent_enabled:

@@ -25,7 +25,7 @@ from app.ai.mind.situation import GENERAL, Situation
 DECISIONS = ("keep", "revise", "new_goal", "wait_for_user", "done")
 
 INSTRUCTIONS = """\
-You are Columbina's mind, planning. Right now she is {doing}. You are the only one \
+You are Jophiel's mind, planning. Right now she is {doing}. You are the only one \
 who writes her plan: her hands do its steps one at a time, and her replies to {user} \
 only pass on what {user} wants. Below: why you are planning now, the goal, the plan \
 (each open step with its id), what it takes (worked out by code from the game's own \

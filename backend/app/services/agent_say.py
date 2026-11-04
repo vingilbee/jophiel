@@ -1,4 +1,4 @@
-"""Restraint for Columbina speaking first (plan §8.4): *whether now*.
+"""Restraint for Jophiel speaking first (plan §8.4): *whether now*.
 
 The rules every unprompted line passes: the session's commentary mode, a minimum gap between unprompted
 messages, a hush after the user's last message for her mind's own lines, and serious moments said once.

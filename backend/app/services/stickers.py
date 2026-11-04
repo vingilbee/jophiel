@@ -13,12 +13,10 @@ from __future__ import annotations
 
 import re
 
-STICKER_NAMES = frozenset({
-    "confused", "question", "love", "thinking", "good-job", "sleepy",
-    "yum", "tea", "hmm", "shy", "sorry", "idea", "encouragement", "silent",
-    "scribble", "grateful", "surprised", "peeking", "embarrassed", "praying",
-    "determined", "hungry", "see-you",
-})
+# No stickers since the rename to Jophiel (2026-11-03): the old art was a game
+# character's. Markers are still parsed so a stray one, or one in an older
+# stored reply, is dropped instead of shown or spoken.
+STICKER_NAMES: frozenset[str] = frozenset()
 _STICKER_MARKER = re.compile(r"\[\[sticker:([a-z0-9-]+)\]\]")
 # Public so other text mappings (see services/heard.py) agree on what a marker is.
 MARKER = _STICKER_MARKER

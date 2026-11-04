@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AppHeader } from '../components/AppHeader'
-import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
+import { Feathers } from '../components/Feathers'
 import { learningApi } from '../api/learning'
 import type {
   AdaptationLesson,
@@ -124,7 +124,7 @@ function agentBrief(p: Proposal): string {
     })
     .join('\n')
   return [
-    `# Proposal from Columbina: ${p.title}`,
+    `# Proposal from Jophiel: ${p.title}`,
     '',
     `Game: ${p.game} · Area: ${p.area} · Seen ${p.occurrences}× · Key: \`${p.normalized_key}\` · Id: ${p.id}`,
     '',
@@ -203,12 +203,12 @@ export function LearningPage() {
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#F8FAFF] text-[#23314F] md:flex-row">
       <AppHeader />
-      <ColumbinaFeathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
+      <Feathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
       <main className="relative mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-8 lg:px-12">
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-[-0.03em]">What she's learned.</h1>
           <p className="mt-2 max-w-xl text-sm text-[#7183A3]">
-            Moves she taught herself are hers to use at once. After each game session Columbina looks back on
+            Moves she taught herself are hers to use at once. After each game session Jophiel looks back on
             what happened. Lessons go straight into how she plays. Proposals are changes to her game code: she never makes them herself. Review them here and
             hand the good ones to a coding agent.
           </p>
@@ -293,7 +293,7 @@ export function LearningPage() {
 
         <Section
           title="Lessons"
-          hint="Applied automatically: skill lessons go to her hands, planning lessons to Columbina when she sets goals. Seen in two sessions = confirmed; contradicted twice = retired."
+          hint="Applied automatically: skill lessons go to her hands, planning lessons to Jophiel when she sets goals. Seen in two sessions = confirmed; contradicted twice = retired."
         >
           {lessons === null && !error && <Loading />}
           {lessons?.length === 0 && <Empty text="No lessons yet. Play a session with her and end it: she reflects when it ends." />}

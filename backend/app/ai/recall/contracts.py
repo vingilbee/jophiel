@@ -207,7 +207,7 @@ def origin_label(record: MemoryRecord) -> str | None:
         return "You concluded" if record.epistemic == "inferred" else None
     if record.ref.kind == "message":
         # Unmistakable either way: she reads these and quotes them back ("I said..." / "you said...").
-        return ("Your own words (you, Columbina, said this to them: quote it as \"I said\")"
+        return ("Your own words (you, Jophiel, said this to them: quote it as \"I said\")"
                 if record.subkind == "columbina" else
                 "The user's own words (they wrote this to you: quote it as \"you said\")")
     if record.ref.kind == "fact":

@@ -1,4 +1,4 @@
-"""The event queue that wakes Columbina without a user message (plan §8.2).
+"""The event queue that wakes Jophiel without a user message (plan §8.2).
 
 A *source* (the desktop game, today) calls ``enqueue`` inside its own
 transaction when something happens that she should know about. Events for the

@@ -1,4 +1,4 @@
-"""Columbina's working-memory tools (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md §9).
+"""Jophiel's working-memory tools (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md §9).
 
 On the orchestrator directly, like the eye and the game tools: few, cheap, and the next turn must
 already see what they changed. General, not about any activity: a game goal is set with the game
