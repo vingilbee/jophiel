@@ -58,7 +58,7 @@ interface Attachment {
   previewUrl: string
 }
 
-export function ChatPage() {
+export function ChatPage({ active = true }: { active?: boolean }) {
   const { user } = useAuth()
   const owner = Boolean(user?.is_owner)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -347,7 +347,7 @@ export function ChatPage() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages, streaming])
+  }, [messages, streaming, active])
 
   function startNewChat() {
     if (streaming || voiceBusy || voiceStarting) return
@@ -494,6 +494,28 @@ export function ChatPage() {
       e.preventDefault()
       void send(input)
     }
+  }
+
+  // Only the view changes on navigation; the session hooks above stay mounted.
+  if (!active) {
+    return (
+      <section aria-label="Voice conversation" className="fixed right-4 bottom-4 z-[100] flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-2xl border border-[#DCE7F2] bg-white p-3 text-[#23314F] shadow-lg">
+        <Link to="/chat" className="px-2 text-sm font-medium">Jophiel</Link>
+        <span role="status" className="text-xs">{status !== 'open' ? 'Connecting…' : voiceLive ? voiceLabel : 'Voice off'}</span>
+        {voiceLive ? (
+          <>
+            <button type="button" onClick={voice.muted ? () => voice.setMuted(false) : voice.state === 'listening' ? voice.endTurn : voiceBusy ? voice.interrupt : voice.pushToTalk} disabled={streaming || status !== 'open'} className="rounded-full bg-[#EAF6FF] px-3 py-2 text-xs disabled:opacity-40">
+              {voice.muted ? 'Unmute microphone' : voice.state === 'listening' ? 'Done talking' : voiceBusy ? 'Interrupt reply' : 'Talk now'}
+            </button>
+            <button type="button" onClick={() => voice.setMuted(!voice.muted)} aria-pressed={voice.muted} disabled={streaming} className="rounded-full bg-[#F2EFFB] px-3 py-2 text-xs">{voice.muted ? 'Unmute mic' : 'Mute microphone'}</button>
+            <button type="button" onClick={voice.disable} className="rounded-full px-3 py-2 text-xs text-[#8B3158]">End voice</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => void startVoice()} disabled={!voiceEnabled || voiceStarting || streaming || status !== 'open'} className="rounded-full bg-[#EAF6FF] px-3 py-2 text-xs disabled:opacity-40">{voiceStarting ? 'Starting…' : 'Start voice'}</button>
+        )}
+        {voice.error && <p role="alert" className="w-full text-xs text-[#8B3158]">{voice.error}</p>}
+      </section>
+    )
   }
 
   const empty = messages.length === 0
