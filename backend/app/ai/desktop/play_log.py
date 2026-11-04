@@ -239,5 +239,5 @@ class PlayLog:
         return f"Recent play (last {r['seconds']} s, {r['decisions']} decisions): " + "; ".join(parts) + "."
 
     def state(self, now: float) -> dict:
-        """For the driver state Columbina reads (counted by code, so trusted)."""
+        """For the driver state Jophiel reads (counted by code, so trusted)."""
         return {"view": self.view_text(), "recent": self.recent_text(now)}

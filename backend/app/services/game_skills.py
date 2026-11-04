@@ -10,7 +10,7 @@ Her hands (``skill_driver``) see each enabled move as one more skill,
 through the pack's sandbox (stopping at the first try that doesn't work), so a
 one-block pillar move climbs five blocks with ``times=5``. Usable at once (the
 user's choice, 2026-10-17); the Learning page lists them, and the user can
-switch one off or delete it. Columbina's game summary lists them too, so she
+switch one off or delete it. Jophiel's game summary lists them too, so she
 plans with them instead of offering to learn them again.
 
 They look after themselves (2026-10-18):
@@ -200,7 +200,7 @@ def record_use(db: Session, session_id: uuid.UUID, name: str, status: str, reaso
 
 
 def summary_lines(db: Session, user_id: uuid.UUID, game: str) -> list[str]:
-    """For Columbina's game summary: the moves she has, so she plans with them, and the ones
+    """For Jophiel's game summary: the moves she has, so she plans with them, and the ones
     that switched themselves off."""
     skills = for_user(db, user_id, game)
     if not skills:

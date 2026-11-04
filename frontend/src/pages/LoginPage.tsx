@@ -1,10 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/Button'
-import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
+import { Feathers } from '../components/Feathers'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../api/client'
-import loginWallpaper from '../assets/wallpaper.jpg'
 
 type Mode = 'signin' | 'signup'
 
@@ -49,19 +48,13 @@ export function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F8FAFF] px-6 py-8 text-[#23314F]">
-      <ColumbinaFeathers className="absolute -top-8 -left-16 w-72 rotate-[-18deg] opacity-80" />
-      <ColumbinaFeathers className="absolute -right-20 -bottom-10 w-72 rotate-[165deg] opacity-65" />
+      <Feathers className="absolute -top-8 -left-16 w-72 rotate-[-18deg] opacity-80" />
+      <Feathers className="absolute -right-20 -bottom-10 w-72 rotate-[165deg] opacity-65" />
 
       <div className="relative grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-[#D9E8F6] bg-white shadow-[0_18px_60px_rgba(35,49,79,0.10)] lg:grid-cols-[.9fr_1.1fr]">
         <div className="relative hidden min-h-[610px] overflow-hidden bg-gradient-to-br from-[#B9DCF4] via-[#EAF6FF] to-[#D9D6F3] p-10 lg:flex lg:flex-col lg:justify-end">
-          <img
-            src={loginWallpaper}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 h-full w-full object-cover object-center opacity-80"
-          />
           <div className="absolute inset-0 bg-gradient-to-t from-[#EAF6FF] via-[#EAF6FF]/25 to-transparent" />
-          <ColumbinaFeathers className="absolute inset-0 h-full w-full opacity-25" />
+          <Feathers className="absolute inset-0 h-full w-full opacity-25" />
           <div className="relative z-10 max-w-xs">
             <p className="text-2xl font-semibold leading-tight text-[#23314F]">Nourish today,<br />a brighter tomorrow.</p>
             <p className="mt-3 text-sm text-[#526A8F]">A quiet companion for the choices that shape how you feel.</p>
@@ -71,7 +64,7 @@ export function LoginPage() {
         <div className="relative w-full max-w-md justify-self-center p-7 sm:p-10">
           <div className="mb-8 flex items-center gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#B9DCF4] bg-[#F2EFFB] text-[#8B3158]">✦</span>
-            <span className="text-lg font-semibold text-[#23314F]">Columbina</span>
+            <span className="text-lg font-semibold text-[#23314F]">Jophiel</span>
           </div>
 
           <div className="mb-6">

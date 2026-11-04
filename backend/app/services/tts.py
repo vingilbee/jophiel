@@ -1,4 +1,4 @@
-"""Turning the agent's reply into Columbina speech.
+"""Turning the agent's reply into Jophiel speech.
 
 Two jobs:
 

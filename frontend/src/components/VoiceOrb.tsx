@@ -43,7 +43,7 @@ interface Palette {
 const PALETTE: Record<VoiceState, Palette> = {
   off: { rgb: '113, 131, 163', glow: 0.06 }, // muted blue
   idle: { rgb: '143, 199, 232', glow: 0.16 }, // sky blue
-  listening: { rgb: '110, 174, 211', glow: 0.32 }, // Columbina blue
+  listening: { rgb: '110, 174, 211', glow: 0.32 }, // Jophiel blue
   thinking: { rgb: '182, 171, 201', glow: 0.24 }, // lilac
   speaking: { rgb: '217, 154, 174', glow: 0.32 }, // veil pink
 }

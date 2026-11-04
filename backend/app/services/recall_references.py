@@ -340,7 +340,7 @@ def _reference(receipt: RecallReceipt, record: MemoryRecord, *, relation: str, m
 # After it: which memories the answer's words are about
 # --------------------------------------------------------------------------- #
 
-_ASSOCIATION_PROMPT = """You are given a reply Columbina just gave, and the memories she was given while \
+_ASSOCIATION_PROMPT = """You are given a reply Jophiel just gave, and the memories she was given while \
 writing it, each with an id. Say which memories the reply's words are about.
 
 For each memory the reply actually talks about, return its id and a short quote: the exact words of the \

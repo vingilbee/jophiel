@@ -72,7 +72,7 @@ SessionFactory = Callable[[], Session]
 
 
 def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastAPI:
-    app = FastAPI(title="Columbina desktop relay", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Jophiel desktop relay", docs_url=None, redoc_url=None, openapi_url=None)
 
     async def db_call(fn, *args, **kwargs):
         def run():

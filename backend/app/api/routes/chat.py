@@ -91,7 +91,6 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -101,7 +100,6 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -153,17 +151,6 @@ def _nudge_frame(frame: dict) -> dict:
     if frame["type"] == "token":
         return {"type": "nudge_token", "content": frame["content"]}
     return {"type": "nudge_sticker", "sticker": frame["sticker"]}
-
-
-@router.get("/stickers/{name}.png", include_in_schema=False)
-def get_sticker(name: str) -> FileResponse:
-    """Serve one approved, read-only Columbina sticker to the chat client."""
-    if name not in stickers.STICKER_NAMES:
-        raise HTTPException(status_code=404, detail="Sticker not found")
-    sticker_path = Path(__file__).resolve().parents[2] / "assets" / "columbina_stickers" / f"{name}.png"
-    if not sticker_path.is_file():
-        raise HTTPException(status_code=404, detail="Sticker not found")
-    return FileResponse(sticker_path, media_type="image/png")
 
 
 @dataclasses.dataclass
@@ -803,7 +790,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         await send_json({"type": "nudge_end"})
 
     async def deliver_agent_messages() -> None:
-        """Columbina's unprompted messages from background turns (game events).
+        """Jophiel's unprompted messages from background turns (game events).
 
         Already written to the conversation by the worker; here they're only
         shown (as a nudge) and spoken when this socket's voice session is live.

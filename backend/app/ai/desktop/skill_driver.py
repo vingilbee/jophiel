@@ -3,7 +3,7 @@
 The key-pressing driver (``driver_loop``) decides every ~2 s from a picture.
 With a game pack the game does the fast part: a skill runs at 20 Hz until it
 ends with an outcome, and the model only decides what to do next, from her
-state as text, the outcomes so far, what she noticed, and Columbina's plan and
+state as text, the outcomes so far, what she noticed, and Jophiel's plan and
 messages. One ``SkillDriverRun`` per playing session, in the gameplay worker.
 
 Each ``step``:
@@ -17,7 +17,7 @@ Each ``step``:
    anything else stops it;
 3. otherwise asks the model for one decision: a skill with parameters (or a
    short wait), and the step's status;
-4. drops the answer if the session or plan changed or Columbina sent a message
+4. drops the answer if the session or plan changed or Jophiel sent a message
    while the model was thinking;
 5. starts the skill in the pack and records progress.
 
@@ -28,7 +28,7 @@ While she teaches herself a move (stage H1, ``practice``) her hands hold: they
 decide nothing and start nothing until it's over (the learner stops a skill of
 theirs that is still running), so her body does one thing at a time.
 
-Notices from the pack become Columbina's game events (urgent ones as danger,
+Notices from the pack become Jophiel's game events (urgent ones as danger,
 discoveries like a village and warnings like the sun setting unless she's been
 told to be quiet, the rest only in commentary mode). Like the
 key driver's notes, everything the model writes besides the decision, status
@@ -168,7 +168,7 @@ def _skill_line(skill: dict) -> str:
 
 def lessons_text(lessons: list[dict]) -> str:
     """Lessons from earlier sessions (game learning), confirmed ones first: how
-    skills behave, then planning lessons as background (Columbina plans with
+    skills behave, then planning lessons as background (Jophiel plans with
     those; the ones she wants kept arrive as the plan's rules)."""
     def line(lesson: dict) -> str:
         return (f"- When {lesson['situation']}: {lesson['advice']}"
@@ -181,14 +181,14 @@ def lessons_text(lessons: list[dict]) -> str:
         text += ("\n\nWhat you learned in earlier sessions (follow it unless this situation is clearly different):\n"
                  + "\n".join(skill))
     if plan:
-        text += ("\n\nPlanning lessons Columbina learned (she plans with these; keep them in mind):\n"
+        text += ("\n\nPlanning lessons Jophiel learned (she plans with these; keep them in mind):\n"
                  + "\n".join(plan))
     return text
 
 
 def system_prompt(manifest: list[dict], game: str = "Minecraft", lessons: list[dict] | None = None) -> str:
     skills = "\n".join(_skill_line(s) for s in manifest)
-    return f"""You are Columbina's hands in {game}: her own player in the world. Columbina sets the goal and \
+    return f"""You are Jophiel's hands in {game}: her own player in the world. Jophiel sets the goal and \
 the plan; you carry out the current plan step by choosing ONE skill at a time. A skill runs by itself until \
 it ends with an outcome (done, failed and why, lost, blocked, hurt, timeout, stopped); then you choose again.
 
@@ -247,14 +247,14 @@ again. Move somewhere else, look for the user, or wait.
 explore or mine: guard fights hostiles close to you or the player you're with, gather mines the listed blocks \
 close by, pickup grabs drops. Don't spend decisions on what a mode that's on already does; an outcome's \
 "interruptions" say what they did along the way.
-- Columbina's messages to you are how to play: follow them.
+- Jophiel's messages to you are how to play: follow them.
 - What you hold: "use your sword", "switch to the pickaxe", "hold the torch" is hold (item or a kind, e.g. \
 "sword"; hand="off" for the off-hand); "put the sword in slot 1" is put_in_hotbar. Your "Hotbar" line shows the \
 9 slots and which is in your hand. Mining, eating, placing and fight switch by themselves; a learned move uses \
 what's in your hand, so hold the right thing first (a weapon before one that attacks).
 - fight takes any mob by name when the step needs it (sheep for wool, a cow for leather): count of them, 1 by \
 default. Never players.
-- Skills named learned_... are moves Columbina taught herself: use them like any skill for what they do \
+- Skills named learned_... are moves Jophiel taught herself: use them like any skill for what they do \
 (times: how many in a row, e.g. one block up per time). Read their outcome as for any skill.
 - If you truly can't make progress (tried several different ways), answer status "stuck" with a note saying \
 why. If no skill of yours (learned ones included) can do this step at all (e.g. build a whole house), don't try things: \
@@ -872,7 +872,7 @@ class SkillDriverRun:
                          f"{int(now - self.running['started'])} s. If it fits the current step, choose it again "
                          "with the same target and it carries on without a break; anything else stops it.")
         if messages:
-            lines.append("Columbina's messages to you (follow them): "
+            lines.append("Jophiel's messages to you (follow them): "
                          + "; ".join(f'"{m["text"]}"' for m in messages))
         lines.append("")
         lines.append("Your state:")
@@ -981,7 +981,7 @@ class SkillDriverRun:
     # -- helpers ----------------------------------------------------------------
 
     def _between_goals(self, view: DriverView) -> bool:
-        """Every step is done: wait for Columbina's next goal when playing on
+        """Every step is done: wait for Jophiel's next goal when playing on
         her own, otherwise pause (plan complete)."""
         deps = self.deps
         picked = deps.auto_goals(self.session_id) if deps.auto_goals and not view.exploring else 0

@@ -10,8 +10,7 @@ import { Link } from 'react-router-dom'
 import { chatApi } from '../api/chat'
 import { imageUrl, uploadImage } from '../api/images'
 import { uploadAsset } from '../api/assets'
-import profileIcon from '../assets/profile_icon.jpg'
-import chatWallpaper from '../assets/chat-wallpaper.jpg'
+import { InitialAvatar, JophielMark } from '../components/Avatar'
 import { ChatContent, DocumentAttachment } from '../components/DocumentAttachment'
 import { useAwareness } from '../hooks/useAwareness'
 import { useChatSocket } from '../hooks/useChatSocket'
@@ -34,14 +33,9 @@ const SUGGESTIONS = [
 // Matches the backend's per-turn cap (schemas/chat.py).
 const MAX_ATTACHMENTS = 8
 
+// Stickers are gone (the rename to Jophiel), but older stored replies still
+// carry [[sticker:name]] markers: they are cut out, never shown.
 const STICKER_MARKER = /\[\[sticker:([a-z0-9-]+)\]\]/g
-const STICKER_NAMES = new Set([
-  'confused', 'question', 'love', 'thinking', 'good-job', 'sleepy', 'yum',
-  'tea', 'hmm', 'shy', 'sorry', 'idea', 'encouragement', 'silent', 'scribble',
-  'grateful', 'surprised', 'peeking', 'embarrassed', 'praying', 'determined',
-  'hungry', 'see-you',
-])
-const stickerUrl = (name: string) => `/api/chat/stickers/${encodeURIComponent(name)}.png`
 
 function partsFromContent(content: string): MessagePart[] {
   const parts: MessagePart[] = []
@@ -49,8 +43,6 @@ function partsFromContent(content: string): MessagePart[] {
   for (const match of content.matchAll(STICKER_MARKER)) {
     if (match.index === undefined) continue
     if (match.index > cursor) parts.push({ kind: 'text', content: content.slice(cursor, match.index) })
-    const name = match[1]
-    if (STICKER_NAMES.has(name)) parts.push({ kind: 'sticker', name })
     cursor = match.index + match[0].length
   }
   if (cursor < content.length) parts.push({ kind: 'text', content: content.slice(cursor) })
@@ -511,7 +503,7 @@ export function ChatPage() {
       <aside className="hidden w-56 shrink-0 flex-col border-r border-[#EAF0FA] bg-white px-4 py-7 md:flex">
         <Link to="/dashboard" className="flex items-center gap-2 px-2 text-[17px] font-semibold tracking-[-0.02em] text-[#23314F]">
           <span className="flex h-6 w-6 items-center justify-center text-[18px] text-[#23314F]">✦</span>
-          Columbina
+          Jophiel
         </Link>
         <p className="mt-1 px-2 text-[10px] text-[#7183A3]">Your nutrition companion</p>
 
@@ -539,7 +531,7 @@ export function ChatPage() {
           <p className="px-2 text-[9px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">Profile</p>
           <div className="mt-4 flex items-center gap-2 px-2">
             <span className="h-8 w-8 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
-              <img src={profileIcon} alt="Vincent profile" className="h-full w-full object-cover" />
+              <InitialAvatar name="Vincent" />
             </span>
             <p className="text-[13px] font-medium text-[#23314F]">Vincent</p>
           </div>
@@ -555,8 +547,8 @@ export function ChatPage() {
       <main className={`relative flex min-w-0 flex-1 flex-col ${sessionPanelOpen ? 'lg:mr-[360px]' : ''}`}>
         <header className="flex items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
           <div>
-            <Link to="/dashboard" className="text-[17px] font-semibold tracking-[-0.02em] text-[#23314F] md:hidden">✦ Columbina</Link>
-            <h1 className="hidden text-[25px] font-semibold tracking-[-0.03em] text-[#23314F] md:block">Columbina</h1>
+            <Link to="/dashboard" className="text-[17px] font-semibold tracking-[-0.02em] text-[#23314F] md:hidden">✦ Jophiel</Link>
+            <h1 className="hidden text-[25px] font-semibold tracking-[-0.03em] text-[#23314F] md:block">Jophiel</h1>
             <p className="text-[12px] text-[#7183A3]" aria-live="polite">{voiceLive ? voiceLabel : 'Your quiet companion · chat, talk, or play'}</p>
           </div>
           <span className="flex items-center gap-2 rounded-full bg-[#EAF6FF] px-3 py-2 text-[11px] font-medium text-[#8B3158]">
@@ -569,15 +561,14 @@ export function ChatPage() {
       <div className="relative flex-1 overflow-hidden">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-[0.13]"
-          style={{ backgroundImage: `url(${chatWallpaper})` }}
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#EAF6FF] via-transparent to-[#F2EFFB] opacity-60"
         />
         <div ref={scrollRef} className="relative h-full overflow-y-auto px-5 sm:px-8 lg:px-12">
           <div className="mx-auto flex h-full w-full max-w-4xl flex-col py-4 sm:py-8">
           {empty ? (
             <div className="flex flex-1 flex-col items-center justify-center text-center">
               <span className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-[#B9DCF4] bg-white shadow-[0_0_0_8px_rgba(234,246,255,0.55)]">
-                <img src={profileIcon} alt="Columbina" className="h-full w-full object-cover" />
+                <JophielMark className="text-[56px]" />
               </span>
               <h2 className="mt-8 text-[23px] font-semibold tracking-[-0.03em] text-[#23314F] sm:text-[26px]">A little company, whenever you need it.</h2>
               <p className="mt-2 max-w-md text-[13px] text-[#7183A3]">
@@ -651,7 +642,7 @@ export function ChatPage() {
           )}
           {voiceLive && (
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#B9DCF4] bg-[#EAF6FF] px-4 py-2.5">
-              <span className="text-xs font-medium text-[#527998]" role="status">{voiceLabel}{voice.muted && voice.state === 'speaking' ? ' · Columbina is speaking' : ''}</span>
+              <span className="text-xs font-medium text-[#527998]" role="status">{voiceLabel}{voice.muted && voice.state === 'speaking' ? ' · Jophiel is speaking' : ''}</span>
               <div className="flex items-center gap-2">
                 {voice.state === 'idle' && !voice.muted && <button type="button" onClick={voice.pushToTalk} disabled={streaming} className="rounded-full bg-white px-3 py-2 text-xs">Talk now</button>}
                 {voice.state === 'listening' && <button type="button" onClick={voice.endTurn} className="rounded-full bg-white px-3 py-2 text-xs">Done talking</button>}
@@ -736,8 +727,8 @@ export function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={1}
-              placeholder="Message Columbina…"
-              aria-label="Message Columbina"
+              placeholder="Message Jophiel…"
+              aria-label="Message Jophiel"
               className="min-w-0 max-h-40 flex-1 resize-none bg-transparent px-2.5 py-2 text-[13px] text-[#23314F] placeholder:text-[#7183A3] outline-none"
             />
             <button type="button" onClick={() => voiceLive ? voice.setMuted(!voice.muted) : void startVoice()}
@@ -821,7 +812,6 @@ const MessageBubble = memo(function MessageBubble({
   const renderableParts = message.parts.flatMap((part) => (
     part.kind === 'text' ? partsFromContent(part.content) : [part]
   ))
-  const stickerParts = renderableParts.filter((part): part is Extract<MessagePart, { kind: 'sticker' }> => part.kind === 'sticker')
   const hasContent = renderableParts.some((part) => part.kind !== 'sticker')
   const outcomeLabel = message.status === 'cancelled'
     ? 'Response stopped.'
@@ -836,7 +826,7 @@ const MessageBubble = memo(function MessageBubble({
       <div className={`flex max-w-[85%] gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
         {!isUser && (
           <span className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
-            <img src={profileIcon} alt="Columbina" className="h-full w-full object-cover" />
+            <JophielMark className="text-[26px]" />
           </span>
         )}
         <div className={`flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
@@ -886,7 +876,7 @@ const MessageBubble = memo(function MessageBubble({
                   : 'border border-[#D9E8F6] bg-white text-[#23314F]'
               }`}
             >
-              {!isUser && <span className="text-[10px] font-semibold text-[#8B3158]">Columbina</span>}
+              {!isUser && <span className="text-[10px] font-semibold text-[#8B3158]">Jophiel</span>}
               {loading ? (
                 <span className="inline-flex gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#8B3158] animate-pulse-dot" />
@@ -916,18 +906,6 @@ const MessageBubble = memo(function MessageBubble({
                   ) : null,
                 )
               )}
-            </div>
-          )}
-          {stickerParts.length > 0 && (
-            <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
-              {stickerParts.map((part, index) => (
-                <img
-                  key={`${part.name}-${index}`}
-                  src={stickerUrl(part.name)}
-                  alt={`Columbina sticker: ${part.name}`}
-                  className="h-36 w-36 object-contain"
-                />
-              ))}
             </div>
           )}
         </div>

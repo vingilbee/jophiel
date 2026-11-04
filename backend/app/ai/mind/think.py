@@ -28,7 +28,7 @@ KINDS = {
 }
 
 QUICK_INSTRUCTIONS = """\
-You are Columbina's mind. Right now she is {doing}. Below is one moment: what \
+You are Jophiel's mind. Right now she is {doing}. Below is one moment: what \
 changed, how much time she has, her recent thoughts, and the whole situation.
 
 The moment already says what is happening: don't repeat it back. Think about \

@@ -5,14 +5,14 @@
  * microphone to the server around the clock, which is worse for bandwidth,
  * server CPU, and privacy. Nothing leaves the machine until the word fires.
  *
- * STATUS: the "columbina" model does not exist yet. openWakeWord ships
+ * STATUS: the "jophiel" model does not exist yet. openWakeWord ships
  * pretrained models for a handful of phrases ("hey jarvis", "alexa", ...) and
  * custom words require training your own through their synthetic-data pipeline
  * (Piper TTS -> thousands of samples -> train -> export ONNX). Until that
  * artifact exists, `NullWakeWord` is used and activation is push-to-talk.
  *
  * To finish it, either:
- *   1. Train columbina.onnx via openWakeWord's notebook, drop it in
+ *   1. Train jophiel.onnx via openWakeWord's notebook, drop it in
  *      public/audio/, and implement OnnxWakeWord below against onnxruntime-web.
  *   2. Or generate a Porcupine .ppn keyword (Picovoice console, ~1 minute,
  *      free personal tier) and implement a PorcupineWakeWord here instead.
@@ -47,7 +47,7 @@ export function createNullWakeWord(): WakeWordDetector {
 export async function createWakeWord(
   _onDetected: () => void,
 ): Promise<WakeWordDetector> {
-  const res = await fetch('/audio/columbina.onnx', { method: 'HEAD' }).catch(
+  const res = await fetch('/audio/jophiel.onnx', { method: 'HEAD' }).catch(
     () => null,
   )
   if (!res?.ok) return createNullWakeWord()
@@ -55,7 +55,7 @@ export async function createWakeWord(
   // Model is present but the ONNX runtime binding isn't written yet; falling
   // back keeps the app working rather than throwing on a half-finished path.
   console.warn(
-    '[wakeword] columbina.onnx found but the ONNX detector is not implemented yet; using push-to-talk.',
+    '[wakeword] jophiel.onnx found but the ONNX detector is not implemented yet; using push-to-talk.',
   )
   return createNullWakeWord()
 }

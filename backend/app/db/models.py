@@ -1044,7 +1044,7 @@ class DesktopSession(Base):
 
 
 class AgentEventJob(Base):
-    """Something that should wake Columbina without a user message (plan §8.2).
+    """Something that should wake Jophiel without a user message (plan §8.2).
 
     One *pending* job per ``(source, dedupe_key)`` (e.g. per desktop session):
     new events append their reason to it instead of queueing a second turn. A
@@ -1198,7 +1198,7 @@ class GameLesson(Base):
 
     Level 1 learning, applied automatically: a ``skill`` lesson (how an action
     behaves) goes to her hands' prompt; a ``plan`` lesson (what to do, in what
-    order, when) goes to Columbina's game summary, where she sets goals. A lesson
+    order, when) goes to Jophiel's game summary, where she sets goals. A lesson
     starts as ``trial`` and earns trust from evidence: each reflection that
     finds a later session supporting it adds support, contradicting it adds
     contradiction. Every count is backed by experience ids, so a model's guess

@@ -189,8 +189,8 @@ def _user_message_summary(p: UserMessage) -> str:
 
 def _reply_summary(p: ReplyRecorded) -> str:
     if p.proactive:
-        return f"Columbina spoke first ({_plural(p.chars, 'character')}, {p.status})"
-    return f"Columbina's reply was recorded ({p.status}, {_plural(p.chars, 'character')})"
+        return f"Jophiel spoke first ({_plural(p.chars, 'character')}, {p.status})"
+    return f"Jophiel's reply was recorded ({p.status}, {_plural(p.chars, 'character')})"
 
 
 def _interrupted_summary(p: ReplyInterrupted) -> str:
@@ -219,7 +219,7 @@ _CONCLUSION_WORDS = {"decision": "decided", "guess": "suspected", "question": "w
 
 
 def _thought_summary(p: ThoughtConcluded) -> str:
-    return f'Columbina {_CONCLUSION_WORDS[p.conclusion_kind]} (her own thinking): "{quote(p.conclusion, 300)}"'
+    return f'Jophiel {_CONCLUSION_WORDS[p.conclusion_kind]} (her own thinking): "{quote(p.conclusion, 300)}"'
 
 
 def _skill_summary(p: SkillOutcome) -> str:

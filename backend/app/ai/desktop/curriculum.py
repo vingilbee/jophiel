@@ -10,7 +10,7 @@ aim is flexible, by the user's choice (2026-10-18): something new for her
 something for the two of them (``for_us``: a shelter at sunset, gear for the
 user), whichever fits the moment.
 
-It only proposes. Columbina's background turn reads it in her summary and makes
+It only proposes. Jophiel's background turn reads it in her summary and makes
 it her goal (``set_game_plan(challenge=true)``), in her own words; her hands try
 it with their skills, and a lesson starts only where none does it. Pure: the
 model is passed in.
@@ -38,7 +38,7 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-PROMPT = """You are Columbina, playing {game} as your own player, often next to the user. You just \
+PROMPT = """You are Jophiel, playing {game} as your own player, often next to the user. You just \
 finished a goal and you are exploring: you pick your own next challenge, the way a curious player \
 does. Pick ONE.
 

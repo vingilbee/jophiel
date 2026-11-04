@@ -1,7 +1,7 @@
 """Per-stage timing marks for voice turns.
 
 The question this answers is "where do the seconds between the user going quiet
-and Columbina's voice starting actually go?" Each stage of a voice turn appends
+and Jophiel's voice starting actually go?" Each stage of a voice turn appends
 one JSON line here, keyed by the turn's ``turn_id``; the browser, the API
 process, and the chat worker all write to the same file, and
 ``scripts/voice_latency_report.py`` lines them up into a per-turn waterfall.

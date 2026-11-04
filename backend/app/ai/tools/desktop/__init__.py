@@ -1,4 +1,4 @@
-"""Columbina's game tools (desktop agent, stage D2a).
+"""Jophiel's game tools (desktop agent, stage D2a).
 
 Like the eye, these sit on the orchestrator directly rather than behind a
 sub-agent: there are few of them, they are cheap, and "pause!" must not wait

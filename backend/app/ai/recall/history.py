@@ -9,7 +9,7 @@ is traceability, not truth: an exact quote can sit under a wrong reading. What c
 
 - a citation that isn't word for word in its passage is dropped; a step left with none is dropped, and
   the account is ``partial``;
-- a step resting only on Columbina's own earlier words is kept but not established (what she said is not
+- a step resting only on Jophiel's own earlier words is kept but not established (what she said is not
   what the user told her; she has been wrong before);
 - the current value is ``unsettled`` when a step it rests on, or any step after those, was dropped or
   rests only on her words, and ``not_established`` when nothing traceable supports it; under an explicit
@@ -66,7 +66,7 @@ class NodeRef:
 class Passage:
     label: str  # "p1": how the reader and the rendering cite it
     node: NodeRef
-    speaker: Speaker  # who asserted it: the user, Columbina, a source reporting, or a memory record
+    speaker: Speaker  # who asserted it: the user, Jophiel, a source reporting, or a memory record
     text: str  # whitespace-normalized; citations are spans into exactly this
     truncated: bool
     said_at: datetime | None  # said, reported, or (memories) recorded
@@ -156,7 +156,7 @@ class HistoryAccount:
 # --------------------------------------------------------------------------- #
 
 INSTRUCTIONS = """You rebuild the history of one thing from passages, for one question. You don't answer the \
-user: Columbina will, using what you return.
+user: Jophiel will, using what you return.
 
 The passages were collected by following links from memories that matched the question to the messages \
 they came from, and from those messages to other memories they touched. So they are candidates: many are \
@@ -166,8 +166,8 @@ preference...). If the question is about several properties, choose the one it m
 others in "gaps".
 
 Who said what matters:
-- "the user said": their own words. This is what they told Columbina.
-- "Columbina said": her own earlier words, NOT the user's. She can have been wrong. Never treat her words \
+- "the user said": their own words. This is what they told Jophiel.
+- "Jophiel said": her own earlier words, NOT the user's. She can have been wrong. Never treat her words \
 as the user's, and never let them settle a value the user's words don't support.
 - "memory record": a note written from a conversation (a goal, a fact, an event). It can restate a value; \
 a finished goal's wording still shows what was planned at the time.
@@ -183,7 +183,7 @@ Say each value in the passages' own words. Order steps by when they were said; d
 passage may say when a change takes effect: keep that in the value's words only if the passage says it.
 
 current: what holds now, only if the passages establish it. "follows" lists the numbers (1-based) of the \
-steps it rests on. If the latest value is unclear, conflicting, or comes only from Columbina's words, set \
+steps it rests on. If the latest value is unclear, conflicting, or comes only from Jophiel's words, set \
 known to false and say why in gaps. If a scope is given, the current value must hold in that scope: \
 passages marked OUTSIDE SCOPE can explain history but never what holds there now.
 
@@ -221,7 +221,7 @@ SCHEMA = {
     },
 }
 
-_SPEAKER = {"user": "the user said", "columbina": "Columbina said (her own words, not the user's)",
+_SPEAKER = {"user": "the user said", "columbina": "Jophiel said (her own words, not the user's)",
             "memory": "memory record", "source": "reported"}
 
 
@@ -253,7 +253,7 @@ def reader_input(question: str, about: str | None, scope: list[str] | None, expa
                  *, now: datetime, zone: str) -> str:
     tz = ZoneInfo(zone)
     lines = [f"QUESTION (the user's words): {question[:QUESTION_LIMIT]}",
-             f"ABOUT (as Columbina put it): {about}" if about else "ABOUT: not given; work it out from the question",
+             f"ABOUT (as Jophiel put it): {about}" if about else "ABOUT: not given; work it out from the question",
              (f"SCOPE: only {', '.join(scope)} was asked about." if scope else "SCOPE: none given."),
              f"NOW: {_when(now, tz)} ({zone})", "", "PASSAGES (oldest first):"]
     for p in expansion.passages:
@@ -369,7 +369,7 @@ def check(raw: dict, expansion: Expansion, *, scoped: bool) -> HistoryAccount:
         if follows and all(n in lost or n not in {s.listed_as for s in steps} for n in follows):
             state, note = "unsettled", "the steps it rests on couldn't be supported"
         if _support(cites, passages) == "her_words_only":
-            state, note = "unsettled", "only Columbina's own earlier words say it"
+            state, note = "unsettled", "only Jophiel's own earlier words say it"
         if scoped and all(passages[c.passage].in_scope is False for c in cites):
             state, note = "not_established", "only memories outside the asked scope say it"
         account.current = Current(state, value, cites, note)

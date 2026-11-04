@@ -58,7 +58,7 @@ def ensure_relay_certificate(directory: Path | None = None) -> RelayCertificate:
 def _create(cert_path: Path, key_path: Path) -> None:
     settings = get_settings()
     key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Columbina desktop relay")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Jophiel desktop relay")])
     now = datetime.now(timezone.utc)
     alt_names: list[x509.GeneralName] = [x509.DNSName("columbina-relay")]
     for host in {settings.desktop_controller_bind_host, settings.desktop_controller_public_host}:

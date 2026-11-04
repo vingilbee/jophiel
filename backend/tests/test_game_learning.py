@@ -63,7 +63,7 @@ def test_lessons_go_into_the_system_prompt_trial_ones_marked_tentative():
                {"situation": "going underground", "advice": "bring torches", "status": "confirmed", "level": "plan"}]
     h = _recording_harness(ScriptedModel(_decide("mine", {"block": "oak_log"})), lessons)
     h.steps(1)
-    skill, plan = h.run._system.split("Planning lessons Columbina learned")
+    skill, plan = h.run._system.split("Planning lessons Jophiel learned")
     assert "What you learned in earlier sessions" in skill
     assert "- When crafting tools: place a crafting table first\n" in skill
     assert "- When mining stone: carry a pickaxe (tentative: seen once)" in skill

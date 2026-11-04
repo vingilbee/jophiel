@@ -27,7 +27,7 @@ const STATE_COPY: Record<DesktopSessionState, { label: string; detail: string; t
   },
   running: {
     label: 'Playing',
-    detail: 'Columbina has the controls.',
+    detail: 'Jophiel has the controls.',
     tone: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
   },
   paused: {
@@ -37,7 +37,7 @@ const STATE_COPY: Record<DesktopSessionState, { label: string; detail: string; t
   },
   manual: {
     label: 'You have control',
-    detail: "Columbina won't touch the game until you resume.",
+    detail: "Jophiel won't touch the game until you resume.",
     tone: 'border-[#F2D8C9] bg-[#FFF5EE] text-[#9A5B36]',
   },
   disconnected: {
@@ -122,7 +122,7 @@ function GamePreview() {
   if (env.hosting_kind === 'game_pack') {
     return (
       <p className="rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3 text-xs text-[#4C5D7D]">
-        Columbina plays as her own player, so there's no picture here: watch from your game, or{' '}
+        Jophiel plays as her own player, so there's no picture here: watch from your game, or{' '}
         <span className="font-mono">/spectate</span> her.
       </p>
     )
@@ -134,7 +134,7 @@ function GamePreview() {
   let body: string | null = null
   if (!online) body = 'Game VM not connected.'
   else if (gate === 'manual_auth') body = 'Capture is off while you sign in.'
-  else if (gate === 'blocked') body = 'Preview is off. Columbina sees nothing from the VM.'
+  else if (gate === 'blocked') body = 'Preview is off. Jophiel sees nothing from the VM.'
   else if (!preview)
     body =
       env.target_state === 'ok' || !env.target_state
@@ -281,7 +281,7 @@ function GamePreview() {
         </div>
       )}
       {online && (
-        <div role="group" aria-label="What Columbina can see" className="flex gap-1 text-[11px]">
+        <div role="group" aria-label="What Jophiel can see" className="flex gap-1 text-[11px]">
           {(
             [
               ['desktop', 'Whole VM screen'],
@@ -449,11 +449,11 @@ function describeDecision(d: DesktopDecisionReport): string {
 }
 
 const PAUSE_REASONS: Record<string, string> = {
-  plan_complete: 'Columbina finished every step of the goal. Give her a new one to keep playing.',
+  plan_complete: 'Jophiel finished every step of the goal. Give her a new one to keep playing.',
   pack_offline: 'Her Minecraft player left the world (the pack stopped, or lost the server).',
   planning_timeout: "She finished her goal but didn't pick a new one in time.",
-  driver_stuck: 'Columbina got stuck and stopped. Change the goal or resume to let her try again.',
-  needs_human: 'Columbina saw something outside the game (a login, a crash, a dialog) and needs you.',
+  driver_stuck: 'Jophiel got stuck and stopped. Change the goal or resume to let her try again.',
+  needs_human: 'Jophiel saw something outside the game (a login, a crash, a dialog) and needs you.',
   driver_error: 'The driver model kept failing, so she stopped. Resume to try again.',
   driver_unavailable: 'The driver model is not available (check OPENAI_API_KEY).',
   observation_stale: "She couldn't see the game for 10 seconds. Is the game in front in the VM?",
@@ -530,10 +530,10 @@ function DriverPanel() {
       <p className="text-xs font-semibold text-[#7183A3]">
         {playing
           ? blind
-            ? 'Columbina is waiting to see the game'
+            ? 'Jophiel is waiting to see the game'
             : driver?.waiting === 'next_goal'
-              ? 'Columbina is choosing her next goal'
-              : 'Columbina is playing'
+              ? 'Jophiel is choosing her next goal'
+              : 'Jophiel is playing'
           : 'Goal'}
       </p>
       <p className="text-sm">{session.plan.goal}</p>
@@ -638,7 +638,7 @@ function GoalForm() {
   return (
     <details className="text-[11px] text-[#7183A3]" open={!session.plan}>
       <summary className="cursor-pointer select-none font-semibold">
-        {session.plan ? 'Change the goal' : 'Give Columbina a goal'}
+        {session.plan ? 'Change the goal' : 'Give Jophiel a goal'}
       </summary>
       <form
         className="mt-1 space-y-1.5"
@@ -700,7 +700,7 @@ function RegisterForm() {
         if (chosen) void registerEnvironment(name.trim(), [chosen])
       }}
     >
-      <p className="text-sm text-[#7183A3]">Add the computer Columbina will play on.</p>
+      <p className="text-sm text-[#7183A3]">Add the computer Jophiel will play on.</p>
       <label className="block text-xs text-[#7183A3]">
         Name
         <input className={`${INPUT} mt-1`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />

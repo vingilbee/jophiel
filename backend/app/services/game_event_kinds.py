@@ -1,6 +1,6 @@
 """What each kind of game event does, in one table.
 
-A game event is why Columbina wakes during play (``agent_event_jobs`` reasons,
+A game event is why Jophiel wakes during play (``agent_event_jobs`` reasons,
 "kind: detail"). Her hands raise them from the pack's notices and from plan
 progress; ``desktop_sessions`` decides whether one wakes her, ``agent_say``
 whether she may say something about it. Both read this table, so a new kind

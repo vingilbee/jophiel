@@ -214,7 +214,7 @@ def _owned(db: Session, user_id: uuid.UUID, ids: list[uuid.UUID]) -> dict[uuid.U
 def search(db: Session, user_id: uuid.UUID, query: str, *, now: datetime, who: str = "either",
            conversation_id: uuid.UUID | None = None, time_range: TimeRange | None = None,
            exclude: tuple[uuid.UUID, ...] = (), limit: int = LIMIT, page_token: str | None = None) -> RecallResult:
-    """One bounded search of what was said. ``who``: "me" (Columbina), "user" or "either". Raises
+    """One bounded search of what was said. ``who``: "me" (Jophiel), "user" or "either". Raises
     ``RecallInvalid`` for a request that can't be run as asked; a broken search is ``failed``."""
     started = time.monotonic()
     if len(query or "") > 2000:

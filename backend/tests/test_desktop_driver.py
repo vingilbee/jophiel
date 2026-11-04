@@ -502,7 +502,7 @@ def test_messages_from_columbina_reach_the_next_step_and_stay():
     deps.messages = lambda _sid: list(told)
     run = DriverRun(SESSION, deps)
     run.step()
-    assert 'Messages from Columbina' in script.prompts[0]
+    assert 'Messages from Jophiel' in script.prompts[0]
     assert '"look straight ahead, not at the ceiling"' in script.prompts[0] and "NEW" in script.prompts[0]
     script.clock += 1
     run.step()
@@ -607,13 +607,13 @@ def test_careful_mode_cuts_moves_short_adds_sneak_and_looks_between_moves():
     run.step()
     sent = script.published[-1][2]
     assert sent["valid_for_ms"] == 500 and sent["hold"] == ["forward", "sneak"]
-    assert "Careful mode is ON (Columbina turned it on)" in script.prompts[0]
+    assert "Careful mode is ON (Jophiel turned it on)" in script.prompts[0]
     script.clock += 0.3  # a picture from while the move still runs: not used
     run.step()
     assert len(script.prompts) == 1
     script.clock += 0.8
     run.step()
-    assert len(script.prompts) == 2 and script.metrics[-1]["careful"] == "Columbina turned it on"
+    assert len(script.prompts) == 2 and script.metrics[-1]["careful"] == "Jophiel turned it on"
 
 
 def test_careful_mode_leaves_turning_alone():

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { Button } from '../components/Button'
 import { ProviderIcon } from '../components/ProviderIcon'
-import { ColumbinaFeathers } from '../components/ColumbinaFeathers'
+import { Feathers } from '../components/Feathers'
 import { integrationsApi } from '../api/integrations'
 import { whatsappApi } from '../api/whatsapp'
 import type { WhatsAppLinkCode, WhatsAppLinkStatus } from '../api/whatsapp'
@@ -79,7 +79,7 @@ export function IntegrationsPage() {
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#F8FAFF] text-[#23314F] md:flex-row">
       <AppHeader />
 
-      <ColumbinaFeathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
+      <Feathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
       <main className="relative mx-auto w-full max-w-5xl flex-1 px-5 py-10 sm:px-8 lg:px-12">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-[-0.03em]">Connect your world.</h1>

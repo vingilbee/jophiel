@@ -1,4 +1,4 @@
-"""Wipe what Columbina remembers about users, for testing memory and learning.
+"""Wipe what Jophiel remembers about users, for testing memory and learning.
 
 Never touches ``core_memory`` (her identity, not about any user), user accounts,
 logins, integrations, desktop environments, or calorie/weight logs. Deleting a

@@ -16,10 +16,10 @@ def _speak(tokens: list[str]) -> list[str]:
     return clauses
 
 
-def test_marker_becomes_sticker_event_not_text():
+def test_old_marker_is_dropped_not_shown():
     events, buffer = stickers.consume_text("", "Nice work! [[sticker:good-job]] Keep going.")
     assert buffer == ""
-    assert {"type": "sticker", "sticker": "good-job"} in events
+    assert all(event["type"] == "token" for event in events)
     assert stickers.spoken_text(events) == "Nice work!  Keep going."
 
 

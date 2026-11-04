@@ -7,7 +7,7 @@ export function Logo({ to = '/' }: { to?: string }) {
         ✦
       </span>
       <span className="text-sm font-semibold tracking-[0.04em] text-[#23314F]">
-        Columbina
+        Jophiel
       </span>
     </Link>
   )

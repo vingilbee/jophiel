@@ -65,7 +65,7 @@ class Candidate:
     reason: str | None
 
 
-_PROMPT = """You keep a companion's memory. She (Columbina) just finished thinking something through, and you
+_PROMPT = """You keep a companion's memory. She (Jophiel) just finished thinking something through, and you
 decide whether her conclusion is worth remembering beyond this moment. It is her own reasoning, not a fact.
 
 Keep it when it matters later: something she means to do, a question still open, a suspicion about the user or

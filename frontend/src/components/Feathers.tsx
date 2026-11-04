@@ -1,7 +1,7 @@
 import paleBlueFeather from '../assets/pale-blue-feather.svg'
 
 /** Public-domain feather ornament used as non-interactive atmosphere. */
-export function ColumbinaFeathers({ className = '' }: { className?: string }) {
+export function Feathers({ className = '' }: { className?: string }) {
   return (
     <div
       aria-hidden="true"

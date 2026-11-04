@@ -1,6 +1,6 @@
 """Who the user is inside a game: their player name ("tearDrop12" in Minecraft).
 
-Set when the user tells Columbina (her ``this_is_me`` tool). With it she knows
+Set when the user tells Jophiel (her ``this_is_me`` tool). With it she knows
 who "me" is whoever else is online, and her memories of play name the user
 instead of a player tag. Without it she still guesses the one other player
 online, and says it's a guess.

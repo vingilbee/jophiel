@@ -54,7 +54,7 @@ SCHEMA = {
 }
 
 INSTRUCTIONS = """\
-You are Columbina's slow thinking. Right now she is {doing}. Something needs real thought, \
+You are Jophiel's slow thinking. Right now she is {doing}. Something needs real thought, \
 and there's time for it: {trigger}.
 
 Below: the problem, with what was tried and what happened (counted by {counter}, so it's \

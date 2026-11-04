@@ -327,7 +327,7 @@ class DriverRun:
 
     def _between_goals(self, view: DriverView) -> bool:
         """Every step is done. Playing on her own, wait (keys released: no new
-        decisions) for the goal Columbina is choosing; otherwise stop here."""
+        decisions) for the goal Jophiel is choosing; otherwise stop here."""
         deps = self.deps
         picked = deps.auto_goals(self.session_id) if deps.auto_goals else 0
         if view.autonomy != "continue" or picked >= self.max_auto_goals:
@@ -425,7 +425,7 @@ class DriverRun:
     def _careful(self, now: float) -> str | None:
         """Why careful mode is on, or None."""
         if self.deps.careful is not None and (self.deps.careful(self.session_id) or {}).get("on"):
-            return "Columbina turned it on"
+            return "Jophiel turned it on"
         if self.danger_until is not None and now < self.danger_until:
             return "you reported danger"
         return None
@@ -556,7 +556,7 @@ class DriverRun:
         if plan.get("constraints"):
             lines.append("Constraints: " + "; ".join(plan["constraints"]))
         if messages:
-            lines.append("Messages from Columbina (follow them; newest last):")
+            lines.append("Messages from Jophiel (follow them; newest last):")
             for message in messages:
                 age = round(self.deps.now() - message.get("at", self.deps.now()))
                 new = ", NEW" if message["id"] not in self.seen_messages else ""

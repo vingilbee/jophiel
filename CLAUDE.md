@@ -1,5 +1,7 @@
 # Project: Columbina (General Conversational Agent)
 
+> **Name:** the agent is now **Jophiel** (renamed from Columbina on 2026-11-03, to move away from a game character). Docs, comments and internal ids (`columbina_user_turn`, `columbina_mind`, the `columbina` speaker label Student 1/2 were trained on, `columbina.md`, the core-memory key) keep the old name on purpose; everything the app shows or the live prompts say uses Jophiel. Wherever docs say "Columbina", read Jophiel.
+
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and cognitive processing. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
 
