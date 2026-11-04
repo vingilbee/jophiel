@@ -134,3 +134,6 @@ mprocs.windows.yaml
 !/docs/reports/*.mjs
 !/docs/reports/*.js
 !/docs/reports/*.sh
+
+# Impeccable review captures (regenerated each review)
+.impeccable/review/

@@ -92,6 +92,8 @@ def schedule_consolidation(
         assistant_message_id=assistant_message_id,
     )
     db.add(job)
+    from app.services import system_signals
+    system_signals.emit(user_id, "mouth", "memory", "consolidate", assistant_message_id)
     if not commit:
         db.flush()
         return job

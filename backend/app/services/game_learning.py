@@ -164,6 +164,9 @@ def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
                  "keys": [lesson.normalized_key for lesson in lessons]},
     ))
     db.commit()
+    if lessons:
+        from app.services import system_signals
+        system_signals.emit(session.owner_user_id, "learning", "hands", "lessons", session_id)
     # id and revision: which lesson versions her hands saw (the learning capture records them).
     return [{"situation": lesson.situation, "advice": lesson.advice, "status": lesson.status,
              "level": lesson.level, "id": str(lesson.id), "revision": lesson.revision} for lesson in lessons]
@@ -243,6 +246,8 @@ def schedule_reflection(db: Session, session: DesktopSession, to_state: str) -> 
             db.add(GameReflectionJob(user_id=session.owner_user_id, session_id=session.id, game=game,
                                      from_experience_id=after, up_to_experience_id=up_to))
             db.flush()
+            from app.services import system_signals
+            system_signals.emit(session.owner_user_id, "hands", "learning", "reflect", session.id)
     except IntegrityError:
         pass  # the same stretch was queued concurrently
     except Exception:  # learning never blocks a session change

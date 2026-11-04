@@ -66,3 +66,196 @@ body {
   background: var(--color-line-bright);
   border-radius: 9999px;
 }
+
+/* ---- System page: her parts as electric neurons in a star field ---- */
+.system-page {
+  font-family: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+}
+.system-page ::selection {
+  background: rgba(63, 211, 240, 0.32);
+  color: #fff;
+}
+.system-page :focus-visible {
+  outline: 1.5px solid #3fd3f0;
+  outline-offset: 3px;
+}
+.system-page .cell:focus-visible {
+  outline: none;
+}
+.system-page .cell:focus-visible .cell-label {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+/* A part's own page: over the field it was jumped into, the stars still faintly there. */
+.system-page .part-page {
+  background: radial-gradient(ellipse 80% 70% at 30% 20%, rgba(4, 5, 6, 0.86), rgba(4, 5, 6, 0.94));
+  scrollbar-color: #2a3138 transparent;
+  animation: page-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.system-page .part-page :focus-visible {
+  outline-color: var(--part, #3fd3f0);
+}
+@keyframes page-in {
+  from { opacity: 0; transform: scale(1.03); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The part's light flooding the screen as the camera flies in, and falling away on the way out. */
+.flare {
+  transform: translate(-50%, -50%) scale(0.01);
+  opacity: 0;
+}
+.flare-in {
+  animation: flare-in 900ms cubic-bezier(0.55, 0, 0.9, 0.4) forwards;
+}
+.flare-held {
+  transform: translate(-50%, -50%) scale(1);
+  animation: flare-held 700ms ease-out forwards;
+}
+.flare-out {
+  animation: flare-out 800ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+/* The streaks own the first half of the jump; her light only floods in at the end. */
+@keyframes flare-in {
+  0%, 45% { transform: translate(-50%, -50%) scale(0.04); opacity: 0; }
+  70% { opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+@keyframes flare-held {
+  from { opacity: 1; }
+  to { opacity: 0.4; }
+}
+@keyframes flare-out {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  to { transform: translate(-50%, -50%) scale(0.01); opacity: 0; }
+}
+
+/* Labels keep a ring of the field's black around them, so they read over glow and wires. */
+.cell-label {
+  paint-order: stroke;
+  stroke: #040506;
+  stroke-width: 0.32em;
+  stroke-linejoin: round;
+}
+
+/* Charge and discharge: the ring fills with light over the core's period, then lets it go in one flare. */
+@keyframes discharge {
+  0%, 84% { opacity: 0; }
+  88% { opacity: var(--peak, 0.9); }
+  100% { opacity: 0; }
+}
+.ca {
+  opacity: 0;
+  animation: discharge var(--period, 2.8s) cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0s) infinite;
+}
+@keyframes charge {
+  0% { stroke-opacity: 0.18; }
+  86% { stroke-opacity: 1; }
+  89% { stroke-opacity: 0.12; }
+  100% { stroke-opacity: 0.18; }
+}
+.charge {
+  animation: charge var(--period, 2.8s) linear var(--delay, 0s) infinite;
+}
+
+/* A pulse arriving: one flare of the receiving core. */
+@keyframes hit {
+  0% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+.hit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hit 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Live filaments crackle faintly. */
+@keyframes flicker {
+  0%, 100% { opacity: 0.9; }
+  6% { opacity: 0.45; }
+  8% { opacity: 0.95; }
+  41% { opacity: 0.8; }
+  43% { opacity: 0.4; }
+  45% { opacity: 0.9; }
+}
+.flicker {
+  animation: flicker 3.7s steps(1, end) var(--delay, 0s) infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.95; }
+}
+.twinkle {
+  animation: twinkle var(--period, 4s) ease-in-out var(--delay, 0s) infinite;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+}
+
+/* The slight drift of a cell floating in its medium (field units, so it scales with the zoom). */
+@keyframes drift-1 {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(3px, -2.5px); }
+  65% { transform: translate(-2px, 2px); }
+}
+@keyframes drift-2 {
+  0%, 100% { transform: translate(0, 0); }
+  40% { transform: translate(-3px, -1.5px); }
+  75% { transform: translate(1.5px, 3px); }
+}
+@keyframes drift-3 {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(2px, 3px); }
+  60% { transform: translate(-3px, -1px); }
+}
+.drift-1 { animation: drift-1 19s ease-in-out infinite; }
+.drift-2 { animation: drift-2 23s ease-in-out infinite; }
+.drift-3 { animation: drift-3 27s ease-in-out infinite; }
+
+@keyframes fail-rim {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.35; }
+}
+.fail-rim {
+  animation: fail-rim 1.2s ease-in-out infinite;
+}
+
+/* Disclosure markers drawn in the page's own stroke, turning as they open. */
+.system-page summary {
+  list-style: none;
+}
+.system-page summary::-webkit-details-marker {
+  display: none;
+}
+.system-page summary::before {
+  content: '';
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.45em;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.system-page details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca, .charge, .flicker, .twinkle, .drift-1, .drift-2, .drift-3, .fail-rim {
+    animation: none;
+  }
+  .hit, .flare-in, .flare-out, .part-page {
+    animation-duration: 1ms;
+  }
+}
+
+/* The field falling off toward its edge, deepest behind the page's own text. */
+.field-vignette {
+  background:
+    radial-gradient(ellipse 60% 55% at 0% 0%, rgba(4, 5, 6, 0.92), rgba(4, 5, 6, 0) 70%),
+    radial-gradient(ellipse 120% 110% at 50% 50%, rgba(4, 5, 6, 0) 62%, rgba(4, 5, 6, 0.75) 100%);
+}
+.system-page .cell:focus {
+  outline: none;
+}

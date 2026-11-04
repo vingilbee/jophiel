@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { AppHeader } from '../components/AppHeader'
-import { Feathers } from '../components/Feathers'
-import { learningApi } from '../api/learning'
+import { learningApi } from '../../api/learning'
 import type {
   AdaptationLesson,
   AdaptationLessonDetail,
@@ -19,35 +17,35 @@ import type {
   TrialListing,
   TrialStatus,
   TrialSummary,
-} from '../types/learning'
+} from '../../types/learning'
 
 const STATUS_STYLES: Record<string, string> = {
-  open: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
-  accepted: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
-  implemented: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  rejected: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  confirmed: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  on: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  off: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  trial: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
-  retired: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  active: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
-  done: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  'gave up': 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
-  'you changed it': 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
-  'session ended': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  supported: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  concluded: 'border-[#BFE3CF] bg-[#EEF9F2] text-[#3E7A57]',
-  plausible: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
-  unresolved: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
-  contradicted: 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
-  failed: 'border-[#E7B5C5] bg-[#FBEFF3] text-[#8B3158]',
-  'no feedback': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  pending: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  running: 'border-[#B9DCF4] bg-[#EAF6FF] text-[#527998]',
-  hypothesis: 'border-[#DCCFF2] bg-[#F2EFFB] text-[#6A4FA0]',
-  'one episode': 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
-  withdrawn: 'border-[#EAF0FA] bg-[#F8FAFF] text-[#7183A3]',
+  open: 'border-[#2B4A5C] bg-[#0E1A22] text-[#7FB8D8]',
+  accepted: 'border-[#3A2E58] bg-[#1A1528] text-[#B9A2F0]',
+  implemented: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  rejected: 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  confirmed: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  on: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  off: 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  trial: 'border-[#2B4A5C] bg-[#0E1A22] text-[#7FB8D8]',
+  retired: 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  active: 'border-[#2B4A5C] bg-[#0E1A22] text-[#7FB8D8]',
+  done: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  'gave up': 'border-[#5A2638] bg-[#2A1119] text-[#F08AB0]',
+  'you changed it': 'border-[#3A2E58] bg-[#1A1528] text-[#B9A2F0]',
+  'session ended': 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  supported: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  concluded: 'border-[#24503A] bg-[#0E1F16] text-[#7FD6A0]',
+  plausible: 'border-[#2B4A5C] bg-[#0E1A22] text-[#7FB8D8]',
+  unresolved: 'border-[#3A2E58] bg-[#1A1528] text-[#B9A2F0]',
+  contradicted: 'border-[#5A2638] bg-[#2A1119] text-[#F08AB0]',
+  failed: 'border-[#5A2638] bg-[#2A1119] text-[#F08AB0]',
+  'no feedback': 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  pending: 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  running: 'border-[#2B4A5C] bg-[#0E1A22] text-[#7FB8D8]',
+  hypothesis: 'border-[#3A2E58] bg-[#1A1528] text-[#B9A2F0]',
+  'one episode': 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
+  withdrawn: 'border-[#1C2228] bg-[#0F1317] text-[#8C97A3]',
 }
 
 const LESSON_STATUS_LABELS: Record<AdaptationLesson['status'], string> = {
@@ -104,7 +102,7 @@ const CHALLENGE_LABELS: Record<Challenge['status'], string> = {
 
 function Chip({ label }: { label: string }) {
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-[10px] tracking-[0.06em] uppercase ${STATUS_STYLES[label] ?? STATUS_STYLES.rejected}`}>
+    <span className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_STYLES[label] ?? STATUS_STYLES.rejected}`}>
       {label}
     </span>
   )
@@ -146,7 +144,7 @@ function agentBrief(p: Proposal): string {
   ].join('\n')
 }
 
-export function LearningPage() {
+export function LearningDetails() {
   const [challenges, setChallenges] = useState<Challenge[] | null>(null)
   const [skills, setSkills] = useState<LearnedSkill[] | null>(null)
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
@@ -201,28 +199,21 @@ export function LearningPage() {
   const retired = lessons?.filter((l) => l.status === 'retired') ?? []
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#F8FAFF] text-[#23314F] md:flex-row">
-      <AppHeader />
-      <Feathers className="pointer-events-none absolute -top-12 -right-10 w-72 opacity-55" />
-      <main className="relative mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-8 lg:px-12">
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-[-0.03em]">What she's learned.</h1>
-          <p className="mt-2 max-w-xl text-sm text-[#7183A3]">
-            Moves she taught herself are hers to use at once. After each game session Jophiel looks back on
-            what happened. Lessons go straight into how she plays. Proposals are changes to her game code: she never makes them herself. Review them here and
-            hand the good ones to a coding agent.
-          </p>
-        </div>
-
+    <div className="text-[#E4E8EC]">
+      <p className="mb-6 text-[13px] leading-relaxed text-[#9AA5B1]">
+        Moves she taught herself are hers to use at once. After each game session Jophiel looks back on what
+        happened. Lessons go straight into how she plays. Proposals are changes to her game code: she never makes
+        them herself. Review them here and hand the good ones to a coding agent.
+      </p>
         {error && (
-          <p className="mb-5 rounded-xl border border-[#E7B5C5] bg-[#FBEFF3] px-3 py-2 text-xs text-[#8B3158]">{error}</p>
+          <p className="mb-5 rounded-xl border border-[#5A2638] bg-[#2A1119] px-3 py-2 text-xs text-[#F08AB0]">{error}</p>
         )}
 
         <Section
           title="How it went"
           hint="After a correction, a complaint, something failing, or a sampled ordinary exchange, she looks back: what it was about, which part of her (if any) was responsible, and how sure the evidence makes that. Unresolved means the evidence doesn't settle it. Add a note to correct her reading."
         >
-          <label className="mb-1 flex items-center gap-2 text-xs text-[#7183A3]">
+          <label className="mb-1 flex items-center gap-2 text-xs text-[#8C97A3]">
             <input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />
             Only unresolved
           </label>
@@ -306,8 +297,8 @@ export function LearningPage() {
             />
           ))}
           {retired.length > 0 && (
-            <details className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3">
-              <summary className="cursor-pointer text-xs text-[#7183A3]">Retired ({retired.length})</summary>
+            <details className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3">
+              <summary className="cursor-pointer text-xs text-[#8C97A3]">Retired ({retired.length})</summary>
               <div className="mt-3 flex flex-col gap-2">
                 {retired.map((l) => (
                   <LessonRow
@@ -326,18 +317,17 @@ export function LearningPage() {
           {reflections === null && !error && <Loading />}
           {reflections?.length === 0 && <Empty text="No sessions reflected on yet." />}
           {reflections && reflections.length > 0 && (
-            <ul className="divide-y divide-[#EAF0FA] rounded-2xl border border-[#EAF0FA] bg-white">
+            <ul className="divide-y divide-[#1C2228] rounded-2xl border border-[#1C2228] bg-[#0D1115]">
               {reflections.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-xs">
-                  <span className="w-14 shrink-0 text-[#7183A3]">{day(r.created_at)}</span>
+                  <span className="w-14 shrink-0 text-[#8C97A3]">{day(r.created_at)}</span>
                   <span className="font-medium">{r.game}</span>
-                  <span className="text-[#617698]">{reflectionSummary(r)}</span>
+                  <span className="text-[#9AA5B1]">{reflectionSummary(r)}</span>
                 </li>
               ))}
             </ul>
           )}
         </Section>
-      </main>
     </div>
   )
 }
@@ -363,24 +353,24 @@ function Section({ title, hint, children }: { title: string; hint: string; child
   return (
     <section className="mb-10">
       <h2 className="text-sm font-semibold">{title}</h2>
-      <p className="mt-1 mb-3 text-xs text-[#7183A3]">{hint}</p>
+      <p className="mt-1 mb-3 text-xs text-[#8C97A3]">{hint}</p>
       <div className="flex flex-col gap-3">{children}</div>
     </section>
   )
 }
 
 function Loading() {
-  return <p className="text-xs tracking-[0.08em] text-[#7183A3] uppercase">Loading…</p>
+  return <p className="text-[13px] text-[#8C97A3]">Reading…</p>
 }
 
 function Empty({ text }: { text: string }) {
   return (
-    <p className="rounded-2xl border border-dashed border-[#B9DCF4] bg-white px-6 py-8 text-center text-sm text-[#7183A3]">{text}</p>
+    <p className="rounded-2xl border border-dashed border-[#2B4A5C] bg-[#0D1115] px-6 py-8 text-center text-sm text-[#8C97A3]">{text}</p>
   )
 }
 
 const SMALL_BUTTON =
-  'rounded-full border border-[#DCE6F5] bg-white px-3 py-1 text-[11px] text-[#617698] transition-colors hover:border-[#8B3158] hover:text-[#8B3158] disabled:opacity-50'
+  'rounded-full border border-[#232A31] bg-[#0D1115] px-3 py-1 text-[11px] text-[#9AA5B1] transition-colors hover:border-[#F08AB0] hover:text-[#F08AB0] disabled:opacity-50'
 
 function ProposalCard({
   proposal: p,
@@ -406,26 +396,26 @@ function ProposalCard({
   }
 
   return (
-    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-4 sm:px-5">
+    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">{p.title}</h3>
-        <span className="text-[11px] text-[#7183A3]">{p.area} · seen {p.occurrences}×</span>
+        <span className="text-[11px] text-[#8C97A3]">{p.area} · seen {p.occurrences}×</span>
         <Chip label={p.status} />
       </div>
       {reopened && p.status === 'open' && (
-        <p className="mt-2 text-xs text-[#8B3158]">Came back after it was marked implemented.</p>
+        <p className="mt-2 text-xs text-[#F08AB0]">Came back after it was marked implemented.</p>
       )}
-      <p className="mt-3 text-sm text-[#40506F]">{p.problem}</p>
-      <p className="mt-2 text-sm text-[#40506F]">
+      <p className="mt-3 text-sm text-[#C5CDD5]">{p.problem}</p>
+      <p className="mt-2 text-sm text-[#C5CDD5]">
         <span className="font-medium">Suggestion: </span>
         {p.suggestion}
       </p>
       <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Evidence ({p.evidence.length} session{p.evidence.length > 1 ? 's' : ''})</summary>
+        <summary className="cursor-pointer text-xs text-[#8C97A3]">Evidence ({p.evidence.length} session{p.evidence.length > 1 ? 's' : ''})</summary>
         <ul className="mt-2 flex flex-col gap-1">
           {p.evidence.flatMap((e) =>
             e.examples.map((x, i) => (
-              <li key={`${e.session_id}-${i}`} className="font-mono text-[11px] break-words text-[#617698]">
+              <li key={`${e.session_id}-${i}`} className="font-mono text-[11px] break-words text-[#9AA5B1]">
                 {day(e.at)} · {x}
               </li>
             )),
@@ -438,7 +428,7 @@ function ProposalCard({
         onBlur={() => note !== (p.user_note ?? '') && onNote(note)}
         placeholder="Your note (e.g. the commit that fixed it)"
         rows={1}
-        className="mt-3 w-full resize-y rounded-xl border border-[#EAF0FA] bg-[#F8FAFF] px-3 py-2 text-xs outline-none focus:border-[#B9DCF4]"
+        className="mt-3 w-full resize-y rounded-xl border border-[#1C2228] bg-[#0F1317] px-3 py-2 text-xs outline-none focus:border-[#2B4A5C]"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={copy} className={SMALL_BUTTON}>{copied ? 'Copied' : 'Copy for agent'}</button>
@@ -494,36 +484,36 @@ function AssessmentCard({
   const status = a.state === 'done' ? (a.outcome === 'no_feedback' ? 'no feedback' : a.outcome ?? 'pending') : a.state
   const current = detail?.revisions[0]
   return (
-    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">After {TRIGGER_LABELS[a.trigger_kind]}</h3>
-        {a.target_status && a.target_status !== 'none' && <span className="text-[11px] text-[#7183A3]">about it: {a.target_status}</span>}
-        {a.cause_status && a.cause_status !== 'none' && <span className="text-[11px] text-[#7183A3]">· cause: {a.cause_status}</span>}
+        {a.target_status && a.target_status !== 'none' && <span className="text-[11px] text-[#8C97A3]">about it: {a.target_status}</span>}
+        {a.cause_status && a.cause_status !== 'none' && <span className="text-[11px] text-[#8C97A3]">· cause: {a.cause_status}</span>}
         <Chip label={status} />
       </div>
-      <p className="mt-1 text-[11px] text-[#7183A3]">
+      <p className="mt-1 text-[11px] text-[#8C97A3]">
         {day(a.anchor_at)} · {a.trigger.why ?? ''}
         {a.revision > 1 && ` · revised ${a.revision - 1}×`}
         {a.stop_reason && ` · ${STOP_LABELS[a.stop_reason] ?? a.stop_reason}`}
       </p>
-      {a.explanation && <p className="mt-2 text-xs text-[#40506F]">{a.explanation}</p>}
-      {a.state === 'failed' && a.last_error && <p className="mt-2 text-xs text-[#8B3158]">Couldn't assess it: {a.last_error}</p>}
+      {a.explanation && <p className="mt-2 text-xs text-[#C5CDD5]">{a.explanation}</p>}
+      {a.state === 'failed' && a.last_error && <p className="mt-2 text-xs text-[#F08AB0]">Couldn't assess it: {a.last_error}</p>}
       <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Evidence and history</summary>
+        <summary className="cursor-pointer text-xs text-[#8C97A3]">Evidence and history</summary>
         {!detail && <Loading />}
         {current && (
-          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#C5CDD5]">
             {current.result.targets.map((t) => (
               <p key={`t-${t.ref}`}>
                 <Chip label={t.status} /> about {current.result.target_labels[t.ref] ?? t.ref}
                 {t.also.length > 0 && ` (with ${t.also.map((x) => current.result.target_labels[x] ?? x).join(', ')})`}: {t.why}
-                <span className="text-[#7183A3]"> · cites {t.cites.join(', ') || 'nothing'} · {t.independent} independent</span>
+                <span className="text-[#8C97A3]"> · cites {t.cites.join(', ') || 'nothing'} · {t.independent} independent</span>
               </p>
             ))}
             {current.result.causes.map((c, i) => (
               <p key={`c-${i}`}>
                 <Chip label={c.status} /> cause: {PART_LABELS[c.component] ?? c.component} ({c.target}): {c.why}
-                {c.basis === 'missing_capture' && <span className="text-[#6A4FA0]"> · its record is missing</span>}
+                {c.basis === 'missing_capture' && <span className="text-[#B9A2F0]"> · its record is missing</span>}
               </p>
             ))}
             {current.result.user_stated.map((u, i) => (
@@ -544,14 +534,14 @@ function AssessmentCard({
               </p>
             ))}
             {current.result.missing.length > 0 && (
-              <p className="text-[#6A4FA0]">Missing: {current.result.missing.map((m) => m.what).join('; ')}</p>
+              <p className="text-[#B9A2F0]">Missing: {current.result.missing.map((m) => m.what).join('; ')}</p>
             )}
             {current.result.clarification.propose && (
-              <p className="text-[#7183A3]">A question that would settle it (not asked): {current.result.clarification.question}</p>
+              <p className="text-[#8C97A3]">A question that would settle it (not asked): {current.result.clarification.question}</p>
             )}
             {current.dropped.length > 0 && (
               <details>
-                <summary className="cursor-pointer text-[#7183A3]">What code set aside ({current.dropped.length})</summary>
+                <summary className="cursor-pointer text-[#8C97A3]">What code set aside ({current.dropped.length})</summary>
                 <ul className="mt-1 list-disc pl-5">
                   {current.dropped.map((d, i) => (
                     <li key={i}>{d.what}: {d.why}</li>
@@ -560,13 +550,13 @@ function AssessmentCard({
               </details>
             )}
             {detail.uses.length > 0 && (
-              <p className="text-[#7183A3]">
+              <p className="text-[#8C97A3]">
                 Acted on: {detail.uses.map((u) => `${u.consumer} ${u.ref.slice(0, 16)} (${u.state})`).join(', ')}
               </p>
             )}
-            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+            <ul className="divide-y divide-[#1C2228] rounded-xl border border-[#1C2228]">
               {detail.revisions.map((r) => (
-                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#617698]">
+                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#9AA5B1]">
                   Revision {r.revision} · {day(r.created_at)} · {r.outcome} · {r.reason} · {r.rounds.length} round
                   {r.rounds.length === 1 ? '' : 's'}
                   {r.superseded_by && ` · superseded by ${r.superseded_by}`}
@@ -575,14 +565,14 @@ function AssessmentCard({
             </ul>
           </div>
         )}
-        {detail && !current && <p className="mt-2 text-xs text-[#7183A3]">Not assessed yet.</p>}
+        {detail && !current && <p className="mt-2 text-xs text-[#8C97A3]">Not assessed yet.</p>}
         {detail && (
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Correct her reading (e.g. I wasn't upset, I was joking)"
-              className="min-w-0 flex-1 rounded-xl border border-[#EAF0FA] px-3 py-1.5 text-xs"
+              className="min-w-0 flex-1 rounded-xl border border-[#1C2228] bg-[#0F1317] px-3 py-1.5 text-xs outline-none focus:border-[#2B4A5C]"
             />
             <button onClick={() => void sendNote()} className={SMALL_BUTTON}>Add note</button>
           </div>
@@ -605,56 +595,56 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
   }
 
   return (
-    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">{l.statement}</h3>
-        <span className="text-[11px] text-[#7183A3]">
+        <span className="text-[11px] text-[#8C97A3]">
           {l.kind === 'preference' ? 'what you said you want' : 'her own finding'} · {l.scope} · revision {l.revision}
         </span>
         <Chip label={LESSON_STATUS_LABELS[l.status]} />
       </div>
-      <p className="mt-1 text-xs text-[#40506F]">
+      <p className="mt-1 text-xs text-[#C5CDD5]">
         Applies {l.applies_when}
         {l.exceptions.length > 0 && <> · except {l.exceptions.join('; ')}</>}
       </p>
       {l.user_words.length > 0 && (
-        <p className="mt-1 text-xs text-[#617698]">Your words: {l.user_words.map((w) => `“${w}”`).join(' / ')}</p>
+        <p className="mt-1 text-xs text-[#9AA5B1]">Your words: {l.user_words.map((w) => `“${w}”`).join(' / ')}</p>
       )}
-      <p className="mt-1 text-[11px] text-[#7183A3]">
+      <p className="mt-1 text-[11px] text-[#8C97A3]">
         Supported on {l.support} occasion{l.support === 1 ? '' : 's'} · found against on {l.counter}
         {l.conflicts_with.length > 0 && ` · points against ${l.conflicts_with.length} other lesson${l.conflicts_with.length === 1 ? '' : 's'}`}
         {l.status_reason && ` · ${l.status_reason}`}
       </p>
       <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Evidence, revisions and decisions that had it</summary>
+        <summary className="cursor-pointer text-xs text-[#8C97A3]">Evidence, revisions and decisions that had it</summary>
         {!detail && <Loading />}
         {detail && (
-          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#C5CDD5]">
             {detail.evidence.map((e, i) => (
               <p key={`e-${i}`}>
                 <Chip label={e.role === 'support' ? 'supported' : 'contradicted'} /> {day(e.occasion_at)}
                 {e.quote && <> · “{e.quote}”</>}
                 {e.why && <> · {e.why}</>}
-                <span className="text-[#7183A3]">
+                <span className="text-[#8C97A3]">
                   {' '}
                   · assessment {e.assessment_id?.slice(0, 8) ?? '?'} rev {e.assessment_revision ?? '?'}
                   {!e.current && ' · not counted until its revised assessment is read'}
                 </span>
               </p>
             ))}
-            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+            <ul className="divide-y divide-[#1C2228] rounded-xl border border-[#1C2228]">
               {detail.revisions.map((r) => (
-                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#617698]">
+                <li key={r.revision} className="px-3 py-2 text-[11px] text-[#9AA5B1]">
                   Revision {r.revision} · {day(r.at)} · {r.op} · {LESSON_STATUS_LABELS[r.status]} · {r.statement}
                   {r.exceptions.length > 0 && ` (except ${r.exceptions.join('; ')})`} · {r.reason}
                 </li>
               ))}
             </ul>
-            {detail.uses.length === 0 && <p className="text-[#7183A3]">No decision has had it yet.</p>}
+            {detail.uses.length === 0 && <p className="text-[#8C97A3]">No decision has had it yet.</p>}
             {detail.uses.length > 0 && (
-              <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+              <ul className="divide-y divide-[#1C2228] rounded-xl border border-[#1C2228]">
                 {detail.uses.map((u) => (
-                  <li key={`${u.attempt_id}-${u.consumer}`} className="px-3 py-2 text-[11px] text-[#617698]">
+                  <li key={`${u.attempt_id}-${u.consumer}`} className="px-3 py-2 text-[11px] text-[#9AA5B1]">
                     {day(u.at)} · {u.consumer} · revision {u.revision} · <strong>{USE_CASE_LABELS[u.case] ?? u.case}</strong>:{' '}
                     {u.explanation}
                   </li>
@@ -697,26 +687,26 @@ function TrialCard({ trial: t, onError }: { trial: TrialSummary; onError: (messa
 
   const reading = detail?.assessments.find((a) => a.current)
   return (
-    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:px-5">
+    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">{t.hypothesis ?? t.problem}</h3>
-        {t.created_at && <span className="text-[11px] text-[#7183A3]">{day(t.created_at)}</span>}
+        {t.created_at && <span className="text-[11px] text-[#8C97A3]">{day(t.created_at)}</span>}
         <Chip label={TRIAL_STATUS_LABELS[t.status]} />
       </div>
-      <p className="mt-1 text-xs text-[#40506F]">
+      <p className="mt-1 text-xs text-[#C5CDD5]">
         {t.problem}
         {t.ending && <> · ended: {t.ending}</>}
         {t.stop_reason && <> ({t.stop_reason})</>}
       </p>
-      {t.deferral && <p className="mt-1 text-xs text-[#617698]">Put off: {t.deferral.reason}</p>}
+      {t.deferral && <p className="mt-1 text-xs text-[#9AA5B1]">Put off: {t.deferral.reason}</p>}
       <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
-        <summary className="cursor-pointer text-xs text-[#7183A3]">Predictions, her choice, what happened</summary>
+        <summary className="cursor-pointer text-xs text-[#8C97A3]">Predictions, her choice, what happened</summary>
         {!detail && <Loading />}
         {detail && (
-          <div className="mt-2 flex flex-col gap-2 text-xs text-[#40506F]">
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#C5CDD5]">
             {detail.revisions.map((r) => (
-              <div key={r.revision} className="rounded-xl border border-[#EAF0FA] px-3 py-2">
-                <p className="text-[11px] text-[#7183A3]">
+              <div key={r.revision} className="rounded-xl border border-[#1C2228] px-3 py-2">
+                <p className="text-[11px] text-[#8C97A3]">
                   Proposal revision {r.revision} · {day(r.at)} · {r.reason}
                 </p>
                 <ul className="mt-1 flex flex-col gap-1">
@@ -739,39 +729,39 @@ function TrialCard({ trial: t, onError }: { trial: TrialSummary; onError: (messa
               </p>
             )}
             {detail.deferrals.length > 0 && (
-              <p className="text-[#617698]">Put off before: {detail.deferrals.map((d) => d.reason).join('; ')}</p>
+              <p className="text-[#9AA5B1]">Put off before: {detail.deferrals.map((d) => d.reason).join('; ')}</p>
             )}
             {reading && (
-              <div className="rounded-xl border border-[#EAF0FA] px-3 py-2">
+              <div className="rounded-xl border border-[#1C2228] px-3 py-2">
                 <p>
                   <Chip label={reading.hypothesis} /> {reading.result.why}
                   {!reading.test_started && ' (the test never started)'}
                 </p>
                 <ul className="mt-1">
                   {reading.prediction_checks.map((c) => (
-                    <li key={c.ref} className="text-[11px] text-[#617698]">
+                    <li key={c.ref} className="text-[11px] text-[#9AA5B1]">
                       {c.prediction}: <strong>{c.status.replace('_', ' ')}</strong> ({c.why})
                     </li>
                   ))}
                 </ul>
                 {reading.missing.length > 0 && (
-                  <p className="text-[11px] text-[#7183A3]">Not measured: {reading.missing.join(', ')}</p>
+                  <p className="text-[11px] text-[#8C97A3]">Not measured: {reading.missing.join(', ')}</p>
                 )}
                 {reading.result.explanations.map((e, i) => (
-                  <p key={i} className="text-[11px] text-[#617698]">
+                  <p key={i} className="text-[11px] text-[#9AA5B1]">
                     Could be: {e.text} ({e.status})
                   </p>
                 ))}
                 {reading.result.lesson && (
-                  <p className="text-[11px] text-[#617698]">
+                  <p className="text-[11px] text-[#9AA5B1]">
                     Lesson (tentative): when {reading.result.lesson.situation}, {reading.result.lesson.advice}
                   </p>
                 )}
               </div>
             )}
-            <ul className="divide-y divide-[#EAF0FA] rounded-xl border border-[#EAF0FA]">
+            <ul className="divide-y divide-[#1C2228] rounded-xl border border-[#1C2228]">
               {detail.events.map((e, i) => (
-                <li key={i} className="px-3 py-1.5 text-[11px] text-[#617698]">
+                <li key={i} className="px-3 py-1.5 text-[11px] text-[#9AA5B1]">
                   {day(e.at)} · {e.kind}
                 </li>
               ))}
@@ -785,11 +775,11 @@ function TrialCard({ trial: t, onError }: { trial: TrialSummary; onError: (messa
 
 function ChallengeRow({ challenge: c }: { challenge: Challenge }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-2 rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-[#40506F]">{c.challenge}</p>
-        {c.why && <p className="mt-1 text-xs text-[#7183A3]">{c.why}</p>}
-        <p className="mt-1 text-[11px] text-[#7183A3]">
+        <p className="text-sm text-[#C5CDD5]">{c.challenge}</p>
+        {c.why && <p className="mt-1 text-xs text-[#8C97A3]">{c.why}</p>}
+        <p className="mt-1 text-[11px] text-[#8C97A3]">
           {c.aim === 'for_us' ? 'for the two of you' : 'something new'} · {c.game} · {day(c.created_at)}
           {c.result && ` · ${c.result}`}
           {c.learned.length > 0 && ` · learned ${c.learned.join(', ')}`}
@@ -812,35 +802,35 @@ function SkillCard({
   onDelete: () => void
 }) {
   return (
-    <article className="rounded-2xl border border-[#EAF0FA] bg-white px-4 py-4 sm:px-5">
+    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">{s.task}</h3>
-        <span className="font-mono text-[11px] text-[#7183A3]">{s.name}</span>
+        <span className="font-mono text-[11px] text-[#8C97A3]">{s.name}</span>
         <Chip label={s.enabled ? 'on' : 'off'} />
       </div>
-      <p className="mt-2 text-[11px] text-[#7183A3]">
+      <p className="mt-2 text-[11px] text-[#8C97A3]">
         {s.game} · learned {day(s.created_at)}
         {s.updated_at !== s.created_at && ` · relearned ${day(s.updated_at)}`} ·{' '}
         {s.uses ? `used ${s.uses}×, worked ${s.successes}` : 'not used yet'}
         {s.enabled && s.misses_in_row > 0 && ` · missed the last ${s.misses_in_row}`}
       </p>
       {!s.enabled && s.off_reason && (
-        <p className="mt-2 text-xs text-[#40506F]">Switched itself off: {s.off_reason}</p>
+        <p className="mt-2 text-xs text-[#C5CDD5]">Switched itself off: {s.off_reason}</p>
       )}
       {s.tidy_note && (
-        <p className="mt-2 text-xs text-[#40506F]">
+        <p className="mt-2 text-xs text-[#C5CDD5]">
           {s.original_code ? (s.tidy_proven ? 'Tidied (has worked since): ' : 'Tidied, not tried yet: ') : ''}
           {s.tidy_note}
         </p>
       )}
       <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-[#7183A3]">{s.original_code ? 'Her program (tidied)' : 'Her program'}</summary>
-        <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.code}</pre>
+        <summary className="cursor-pointer text-xs text-[#8C97A3]">{s.original_code ? 'Her program (tidied)' : 'Her program'}</summary>
+        <pre className="mt-2 overflow-x-auto rounded-xl bg-[#0F1317] px-3 py-2 font-mono text-[11px] text-[#C5CDD5]">{s.code}</pre>
       </details>
       {s.original_code && (
         <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-[#7183A3]">As she learned it</summary>
-          <pre className="mt-2 overflow-x-auto rounded-xl bg-[#F8FAFF] px-3 py-2 font-mono text-[11px] text-[#40506F]">{s.original_code}</pre>
+          <summary className="cursor-pointer text-xs text-[#8C97A3]">As she learned it</summary>
+          <pre className="mt-2 overflow-x-auto rounded-xl bg-[#0F1317] px-3 py-2 font-mono text-[11px] text-[#C5CDD5]">{s.original_code}</pre>
         </details>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -863,13 +853,13 @@ function LessonRow({
   onDelete: () => void
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-[#EAF0FA] bg-white px-4 py-3 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-2 rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-[#40506F]">
-          <span className="text-[#7183A3]">When {l.situation}: </span>
+        <p className="text-sm text-[#C5CDD5]">
+          <span className="text-[#8C97A3]">When {l.situation}: </span>
           {l.advice}
         </p>
-        <p className="mt-1 text-[11px] text-[#7183A3]">
+        <p className="mt-1 text-[11px] text-[#8C97A3]">
           {l.level === 'plan' ? 'for planning' : 'for her hands'} · {l.game} · +{l.support_count} / −{l.contradict_count} · since {day(l.created_at)}
         </p>
       </div>

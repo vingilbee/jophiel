@@ -7,6 +7,7 @@ import threading
 import redis
 
 from app.core.config import get_settings
+from app.services import system_status
 from app.workers import (
     agent_events, chat, desktop, file_deletion, game_learning, game_practice, learning,
     memory, mind, recall_embeddings, observation,
@@ -39,9 +40,12 @@ def _work_loop(
                     from app.services import coordinator_runtime
                     wake = coordinator_runtime.wake if name == "coordinator" else coordinator_runtime.capture_wake
                     wake.clear()
+                system_status.beat(name, interval=interval, busy=True)
                 worked = run_once()
-            except Exception:
+                system_status.beat(name, interval=interval, worked=bool(worked))
+            except Exception as exc:
                 logger.exception("%s job processing failed; will retry", name)
+                system_status.beat(name, interval=interval, error=f"{type(exc).__name__}: {exc}")
                 stop.wait(interval)
                 continue
             if stop.is_set():
