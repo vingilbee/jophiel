@@ -1,5 +1,4 @@
-// Node geometry, drawn once from a seed so every node keeps its own shape between visits: an electric neuron's
-// filaments, and the curved fibres between nodes.
+// Field geometry, drawn once from a seed so it keeps its shape between visits: the curved fibres between nodes.
 
 export type Pt = [number, number]
 
@@ -23,16 +22,6 @@ export function seedOf(text: string): number {
 
 const f = (n: number) => n.toFixed(1)
 
-/** How far from the centre anything reaches within ``spread`` radians of ``angle`` (at least ``min``). */
-export function reachToward(points: Pt[], angle: number, spread: number, min: number): number {
-  let reach = min
-  for (const [x, y] of points) {
-    const a = Math.atan2(y, x)
-    if (Math.abs(Math.atan2(Math.sin(a - angle), Math.cos(a - angle))) <= spread) reach = Math.max(reach, Math.hypot(x, y))
-  }
-  return reach
-}
-
 /** A fibre from one node to another: a cubic curve leaving each node at its edge. */
 export function axon(a: { x: number; y: number; r: number }, b: { x: number; y: number; r: number }, seed: number) {
   const rand = rng(seed)
@@ -49,36 +38,4 @@ export function axon(a: { x: number; y: number; r: number }, b: { x: number; y: 
   const c2: Pt = [e[0] - dx * 0.3 - uy * bow * 0.6, e[1] - dy * 0.3 + ux * bow * 0.6]
   const d = `M${f(s[0])},${f(s[1])}C${f(c1[0])},${f(c1[1])} ${f(c2[0])},${f(c2[1])} ${f(e[0])},${f(e[1])}`
   return { d, start: s, end: e }
-}
-
-/** An electric neuron's filaments: thin, slightly jagged strands leaving the core, some forking, kept clear of
- * the directions its fibres leave in. ``paths`` are open polylines to stroke; ``tips`` say how far they reach. */
-export function filaments(r: number, seed: number, avoid: number[] = []): { paths: string[]; tips: Pt[] } {
-  const rand = rng(seed ^ 0x5bd1e995)
-  const paths: string[] = []
-  const tips: Pt[] = []
-  const count = 6 + Math.floor(rand() * 3)
-  const strand = (x0: number, y0: number, angle: number, length: number, steps: number) => {
-    const pts: Pt[] = [[x0, y0]]
-    let a = angle
-    for (let s = 1; s <= steps; s++) {
-      a += (rand() - 0.5) * 0.5 // the jag of a discharge
-      const d = (length / steps) * s
-      pts.push([x0 + Math.cos(a) * d, y0 + Math.sin(a) * d])
-    }
-    tips.push(...pts)
-    paths.push(`M${pts.map((p) => `${f(p[0])},${f(p[1])}`).join('L')}`)
-    return pts
-  }
-  for (let i = 0; i < count; i++) {
-    let angle = (i / count) * Math.PI * 2 + rand() * 0.5
-    if (avoid.some((a) => Math.abs(Math.atan2(Math.sin(angle - a), Math.cos(angle - a))) < 0.3)) angle += 0.5
-    const start = r * 0.85
-    const pts = strand(Math.cos(angle) * start, Math.sin(angle) * start, angle, r * (0.55 + rand() * 0.75), 6)
-    if (rand() < 0.55) {
-      const at = pts[2 + Math.floor(rand() * 3)]
-      strand(at[0], at[1], angle + (rand() < 0.5 ? -1 : 1) * (0.5 + rand() * 0.5), r * (0.2 + rand() * 0.3), 3)
-    }
-  }
-  return { paths, tips }
 }

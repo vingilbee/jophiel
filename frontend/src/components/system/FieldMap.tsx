@@ -3,7 +3,8 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import type { PartId, PartState, PartStatus, Signal } from '../../types/system'
 import { MAX_MAG, PARTS, SUBS_FROM, SUBS_FULL, WIRES, layoutFor } from './anatomy'
 import type { PartAnatomy } from './anatomy'
-import { axon, filaments, reachToward, rng, seedOf } from './shapes'
+import { axon, rng, seedOf } from './shapes'
+import { useElectricity } from './useElectricity'
 import { FitIcon, MinusIcon, PlusIcon } from './icons'
 import { FAIL, PERIOD, STATE_WORD } from './nodeStates'
 
@@ -466,27 +467,20 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
     dive(id)
   }
 
-  // Geometry that never changes: cores, filaments, fibres, sub-cores.
+  // Geometry that never changes: cores, fibres, sub-cores.
   const cells = useMemo(
     () =>
       layout.parts.map((p) => {
         const seed = seedOf(p.id)
-        const exits = WIRES.filter((w) => w.from === p.id || w.to === p.id).map((w) => {
-          const other = layout.byId[w.from === p.id ? w.to : w.from]
-          return Math.atan2(other.y - p.y, other.x - p.x)
-        })
         const base = p.labelSide === 'left' ? Math.PI : p.labelSide === 'right' ? 0 : p.labelSide === 'above' ? -Math.PI / 2 : Math.PI / 2
         const subs = p.subs.map((s, i) => {
-          // Sub-cores sit inside the ring, fanned away from the label so their own labels stay clear of it.
-          const spread = Math.PI * 1.3
-          const a = base + Math.PI - spread / 2 + (spread * (i + 0.5)) / p.subs.length
+          // Sub-cores orbit inside the ring, evenly spaced, starting fanned away from the label.
+          const a = base + Math.PI + (Math.PI * 2 * i) / p.subs.length
           return { ...s, angle: a, x: Math.cos(a) * p.r * 0.56, y: Math.sin(a) * p.r * 0.56, r: p.r * 0.085 }
         })
-        const fil = filaments(p.r, seed, exits)
-        const toward = { left: Math.PI, right: 0, above: -Math.PI / 2, below: Math.PI / 2 }[p.labelSide]
-        // Labels sit just past whatever the filaments reach on their side.
-        const labelGap = reachToward(fil.tips, toward, p.labelSide === 'left' || p.labelSide === 'right' ? 0.75 : 0.5, p.r * 1.15) + 10
-        return { part: p, filaments: fil.paths, labelGap, subs, delay: (seed % 2000) / 1000 }
+        // Labels sit past where the arcs usually reach (a busy node's longest arcs may cross them, briefly).
+        const labelGap = p.r * 1.5 + 8
+        return { part: p, labelGap, subs, delay: (seed % 2000) / 1000 }
       }),
     [layout],
   )
@@ -670,11 +664,11 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
 
             <g ref={pulseLayer} aria-hidden="true" style={{ pointerEvents: 'none' }} />
 
-            {cells.map(({ part, filaments: fils, labelGap, subs, delay }) => (
+            {cells.map(({ part, labelGap, subs, delay }) => (
               <Cell
                 key={part.id}
                 part={part}
-                filaments={fils}
+                paused={selected !== null}
                 hits={hits[part.id] ?? 0}
                 labelGap={labelGap}
                 subs={subs}
@@ -736,10 +730,10 @@ interface SubCore {
 }
 
 function Cell({
-  part, filaments: fils, hits, labelGap, subs, delay, state, selected, labelSize, subLabelSize, subsAlpha, magnification, onSelect,
+  part, paused, hits, labelGap, subs, delay, state, selected, labelSize, subLabelSize, subsAlpha, magnification, onSelect,
 }: {
   part: PartAnatomy
-  filaments: string[]
+  paused: boolean
   hits: number
   labelGap: number
   subs: SubCore[]
@@ -766,8 +760,12 @@ function Cell({
   const coreR = part.r * (0.36 - 0.14 * subsAlpha)
   const ringColor = state === 'failing' ? FAIL : part.color
   const pace = { ['--period' as string]: `${period ?? 3}s`, ['--delay' as string]: `${-delay}s` }
-  // Lines thicken a little as you zoom in, so the filaments, ring and fibres keep their proportions to the node.
+  // Lines thicken a little as you zoom in, so the arcs and ring keep their proportions to the node.
   const line = Math.pow(magnification, 0.5)
+  const { arcs, bursts } = useElectricity({ state, color: part.color, r: part.r, ringR, line, delay, hits, paused })
+  const still = prefersReducedMotion()
+  // The orbit: one slow turn for all of a node's sub-cores together, so they never pass each other.
+  const ORBIT = `${60 + (part.r % 7) * 4}s`
 
   return (
     <g transform={`translate(${part.x} ${part.y})`}>
@@ -792,11 +790,8 @@ function Cell({
           {period && <circle className="ca" r={part.r * 2} fill={`url(#halo-${part.id})`} style={{ ...pace, ['--peak' as string]: 1 }} />}
           {/* An arriving pulse flashes the core (one flash per pulse: the key restarts it). */}
           {hits > 0 && <circle key={hits} className="hit" r={part.r * 1.9} fill={`url(#halo-${part.id})`} />}
-          <g className={state && state !== 'down' && state !== 'off' ? 'flicker' : undefined} style={pace}>
-            {fils.map((d, i) => (
-              <path key={i} d={d} fill="none" stroke={part.color} strokeWidth={1.1 * line} strokeOpacity={0.75} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-            ))}
-          </g>
+          {/* Living arcs: a few discharges re-forming around the ring every tick (useElectricity). */}
+          <g ref={arcs} />
           {/* The charged ring: it fills with light, then lets it go. Broken when partly down, red when failing. */}
           <circle r={ringR} fill="none" stroke={ringColor} strokeWidth={1.2 * line} strokeOpacity={0.3} vectorEffect="non-scaling-stroke" />
           <circle
@@ -813,46 +808,42 @@ function Cell({
           <circle r={coreR * 1.9} fill={`url(#halo-${part.id})`} />
           {state !== 'off' && <circle r={coreR} fill={`url(#core-${part.id})`} />}
           {period && <circle className="ca" r={coreR * 1.15} fill="#FFFFFF" style={{ ...pace, ['--peak' as string]: 0.7 }} />}
+          {/* Bursts: bolts and flying sparks on each discharge and each arriving pulse. */}
+          <g ref={bursts} />
         </g>
         {selected && <circle r={part.r * 1.22} fill="none" stroke={part.color} strokeWidth={1} opacity={0.85} vectorEffect="non-scaling-stroke" />}
         {/* A generous invisible target, so the whole node is easy to hit. */}
         <circle r={part.r * 1.4} fill="transparent" className="cursor-pointer" />
 
         <g opacity={subsAlpha} style={{ pointerEvents: 'none' }} aria-hidden={subsAlpha < 0.5}>
-          {subs.map((s) => {
-            const outward = Math.cos(s.angle) >= 0
-            // Each sub-core's label sits outside the ring on its own bearing.
-            const lr = ringR + part.r * 0.18
-            return (
-              <g key={s.id}>
-                <line x1={0} y1={0} x2={s.x} y2={s.y} stroke={part.color} strokeWidth={1} strokeOpacity={0.6 * dim} vectorEffect="non-scaling-stroke" />
-                <g transform={`translate(${s.x} ${s.y})`} opacity={dim}>
-                  <circle r={s.r * 2.6} fill={`url(#halo-${part.id})`} />
-                  <circle r={s.r} fill={`url(#core-${part.id})`} />
+          <g>
+            {!still && <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur={ORBIT} repeatCount="indefinite" />}
+            {subs.map((s, i) => {
+              // Each label rides its sub-core's bearing just outside the ring, turned back so it stays upright.
+              const half = s.label.length * subLabelSize * 0.27
+              const lr = ringR + part.r * 0.12 + half
+              const lx = Math.cos(s.angle) * lr
+              const ly = Math.sin(s.angle) * lr
+              return (
+                <g key={s.id}>
+                  <g transform={`translate(${s.x} ${s.y})`} opacity={dim}>
+                    <g className={still ? undefined : `drift-${(i % 3) + 1}`}>
+                      <circle r={s.r * 2.6} fill={`url(#halo-${part.id})`} />
+                      <circle r={s.r} fill={`url(#core-${part.id})`} />
+                    </g>
+                  </g>
+                  <g>
+                    {!still && (
+                      <animateTransform attributeName="transform" type="rotate" from={`0 ${lx} ${ly}`} to={`-360 ${lx} ${ly}`} dur={ORBIT} repeatCount="indefinite" />
+                    )}
+                    <text className="cell-label" x={lx} y={ly + subLabelSize * 0.35} textAnchor="middle" fontSize={subLabelSize} fill="#D5DBE0">
+                      {s.label}
+                    </text>
+                  </g>
                 </g>
-                <line
-                  x1={s.x + Math.cos(s.angle) * s.r * 1.6}
-                  y1={s.y + Math.sin(s.angle) * s.r * 1.6}
-                  x2={Math.cos(s.angle) * lr}
-                  y2={Math.sin(s.angle) * lr}
-                  stroke="#C9D1D8"
-                  strokeOpacity={0.35}
-                  strokeWidth={0.8}
-                  vectorEffect="non-scaling-stroke"
-                />
-                <text
-                  className="cell-label"
-                  x={Math.cos(s.angle) * (lr + 3)}
-                  y={Math.sin(s.angle) * (lr + 3) + subLabelSize * 0.35}
-                  textAnchor={Math.abs(Math.cos(s.angle)) < 0.25 ? 'middle' : outward ? 'start' : 'end'}
-                  fontSize={subLabelSize}
-                  fill="#D5DBE0"
-                >
-                  {s.label}
-                </text>
-              </g>
-            )
-          })}
+              )
+            })}
+          </g>
         </g>
 
         <text className="cell-label" x={lx} y={ly} textAnchor={anchor} fontSize={labelSize} fill="#E9EDF0" fontWeight={selected ? 650 : 560}>

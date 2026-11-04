@@ -1,13 +1,12 @@
-import { useMemo } from 'react'
 import type { PartState } from '../../types/system'
 import type { PartAnatomy } from './anatomy'
 import { PERIOD, FAIL } from './nodeStates'
-import { filaments, seedOf } from './shapes'
+import { useElectricity } from './useElectricity'
 
-/** One part drawn as on the map (core, charged ring, filaments), at a fixed size, beating with its state. */
+/** One part drawn as on the map (core, charged ring, living arcs), at a fixed size, beating with its state. */
 export function NodeGlyph({ part, state, size = 168 }: { part: PartAnatomy; state: PartState | undefined; size?: number }) {
   const r = 40
-  const fils = useMemo(() => filaments(r, seedOf(part.id)).paths, [part.id])
+  const { arcs, bursts } = useElectricity({ state, color: part.color, r, ringR: r * 0.8, line: 1.4, delay: 0, hits: 0, paused: false })
   const period = state ? PERIOD[state] : undefined
   const dim = state === 'down' ? 0.3 : state === 'off' ? 0.16 : state === undefined ? 0.45 : state === 'partial' ? 0.75 : 1
   const ring = state === 'failing' ? FAIL : part.color
@@ -31,11 +30,7 @@ export function NodeGlyph({ part, state, size = 168 }: { part: PartAnatomy; stat
       <g opacity={dim}>
         <circle r={r * 2.4} fill={`url(#${id}-halo)`} />
         {period && <circle className="ca" r={r * 2.2} fill={`url(#${id}-halo)`} style={{ ...pace, ['--peak' as string]: 1 }} />}
-        <g className={period ? 'flicker' : undefined}>
-          {fils.map((d, i) => (
-            <path key={i} d={d} fill="none" stroke={part.color} strokeWidth={1.4} strokeOpacity={0.8} strokeLinecap="round" strokeLinejoin="round" />
-          ))}
-        </g>
+        <g ref={arcs} />
         <circle r={r * 0.8} fill="none" stroke={ring} strokeWidth={1.4} strokeOpacity={0.3} />
         <circle
           r={r * 0.8}
@@ -50,6 +45,7 @@ export function NodeGlyph({ part, state, size = 168 }: { part: PartAnatomy; stat
         <circle r={r * 0.7} fill={`url(#${id}-halo)`} />
         {state !== 'off' && <circle r={r * 0.36} fill={`url(#${id}-core)`} />}
         {period && <circle className="ca" r={r * 0.42} fill="#FFFFFF" style={{ ...pace, ['--peak' as string]: 0.7 }} />}
+        <g ref={bursts} />
       </g>
     </svg>
   )
