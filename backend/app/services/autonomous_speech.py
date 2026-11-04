@@ -59,6 +59,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     trigger = db.scalar(select(ChatMessage).where(ChatMessage.conversation_id == target,
                         ChatMessage.role == "user").order_by(ChatMessage.conversation_sequence.desc()).limit(1))
     request = uuid.uuid5(user_id, f"autonomous:{source}:{activity_id}:{event}")
+    from app.services import system_signals
+    system_signals.emit(user_id, "mind", "mouth", "question" if question else "line", event)
     db.execute(select(func.pg_advisory_xact_lock(func.hashtext("coordinator:request-admission"))))
     if db.get(CoordinatorWork, request) is None:
         pending = db.scalar(select(func.count()).select_from(CoordinatorWork).where(

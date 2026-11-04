@@ -460,6 +460,9 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
             results["tip"] = CommandResult("unsupported", "no body takes tips here")
         else:
             results["tip"] = body.command(scope, Command("tip", f"(from your own thinking) {thought.for_hands}"))
+            if results["tip"].status == "accepted":
+                from app.services import system_signals
+                system_signals.emit(scope.user_id, "mind", "hands", "tip", thought_id)
     if thought.kind == "intention":
         add_intention(scope.key, thought.for_hands or thought.conclusion)  # her hands' tip (an execution hint)
         # Memory gets it through ``to_memory``, never written here.

@@ -116,6 +116,7 @@ def record(db: Session, report: Report) -> int | None:
         return None
     for consumer in entry.consumers:
         db.add(ObservationProcessing(observation_id=new_id, consumer=consumer, user_id=report.user_id))
+    _signal(report, new_id)
     from app.services import background_components, background_wake
     if (getattr(get_settings(), "observation_preparation_enabled", False)
             and report.kind in background_components.ELIGIBLE):
@@ -123,6 +124,17 @@ def record(db: Session, report: Report) -> int | None:
     background_wake.mark(db)
     note_source(db, report.user_id, report.source, report.source_instance, received=True)
     return new_id
+
+
+def _signal(report: Report, new_id: int) -> None:
+    """The System page's pulse for a new report: which part handed it over."""
+    from app.services import system_signals
+    if report.source == "conversation" and report.kind != "user_message":
+        system_signals.emit(report.user_id, "mouth", "observation", report.kind, new_id)
+    elif report.source == "minecraft_pack" and report.kind != "source_availability":
+        system_signals.emit(report.user_id, "hands", "observation", report.kind, new_id)
+    elif report.source == "mind":
+        system_signals.emit(report.user_id, "mind", "memory", "thought", report.thought_id)
 
 
 # --------------------------------------------------------------------------- #

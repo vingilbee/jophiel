@@ -7,6 +7,7 @@ import { PartPanel } from '../components/system/PartPanel'
 import { PART_BY_ID } from '../components/system/anatomy'
 import { tabsFor } from '../components/tabs'
 import { useAuth } from '../hooks/useAuth'
+import { useSignals } from '../hooks/useSignals'
 import type { PartId, PartStatus, SystemStatus } from '../types/system'
 
 const POLL_MS = 3000
@@ -17,6 +18,8 @@ export function SystemPage() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<PartId | null>(null)
+  const { signals, live } = useSignals()
+  const last = signals.length ? signals[signals.length - 1] : null
 
   useEffect(() => {
     let live = true
@@ -53,7 +56,7 @@ export function SystemPage() {
   return (
     <div className="system-page fixed inset-0 overflow-hidden bg-[#040506] text-[#E9EDF0]">
       <h1 className="sr-only">Jophiel, her parts</h1>
-      <FieldMap statuses={statuses} selected={selected} onSelect={setSelected} panelOpen={selected !== null} />
+      <FieldMap statuses={statuses} selected={selected} onSelect={setSelected} panelOpen={selected !== null} signals={signals} />
 
       <div className="pointer-events-none absolute top-0 left-0 z-10 max-w-[calc(100vw-2rem)] p-4 sm:p-6">
         <div className="pointer-events-auto">
@@ -68,6 +71,12 @@ export function SystemPage() {
                 : !status.known
                   ? "Can't read heartbeats: Redis isn't reachable."
                   : `${counts.running} running${counts.trouble ? ` · ${counts.trouble} in trouble` : ''}${counts.down ? ` · ${counts.down} down` : ''}`}
+          </p>
+          <p className="mt-1 text-[12px] text-[#8C97A3]">
+            {last
+              ? `Last signal: ${PART_BY_ID[last.from].label} → ${PART_BY_ID[last.to].label}, ${last.kind.replaceAll('_', ' ')}`
+              : live ? 'Listening for signals' : 'Connecting to signals…'}
+            {last && !live && <span> (reconnecting)</span>}
           </p>
           <nav aria-label="Pages" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
             <Link to="/dashboard" className="text-[#8C97A3] transition-colors hover:text-white">Voice</Link>

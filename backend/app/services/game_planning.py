@@ -369,6 +369,9 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
         outcome = apply(db, session, decision, read_revision=read_revision, goal=goal)
         db.commit()
         applied = not outcome.startswith(("dropped", "refused", "nothing"))
+        if applied and not outcome.startswith("kept"):
+            from app.services import system_signals
+            system_signals.emit(session.owner_user_id, "mind", "hands", "plan", session_id)
         line = decision.ask or decision.say
         if line and applied:
             kind = "ask" if decision.ask else "plan"

@@ -67,7 +67,7 @@ body {
   border-radius: 9999px;
 }
 
-/* ---- System page: her parts under a fluorescence microscope ---- */
+/* ---- System page: her parts as electric neurons in a star field ---- */
 .system-page {
   font-family: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
 }
@@ -101,15 +101,57 @@ body {
   stroke-linejoin: round;
 }
 
-/* A calcium transient: a fast rise, then a slow exponential fade, repeating at the cell's pace. */
-@keyframes ca-transient {
-  0% { opacity: 0; }
-  5% { opacity: var(--peak, 0.9); }
+/* Charge and discharge: the ring fills with light over the core's period, then lets it go in one flare. */
+@keyframes discharge {
+  0%, 84% { opacity: 0; }
+  88% { opacity: var(--peak, 0.9); }
   100% { opacity: 0; }
 }
 .ca {
   opacity: 0;
-  animation: ca-transient var(--period, 2.8s) cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0s) infinite;
+  animation: discharge var(--period, 2.8s) cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0s) infinite;
+}
+@keyframes charge {
+  0% { stroke-opacity: 0.18; }
+  86% { stroke-opacity: 1; }
+  89% { stroke-opacity: 0.12; }
+  100% { stroke-opacity: 0.18; }
+}
+.charge {
+  animation: charge var(--period, 2.8s) linear var(--delay, 0s) infinite;
+}
+
+/* A pulse arriving: one flare of the receiving core. */
+@keyframes hit {
+  0% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+.hit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hit 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Live filaments crackle faintly. */
+@keyframes flicker {
+  0%, 100% { opacity: 0.9; }
+  6% { opacity: 0.45; }
+  8% { opacity: 0.95; }
+  41% { opacity: 0.8; }
+  43% { opacity: 0.4; }
+  45% { opacity: 0.9; }
+}
+.flicker {
+  animation: flicker 3.7s steps(1, end) var(--delay, 0s) infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.95; }
+}
+.twinkle {
+  animation: twinkle var(--period, 4s) ease-in-out var(--delay, 0s) infinite;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
 }
 
 /* The slight drift of a cell floating in its medium (field units, so it scales with the zoom). */
@@ -163,12 +205,15 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ca, .drift-1, .drift-2, .drift-3, .fail-rim {
+  .ca, .charge, .flicker, .twinkle, .drift-1, .drift-2, .drift-3, .fail-rim {
     animation: none;
+  }
+  .hit {
+    animation-duration: 1ms;
   }
 }
 
-/* The microscope's field falling off toward its edge, deepest behind the page's own text. */
+/* The field falling off toward its edge, deepest behind the page's own text. */
 .field-vignette {
   background:
     radial-gradient(ellipse 60% 55% at 0% 0%, rgba(4, 5, 6, 0.92), rgba(4, 5, 6, 0) 70%),

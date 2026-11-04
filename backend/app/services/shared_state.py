@@ -354,6 +354,9 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
     at = lap("conversation_ms", at)
     memory, recall_turn = _memory(user_id, conversation_id, user_message_id, message, zone)
     at = lap("initial_recall_ms", at)
+    from app.services import system_signals
+    if memory.recall_status != "failed":
+        system_signals.emit(user_id, "memory", "cognition", "memory_check", user_message_id)
     searched = memory.recall_status != "failed"
     capture_1, capture_2 = _captures(user_id=user_id, conversation_id=conversation_id,
                                      user_message_id=user_message_id, turn_id=turn_id, job=job, memory=memory)
@@ -425,6 +428,8 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
         action, origin = ("silent" if d["communication"] in ("silent", "defer") else d["communication"]), "student_2"
     else:
         action, origin = "respond", "operational_fallback"
+    if action != "silent":
+        system_signals.emit(user_id, "cognition", "mouth", "decision", turn_id)
     effect = None
     if d is not None:
         with SessionLocal() as db:
@@ -463,6 +468,7 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
             decision = replace(decision, degraded=decision.degraded + ("mind_unavailable",))
         else:
             pending = committed
+            system_signals.emit(user_id, "cognition", "mind", "thinking", turn_id)
             coordinator.decide_immediate(
                 user_id=user_id, conversation_id=conversation_id, request_id=turn_id, trigger_ref=trigger,
                 interpretation=reading, pending=pending, channel=channel, voice=voice,

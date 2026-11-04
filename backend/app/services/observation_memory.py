@@ -127,6 +127,8 @@ def _apply(db: Session, observation: Observation, now: datetime) -> tuple[str, s
         occurred_at=observation.occurred_at or observation.received_at, dedupe_key=key[:500])
     if event is not None:
         memory_manager.link(db, observation.user_id, role="origin", source=source, event_id=event.id)
+        from app.services import system_signals
+        system_signals.emit(observation.user_id, "observation", "memory", "event", event.id)
         return "applied", f"memory event {event.id}"
     existing = db.scalar(select(MemoryEvent.id).where(MemoryEvent.user_id == observation.user_id,
                                                       MemoryEvent.dedupe_key == key[:500]))

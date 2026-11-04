@@ -93,3 +93,13 @@ export interface PartFeeds {
   memory: MemoryFeed
   observation: ObservationFeed
 }
+
+/** One hand-off from a part to another (GET /api/system/signals, and its live stream). Ids only, no text. */
+export interface Signal {
+  id: string
+  from: PartId
+  to: PartId
+  kind: string
+  ref: string | null
+  at: number
+}

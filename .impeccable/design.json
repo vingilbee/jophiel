@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-04T01:33:43.415567+00:00",
+  "generatedAt": "2026-11-04T02:05:45.414918+00:00",
   "title": "Design System: Jophiel",
   "extensions": {
     "scope": "Owner-only System page (/system) only. The rest of the app is an unrecorded light incumbent; no tokens here describe it.",
     "colorMeta": {
-      "cfp-cognition": {
+      "cognition-cyan": {
         "role": "primary",
-        "displayName": "CFP Cyan",
+        "displayName": "Cognition Cyan",
         "canonical": "#3FD3F0",
         "oklch": "oklch(80.3% 0.126 214.0)",
         "tonalRamp": [
@@ -21,9 +21,9 @@
           "#BFFAFF"
         ]
       },
-      "gfp-mouth": {
+      "mouth-green": {
         "role": "primary",
-        "displayName": "GFP Green",
+        "displayName": "Mouth Green",
         "canonical": "#4BE37A",
         "oklch": "oklch(81.2% 0.193 149.8)",
         "tonalRamp": [
@@ -37,9 +37,9 @@
           "#C1FFCD"
         ]
       },
-      "mcherry-mind": {
+      "mind-rose": {
         "role": "primary",
-        "displayName": "mCherry Rose",
+        "displayName": "Mind Rose",
         "canonical": "#FF5C8A",
         "oklch": "oklch(70.1% 0.200 6.6)",
         "tonalRamp": [
@@ -53,9 +53,9 @@
           "#FFD3E4"
         ]
       },
-      "yfp-hands": {
+      "hands-amber": {
         "role": "primary",
-        "displayName": "YFP Amber",
+        "displayName": "Hands Amber",
         "canonical": "#F5D23A",
         "oklch": "oklch(86.9% 0.163 95.3)",
         "tonalRamp": [
@@ -69,9 +69,9 @@
           "#FFEFB1"
         ]
       },
-      "morange-memory": {
+      "memory-orange": {
         "role": "primary",
-        "displayName": "mOrange",
+        "displayName": "Memory Orange",
         "canonical": "#FF9A3C",
         "oklch": "oklch(77.6% 0.159 59.2)",
         "tonalRamp": [
@@ -85,9 +85,9 @@
           "#FFE3BB"
         ]
       },
-      "bfp-observation": {
+      "observation-blue": {
         "role": "primary",
-        "displayName": "BFP Blue",
+        "displayName": "Observation Blue",
         "canonical": "#6E8CFF",
         "oklch": "oklch(67.2% 0.173 270.2)",
         "tonalRamp": [
@@ -101,9 +101,9 @@
           "#D8EDFF"
         ]
       },
-      "venus-learning": {
+      "learning-violet": {
         "role": "primary",
-        "displayName": "Venus Violet",
+        "displayName": "Learning Violet",
         "canonical": "#B77DFF",
         "oklch": "oklch(70.3% 0.189 302.4)",
         "tonalRamp": [
@@ -115,6 +115,67 @@
           "#B78CF1",
           "#D8B6FF",
           "#FAE0FF"
+        ]
+      },
+      "core-white": {
+        "role": "neutral",
+        "displayName": "Core White",
+        "canonical": "#F4FFFE",
+        "oklch": "oklch(99.2% 0.012 190.5)",
+        "tonalRamp": [
+          "#090C0C",
+          "#212626",
+          "#3D4443",
+          "#5B6362",
+          "#7B8484",
+          "#9FA7A6",
+          "#C4CBCA",
+          "#EAF0EF"
+        ]
+      },
+      "star-white": {
+        "role": "neutral",
+        "displayName": "Star White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#242526",
+          "#404244",
+          "#5F6163",
+          "#808385",
+          "#A3A5A7",
+          "#C8C9CB",
+          "#EDEFF0"
+        ]
+      },
+      "star-cool": {
+        "role": "neutral",
+        "displayName": "Star Cool",
+        "canonical": "#C8DCFF",
+        "tonalRamp": [
+          "#00102A",
+          "#0E2750",
+          "#26427A",
+          "#4260A4",
+          "#6380CB",
+          "#88A2EC",
+          "#B0C6FF",
+          "#DCEBFF"
+        ]
+      },
+      "star-warm": {
+        "role": "neutral",
+        "displayName": "Star Warm",
+        "canonical": "#FFECD6",
+        "tonalRamp": [
+          "#1E0A00",
+          "#3E2412",
+          "#5F4129",
+          "#826144",
+          "#A68262",
+          "#CAA584",
+          "#EFCAA8",
+          "#FFF0DE"
         ]
       },
       "field-black": {
@@ -261,22 +322,6 @@
           "#EAEFF4"
         ]
       },
-      "soma-core": {
-        "role": "neutral",
-        "displayName": "Soma Core",
-        "canonical": "#F4FFFE",
-        "oklch": "oklch(99.2% 0.012 190.5)",
-        "tonalRamp": [
-          "#090C0C",
-          "#212626",
-          "#3D4443",
-          "#5B6362",
-          "#7B8484",
-          "#9FA7A6",
-          "#C4CBCA",
-          "#EAF0EF"
-        ]
-      },
       "ink-bright": {
         "role": "neutral",
         "displayName": "Ink Bright",
@@ -341,6 +386,22 @@
           "#ECEFF1"
         ]
       },
+      "ink-leader": {
+        "role": "neutral",
+        "displayName": "Ink Leader",
+        "canonical": "#C9D1D8",
+        "oklch": "oklch(85.7% 0.013 244.3)",
+        "tonalRamp": [
+          "#090B0E",
+          "#222629",
+          "#3E4347",
+          "#5C6268",
+          "#7C8389",
+          "#A0A6AB",
+          "#C5CACE",
+          "#EBEFF3"
+        ]
+      },
       "ink-list": {
         "role": "neutral",
         "displayName": "Ink List",
@@ -354,22 +415,6 @@
           "#7C838A",
           "#A0A6AC",
           "#C5CACF",
-          "#EBEFF3"
-        ]
-      },
-      "ink-sub": {
-        "role": "neutral",
-        "displayName": "Ink Sub",
-        "canonical": "#C9D1D8",
-        "oklch": "oklch(85.7% 0.013 244.3)",
-        "tonalRamp": [
-          "#090B0E",
-          "#222629",
-          "#3E4347",
-          "#5C6268",
-          "#7C8389",
-          "#A0A6AB",
-          "#C5CACE",
           "#EBEFF3"
         ]
       },
@@ -479,10 +524,6 @@
         "displayName": "Title",
         "purpose": "Specimen label top left."
       },
-      "cell-label": {
-        "displayName": "Cell Label",
-        "purpose": "Part names on the field; scales with magnification^0.22; 650 when selected."
-      },
       "body": {
         "displayName": "Body",
         "purpose": "Entry text in the panel."
@@ -493,11 +534,15 @@
       },
       "meta": {
         "displayName": "Meta",
-        "purpose": "Entry meta lines in the fluorophore, relative times, gauge hint; tabular figures."
+        "purpose": "Entry meta lines in the part color, relative times, the last-signal line, the ruler hint; tabular figures."
       },
       "sub-label": {
         "displayName": "Sub-label",
-        "purpose": "Sub-cell names once they resolve past ×1.9."
+        "purpose": "Sub-core names once they resolve past ×1.9."
+      },
+      "node-label": {
+        "displayName": "Node Label",
+        "purpose": "Part names on the field; scales with magnification^0.22; 650 when selected."
       }
     },
     "shadows": [
@@ -507,46 +552,86 @@
         "purpose": "Details panel over the field."
       },
       {
-        "name": "fluorophore-dot-glow",
-        "value": "0 0 14px <fluorophore>",
+        "name": "part-dot-glow",
+        "value": "0 0 14px <part color>",
         "purpose": "The panel's part dot."
+      },
+      {
+        "name": "twinkle-glow",
+        "value": "0 0 4px rgba(255,255,255,0.8)",
+        "purpose": "A twinkling star."
       }
     ],
     "motion": [
       {
         "name": "ease-out-expo",
         "value": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "Calcium transients and disclosure chevron."
+        "purpose": "Discharge flare, arrival flare, disclosure chevron."
       },
       {
-        "name": "ca-period-alive",
+        "name": "period-alive",
         "value": "2.8s",
-        "purpose": "Transient period, alive."
+        "purpose": "Charge/discharge period, alive."
       },
       {
-        "name": "ca-period-busy",
+        "name": "period-busy",
         "value": "1.05s",
-        "purpose": "Transient period, working."
+        "purpose": "Charge/discharge period, working."
       },
       {
-        "name": "ca-period-partial",
+        "name": "period-partial",
         "value": "4.4s",
-        "purpose": "Transient period, partly down."
+        "purpose": "Charge/discharge period, partly down."
       },
       {
-        "name": "ca-period-failing",
+        "name": "period-failing",
         "value": "1.6s",
-        "purpose": "Transient period, failing."
+        "purpose": "Charge/discharge period, failing."
       },
       {
-        "name": "fail-rim",
+        "name": "charge",
+        "value": "linear over the period; stroke-opacity 0.18 -> 1 at 86%, 0.12 at 89%",
+        "purpose": "The ring filling with light, then letting go."
+      },
+      {
+        "name": "discharge",
+        "value": "opacity 0 until 84%, peak at 88%, 0 at 100%; ease-out-expo",
+        "purpose": "Halo and core flash as the ring discharges."
+      },
+      {
+        "name": "crackle",
+        "value": "3.7s steps(1, end) infinite",
+        "purpose": "Filaments flickering while the part runs."
+      },
+      {
+        "name": "pulse-run",
+        "value": "760ms cubic-bezier(0.45, 0, 0.25, 1)",
+        "purpose": "A spike running a fibre for a real hand-off."
+      },
+      {
+        "name": "pulse-arrival",
+        "value": "700ms ease-out-expo, scale 0.7 -> 1.25, fade",
+        "purpose": "The receiving node's one flare."
+      },
+      {
+        "name": "signal-replay",
+        "value": "last 90s, 400ms then 160ms apart",
+        "purpose": "Recent signals replayed on opening."
+      },
+      {
+        "name": "twinkle",
+        "value": "3-8s ease-in-out infinite, opacity 0.15 <-> 0.95",
+        "purpose": "34 twinkling stars."
+      },
+      {
+        "name": "fail-ring",
         "value": "1.2s ease-in-out infinite",
-        "purpose": "Red rim pulse on a failing cell."
+        "purpose": "Red ring pulse on a failing node."
       },
       {
         "name": "drift",
         "value": "19s / 23s / 27s ease-in-out infinite",
-        "purpose": "A cell floating in its medium (a few field units)."
+        "purpose": "A node floating a few field units."
       },
       {
         "name": "view-move",
@@ -566,7 +651,7 @@
       {
         "name": "reduced-motion",
         "value": "none",
-        "purpose": "Transients, drift and pulse stop; view changes jump."
+        "purpose": "Charge, discharge, crackle, twinkle, drift and the fail pulse stop; pulses land as a bare arrival; view changes jump."
       }
     ],
     "breakpoints": [
@@ -586,6 +671,15 @@
       "max": "×6",
       "subsFrom": "×1.9",
       "subsFull": "×2.7"
+    },
+    "stars": {
+      "density": "1 per 1900px² of canvas",
+      "size": "0.35-1.95px",
+      "alpha": "0.18-0.93",
+      "tints": "~12% cool, ~6% warm",
+      "parallax": "half the pan, never scales with zoom",
+      "twinkles": 34,
+      "canvasMargin": "2.6× the field at the fitted scale"
     }
   },
   "components": [
@@ -609,14 +703,14 @@
       "name": "Specimen Label",
       "kind": "nav",
       "refersTo": "specimen-label",
-      "description": "Top-left overlay: name, live status counts, page links.",
-      "html": "<div class=\"ds-specimen\"><p class=\"ds-specimen-t\">Jophiel <span>· live field</span></p><p class=\"ds-specimen-s\">4 running · 2 in trouble · 1 down</p><nav class=\"ds-specimen-n\"><a href=\"#\">Voice</a><a href=\"#\">Chat</a><a href=\"#\">Integrations</a></nav></div>",
-      "css": ".ds-specimen{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;background:#040506;padding:24px;color:#E9EDF0}.ds-specimen-t{margin:0;font-size:19px;line-height:1;font-weight:600;letter-spacing:-0.02em}.ds-specimen-t span{font-weight:400;color:#8C969F}.ds-specimen-s{margin:8px 0 0;font-size:13px;color:#AEB7BF;font-variant-numeric:tabular-nums}.ds-specimen-n{margin-top:12px;display:flex;gap:16px;font-size:13px}.ds-specimen-n a{color:#8C969F;text-decoration:none;transition:color 150ms}.ds-specimen-n a:hover{color:#fff}.ds-specimen-n a:focus-visible{outline:1.5px solid #3FD3F0;outline-offset:3px}"
+      "description": "Top-left overlay: name, live status counts, last signal, page links.",
+      "html": "<div class=\"ds-specimen\"><p class=\"ds-specimen-t\">Jophiel <span>· live field</span></p><p class=\"ds-specimen-s\">4 running · 2 in trouble · 1 down</p><p class=\"ds-specimen-sig\">Last signal: Cognition → Mouth, decision</p><nav class=\"ds-specimen-n\"><a href=\"#\">Voice</a><a href=\"#\">Chat</a><a href=\"#\">Integrations</a></nav></div>",
+      "css": ".ds-specimen{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;background:#040506;padding:24px;color:#E9EDF0}.ds-specimen-t{margin:0;font-size:19px;line-height:1;font-weight:600;letter-spacing:-0.02em}.ds-specimen-t span{font-weight:400;color:#8C97A3}.ds-specimen-s{margin:8px 0 0;font-size:13px;color:#AEB7BF;font-variant-numeric:tabular-nums}.ds-specimen-n{margin-top:12px;display:flex;gap:16px;font-size:13px}.ds-specimen-n a{color:#8C97A3;text-decoration:none;transition:color 150ms}.ds-specimen-n a:hover{color:#fff}.ds-specimen-n a:focus-visible{outline:1.5px solid #3FD3F0;outline-offset:3px}.ds-specimen-sig{margin:4px 0 0;font-size:12px;color:#8C97A3}"
     },
     {
-      "name": "Magnification Gauge",
+      "name": "Magnification Ruler",
       "kind": "custom",
-      "description": "×1–×6 log tick gauge with live readout; replaces a scale bar.",
+      "description": "×1–×6 log tick ruler with live readout; replaces a scale bar.",
       "html": "<div class=\"ds-mag\"><span class=\"ds-mag-r\">×2.0</span><span class=\"ds-mag-l\"><i style=\"left:0\"></i><i style=\"left:38.7%\"></i><i style=\"left:77.4%\"></i><i style=\"left:100%\"></i><b style=\"width:38.7%\"></b><u style=\"left:38.7%\"></u></span><span class=\"ds-mag-h\">inside view</span></div>",
       "css": ".ds-mag{display:flex;align-items:center;gap:12px;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;color:#AEB7BF;background:#040506;padding:16px}.ds-mag-r{width:48px;font-size:13px;font-weight:500;color:#E9EDF0;font-variant-numeric:tabular-nums}.ds-mag-l{position:relative;display:block;height:1px;width:160px;background:#2A3138}.ds-mag-l i{position:absolute;top:0;height:5px;width:1px;background:#4A545D}.ds-mag-l b{position:absolute;top:0;left:0;height:1px;background:#E9EDF0}.ds-mag-l u{position:absolute;top:-4px;height:9px;width:1px;background:#E9EDF0}.ds-mag-h{font-size:12px}"
     },
@@ -624,43 +718,50 @@
       "name": "Details Panel",
       "kind": "card",
       "refersTo": "part-panel",
-      "description": "Plain dark sheet for one part, carrying its fluorophore in dot, border and meta.",
+      "description": "Plain dark sheet for one part, carrying its color in dot, border and meta.",
       "html": "<aside class=\"ds-panel\" style=\"--part:#FF5C8A\"><header class=\"ds-panel-h\"><span class=\"ds-dot\"></span><div><h2>Mind</h2><p>Thinks on her own: quick and hard thoughts, her game planner, and her mood.</p></div></header><h3>Her thoughts</h3><ol class=\"ds-feed\"><li><div class=\"ds-meta\"><span>hard thought · intention · quiet</span><time>53 s ago</time></div><div class=\"ds-text\">I’ll ask how the interview went once they’re back, not before.</div></li><li><div class=\"ds-meta\"><span>hard thought · guess · stale</span><time>7 min ago</time></div><div class=\"ds-text\">The cave entrance north of the base probably connects to the ravine.</div></li></ol></aside>",
       "css": ".ds-panel{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;width:460px;max-width:100%;background:#07090B;border-left:1px solid color-mix(in srgb,var(--part) 33%,transparent);box-shadow:-24px 0 48px rgba(0,0,0,.55);padding:24px;color:#D5DBE0}.ds-panel-h{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.ds-dot{margin-top:8px;width:10px;height:10px;border-radius:9999px;flex-shrink:0;background:var(--part);box-shadow:0 0 14px var(--part)}.ds-panel h2{margin:0;font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#EEF1F3}.ds-panel-h p{margin:6px 0 0;font-size:13px;line-height:1.625;color:#9AA5B1}.ds-panel h3{margin:0 0 8px;font-size:13px;font-weight:600;color:#DDE3E8}.ds-feed{list-style:none;margin:0;padding:0}.ds-feed li{padding:12px 0;border-bottom:1px solid #151A1F}.ds-feed li:last-child{border-bottom:0}.ds-meta{display:flex;gap:12px;font-size:12px}.ds-meta span{flex:1;color:var(--part)}.ds-meta time{color:#7D8790;font-variant-numeric:tabular-nums}.ds-text{margin-top:4px;font-size:13.5px;line-height:1.625}"
     },
     {
-      "name": "Cell",
+      "name": "Node",
       "kind": "custom",
-      "description": "A part as a glowing soma with halo, dendrites, nucleus, ringed label and state word.",
-      "html": "<svg class=\"ds-cell\" width=\"240\" height=\"200\" viewBox=\"-120 -90 240 200\"><defs><radialGradient id=\"dsh\"><stop offset=\"0\" stop-color=\"#3FD3F0\" stop-opacity=\".5\"/><stop offset=\".45\" stop-color=\"#3FD3F0\" stop-opacity=\".14\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"dss\" cx=\"45%\" cy=\"40%\" r=\"62%\"><stop offset=\"0\" stop-color=\"#F4FFFE\" stop-opacity=\".95\"/><stop offset=\".28\" stop-color=\"#3FD3F0\" stop-opacity=\".95\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\".9\"/></radialGradient></defs><circle r=\"86\" fill=\"url(#dsh)\"/><circle class=\"ds-ca\" r=\"76\" fill=\"url(#dsh)\"/><path d=\"M32,0C32,12 22,30 4,31C-14,33 -31,20 -31,2C-32,-16 -18,-30 0,-32C18,-33 32,-14 32,0Z\" fill=\"url(#dss)\"/><text class=\"ds-cell-l\" y=\"62\" text-anchor=\"middle\" font-size=\"15\" fill=\"#E9EDF0\" font-weight=\"560\">Cognition</text><text class=\"ds-cell-l\" y=\"79\" text-anchor=\"middle\" font-size=\"11\" fill=\"#3FD3F0\">working</text></svg>",
-      "css": ".ds-cell{background:#040506;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif}.ds-cell-l{paint-order:stroke;stroke:#040506;stroke-width:.32em;stroke-linejoin:round}@keyframes ds-ca{0%{opacity:0}5%{opacity:.95}100%{opacity:0}}.ds-ca{opacity:0;animation:ds-ca 1.05s cubic-bezier(.16,1,.3,1) infinite}@media (prefers-reduced-motion:reduce){.ds-ca{animation:none}}"
+      "description": "A part as an electric neuron: halo, crackling filaments, charging ring, white-hot core, ringed label and state word.",
+      "html": "<svg class=\"ds-node\" width=\"260\" height=\"220\" viewBox=\"-130 -100 260 220\"><defs><radialGradient id=\"dsnh\"><stop offset=\"0\" stop-color=\"#3FD3F0\" stop-opacity=\".55\"/><stop offset=\".4\" stop-color=\"#3FD3F0\" stop-opacity=\".16\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"dsnc\"><stop offset=\"0\" stop-color=\"#FFFFFF\"/><stop offset=\".38\" stop-color=\"#F4FFFE\"/><stop offset=\".62\" stop-color=\"#3FD3F0\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\".85\"/></radialGradient></defs><circle r=\"88\" fill=\"url(#dsnh)\"/><circle class=\"ds-dis\" r=\"80\" fill=\"url(#dsnh)\"/><g class=\"ds-fil\" fill=\"none\" stroke=\"#3FD3F0\" stroke-width=\"1.1\" stroke-opacity=\".75\" stroke-linecap=\"round\"><path d=\"M34,0L44,4L52,-2L61,3L70,-1\"/><path d=\"M-17,30L-22,40L-20,50L-28,58L-30,66\"/><path d=\"M-20,-28L-26,-38L-24,-47L-32,-55\"/><path d=\"M22,-27L28,-37L26,-46L34,-52\"/><path d=\"M-34,-4L-44,-2L-52,-8L-60,-6\"/><path d=\"M18,30L22,40L30,46L32,56\"/></g><circle r=\"32\" fill=\"none\" stroke=\"#3FD3F0\" stroke-width=\"1.2\" stroke-opacity=\".3\"/><circle class=\"ds-ring\" r=\"32\" fill=\"none\" stroke=\"#3FD3F0\" stroke-width=\"2\"/><circle r=\"27\" fill=\"url(#dsnh)\"/><circle r=\"14.4\" fill=\"url(#dsnc)\"/><text class=\"ds-node-l\" y=\"92\" text-anchor=\"middle\" font-size=\"15\" fill=\"#E9EDF0\" font-weight=\"560\">Cognition</text><text class=\"ds-node-l\" y=\"109\" text-anchor=\"middle\" font-size=\"11\" fill=\"#3FD3F0\">working</text></svg>",
+      "css": ".ds-node{background:#040506;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif}.ds-node-l{paint-order:stroke;stroke:#040506;stroke-width:.32em;stroke-linejoin:round}@keyframes ds-dis{0%,84%{opacity:0}88%{opacity:1}100%{opacity:0}}.ds-dis{opacity:0;animation:ds-dis 1.05s cubic-bezier(.16,1,.3,1) infinite}@keyframes ds-charge{0%{stroke-opacity:.18}86%{stroke-opacity:1}89%{stroke-opacity:.12}100%{stroke-opacity:.18}}.ds-ring{animation:ds-charge 1.05s linear infinite}@keyframes ds-fl{0%,100%{opacity:.9}6%{opacity:.45}8%{opacity:.95}41%{opacity:.8}43%{opacity:.4}45%{opacity:.9}}.ds-fil{animation:ds-fl 3.7s steps(1,end) infinite}@media (prefers-reduced-motion:reduce){.ds-dis,.ds-ring,.ds-fil{animation:none}}"
+    },
+    {
+      "name": "Fibre and Pulse",
+      "kind": "custom",
+      "description": "A conducting fibre (1.1px line in a 6px glow, sender-to-receiver gradient) with a tapered spike running it.",
+      "html": "<svg class=\"ds-fibre\" width=\"320\" height=\"80\" viewBox=\"0 0 320 80\"><defs><linearGradient id=\"dsfg\" x1=\"20\" x2=\"300\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0\" stop-color=\"#3FD3F0\"/><stop offset=\"1\" stop-color=\"#4BE37A\"/></linearGradient></defs><path d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"url(#dsfg)\" stroke-width=\"6\" stroke-opacity=\".12\" stroke-linecap=\"round\"/><path d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"url(#dsfg)\" stroke-width=\"1.1\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-t\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#3FD3F0\" stroke-width=\"1.2\" stroke-opacity=\".25\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-m\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#F4FFFE\" stroke-width=\"1.8\" stroke-opacity=\".5\" stroke-linecap=\"round\"/><path class=\"ds-sp ds-sp-h\" d=\"M20,50C110,10 210,10 300,40\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.6\" stroke-linecap=\"round\"/></svg>",
+      "css": ".ds-fibre{background:#040506}.ds-sp{animation:ds-run 1.6s cubic-bezier(.45,0,.25,1) infinite}.ds-sp-h{stroke-dasharray:14 340}.ds-sp-m{stroke-dasharray:42 340}.ds-sp-t{stroke-dasharray:98 340}@keyframes ds-run{0%{stroke-dashoffset:100}60%,100%{stroke-dashoffset:-310}}@media (prefers-reduced-motion:reduce){.ds-sp{animation:none;opacity:0}}"
     }
   ],
   "narrative": {
     "northStar": "The Live Field",
-    "overview": "Jophiel's parts are seen the way a confocal microscope sees a stained tissue sample: a black field, a few labelled cells glowing in their own fluorophores, tapered axons between them, and out-of-focus tissue blurring into the dark. A part being alive is a cell glowing and flashing with a calcium transient; a part that is down is a dim cell; a failing part's own membrane burns red. Everything the visitor reads besides the cells is the microscope's own overlay: a specimen label top left, a magnification gauge bottom left, round zoom controls bottom right. The world refuses the category default for \"system status\": no node-graph dashboard of rounded boxes, neon edges and a stats sidebar.\n\nThe field is full-bleed and spatial, not paged. It is a map you drag, wheel, pinch and key around, from ×1 (the whole field) to ×6, and as you zoom past ×1.9 each cell's sub-parts resolve around it, fully legible by ×2.7. Clicking a cell opens a plain dark sheet on the right (a bottom sheet on phones) that carries that cell's fluorophore in its dot, its border and its meta lines, and lists the part's real recent records as quiet rule-divided entries. The density is low on the field and comfortable in the sheet.\n\n**Scope.** This world is built only on the owner-only System page (`/system`). The rest of the app (chat, voice dashboard, login, integrations, predict) predates it, uses a light pale-blue and lavender look written as hardcoded Tailwind hexes, and is an **unrecorded incumbent**: this file records no tokens for it, and nothing here should be read as describing it. The older dark `@theme` block at the top of `frontend/src/index.css` (Space Grotesk, teal accent) is not this world either; the System page does not use it.\n\n**Divergences from the direction contract, where the build won.** There is no physical scale bar: magnification is a tick gauge marked at ×1, ×2, ×4 and ×6, because a µm unit would be a made-up claim. The details panel is a plain dark sheet with a fluorophore dot and border, not a slide-label. Wires carry static varicosities and dim with their ends' liveness; no spike travels along them yet.",
+    "overview": "Jophiel's parts are electric neurons hanging in a night sky. Each part is a charged node: a white-hot core in its own color, a thin ring around it that fills with light over the part's beat and then discharges in one flare, and fine jagged filaments that crackle while it's alive. Between the nodes run conducting fibres, hairlines inside a faint glow that blend from one part's color to the other's. When one part really hands work to another, a spike of light runs the fibre and the core it reaches flares. Behind everything is a still star field at infinity. Everything the visitor reads besides the nodes is quiet instrument overlay: a specimen label with live counts and the last signal top left, a magnification readout on a tick ruler bottom left, round zoom controls bottom right. The world refuses the category default for \"system status\": no node-graph dashboard of rounded boxes, neon edges and a stats sidebar.\n\nThe field is full-bleed and spatial, not paged. It is a map you drag, wheel, pinch and key around, from ×1 (the whole field) to ×6; past ×1.9 each node's sub-cores resolve inside its ring, fully legible by ×2.7, while the core shrinks to make room. Clicking a node opens a plain dark sheet on the right (a bottom sheet on phones) that carries that part's color in its dot, its border and its meta lines, and lists the part's real recent records as quiet rule-divided entries. The density is low on the field and comfortable in the sheet.\n\n**Scope.** This world is built only on the owner-only System page (`/system`). The rest of the app (chat, voice dashboard, login, integrations, predict) predates it, uses a light pale-blue and lavender look written as hardcoded Tailwind hexes, and is an **unrecorded incumbent**: this file records no tokens for it, and nothing here should be read as describing it. The older dark `@theme` block at the top of `frontend/src/index.css` (Space Grotesk, teal accent) is not this world either; the System page does not use it.\n\n**History and divergences.** This refresh replaces the first build's fluorescence-microscope look (somata, dendrites, beaded axons, blurred tissue) with the electric-neuron world, at the user's request, so pulses read as current. The part colors, type, chrome and panel carried over unchanged. There is still no physical scale bar: magnification is a tick ruler marked at ×1, ×2, ×4 and ×6, because a µm unit would be a made-up claim. The overlay keeps the instrument words \"specimen label\" and \"live field\".",
     "keyCharacteristics": [
-      "Microscope-black field (#040506) with blurred, parallaxed out-of-focus tissue in the seven fluorophores.",
-      "One fluorophore per part, kept everywhere that part appears.",
-      "Irregular, seeded somata with tapered dendrites; curved tapered axons with bead varicosities.",
+      "Night field (#040506) of white star points, a few twinkling, fixed at infinity and moving at half the pan.",
+      "One color per part, kept everywhere that part appears.",
+      "Nodes as charge: white-hot core, charging ring, crackling jagged filaments, discharge flare on the state's beat.",
+      "Fibres as conductors: a 1.1px line in a 6px glow, sender-to-receiver gradient; real hand-offs run them as tapered spikes.",
       "Overlay chrome in Schibsted Grotesk with tabular figures; round glass zoom buttons.",
-      "State shown as light: steady glow, transient flashes, dim, dashed broken membrane, red burning rim.",
       "Reduced motion gets a still field."
     ],
     "rules": [
       {
-        "name": "The One Fluorophore Rule",
-        "body": "A part has exactly one color, its fluorophore, and that color appears wherever the part does: cell, wires, sub-cells, panel dot, panel border, panel meta, panel focus ring. A part is never given a second hue, and a fluorophore is never borrowed for anything that isn't its part (Cognition cyan as the page's default focus ring is the one shared use).",
+        "name": "The One Color Rule",
+        "body": "A part has exactly one color, and that color appears wherever the part does: core, ring, filaments, fibre ends, pulse tail, sub-cores, panel dot, panel border, panel meta, panel focus ring. A part is never given a second hue, and a part color is never borrowed for anything that isn't its part (Cognition cyan as the page's default focus ring is the one shared use).",
         "section": "colors"
       },
       {
         "name": "The Red Means Failing Rule",
-        "body": "Fail Red (#FF4136) is reserved for a failing part or worker: the burning rim, its state word, its worker dot. Error prose uses the softer Error Text (#FF8A80). No other surface uses red.",
+        "body": "Fail Red (#FF4136) is reserved for a failing part or worker: the ring, its state word, its worker dot. Error prose uses the softer Error Text (#FF8A80). No other surface uses red.",
         "section": "colors"
       },
       {
         "name": "The Light Is State Rule",
-        "body": "State is told by light, not badges: steady halo plus a calcium transient (alive 2.8 s, working 1.05 s, partly down 4.4 s, failing 1.6 s), dimmed to 70% when partly down, 45% unknown, 30% down, 16% and unfilled when off.",
+        "body": "State is told by charge, not badges: the ring charges and discharges on the state's period (alive 2.8 s, working 1.05 s, partly down 4.4 s, failing 1.6 s); the node dims to 72% when partly down, 45% unknown, 28% down and 14% off.",
         "section": "colors"
       },
       {
@@ -674,26 +775,28 @@
         "section": "typography"
       },
       {
-        "name": "The Focal Plane Rule",
-        "body": "Anything that isn't a cell or the overlay is out of focus: blurred, dim, and slower under pan and zoom. Nothing sits on a card above the field except the details panel.",
+        "name": "The Stars At Infinity Rule",
+        "body": "The sky never scales with the zoom and never carries meaning; only nodes, fibres and pulses are signal. Nothing sits on a card above the field except the details panel.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "**Do** give every part its one fluorophore and carry it to its wires, sub-cells and panel (The One Fluorophore Rule).",
-      "**Do** show state as light: glow, transient period, dimming, dashed membrane, red rim.",
-      "**Do** keep the field full-bleed on Field Black (#040506) with out-of-focus tissue behind the cells.",
-      "**Do** set live numbers in tabular figures and ring field labels in Field Black.",
-      "**Do** list a part's records as rule-divided entries with a fluorophore meta line.",
-      "**Do** stop transients, drift and the failing pulse under `prefers-reduced-motion`, and jump view changes instead of animating them."
+      "Do give every part its one color and carry it to its ring, filaments, fibres, pulse tails, sub-cores and panel (The One Color Rule).",
+      "Do show state as charge: the ring's beat, the discharge flare, dimming, a broken ring, a red ring.",
+      "Do keep the field full-bleed on Field Black (#040506) with the star field at infinity behind the nodes.",
+      "Do run a pulse only for a real hand-off between two parts.",
+      "Do set live numbers in tabular figures and ring field labels in Field Black.",
+      "Do list a part's records as rule-divided entries with a part-color meta line.",
+      "Do stop charging, discharge, crackle, twinkle, drift and the failing pulse under `prefers-reduced-motion`, let pulses land as a bare arrival, and jump view changes instead of animating them."
     ],
     "donts": [
-      "**Don't** draw parts as rounded boxes, neon edges or a stats sidebar: the node-graph dashboard is the default this world refuses.",
-      "**Don't** put records in rounded cards on this page; the panel is rule-divided.",
-      "**Don't** add a physical scale bar or µm units; magnification is the ×1–×6 tick gauge.",
-      "**Don't** use red for anything but failure.",
-      "**Don't** set uppercase, letter-spaced labels on the field or panel (The Sentence Case Rule).",
-      "**Don't** extend these tokens to the rest of the app; the light incumbent there is a separate, unrecorded look."
+      "Don't draw parts as rounded boxes, neon edges or a stats sidebar: the node-graph dashboard is the default this world refuses.",
+      "Don't put records in rounded cards on this page; the panel is rule-divided.",
+      "Don't add a physical scale bar or µm units; magnification is the ×1–×6 tick ruler.",
+      "Don't use red for anything but failure.",
+      "Don't let the stars scale with the zoom or carry state.",
+      "Don't set uppercase, letter-spaced labels on the field or panel (The Sentence Case Rule).",
+      "Don't extend these tokens to the rest of the app; the light incumbent there is a separate, unrecorded look."
     ]
   }
 }

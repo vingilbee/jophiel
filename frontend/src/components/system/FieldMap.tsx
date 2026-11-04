@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import type { PartId, PartState, PartStatus } from '../../types/system'
+import type { PartId, PartState, PartStatus, Signal } from '../../types/system'
 import { MAX_MAG, PARTS, SUBS_FROM, SUBS_FULL, WIRES, layoutFor } from './anatomy'
 import type { PartAnatomy } from './anatomy'
-import { axon, dendrites, reachToward, rng, seedOf, somaPath } from './shapes'
+import { axon, filaments, reachToward, rng, seedOf } from './shapes'
 import { FitIcon, MinusIcon, PlusIcon } from './icons'
 
 interface View {
@@ -21,8 +21,10 @@ const STATE_WORD: Record<PartState, string> = {
   off: 'off',
 }
 
-/** How often a cell flashes (a calcium transient) in each state, in seconds; none when it isn't running. */
+/** How often a core charges and discharges in each state, in seconds; none when it isn't running. */
 const PERIOD: Partial<Record<PartState, number>> = { alive: 2.8, busy: 1.05, partial: 4.4, failing: 1.6 }
+/** How long a pulse takes to run a fibre, in milliseconds. */
+const PULSE_MS = 760
 const FAIL = '#FF4136'
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
@@ -32,59 +34,50 @@ function prefersReducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-/** The out-of-focus tissue around the cells: blurred bodies and fibres, painted once, moved with parallax. */
-function useTissue(canvas: HTMLCanvasElement | null, key: string) {
+/** The star field behind her: white points of many sizes, painted once and moved with parallax. */
+function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
   useEffect(() => {
-    if (!canvas) return
+    if (!canvas || !W || !H) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const W = canvas.width
-    const H = canvas.height
-    const rand = rng(7)
-    const colors = PARTS.map((p) => p.color)
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    canvas.width = Math.round(W * dpr)
+    canvas.height = Math.round(H * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    const rand = rng(11)
     ctx.clearRect(0, 0, W, H)
-    const layer = (blur: number, bodies: number, fibres: number, alpha: number) => {
-      ctx.filter = `blur(${blur}px)`
-      for (let i = 0; i < fibres; i++) {
-        const c = colors[Math.floor(rand() * colors.length)]
-        ctx.strokeStyle = c
-        ctx.globalAlpha = alpha * (0.5 + rand() * 0.6)
-        ctx.lineWidth = 1.5 + rand() * 4
-        const x = rand() * W
-        const y = rand() * H
-        const len = 120 + rand() * 360
-        const a = rand() * Math.PI * 2
-        ctx.beginPath()
-        ctx.moveTo(x, y)
-        ctx.bezierCurveTo(
-          x + Math.cos(a) * len * 0.4 + (rand() - 0.5) * 120, y + Math.sin(a) * len * 0.4 + (rand() - 0.5) * 120,
-          x + Math.cos(a) * len * 0.7 + (rand() - 0.5) * 120, y + Math.sin(a) * len * 0.7 + (rand() - 0.5) * 120,
-          x + Math.cos(a) * len, y + Math.sin(a) * len,
-        )
-        ctx.stroke()
-      }
-      for (let i = 0; i < bodies; i++) {
-        const c = colors[Math.floor(rand() * colors.length)]
-        const x = rand() * W
-        const y = rand() * H
-        const r = 10 + rand() * 34
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-        g.addColorStop(0, c)
-        g.addColorStop(1, 'transparent')
-        ctx.globalAlpha = alpha * (0.6 + rand() * 0.8)
+    const count = Math.round((W * H) / 1900)
+    for (let i = 0; i < count; i++) {
+      const x = rand() * W
+      const y = rand() * H
+      // Most stars are faint pinpoints; a few are bright, with a soft glow of their own.
+      const m = Math.pow(rand(), 3.2)
+      const r = 0.35 + m * 1.6
+      const alpha = 0.18 + m * 0.75
+      const tint = rand()
+      const color = tint < 0.12 ? '200, 220, 255' : tint < 0.18 ? '255, 236, 214' : '255, 255, 255'
+      if (m > 0.55) {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5)
+        g.addColorStop(0, `rgba(${color}, ${alpha * 0.25})`)
+        g.addColorStop(1, `rgba(${color}, 0)`)
         ctx.fillStyle = g
         ctx.beginPath()
-        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.arc(x, y, r * 3.5, 0, Math.PI * 2)
         ctx.fill()
       }
+      ctx.fillStyle = `rgba(${color}, ${alpha})`
+      ctx.beginPath()
+      ctx.arc(x, y, r, 0, Math.PI * 2)
+      ctx.fill()
     }
-    const density = (W * H) / (1440 * 900)
-    layer(22, Math.round(40 * density), Math.round(38 * density), 0.16)
-    layer(9, Math.round(52 * density), Math.round(44 * density), 0.11)
-    ctx.filter = 'none'
-    ctx.globalAlpha = 1
-  }, [canvas, key])
+  }, [canvas, W, H])
 }
+
+/** A few stars that twinkle, placed in the star canvas's own pixels. */
+const TWINKLES = (() => {
+  const rand = rng(23)
+  return Array.from({ length: 34 }, () => ({ x: rand(), y: rand(), d: rand() * 6, p: 3 + rand() * 5, s: 1.2 + rand() * 1.6 }))
+})()
 
 interface Props {
   statuses: Partial<Record<PartId, PartStatus>>
@@ -92,9 +85,11 @@ interface Props {
   onSelect: (id: PartId) => void
   /** The details panel is open beside the field (wide screens): keep the controls clear of it. */
   panelOpen?: boolean
+  /** Hand-offs to draw as pulses; each id fires once. */
+  signals?: Signal[]
 }
 
-export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Props) {
+export function FieldMap({ statuses, selected, onSelect, panelOpen = false, signals = [] }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [view, setView] = useState<View | null>(null)
@@ -109,11 +104,8 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
   const layout = useMemo(() => layoutFor(portrait), [portrait])
   const FIELD_W = layout.w
   const FIELD_H = layout.h
-  // The tissue canvas covers the field and a wide margin around it, so its edge never shows.
+  // The star canvas covers the field and a wide margin around it at the fitted scale, so its edge never shows.
   const EXT = 2.6
-  const CW = 1600
-  const CH = Math.round((CW * FIELD_H) / FIELD_W)
-  useTissue(canvas, portrait ? 'portrait' : 'landscape')
 
   // "Everything" is the cells with their labels, not the empty field around them, so a phone is filled.
   const content = useMemo(() => {
@@ -131,6 +123,10 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
   const padTop = portrait ? 110 : 70
   const padBottom = 70
   const kFit = size.w && size.h ? Math.min(size.w / content.w, (size.h - padTop - padBottom) / content.h) * 0.96 : 1
+  const CW = Math.round(FIELD_W * EXT * kFit)
+  const CH = Math.round(FIELD_H * EXT * kFit)
+  useStars(canvas, CW, CH)
+
   const fitView = useCallback(
     (): View => ({
       k: kFit,
@@ -215,7 +211,9 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
     const p = layout.byId[selected]
     const v = viewRef.current
     atFit.current = false
-    animateTo({ k: v.k, x: size.w / 2 - p.x * v.k, y: size.h * 0.16 + 50 - p.y * v.k })
+    const headerBottom = 150
+    const sheetTop = size.h * 0.32
+    animateTo({ k: v.k, x: size.w / 2 - p.x * v.k, y: (headerBottom + sheetTop) / 2 + 20 - p.y * v.k })
   }, [selected, panelOpen, size.w, size.h, layout, animateTo])
 
   /** The buttons zoom toward the cell nearest the middle of the screen, so a part stays framed. */
@@ -241,7 +239,7 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
     if (best !== Infinity) {
       const p = layout.parts.find((q) => Math.hypot(v.x + q.x * v.k - cx, v.y + q.y * v.k - cy) < 1)
       if (p) {
-        animateTo(bound({ k: target.k, x: size.w / 2 - p.x * target.k, y: size.h / 2 - p.y * target.k }))
+        animateTo(bound({ k: target.k, x: size.w / 2 - p.x * target.k, y: size.h * 0.44 - p.y * target.k }))
         return
       }
     }
@@ -341,7 +339,7 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
     onSelect(id)
   }
 
-  // Geometry that never changes: somata, dendrites, axons, sub-cells.
+  // Geometry that never changes: cores, filaments, fibres, sub-cores.
   const cells = useMemo(
     () =>
       layout.parts.map((p) => {
@@ -350,22 +348,18 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
           const other = layout.byId[w.from === p.id ? w.to : w.from]
           return Math.atan2(other.y - p.y, other.x - p.x)
         })
+        const base = p.labelSide === 'left' ? Math.PI : p.labelSide === 'right' ? 0 : p.labelSide === 'above' ? -Math.PI / 2 : Math.PI / 2
         const subs = p.subs.map((s, i) => {
-          const spread = Math.PI * 1.25
-          const base = p.labelSide === 'left' ? Math.PI : p.labelSide === 'right' ? 0 : p.labelSide === 'above' ? -Math.PI / 2 : Math.PI / 2
-          // Sub-cells fan out away from the label, so neither covers the other.
+          // Sub-cores sit inside the ring, fanned away from the label so their own labels stay clear of it.
+          const spread = Math.PI * 1.3
           const a = base + Math.PI - spread / 2 + (spread * (i + 0.5)) / p.subs.length
-          const dist = p.r * 1.8
-          const sx = Math.cos(a) * dist
-          const sy = Math.sin(a) * dist
-          const sr = p.r * 0.2
-          return { ...s, x: sx, y: sy, r: sr, path: somaPath(sr, seedOf(s.id)), angle: a }
+          return { ...s, angle: a, x: Math.cos(a) * p.r * 0.56, y: Math.sin(a) * p.r * 0.56, r: p.r * 0.085 }
         })
-        const dend = dendrites(p.r, seed, exits)
+        const fil = filaments(p.r, seed, exits)
         const toward = { left: Math.PI, right: 0, above: -Math.PI / 2, below: Math.PI / 2 }[p.labelSide]
-        // Labels sit just past whatever the dendrites reach on their side.
-        const labelGap = reachToward(dend.tips, toward, p.labelSide === 'left' || p.labelSide === 'right' ? 0.75 : 0.5, p.r * 1.2) + 10
-        return { part: p, soma: somaPath(p.r, seed), dendrites: dend.paths, labelGap, subs, delay: (seed % 2000) / 1000 }
+        // Labels sit just past whatever the filaments reach on their side.
+        const labelGap = reachToward(fil.tips, toward, p.labelSide === 'left' || p.labelSide === 'right' ? 0.75 : 0.5, p.r * 1.15) + 10
+        return { part: p, filaments: fil.paths, labelGap, subs, delay: (seed % 2000) / 1000 }
       }),
     [layout],
   )
@@ -374,6 +368,59 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
     [layout],
   )
 
+  // Pulses: each new signal runs its fibre as a bright spike with a trailing glow, and the core it reaches flashes.
+  const wireEls = useRef(new Map<string, SVGPathElement>())
+  const pulseLayer = useRef<SVGGElement>(null)
+  const fired = useRef(new Set<string>())
+  const [hits, setHits] = useState<Partial<Record<PartId, number>>>({})
+  useEffect(() => {
+    const arrive = (to: PartId) => setHits((h) => ({ ...h, [to]: (h[to] ?? 0) + 1 }))
+    for (const sig of signals) {
+      if (fired.current.has(sig.id)) continue
+      fired.current.add(sig.id)
+      const path = wireEls.current.get(`${sig.from}>${sig.to}`)
+      const layer = pulseLayer.current
+      const k = viewRef.current?.k ?? 1
+      if (!path || !layer || prefersReducedMotion()) {
+        arrive(sig.to)
+        continue
+      }
+      const L = path.getTotalLength()
+      const head = Math.min(L * 0.05, 22)
+      const make = (width: number, dash: number, color: string, opacity: number) => {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        el.setAttribute('d', path.getAttribute('d') ?? '')
+        el.setAttribute('fill', 'none')
+        el.setAttribute('stroke', color)
+        el.setAttribute('stroke-width', String(width / k))
+        el.setAttribute('stroke-linecap', 'round')
+        el.setAttribute('stroke-opacity', String(opacity))
+        el.setAttribute('stroke-dasharray', `${dash} ${L + dash}`)
+        layer.appendChild(el)
+        const run = el.animate([{ strokeDashoffset: dash }, { strokeDashoffset: -L }],
+          { duration: PULSE_MS, easing: 'cubic-bezier(0.45, 0, 0.25, 1)' })
+        return { el, run }
+      }
+      const color = PARTS.find((p) => p.id === sig.from)?.color ?? '#FFFFFF'
+      // The fibre conducts: it brightens along its length while the spike runs.
+      const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      glow.setAttribute('d', path.getAttribute('d') ?? '')
+      glow.setAttribute('fill', 'none')
+      glow.setAttribute('stroke', color)
+      glow.setAttribute('stroke-width', String(1.6 / k))
+      layer.appendChild(glow)
+      glow.animate([{ strokeOpacity: 0 }, { strokeOpacity: 0.55, offset: 0.35 }, { strokeOpacity: 0 }], { duration: PULSE_MS + 200 })
+      // The spike tapers into a fading tail: three dashes, each longer, thinner and dimmer than the last.
+      const parts = [make(1.2, head * 7, color, 0.25), make(1.8, head * 3, '#F4FFFE', 0.5), make(2.6, head, '#FFFFFF', 1)]
+      parts[2].run.onfinish = () => {
+        parts.forEach((p) => p.el.remove())
+        glow.remove()
+        arrive(sig.to)
+      }
+    }
+    if (fired.current.size > 2000) fired.current = new Set(signals.map((s) => s.id))
+  }, [signals])
+
   const v = view
   const mag = v ? v.k / kFit : 1
   const subsAlpha = clamp((mag - SUBS_FROM) / (SUBS_FULL - SUBS_FROM), 0, 1)
@@ -381,19 +428,18 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
   const subLabelSize = v ? (11.5 * Math.pow(mag, 0.12)) / v.k : 11
   const stateOf = (id: PartId): PartState | undefined => statuses[id]?.state
 
-  // The tissue sits deeper than the cells: it moves at half the pan and grows slower than the zoom.
+  // The stars sit deeper than the cells: they move at half the pan and grow slower than the zoom.
   let tissueTransform = ''
   if (v) {
+    // Stars are at infinity: they never grow with the zoom, they only drift by at half the pan.
     const depth = 0.5
-    const kb = kFit * Math.pow(mag, 0.45)
     const cw = (size.w / 2 - v.x) / v.k
     const ch = (size.h / 2 - v.y) / v.k
     const bw = FIELD_W / 2 + (cw - FIELD_W / 2) * depth
     const bh = FIELD_H / 2 + (ch - FIELD_H / 2) * depth
-    const s = (kb * FIELD_W * EXT) / CW
-    const tx = size.w / 2 - (bw + (FIELD_W * (EXT - 1)) / 2) * kb
-    const ty = size.h / 2 - (bh + (FIELD_H * (EXT - 1)) / 2) * kb
-    tissueTransform = `translate(${tx}px, ${ty}px) scale(${s})`
+    const tx = size.w / 2 - (bw + (FIELD_W * (EXT - 1)) / 2) * kFit
+    const ty = size.h / 2 - (bh + (FIELD_H * (EXT - 1)) / 2) * kFit
+    tissueTransform = `translate(${tx}px, ${ty}px)`
   }
 
   return (
@@ -409,38 +455,38 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
       onPointerCancel={onPointerUp}
       onKeyDown={onKeyDown}
     >
-      <canvas
-        ref={setCanvas}
-        width={CW}
-        height={CH}
+      <div
         aria-hidden="true"
         className="pointer-events-none absolute top-0 left-0 origin-top-left"
         style={{ transform: tissueTransform, width: CW, height: CH }}
-      />
+      >
+        <canvas ref={setCanvas} className="absolute inset-0" style={{ width: CW, height: CH }} />
+        {TWINKLES.map((t, i) => (
+          <span
+            key={i}
+            className="twinkle absolute rounded-full bg-white"
+            style={{
+              left: t.x * CW, top: t.y * CH, width: t.s, height: t.s,
+              ['--period' as string]: `${t.p}s`, ['--delay' as string]: `${-t.d}s`,
+            }}
+          />
+        ))}
+      </div>
 
       {v && (
         <svg width={size.w} height={size.h} className="absolute inset-0">
           <defs>
             {PARTS.map((p) => (
               <g key={p.id}>
-                <radialGradient id={`soma-${p.id}`} cx="45%" cy="40%" r="62%">
-                  <stop offset="0%" stopColor="#F4FFFE" stopOpacity="0.95" />
-                  <stop offset="28%" stopColor={p.color} stopOpacity="0.95" />
-                  <stop offset="100%" stopColor={p.color} stopOpacity="0.9" />
-                </radialGradient>
-                <radialGradient id={`dend-${p.id}`} gradientUnits="userSpaceOnUse" cx="0" cy="0" r={p.r * 2.5}>
-                  <stop offset="30%" stopColor={p.color} stopOpacity="0.9" />
-                  <stop offset="70%" stopColor={p.color} stopOpacity="0.45" />
-                  <stop offset="100%" stopColor={p.color} stopOpacity="0" />
-                </radialGradient>
-                <radialGradient id={`nuc-${p.id}`}>
-                  <stop offset="0%" stopColor="#040506" stopOpacity="0.42" />
-                  <stop offset="65%" stopColor="#040506" stopOpacity="0.22" />
-                  <stop offset="100%" stopColor="#040506" stopOpacity="0" />
+                <radialGradient id={`core-${p.id}`}>
+                  <stop offset="0%" stopColor="#FFFFFF" />
+                  <stop offset="38%" stopColor="#F4FFFE" />
+                  <stop offset="62%" stopColor={p.color} />
+                  <stop offset="100%" stopColor={p.color} stopOpacity="0.85" />
                 </radialGradient>
                 <radialGradient id={`halo-${p.id}`}>
-                  <stop offset="0%" stopColor={p.color} stopOpacity="0.5" />
-                  <stop offset="45%" stopColor={p.color} stopOpacity="0.14" />
+                  <stop offset="0%" stopColor={p.color} stopOpacity="0.55" />
+                  <stop offset="40%" stopColor={p.color} stopOpacity="0.16" />
                   <stop offset="100%" stopColor={p.color} stopOpacity="0" />
                 </radialGradient>
               </g>
@@ -459,10 +505,6 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
                 <stop offset="100%" stopColor={layout.byId[w.to].color} />
               </linearGradient>
             ))}
-            {/* Out of the focal plane, fine processes go soft. */}
-            <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="1.1" />
-            </filter>
           </defs>
 
           <g transform={`translate(${v.x} ${v.y}) scale(${v.k})`}>
@@ -471,24 +513,36 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
                 const a = stateOf(w.from)
                 const b = stateOf(w.to)
                 const live = (s?: PartState) => s && s !== 'down' && s !== 'off'
-                const opacity = live(a) && live(b) ? 0.62 : 0.2
+                const opacity = live(a) && live(b) ? 0.7 : 0.18
+                // A conducting fibre: a fine bright core line inside a faint glow.
                 return (
                   <g key={w.i} opacity={opacity}>
-                    <path d={w.d} fill="none" stroke={`url(#wire-${w.i})`} strokeWidth={1.3} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                    {w.beads.map((p, j) => (
-                      <circle key={j} cx={p[0]} cy={p[1]} r={(2.2 * Math.pow(mag, 0.35)) / v.k} fill={`url(#wire-${w.i})`} />
-                    ))}
+                    <path d={w.d} fill="none" stroke={`url(#wire-${w.i})`} strokeWidth={6} strokeOpacity={0.12} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                    <path
+                      ref={(el) => {
+                        if (el) wireEls.current.set(`${w.from}>${w.to}`, el)
+                        else wireEls.current.delete(`${w.from}>${w.to}`)
+                      }}
+                      d={w.d}
+                      fill="none"
+                      stroke={`url(#wire-${w.i})`}
+                      strokeWidth={1.1}
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
                   </g>
                 )
               })}
             </g>
 
-            {cells.map(({ part, soma, dendrites: dends, labelGap, subs, delay }) => (
+            <g ref={pulseLayer} aria-hidden="true" style={{ pointerEvents: 'none' }} />
+
+            {cells.map(({ part, filaments: fils, labelGap, subs, delay }) => (
               <Cell
                 key={part.id}
                 part={part}
-                soma={soma}
-                dendrites={dends}
+                filaments={fils}
+                hits={hits[part.id] ?? 0}
                 labelGap={labelGap}
                 subs={subs}
                 delay={delay}
@@ -497,6 +551,7 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
                 labelSize={labelSize}
                 subLabelSize={subLabelSize}
                 subsAlpha={subsAlpha}
+                magnification={mag}
                 onSelect={select}
               />
             ))}
@@ -527,34 +582,34 @@ export function FieldMap({ statuses, selected, onSelect, panelOpen = false }: Pr
   )
 }
 
-interface SubCell {
+interface SubCore {
   id: string
   label: string
   x: number
   y: number
   r: number
-  path: string
   angle: number
 }
 
 function Cell({
-  part, soma, dendrites: dends, labelGap, subs, delay, state, selected, labelSize, subLabelSize, subsAlpha, onSelect,
+  part, filaments: fils, hits, labelGap, subs, delay, state, selected, labelSize, subLabelSize, subsAlpha, magnification, onSelect,
 }: {
   part: PartAnatomy
-  soma: string
-  dendrites: string[]
+  filaments: string[]
+  hits: number
   labelGap: number
-  subs: SubCell[]
+  subs: SubCore[]
   delay: number
   state: PartState | undefined
   selected: boolean
   labelSize: number
   subLabelSize: number
   subsAlpha: number
+  magnification: number
   onSelect: (id: PartId) => void
 }) {
   const period = state ? PERIOD[state] : undefined
-  const dim = state === 'down' ? 0.3 : state === 'off' ? 0.16 : state === undefined ? 0.45 : state === 'partial' ? 0.7 : 1
+  const dim = state === 'down' ? 0.28 : state === 'off' ? 0.14 : state === undefined ? 0.45 : state === 'partial' ? 0.72 : 1
   const word = state ? STATE_WORD[state] : '…'
   const anchor = part.labelSide === 'left' ? 'end' : part.labelSide === 'right' ? 'start' : part.labelAlign ?? 'middle'
   const gap = labelGap
@@ -562,6 +617,13 @@ function Cell({
     : part.labelAlign === 'start' ? -part.r * 0.9 : part.labelAlign === 'end' ? part.r * 0.9 : 0
   const ly = part.labelSide === 'above' ? -gap - labelSize * 0.6 : part.labelSide === 'below' ? gap + labelSize * 0.4 : -labelSize * 0.15
   const driftClass = `drift drift-${(part.id.length % 3) + 1}`
+  const ringR = part.r * 0.8
+  // The core makes room for its sub-cores as they resolve.
+  const coreR = part.r * (0.36 - 0.14 * subsAlpha)
+  const ringColor = state === 'failing' ? FAIL : part.color
+  const pace = { ['--period' as string]: `${period ?? 3}s`, ['--delay' as string]: `${-delay}s` }
+  // Up close the filaments draw in toward the ring instead of growing into long zigzags.
+  const filamentScale = Math.min(1, Math.pow(2 / Math.max(2, magnification), 0.45))
 
   return (
     <g transform={`translate(${part.x} ${part.y})`}>
@@ -581,63 +643,70 @@ function Cell({
         style={{ animationDelay: `${-delay * 7}s` }}
       >
         <g opacity={dim}>
-          <circle r={part.r * 2.7} fill={`url(#halo-${part.id})`} />
-          {period && (
-            <circle
-              className="ca"
-              r={part.r * 2.4}
-              fill={`url(#halo-${part.id})`}
-              style={{ ['--period' as string]: `${period}s`, ['--delay' as string]: `${-delay}s`, ['--peak' as string]: 0.95 }}
-            />
-          )}
-          <g filter="url(#soft)">
-            {dends.map((d, i) => (
-              <path key={i} d={d} fill={`url(#dend-${part.id})`} />
+          <circle r={part.r * 2.2} fill={`url(#halo-${part.id})`} />
+          {/* Discharge: the glow flares as the ring releases its charge. */}
+          {period && <circle className="ca" r={part.r * 2} fill={`url(#halo-${part.id})`} style={{ ...pace, ['--peak' as string]: 1 }} />}
+          {/* An arriving pulse flashes the core (one flash per pulse: the key restarts it). */}
+          {hits > 0 && <circle key={hits} className="hit" r={part.r * 1.9} fill={`url(#halo-${part.id})`} />}
+          <g
+            className={state && state !== 'down' && state !== 'off' ? 'flicker' : undefined}
+            style={pace}
+            transform={`scale(${filamentScale})`}
+          >
+            {fils.map((d, i) => (
+              <path key={i} d={d} fill="none" stroke={part.color} strokeWidth={1.1} strokeOpacity={0.75} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
             ))}
           </g>
-          <path d={soma} fill={state === 'off' ? 'none' : `url(#soma-${part.id})`} stroke={part.color} strokeOpacity={0.22} strokeWidth={1} />
-          <ellipse rx={part.r * 0.34} ry={part.r * 0.3} cx={part.r * 0.06} cy={part.r * 0.05} fill={`url(#nuc-${part.id})`} />
-          {period && (
-            <path
-              className="ca"
-              d={soma}
-              fill="#F4FFFE"
-              style={{ ['--period' as string]: `${period}s`, ['--delay' as string]: `${-delay}s`, ['--peak' as string]: 0.55 }}
-            />
-          )}
+          {/* The charged ring: it fills with light, then lets it go. Broken when partly down, red when failing. */}
+          <circle r={ringR} fill="none" stroke={ringColor} strokeWidth={1.2} strokeOpacity={0.3} vectorEffect="non-scaling-stroke" />
+          <circle
+            r={ringR}
+            fill="none"
+            stroke={ringColor}
+            strokeWidth={state === 'failing' ? 2.6 : 2}
+            strokeDasharray={state === 'partial' ? `${ringR * 0.5} ${ringR * 0.32}` : state === 'off' ? `${ringR * 0.12} ${ringR * 0.2}` : undefined}
+            vectorEffect="non-scaling-stroke"
+            className={period ? (state === 'failing' ? 'fail-rim' : 'charge') : undefined}
+            style={period ? pace : undefined}
+            opacity={period ? undefined : 0.35}
+          />
+          <circle r={coreR * 1.9} fill={`url(#halo-${part.id})`} />
+          {state !== 'off' && <circle r={coreR} fill={`url(#core-${part.id})`} />}
+          {period && <circle className="ca" r={coreR * 1.15} fill="#FFFFFF" style={{ ...pace, ['--peak' as string]: 0.7 }} />}
         </g>
-        {/* Failing: the cell's own membrane burns red. Partly down: its membrane is broken. */}
-        {state === 'failing' && (
-          <path d={soma} fill="none" stroke={FAIL} strokeWidth={2.4} vectorEffect="non-scaling-stroke" className="fail-rim" />
-        )}
-        {state === 'partial' && (
-          <path d={soma} fill="none" stroke={part.color} strokeWidth={1.6} strokeDasharray="10 7" vectorEffect="non-scaling-stroke" opacity={0.9} />
-        )}
-        {selected && <circle r={part.r * 1.42} fill="none" stroke={part.color} strokeWidth={1.2} opacity={0.9} />}
-        {/* A generous invisible target, so the whole cell is easy to hit. */}
-        <circle r={part.r * 1.5} fill="transparent" className="cursor-pointer" />
+        {selected && <circle r={part.r * 1.22} fill="none" stroke={part.color} strokeWidth={1} opacity={0.85} vectorEffect="non-scaling-stroke" />}
+        {/* A generous invisible target, so the whole node is easy to hit. */}
+        <circle r={part.r * 1.4} fill="transparent" className="cursor-pointer" />
 
         <g opacity={subsAlpha} style={{ pointerEvents: 'none' }} aria-hidden={subsAlpha < 0.5}>
           {subs.map((s) => {
-            const sx = Math.cos(s.angle) * part.r * 0.85
-            const sy = Math.sin(s.angle) * part.r * 0.85
-            const mx = (sx + s.x) / 2 + Math.sin(s.angle) * part.r * 0.18
-            const my = (sy + s.y) / 2 - Math.cos(s.angle) * part.r * 0.18
             const outward = Math.cos(s.angle) >= 0
+            // Each sub-core's label sits outside the ring on its own bearing.
+            const lr = ringR + part.r * 0.18
             return (
               <g key={s.id}>
-                <path d={`M${sx},${sy} Q${mx},${my} ${s.x},${s.y}`} fill="none" stroke={part.color} strokeWidth={1.1} opacity={0.55 * dim} />
+                <line x1={0} y1={0} x2={s.x} y2={s.y} stroke={part.color} strokeWidth={1} strokeOpacity={0.6 * dim} vectorEffect="non-scaling-stroke" />
                 <g transform={`translate(${s.x} ${s.y})`} opacity={dim}>
-                  <circle r={s.r * 2.4} fill={`url(#halo-${part.id})`} />
-                  <path d={s.path} fill={`url(#soma-${part.id})`} />
+                  <circle r={s.r * 2.6} fill={`url(#halo-${part.id})`} />
+                  <circle r={s.r} fill={`url(#core-${part.id})`} />
                 </g>
+                <line
+                  x1={s.x + Math.cos(s.angle) * s.r * 1.6}
+                  y1={s.y + Math.sin(s.angle) * s.r * 1.6}
+                  x2={Math.cos(s.angle) * lr}
+                  y2={Math.sin(s.angle) * lr}
+                  stroke="#C9D1D8"
+                  strokeOpacity={0.35}
+                  strokeWidth={0.8}
+                  vectorEffect="non-scaling-stroke"
+                />
                 <text
                   className="cell-label"
-                  x={s.x + (outward ? s.r * 1.9 : -s.r * 1.9)}
-                  y={s.y + subLabelSize * 0.35}
-                  textAnchor={outward ? 'start' : 'end'}
+                  x={Math.cos(s.angle) * (lr + 3)}
+                  y={Math.sin(s.angle) * (lr + 3) + subLabelSize * 0.35}
+                  textAnchor={Math.abs(Math.cos(s.angle)) < 0.25 ? 'middle' : outward ? 'start' : 'end'}
                   fontSize={subLabelSize}
-                  fill="#C9D1D8"
+                  fill="#D5DBE0"
                 >
                   {s.label}
                 </text>

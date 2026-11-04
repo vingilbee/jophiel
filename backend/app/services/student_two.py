@@ -119,6 +119,9 @@ def _lessons(db: Session, user_id: uuid.UUID, query: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - this decision goes without lessons
         logger.exception("student_two: reading lessons failed")
         return {"lessons_note": f"reading lessons failed: {type(exc).__name__}"}
+    if supply.views:
+        from app.services import system_signals
+        system_signals.emit(user_id, "learning", "cognition", "lessons")
     return {"lessons": supply.views, "lessons_left_out": supply.left_out,
             "lessons_note": None if supply.views or supply.left_out else "no accepted lessons"}
 

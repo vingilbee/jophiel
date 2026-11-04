@@ -50,3 +50,13 @@ def _no_learning_capture():
         yield
     finally:
         learning_capture.install(before)
+
+
+@pytest.fixture(autouse=True)
+def _no_system_signals(monkeypatch):
+    """Heartbeats and signals for the System page never reach the dev Redis (a test that checks them installs
+    its own client)."""
+    from app.services import system_signals, system_status
+
+    monkeypatch.setattr(system_signals, "_client", lambda: None)
+    monkeypatch.setattr(system_status, "_client", lambda: None)
