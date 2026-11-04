@@ -28,10 +28,21 @@ const SURFACE_MS = 800
 /** How far the camera flies in, as a multiple of the fitted zoom: the core fills the screen. */
 const DIVE_ZOOM = 22
 
-/** The jump to lightspeed: stars streak out from a point, longer and brighter as the warp builds.
- * ``dir`` "in" builds it, "out" lets it fall away. Resolves when it's done (the canvas is left clear). */
-function runWarp(canvas: HTMLCanvasElement, w: number, h: number, from: [number, number], to: [number, number],
-  dir: 'in' | 'out', ms: number): Promise<void> {
+/** One star of the sky, in the star canvas's own pixels. */
+interface Star {
+  x: number
+  y: number
+  r: number
+  alpha: number
+  color: string
+}
+
+/** The jump to lightspeed, made of the sky itself: every star on screen stretches into a streak pulling away
+ * from a vanishing point (the node), longer and brighter as the warp builds. "in" stretches the stars from
+ * their places; "out" starts stretched and lets them settle back into the same dots. ``offset`` is where the
+ * star canvas sits on screen. Resolves when done (the canvas is left clear). */
+function runWarp(canvas: HTMLCanvasElement, w: number, h: number, sky: Star[], offset: [number, number],
+  from: [number, number], to: [number, number], dir: 'in' | 'out', ms: number): Promise<void> {
   return new Promise((resolve) => {
     const ctx = canvas.getContext('2d')
     if (!ctx) return resolve()
@@ -39,36 +50,46 @@ function runWarp(canvas: HTMLCanvasElement, w: number, h: number, from: [number,
     canvas.width = Math.round(w * dpr)
     canvas.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const rand = rng(Math.floor(performance.now()))
+    // Only the stars you can see (and a margin) take part.
+    const stars = sky
+      .map((st) => ({ ...st, x: st.x + offset[0], y: st.y + offset[1] }))
+      .filter((st) => st.x > -40 && st.x < w + 40 && st.y > -40 && st.y < h + 40)
     const reach = Math.hypot(w, h)
-    const stars = Array.from({ length: 340 }, () => {
-      const tint = rand()
-      return {
-        a: rand() * Math.PI * 2,
-        d: 12 + Math.pow(rand(), 0.7) * reach * 0.6,
-        color: tint < 0.4 ? `rgb(${STAR_TINTS[Math.floor(rand() * STAR_TINTS.length)]})` : '#FFFFFF',
-      }
-    })
     const t0 = performance.now()
     const frame = (now: number) => {
       const t = Math.min(1, (now - t0) / ms)
       const e = dir === 'in' ? easeInCubic(t) : 1 - easeOutCubic(t)
-      // The streaks' vanishing point follows the node as the camera brings it to the middle.
-      const m = dir === 'in' ? easeOutCubic(t) : 1 - t
+      // The vanishing point follows the node as the camera brings it to the middle (or back to its place).
+      const m = dir === 'in' ? easeOutCubic(t) : t
       const cx = from[0] + (to[0] - from[0]) * m
       const cy = from[1] + (to[1] - from[1]) * m
       ctx.clearRect(0, 0, w, h)
       ctx.lineCap = 'round'
-      for (const s of stars) {
-        const r1 = s.d * (1 + e * 1.8)
-        const r2 = r1 + 2 + e * e * (s.d / reach) * 900
-        ctx.strokeStyle = s.color
-        ctx.globalAlpha = Math.min(1, 0.2 + e * 0.9)
-        ctx.lineWidth = 0.7 + e * 1.6
-        ctx.beginPath()
-        ctx.moveTo(cx + Math.cos(s.a) * r1, cy + Math.sin(s.a) * r1)
-        ctx.lineTo(cx + Math.cos(s.a) * r2, cy + Math.sin(s.a) * r2)
-        ctx.stroke()
+      for (const st of stars) {
+        const vx = st.x - cx
+        const vy = st.y - cy
+        // Farther stars streak longer, as they would rushing past.
+        const far = Math.hypot(vx, vy) / reach
+        const head = 1 + e * (0.25 + far * 2.6)
+        const tail = 1 + e * 0.06
+        const x1 = cx + vx * tail
+        const y1 = cy + vy * tail
+        const x2 = cx + vx * head
+        const y2 = cy + vy * head
+        ctx.globalAlpha = Math.min(1, st.alpha + (1 - st.alpha) * e * 0.85)
+        if (Math.hypot(x2 - x1, y2 - y1) < 0.6) {
+          ctx.fillStyle = `rgb(${st.color})`
+          ctx.beginPath()
+          ctx.arc(x1, y1, st.r, 0, Math.PI * 2)
+          ctx.fill()
+        } else {
+          ctx.strokeStyle = `rgb(${st.color})`
+          ctx.lineWidth = st.r * 2 * (1 + e * 0.5)
+          ctx.beginPath()
+          ctx.moveTo(x1, y1)
+          ctx.lineTo(x2, y2)
+          ctx.stroke()
+        }
       }
       if (t < 1) requestAnimationFrame(frame)
       else {
@@ -85,7 +106,7 @@ function prefersReducedMotion() {
 }
 
 /** The star field behind her: white points of many sizes, painted once and moved with parallax. */
-function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
+function useStars(canvas: HTMLCanvasElement | null, W: number, H: number, sky: { current: Star[] }) {
   useEffect(() => {
     if (!canvas || !W || !H) return
     const ctx = canvas.getContext('2d')
@@ -97,6 +118,7 @@ function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
     const rand = rng(11)
     ctx.clearRect(0, 0, W, H)
     const count = Math.round((W * H) / 1900)
+    const stars: Star[] = []
     for (let i = 0; i < count; i++) {
       const x = rand() * W
       const y = rand() * H
@@ -120,8 +142,10 @@ function useStars(canvas: HTMLCanvasElement | null, W: number, H: number) {
       ctx.beginPath()
       ctx.arc(x, y, r, 0, Math.PI * 2)
       ctx.fill()
+      stars.push({ x, y, r, alpha, color })
     }
-  }, [canvas, W, H])
+    sky.current = stars
+  }, [canvas, W, H, sky])
 }
 
 /** The parts' colours as rgb triples, for tinted stars. */
@@ -182,7 +206,8 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
   const kFit = size.w && size.h ? Math.min(size.w / content.w, (size.h - padTop - padBottom) / content.h) * 0.96 : 1
   const CW = Math.round(FIELD_W * EXT * kFit)
   const CH = Math.round(FIELD_H * EXT * kFit)
-  useStars(canvas, CW, CH)
+  const sky = useRef<Star[]>([])
+  useStars(canvas, CW, CH, sky)
 
   const fitView = useCallback(
     (): View => ({
@@ -192,6 +217,22 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
     }),
     [kFit, size.w, size.h, content, padTop],
   )
+
+  /** Where the star canvas sits on screen for a view. Stars are at infinity: they never grow with the zoom,
+   * they only drift by at half the pan. */
+  const starOffset = useCallback(
+    (v: View): [number, number] => {
+      const depth = 0.5
+      const cw = (size.w / 2 - v.x) / v.k
+      const ch = (size.h / 2 - v.y) / v.k
+      const bw = FIELD_W / 2 + (cw - FIELD_W / 2) * depth
+      const bh = FIELD_H / 2 + (ch - FIELD_H / 2) * depth
+      return [size.w / 2 - (bw + (FIELD_W * (EXT - 1)) / 2) * kFit, size.h / 2 - (bh + (FIELD_H * (EXT - 1)) / 2) * kFit]
+    },
+    [size.w, size.h, FIELD_W, FIELD_H, kFit],
+  )
+  // While the sky warps it is drawn on the warp canvas, so the painted one steps aside.
+  const [warping, setWarping] = useState(false)
 
   const commit = useCallback((v: View) => {
     viewRef.current = v
@@ -303,7 +344,11 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
     const p = layout.byId[id]
     const from: [number, number] = [v.x + p.x * v.k, v.y + p.y * v.k]
     animateTo(divedView(id), DIVE_MS, easeInCubic, { x: p.x, y: p.y })
-    if (warp.current) void runWarp(warp.current, size.w, size.h, from, [size.w / 2, size.h / 2], 'in', DIVE_MS)
+    if (warp.current) {
+      setWarping(true)
+      void runWarp(warp.current, size.w, size.h, sky.current, starOffset(v), from, [size.w / 2, size.h / 2], 'in', DIVE_MS)
+        .then(() => setWarping(false))
+    }
     setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'in' })
     window.setTimeout(() => {
       diving.current = false
@@ -314,12 +359,12 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
   const previous = useRef<PartId | null>(null)
   const hasView = view !== null
   // What the effect below needs, read fresh; it runs only when the open part changes (or the field first appears).
-  const latest = useRef({ divedView, fitView, commit, animateTo, layout, size })
+  const latest = useRef({ divedView, fitView, commit, animateTo, layout, size, starOffset })
   useEffect(() => {
-    latest.current = { divedView, fitView, commit, animateTo, layout, size }
+    latest.current = { divedView, fitView, commit, animateTo, layout, size, starOffset }
   })
   useEffect(() => {
-    const { divedView, fitView, commit, animateTo, layout, size } = latest.current
+    const { divedView, fitView, commit, animateTo, layout, size, starOffset } = latest.current
     const before = previous.current
     previous.current = selected
     if (!viewRef.current) return
@@ -338,7 +383,10 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
       setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'out' })
       animateTo(back, SURFACE_MS, easeOutCubic, { x: p.x, y: p.y })
       if (warp.current && !prefersReducedMotion()) {
-        void runWarp(warp.current, size.w, size.h, [size.w / 2, size.h / 2], [back.x + p.x * back.k, back.y + p.y * back.k], 'out', SURFACE_MS)
+        // The stars settle into the places they'll have once the camera is back.
+        setWarping(true)
+        void runWarp(warp.current, size.w, size.h, sky.current, starOffset(back), [size.w / 2, size.h / 2],
+          [back.x + p.x * back.k, back.y + p.y * back.k], 'out', SURFACE_MS).then(() => setWarping(false))
       }
       window.setTimeout(() => setFlare(null), SURFACE_MS)
     }
@@ -549,19 +597,10 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
   const subLabelSize = v ? (11.5 * Math.pow(mag, 0.12)) / v.k : 11
   const stateOf = (id: PartId): PartState | undefined => statuses[id]?.state
 
-  // The stars sit deeper than the cells: they move at half the pan and grow slower than the zoom.
-  let tissueTransform = ''
-  if (v) {
-    // Stars are at infinity: they never grow with the zoom, they only drift by at half the pan.
-    const depth = 0.5
-    const cw = (size.w / 2 - v.x) / v.k
-    const ch = (size.h / 2 - v.y) / v.k
-    const bw = FIELD_W / 2 + (cw - FIELD_W / 2) * depth
-    const bh = FIELD_H / 2 + (ch - FIELD_H / 2) * depth
-    const tx = size.w / 2 - (bw + (FIELD_W * (EXT - 1)) / 2) * kFit
-    const ty = size.h / 2 - (bh + (FIELD_H * (EXT - 1)) / 2) * kFit
-    tissueTransform = `translate(${tx}px, ${ty}px)`
-  }
+  const tissueTransform = view ? (() => {
+    const [tx, ty] = starOffset(view)
+    return `translate(${tx}px, ${ty}px)`
+  })() : ''
 
   return (
     <div
@@ -579,7 +618,7 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
       <div
         aria-hidden="true"
         className="pointer-events-none absolute top-0 left-0 origin-top-left"
-        style={{ transform: tissueTransform, width: CW, height: CH }}
+        style={{ transform: tissueTransform, width: CW, height: CH, opacity: warping ? 0 : 1 }}
       >
         <canvas ref={setCanvas} className="absolute inset-0" style={{ width: CW, height: CH }} />
         {TWINKLES.map((t, i) => (
