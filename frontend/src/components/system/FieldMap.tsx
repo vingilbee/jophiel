@@ -21,10 +21,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const easeOutExpo = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t))
 const easeInCubic = (t: number) => t * t * t
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
-/** How long the jump into a part takes, and the way back out, in milliseconds. */
+/** The jump into a part: first the camera turns to put the node in the middle, then it flies in; the way
+ * back zooms out with the node still in the middle, then returns. In milliseconds. */
+const AIM_MS = 420
 const DIVE_MS = 900
 const SURFACE_MS = 800
+const RETURN_MS = 480
 /** How far the camera flies in, as a multiple of the fitted zoom: the core fills the screen. */
 const DIVE_ZOOM = 22
 
@@ -342,18 +346,24 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
     diving.current = true
     saved.current = v
     const p = layout.byId[id]
-    const from: [number, number] = [v.x + p.x * v.k, v.y + p.y * v.k]
-    animateTo(divedView(id), DIVE_MS, easeInCubic, { x: p.x, y: p.y })
-    if (warp.current) {
-      setWarping(true)
-      void runWarp(warp.current, size.w, size.h, sky.current, starOffset(v), from, [size.w / 2, size.h / 2], 'in', DIVE_MS)
-        .then(() => setWarping(false))
-    }
-    setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'in' })
+    const centre: [number, number] = [size.w / 2, size.h / 2]
+    // 1. Aim: the camera turns so the node sits in the middle (same zoom).
+    const aimed = { k: v.k, x: size.w / 2 - p.x * v.k, y: size.h / 2 - p.y * v.k }
+    animateTo(aimed, AIM_MS, easeInOutCubic)
+    // 2. Fly in: straight into the node, the sky warping around it, its light flooding the screen.
+    window.setTimeout(() => {
+      animateTo(divedView(id), DIVE_MS, easeInCubic, { x: p.x, y: p.y })
+      if (warp.current) {
+        setWarping(true)
+        void runWarp(warp.current, size.w, size.h, sky.current, starOffset(aimed), centre, centre, 'in', DIVE_MS)
+          .then(() => setWarping(false))
+      }
+      setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'in' })
+    }, AIM_MS)
     window.setTimeout(() => {
       diving.current = false
       onSelect(id)
-    }, DIVE_MS)
+    }, AIM_MS + DIVE_MS)
   }
 
   const previous = useRef<PartId | null>(null)
@@ -376,17 +386,24 @@ export function FieldMap({ statuses, selected, onSelect, signals = [], onDive }:
     } else if (selected && !before) {
       setFlare((f) => (f ? { ...f, phase: 'held' } : f))
     } else if (!selected && before) {
-      // Back out: the light falls away, the streaks shrink back into stars, the camera returns.
+      // Back out: zoom out with the node still in the middle (the light falls away, the streaks shrink back into
+      // stars), then the camera returns to where it was.
       const back = saved.current ?? fitView()
       saved.current = null
       const p = layout.byId[before]
+      const centre: [number, number] = [size.w / 2, size.h / 2]
+      const aimed = { k: back.k, x: size.w / 2 - p.x * back.k, y: size.h / 2 - p.y * back.k }
       setFlare({ x: size.w / 2, y: size.h / 2, color: p.color, phase: 'out' })
-      animateTo(back, SURFACE_MS, easeOutCubic, { x: p.x, y: p.y })
-      if (warp.current && !prefersReducedMotion()) {
-        // The stars settle into the places they'll have once the camera is back.
-        setWarping(true)
-        void runWarp(warp.current, size.w, size.h, sky.current, starOffset(back), [size.w / 2, size.h / 2],
-          [back.x + p.x * back.k, back.y + p.y * back.k], 'out', SURFACE_MS).then(() => setWarping(false))
+      if (prefersReducedMotion()) {
+        commit(back)
+      } else {
+        animateTo(aimed, SURFACE_MS, easeOutCubic, { x: p.x, y: p.y })
+        if (warp.current) {
+          setWarping(true)
+          void runWarp(warp.current, size.w, size.h, sky.current, starOffset(aimed), centre, centre, 'out', SURFACE_MS)
+            .then(() => setWarping(false))
+        }
+        window.setTimeout(() => latest.current.animateTo(back, RETURN_MS, easeInOutCubic), SURFACE_MS)
       }
       window.setTimeout(() => setFlare(null), SURFACE_MS)
     }
