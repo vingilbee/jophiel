@@ -1,0 +1,699 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-04T01:33:43.415567+00:00",
+  "title": "Design System: Jophiel",
+  "extensions": {
+    "scope": "Owner-only System page (/system) only. The rest of the app is an unrecorded light incumbent; no tokens here describe it.",
+    "colorMeta": {
+      "cfp-cognition": {
+        "role": "primary",
+        "displayName": "CFP Cyan",
+        "canonical": "#3FD3F0",
+        "oklch": "oklch(80.3% 0.126 214.0)",
+        "tonalRamp": [
+          "#00101B",
+          "#002D3C",
+          "#004E62",
+          "#007189",
+          "#0093AD",
+          "#4FB5CB",
+          "#89D7E9",
+          "#BFFAFF"
+        ]
+      },
+      "gfp-mouth": {
+        "role": "primary",
+        "displayName": "GFP Green",
+        "canonical": "#4BE37A",
+        "oklch": "oklch(81.2% 0.193 149.8)",
+        "tonalRamp": [
+          "#001400",
+          "#003300",
+          "#005605",
+          "#007B1C",
+          "#009E41",
+          "#53BF70",
+          "#8CE09E",
+          "#C1FFCD"
+        ]
+      },
+      "mcherry-mind": {
+        "role": "primary",
+        "displayName": "mCherry Rose",
+        "canonical": "#FF5C8A",
+        "oklch": "oklch(70.1% 0.200 6.6)",
+        "tonalRamp": [
+          "#270005",
+          "#51001B",
+          "#7E0034",
+          "#AF1650",
+          "#D84470",
+          "#F47695",
+          "#FFA5BB",
+          "#FFD3E4"
+        ]
+      },
+      "yfp-hands": {
+        "role": "primary",
+        "displayName": "YFP Amber",
+        "canonical": "#F5D23A",
+        "oklch": "oklch(86.9% 0.163 95.3)",
+        "tonalRamp": [
+          "#160800",
+          "#352200",
+          "#573E00",
+          "#7C5D00",
+          "#9F7F00",
+          "#BEA438",
+          "#DEC978",
+          "#FFEFB1"
+        ]
+      },
+      "morange-memory": {
+        "role": "primary",
+        "displayName": "mOrange",
+        "canonical": "#FF9A3C",
+        "oklch": "oklch(77.6% 0.159 59.2)",
+        "tonalRamp": [
+          "#200000",
+          "#461200",
+          "#6F2B00",
+          "#9B4500",
+          "#C16800",
+          "#DE914F",
+          "#FBB986",
+          "#FFE3BB"
+        ]
+      },
+      "bfp-observation": {
+        "role": "primary",
+        "displayName": "BFP Blue",
+        "canonical": "#6E8CFF",
+        "oklch": "oklch(67.2% 0.173 270.2)",
+        "tonalRamp": [
+          "#03032E",
+          "#131C59",
+          "#283888",
+          "#4056BB",
+          "#5E79E1",
+          "#859FFA",
+          "#ADC6FF",
+          "#D8EDFF"
+        ]
+      },
+      "venus-learning": {
+        "role": "primary",
+        "displayName": "Venus Violet",
+        "canonical": "#B77DFF",
+        "oklch": "oklch(70.3% 0.189 302.4)",
+        "tonalRamp": [
+          "#14002A",
+          "#310B54",
+          "#522581",
+          "#763FB1",
+          "#9762D7",
+          "#B78CF1",
+          "#D8B6FF",
+          "#FAE0FF"
+        ]
+      },
+      "field-black": {
+        "role": "neutral",
+        "displayName": "Field Black",
+        "canonical": "#040506",
+        "oklch": "oklch(11.4% 0.004 245.0)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#242526",
+          "#404244",
+          "#5F6163",
+          "#808385",
+          "#A3A5A7",
+          "#C8C9CB",
+          "#EDEFF0"
+        ]
+      },
+      "slide-sheet": {
+        "role": "neutral",
+        "displayName": "Slide Sheet",
+        "canonical": "#07090B",
+        "oklch": "oklch(13.8% 0.006 245.0)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#242527",
+          "#404244",
+          "#5F6264",
+          "#808385",
+          "#A3A5A8",
+          "#C7C9CB",
+          "#EDEFF0"
+        ]
+      },
+      "chrome-glass": {
+        "role": "neutral",
+        "displayName": "Chrome Glass",
+        "canonical": "#0A0D10",
+        "oklch": "oklch(15.7% 0.008 248.4)",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#232527",
+          "#3F4245",
+          "#5E6265",
+          "#7F8387",
+          "#A2A5A9",
+          "#C7C9CC",
+          "#ECEFF1"
+        ]
+      },
+      "hover-wash": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "canonical": "#151A1F",
+        "oklch": "oklch(21.5% 0.012 248.4)",
+        "tonalRamp": [
+          "#090B0E",
+          "#222529",
+          "#3E4347",
+          "#5C6268",
+          "#7D8389",
+          "#A0A6AB",
+          "#C5CACE",
+          "#EBEFF2"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#151A1F",
+        "oklch": "oklch(21.5% 0.012 248.4)",
+        "tonalRamp": [
+          "#090B0E",
+          "#222529",
+          "#3E4347",
+          "#5C6268",
+          "#7D8389",
+          "#A0A6AB",
+          "#C5CACE",
+          "#EBEFF2"
+        ]
+      },
+      "reticle-rule": {
+        "role": "neutral",
+        "displayName": "Reticle Rule",
+        "canonical": "#2A3138",
+        "oklch": "oklch(30.9% 0.016 248.3)",
+        "tonalRamp": [
+          "#090B0E",
+          "#21262A",
+          "#3D4348",
+          "#5B6269",
+          "#7C838B",
+          "#9FA6AD",
+          "#C4CAD0",
+          "#EAEFF4"
+        ]
+      },
+      "reticle-tick": {
+        "role": "neutral",
+        "displayName": "Reticle Tick",
+        "canonical": "#4A545D",
+        "oklch": "oklch(44.0% 0.020 245.4)",
+        "tonalRamp": [
+          "#080C0F",
+          "#20262B",
+          "#3B434A",
+          "#59636B",
+          "#7A848D",
+          "#9DA6AE",
+          "#C3CAD1",
+          "#E9EFF5"
+        ]
+      },
+      "reticle-hover": {
+        "role": "neutral",
+        "displayName": "Reticle Hover",
+        "canonical": "#5A6670",
+        "oklch": "oklch(50.4% 0.022 243.3)",
+        "tonalRamp": [
+          "#080C0F",
+          "#1F262B",
+          "#3A434B",
+          "#58636C",
+          "#78848E",
+          "#9CA7AF",
+          "#C2CAD2",
+          "#E9EFF5"
+        ]
+      },
+      "dark-pixel": {
+        "role": "neutral",
+        "displayName": "Dark Pixel",
+        "canonical": "#3A434B",
+        "oklch": "oklch(37.8% 0.018 245.1)",
+        "tonalRamp": [
+          "#080C0F",
+          "#21262A",
+          "#3C4349",
+          "#5A626A",
+          "#7A848C",
+          "#9EA6AE",
+          "#C3CAD0",
+          "#EAEFF4"
+        ]
+      },
+      "soma-core": {
+        "role": "neutral",
+        "displayName": "Soma Core",
+        "canonical": "#F4FFFE",
+        "oklch": "oklch(99.2% 0.012 190.5)",
+        "tonalRamp": [
+          "#090C0C",
+          "#212626",
+          "#3D4443",
+          "#5B6362",
+          "#7B8484",
+          "#9FA7A6",
+          "#C4CBCA",
+          "#EAF0EF"
+        ]
+      },
+      "ink-bright": {
+        "role": "neutral",
+        "displayName": "Ink Bright",
+        "canonical": "#EEF1F3",
+        "oklch": "oklch(95.6% 0.004 236.5)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#242526",
+          "#404243",
+          "#5F6263",
+          "#808384",
+          "#A3A5A7",
+          "#C7C9CB",
+          "#EDEFF0"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#E9EDF0",
+        "oklch": "oklch(94.4% 0.006 239.8)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#232527",
+          "#404244",
+          "#5E6264",
+          "#7F8385",
+          "#A2A5A8",
+          "#C7C9CB",
+          "#EDEFF0"
+        ]
+      },
+      "ink-heading": {
+        "role": "neutral",
+        "displayName": "Ink Heading",
+        "canonical": "#DDE3E8",
+        "oklch": "oklch(91.3% 0.009 242.8)",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#232528",
+          "#3F4246",
+          "#5D6266",
+          "#7E8387",
+          "#A1A6A9",
+          "#C6CACD",
+          "#ECEFF1"
+        ]
+      },
+      "ink-body": {
+        "role": "neutral",
+        "displayName": "Ink Body",
+        "canonical": "#D5DBE0",
+        "oklch": "oklch(88.8% 0.009 242.9)",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#232528",
+          "#3F4346",
+          "#5D6266",
+          "#7E8387",
+          "#A1A6A9",
+          "#C6CACD",
+          "#ECEFF1"
+        ]
+      },
+      "ink-list": {
+        "role": "neutral",
+        "displayName": "Ink List",
+        "canonical": "#C5CDD5",
+        "oklch": "oklch(84.5% 0.014 248.0)",
+        "tonalRamp": [
+          "#090B0E",
+          "#222629",
+          "#3D4348",
+          "#5C6269",
+          "#7C838A",
+          "#A0A6AC",
+          "#C5CACF",
+          "#EBEFF3"
+        ]
+      },
+      "ink-sub": {
+        "role": "neutral",
+        "displayName": "Ink Sub",
+        "canonical": "#C9D1D8",
+        "oklch": "oklch(85.7% 0.013 244.3)",
+        "tonalRamp": [
+          "#090B0E",
+          "#222629",
+          "#3E4347",
+          "#5C6268",
+          "#7C8389",
+          "#A0A6AB",
+          "#C5CACE",
+          "#EBEFF3"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary",
+        "canonical": "#AEB7BF",
+        "oklch": "oklch(77.5% 0.015 244.8)",
+        "tonalRamp": [
+          "#090C0E",
+          "#21262A",
+          "#3D4348",
+          "#5B6269",
+          "#7C838A",
+          "#9FA6AC",
+          "#C4CACF",
+          "#EAEFF3"
+        ]
+      },
+      "ink-role": {
+        "role": "neutral",
+        "displayName": "Ink Role",
+        "canonical": "#9AA5B1",
+        "oklch": "oklch(71.7% 0.021 250.5)",
+        "tonalRamp": [
+          "#080C10",
+          "#20262C",
+          "#3B434B",
+          "#59626C",
+          "#7A838E",
+          "#9DA6AF",
+          "#C3CAD2",
+          "#E9EFF5"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "canonical": "#8C97A3",
+        "oklch": "oklch(67.1% 0.022 250.5)",
+        "tonalRamp": [
+          "#080C10",
+          "#20262C",
+          "#3B434B",
+          "#59626D",
+          "#7A848E",
+          "#9DA6B0",
+          "#C3CAD2",
+          "#E9EFF6"
+        ]
+      },
+      "ink-time": {
+        "role": "neutral",
+        "displayName": "Ink Time",
+        "canonical": "#7D8790",
+        "oklch": "oklch(61.8% 0.018 245.2)",
+        "tonalRamp": [
+          "#080C0F",
+          "#21262A",
+          "#3C4349",
+          "#5A626A",
+          "#7A848C",
+          "#9EA6AD",
+          "#C3CAD0",
+          "#EAEFF4"
+        ]
+      },
+      "fail-red": {
+        "role": "error",
+        "displayName": "Fail Red",
+        "canonical": "#FF4136",
+        "oklch": "oklch(66.0% 0.227 28.4)",
+        "tonalRamp": [
+          "#2B0000",
+          "#580000",
+          "#880000",
+          "#BC0000",
+          "#E5382E",
+          "#FF7262",
+          "#FFA393",
+          "#FFD2C4"
+        ]
+      },
+      "error-text": {
+        "role": "error",
+        "displayName": "Error Text",
+        "canonical": "#FF8A80",
+        "oklch": "oklch(75.9% 0.144 26.1)",
+        "tonalRamp": [
+          "#210000",
+          "#480B0B",
+          "#722320",
+          "#9F3C37",
+          "#C55F57",
+          "#E38880",
+          "#FFB2AA",
+          "#FFDDD6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Part name in the details panel."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Specimen label top left."
+      },
+      "cell-label": {
+        "displayName": "Cell Label",
+        "purpose": "Part names on the field; scales with magnification^0.22; 650 when selected."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Entry text in the panel."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Panel section headings (600); status line and page links (400)."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Entry meta lines in the fluorophore, relative times, gauge hint; tabular figures."
+      },
+      "sub-label": {
+        "displayName": "Sub-label",
+        "purpose": "Sub-cell names once they resolve past ×1.9."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sheet-edge",
+        "value": "-24px 0 48px rgba(0,0,0,0.55)",
+        "purpose": "Details panel over the field."
+      },
+      {
+        "name": "fluorophore-dot-glow",
+        "value": "0 0 14px <fluorophore>",
+        "purpose": "The panel's part dot."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Calcium transients and disclosure chevron."
+      },
+      {
+        "name": "ca-period-alive",
+        "value": "2.8s",
+        "purpose": "Transient period, alive."
+      },
+      {
+        "name": "ca-period-busy",
+        "value": "1.05s",
+        "purpose": "Transient period, working."
+      },
+      {
+        "name": "ca-period-partial",
+        "value": "4.4s",
+        "purpose": "Transient period, partly down."
+      },
+      {
+        "name": "ca-period-failing",
+        "value": "1.6s",
+        "purpose": "Transient period, failing."
+      },
+      {
+        "name": "fail-rim",
+        "value": "1.2s ease-in-out infinite",
+        "purpose": "Red rim pulse on a failing cell."
+      },
+      {
+        "name": "drift",
+        "value": "19s / 23s / 27s ease-in-out infinite",
+        "purpose": "A cell floating in its medium (a few field units)."
+      },
+      {
+        "name": "view-move",
+        "value": "420ms exponential ease-out, zoom in log space",
+        "purpose": "Pan, zoom and fit animations."
+      },
+      {
+        "name": "chrome-shift",
+        "value": "300ms ease-out",
+        "purpose": "Bottom chrome making room for the open panel."
+      },
+      {
+        "name": "disclosure",
+        "value": "160ms",
+        "purpose": "Chevron turning 90° as details open."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "none",
+        "purpose": "Transients, drift and pulse stop; view changes jump."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px",
+        "purpose": "Panel becomes a 460px right sheet; gutters 16px -> 24px."
+      },
+      {
+        "name": "portrait",
+        "value": "height > 1.15 × width",
+        "purpose": "Field turned on its side."
+      }
+    ],
+    "zoom": {
+      "min": "×1 (fit)",
+      "max": "×6",
+      "subsFrom": "×1.9",
+      "subsFull": "×2.7"
+    }
+  },
+  "components": [
+    {
+      "name": "Zoom Chrome Button",
+      "kind": "button",
+      "refersTo": "chrome-button",
+      "description": "Round glass zoom control in the field's bottom-right overlay.",
+      "html": "<button class=\"ds-chrome-btn\" aria-label=\"Zoom in\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M8 3.5v9M3.5 8h9\"/></svg></button>",
+      "css": ".ds-chrome-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9999px;border:1px solid #2A3138;background:rgba(10,13,16,0.9);color:#DDE3E8;cursor:pointer;transition:border-color 150ms,color 150ms}.ds-chrome-btn:hover{border-color:#5A6670;color:#fff}.ds-chrome-btn:focus-visible{outline:1.5px solid #3FD3F0;outline-offset:3px}.ds-chrome-btn:disabled{opacity:.35;cursor:default}"
+    },
+    {
+      "name": "Panel Close",
+      "kind": "button",
+      "refersTo": "panel-close",
+      "description": "Borderless round close button in the details panel header.",
+      "html": "<button class=\"ds-close\" aria-label=\"Close details\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg></button>",
+      "css": ".ds-close{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9999px;border:0;background:transparent;color:#AEB7BF;cursor:pointer;transition:background 150ms,color 150ms}.ds-close:hover{background:#151A1F;color:#fff}.ds-close:focus-visible{outline:1.5px solid #FF5C8A;outline-offset:3px}"
+    },
+    {
+      "name": "Specimen Label",
+      "kind": "nav",
+      "refersTo": "specimen-label",
+      "description": "Top-left overlay: name, live status counts, page links.",
+      "html": "<div class=\"ds-specimen\"><p class=\"ds-specimen-t\">Jophiel <span>· live field</span></p><p class=\"ds-specimen-s\">4 running · 2 in trouble · 1 down</p><nav class=\"ds-specimen-n\"><a href=\"#\">Voice</a><a href=\"#\">Chat</a><a href=\"#\">Integrations</a></nav></div>",
+      "css": ".ds-specimen{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;background:#040506;padding:24px;color:#E9EDF0}.ds-specimen-t{margin:0;font-size:19px;line-height:1;font-weight:600;letter-spacing:-0.02em}.ds-specimen-t span{font-weight:400;color:#8C969F}.ds-specimen-s{margin:8px 0 0;font-size:13px;color:#AEB7BF;font-variant-numeric:tabular-nums}.ds-specimen-n{margin-top:12px;display:flex;gap:16px;font-size:13px}.ds-specimen-n a{color:#8C969F;text-decoration:none;transition:color 150ms}.ds-specimen-n a:hover{color:#fff}.ds-specimen-n a:focus-visible{outline:1.5px solid #3FD3F0;outline-offset:3px}"
+    },
+    {
+      "name": "Magnification Gauge",
+      "kind": "custom",
+      "description": "×1–×6 log tick gauge with live readout; replaces a scale bar.",
+      "html": "<div class=\"ds-mag\"><span class=\"ds-mag-r\">×2.0</span><span class=\"ds-mag-l\"><i style=\"left:0\"></i><i style=\"left:38.7%\"></i><i style=\"left:77.4%\"></i><i style=\"left:100%\"></i><b style=\"width:38.7%\"></b><u style=\"left:38.7%\"></u></span><span class=\"ds-mag-h\">inside view</span></div>",
+      "css": ".ds-mag{display:flex;align-items:center;gap:12px;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;color:#AEB7BF;background:#040506;padding:16px}.ds-mag-r{width:48px;font-size:13px;font-weight:500;color:#E9EDF0;font-variant-numeric:tabular-nums}.ds-mag-l{position:relative;display:block;height:1px;width:160px;background:#2A3138}.ds-mag-l i{position:absolute;top:0;height:5px;width:1px;background:#4A545D}.ds-mag-l b{position:absolute;top:0;left:0;height:1px;background:#E9EDF0}.ds-mag-l u{position:absolute;top:-4px;height:9px;width:1px;background:#E9EDF0}.ds-mag-h{font-size:12px}"
+    },
+    {
+      "name": "Details Panel",
+      "kind": "card",
+      "refersTo": "part-panel",
+      "description": "Plain dark sheet for one part, carrying its fluorophore in dot, border and meta.",
+      "html": "<aside class=\"ds-panel\" style=\"--part:#FF5C8A\"><header class=\"ds-panel-h\"><span class=\"ds-dot\"></span><div><h2>Mind</h2><p>Thinks on her own: quick and hard thoughts, her game planner, and her mood.</p></div></header><h3>Her thoughts</h3><ol class=\"ds-feed\"><li><div class=\"ds-meta\"><span>hard thought · intention · quiet</span><time>53 s ago</time></div><div class=\"ds-text\">I’ll ask how the interview went once they’re back, not before.</div></li><li><div class=\"ds-meta\"><span>hard thought · guess · stale</span><time>7 min ago</time></div><div class=\"ds-text\">The cave entrance north of the base probably connects to the ravine.</div></li></ol></aside>",
+      "css": ".ds-panel{font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;width:460px;max-width:100%;background:#07090B;border-left:1px solid color-mix(in srgb,var(--part) 33%,transparent);box-shadow:-24px 0 48px rgba(0,0,0,.55);padding:24px;color:#D5DBE0}.ds-panel-h{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.ds-dot{margin-top:8px;width:10px;height:10px;border-radius:9999px;flex-shrink:0;background:var(--part);box-shadow:0 0 14px var(--part)}.ds-panel h2{margin:0;font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#EEF1F3}.ds-panel-h p{margin:6px 0 0;font-size:13px;line-height:1.625;color:#9AA5B1}.ds-panel h3{margin:0 0 8px;font-size:13px;font-weight:600;color:#DDE3E8}.ds-feed{list-style:none;margin:0;padding:0}.ds-feed li{padding:12px 0;border-bottom:1px solid #151A1F}.ds-feed li:last-child{border-bottom:0}.ds-meta{display:flex;gap:12px;font-size:12px}.ds-meta span{flex:1;color:var(--part)}.ds-meta time{color:#7D8790;font-variant-numeric:tabular-nums}.ds-text{margin-top:4px;font-size:13.5px;line-height:1.625}"
+    },
+    {
+      "name": "Cell",
+      "kind": "custom",
+      "description": "A part as a glowing soma with halo, dendrites, nucleus, ringed label and state word.",
+      "html": "<svg class=\"ds-cell\" width=\"240\" height=\"200\" viewBox=\"-120 -90 240 200\"><defs><radialGradient id=\"dsh\"><stop offset=\"0\" stop-color=\"#3FD3F0\" stop-opacity=\".5\"/><stop offset=\".45\" stop-color=\"#3FD3F0\" stop-opacity=\".14\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"dss\" cx=\"45%\" cy=\"40%\" r=\"62%\"><stop offset=\"0\" stop-color=\"#F4FFFE\" stop-opacity=\".95\"/><stop offset=\".28\" stop-color=\"#3FD3F0\" stop-opacity=\".95\"/><stop offset=\"1\" stop-color=\"#3FD3F0\" stop-opacity=\".9\"/></radialGradient></defs><circle r=\"86\" fill=\"url(#dsh)\"/><circle class=\"ds-ca\" r=\"76\" fill=\"url(#dsh)\"/><path d=\"M32,0C32,12 22,30 4,31C-14,33 -31,20 -31,2C-32,-16 -18,-30 0,-32C18,-33 32,-14 32,0Z\" fill=\"url(#dss)\"/><text class=\"ds-cell-l\" y=\"62\" text-anchor=\"middle\" font-size=\"15\" fill=\"#E9EDF0\" font-weight=\"560\">Cognition</text><text class=\"ds-cell-l\" y=\"79\" text-anchor=\"middle\" font-size=\"11\" fill=\"#3FD3F0\">working</text></svg>",
+      "css": ".ds-cell{background:#040506;font-family:'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif}.ds-cell-l{paint-order:stroke;stroke:#040506;stroke-width:.32em;stroke-linejoin:round}@keyframes ds-ca{0%{opacity:0}5%{opacity:.95}100%{opacity:0}}.ds-ca{opacity:0;animation:ds-ca 1.05s cubic-bezier(.16,1,.3,1) infinite}@media (prefers-reduced-motion:reduce){.ds-ca{animation:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Live Field",
+    "overview": "Jophiel's parts are seen the way a confocal microscope sees a stained tissue sample: a black field, a few labelled cells glowing in their own fluorophores, tapered axons between them, and out-of-focus tissue blurring into the dark. A part being alive is a cell glowing and flashing with a calcium transient; a part that is down is a dim cell; a failing part's own membrane burns red. Everything the visitor reads besides the cells is the microscope's own overlay: a specimen label top left, a magnification gauge bottom left, round zoom controls bottom right. The world refuses the category default for \"system status\": no node-graph dashboard of rounded boxes, neon edges and a stats sidebar.\n\nThe field is full-bleed and spatial, not paged. It is a map you drag, wheel, pinch and key around, from ×1 (the whole field) to ×6, and as you zoom past ×1.9 each cell's sub-parts resolve around it, fully legible by ×2.7. Clicking a cell opens a plain dark sheet on the right (a bottom sheet on phones) that carries that cell's fluorophore in its dot, its border and its meta lines, and lists the part's real recent records as quiet rule-divided entries. The density is low on the field and comfortable in the sheet.\n\n**Scope.** This world is built only on the owner-only System page (`/system`). The rest of the app (chat, voice dashboard, login, integrations, predict) predates it, uses a light pale-blue and lavender look written as hardcoded Tailwind hexes, and is an **unrecorded incumbent**: this file records no tokens for it, and nothing here should be read as describing it. The older dark `@theme` block at the top of `frontend/src/index.css` (Space Grotesk, teal accent) is not this world either; the System page does not use it.\n\n**Divergences from the direction contract, where the build won.** There is no physical scale bar: magnification is a tick gauge marked at ×1, ×2, ×4 and ×6, because a µm unit would be a made-up claim. The details panel is a plain dark sheet with a fluorophore dot and border, not a slide-label. Wires carry static varicosities and dim with their ends' liveness; no spike travels along them yet.",
+    "keyCharacteristics": [
+      "Microscope-black field (#040506) with blurred, parallaxed out-of-focus tissue in the seven fluorophores.",
+      "One fluorophore per part, kept everywhere that part appears.",
+      "Irregular, seeded somata with tapered dendrites; curved tapered axons with bead varicosities.",
+      "Overlay chrome in Schibsted Grotesk with tabular figures; round glass zoom buttons.",
+      "State shown as light: steady glow, transient flashes, dim, dashed broken membrane, red burning rim.",
+      "Reduced motion gets a still field."
+    ],
+    "rules": [
+      {
+        "name": "The One Fluorophore Rule",
+        "body": "A part has exactly one color, its fluorophore, and that color appears wherever the part does: cell, wires, sub-cells, panel dot, panel border, panel meta, panel focus ring. A part is never given a second hue, and a fluorophore is never borrowed for anything that isn't its part (Cognition cyan as the page's default focus ring is the one shared use).",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Failing Rule",
+        "body": "Fail Red (#FF4136) is reserved for a failing part or worker: the burning rim, its state word, its worker dot. Error prose uses the softer Error Text (#FF8A80). No other surface uses red.",
+        "section": "colors"
+      },
+      {
+        "name": "The Light Is State Rule",
+        "body": "State is told by light, not badges: steady halo plus a calcium transient (alive 2.8 s, working 1.05 s, partly down 4.4 s, failing 1.6 s), dimmed to 70% when partly down, 45% unknown, 30% down, 16% and unfilled when off.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "All overlay and panel text is sentence case and untracked (beyond the -0.02em on names). No uppercase tracked labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Any number that updates live (counts, magnification, \"seen 3 s ago\") is set in tabular figures so it doesn't jitter.",
+        "section": "typography"
+      },
+      {
+        "name": "The Focal Plane Rule",
+        "body": "Anything that isn't a cell or the overlay is out of focus: blurred, dim, and slower under pan and zoom. Nothing sits on a card above the field except the details panel.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** give every part its one fluorophore and carry it to its wires, sub-cells and panel (The One Fluorophore Rule).",
+      "**Do** show state as light: glow, transient period, dimming, dashed membrane, red rim.",
+      "**Do** keep the field full-bleed on Field Black (#040506) with out-of-focus tissue behind the cells.",
+      "**Do** set live numbers in tabular figures and ring field labels in Field Black.",
+      "**Do** list a part's records as rule-divided entries with a fluorophore meta line.",
+      "**Do** stop transients, drift and the failing pulse under `prefers-reduced-motion`, and jump view changes instead of animating them."
+    ],
+    "donts": [
+      "**Don't** draw parts as rounded boxes, neon edges or a stats sidebar: the node-graph dashboard is the default this world refuses.",
+      "**Don't** put records in rounded cards on this page; the panel is rule-divided.",
+      "**Don't** add a physical scale bar or µm units; magnification is the ×1–×6 tick gauge.",
+      "**Don't** use red for anything but failure.",
+      "**Don't** set uppercase, letter-spaced labels on the field or panel (The Sentence Case Rule).",
+      "**Don't** extend these tokens to the rest of the app; the light incumbent there is a separate, unrecorded look."
+    ]
+  }
+}

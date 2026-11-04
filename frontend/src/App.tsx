@@ -4,7 +4,7 @@ import { LoginPage } from './pages/LoginPage'
 import { ChatPage } from './pages/ChatPage'
 import { PredictPage } from './pages/PredictPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
-import { LearningPage } from './pages/LearningPage'
+import { SystemPage } from './pages/SystemPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 export default function App() {
@@ -45,13 +45,15 @@ export default function App() {
         }
       />
       <Route
-        path="/learning"
+        path="/system"
         element={
           <ProtectedRoute ownerOnly>
-            <LearningPage />
+            <SystemPage />
           </ProtectedRoute>
         }
       />
+      {/* The Learning page became the System page's Learning part. */}
+      <Route path="/learning" element={<Navigate to="/system" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

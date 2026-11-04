@@ -4,7 +4,7 @@
 export const TABS: { to: string; label: string; ownerOnly?: boolean }[] = [
   { to: '/chat', label: 'Chat' },
   { to: '/predict', label: 'Scan Meal' },
-  { to: '/learning', label: 'Learning', ownerOnly: true },
+  { to: '/system', label: 'System', ownerOnly: true },
   { to: '/integrations', label: 'Integrations' },
 ]
 
