@@ -20,6 +20,12 @@ qwen-5 is a new folder and a restart of the server, with no code change here.
   shared-state route instead; taking something up is the mouth's, with its tools). What it couldn't carry out is
   returned and traced, never claimed.
 
+Lessons (docs/learning-system/03-implementation.md): ``gather`` / ``gather_result`` add a bounded selection of the
+user's accepted lessons (``memory_lessons.for_decision``). The teacher reads them (rendering ``lessons-v1``, with
+``lessons.GUIDE`` and a ``lessons_weighed`` field for its own account); without lessons its input is exactly
+``memory-v1``. A local model reads them only if its manifest's rendering shows them. Every decision with a capture
+records which lesson revisions it had and whether it received them (``memory_lessons.record_uses``).
+
 One JSON line per decision in ``COGNITION_STUDENT_LOG_PATH`` (ids, choices, timings and problems; no message text).
 """
 from __future__ import annotations
@@ -42,6 +48,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.learning import lessons as LS
 from app.ai.recall.contracts import MemoryRecord, RecallResult, origin_label
 from app.ai.state import student_two as S
 from app.core.config import get_settings
@@ -79,13 +86,41 @@ def manifest() -> dict[str, Any]:
 
 
 def rendering() -> str | None:
-    """How the served model's training situations were rendered (None: unknown or no model)."""
+    """How the served model's training situations were rendered (None: unknown or no model). For the teacher, the
+    base rendering: a decision given lessons is rendered ``lessons-v1`` (memory-v1 plus LESSONS)."""
     if get_settings().cognition_decision_provider == "teacher":
         return "memory-v1"
     try:
         return manifest().get("rendering")
     except (OSError, ValueError):
         return None
+
+
+def lessons_supported() -> bool:
+    """Whether the decision model's input shows lessons: the teacher's does; a local model's only if its manifest's
+    rendering was trained with them."""
+    if get_settings().cognition_decision_provider == "teacher":
+        return True
+    try:
+        return manifest().get("rendering") in S.LESSON_RENDERINGS
+    except (OSError, ValueError):
+        return False
+
+
+def _lessons(db: Session, user_id: uuid.UUID, query: str) -> dict[str, Any]:
+    """The lessons offered to one decision, as ``Live`` fields. Read only; a failure is no lessons, said."""
+    from app.services import memory_lessons
+
+    if not get_settings().lessons_supply_enabled:
+        return {"lessons_note": "lesson supply is switched off (baseline)"}
+    try:
+        with db.begin_nested():
+            supply = memory_lessons.for_decision(db, user_id, query)
+    except Exception as exc:  # noqa: BLE001 - this decision goes without lessons
+        logger.exception("student_two: reading lessons failed")
+        return {"lessons_note": f"reading lessons failed: {type(exc).__name__}"}
+    return {"lessons": supply.views, "lessons_left_out": supply.left_out,
+            "lessons_note": None if supply.views or supply.left_out else "no accepted lessons"}
 
 
 def _aware(at: datetime) -> datetime:
@@ -265,13 +300,14 @@ def gather(db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None
     lines = tuple(_lines(db, conversation_id, before, seen)) if conversation_id else ()
     goals = tuple(_goals(db, user_id, _goal_context(db, user_id, game), game))
     work = tuple(_work(db, user_id, conversation_id, game))
+    lessons = _lessons(db, user_id, message)
     return S.Live(
         trigger="user_message", domain="minecraft" if game is not None else "chat",
         now=now.astimezone(_zone(zone)), lines=lines,
         new_message=message, goals=goals, work=work, thought=thought, earlier_thoughts=tuple(earlier),
         activity=_activity(game), memory=memory,
         sources=_sources(seen, goals, work, (thought, *earlier),
-                         f"message:{trigger_message_id}" if trigger_message_id else "", *memory_refs))
+                         f"message:{trigger_message_id}" if trigger_message_id else "", *memory_refs), **lessons)
 
 
 def _game_of(db: Session, work: CoordinatorWork) -> DesktopSession | None:
@@ -315,13 +351,15 @@ def gather_result(db: Session, work: CoordinatorWork, *, zone: str | None = None
     seen: list[str] = []
     lines = tuple(_lines(db, work.conversation_id, None, seen)) if work.conversation_id else ()
     goals = tuple(_goals(db, work.user_id, _goal_context(db, work.user_id, game), game))
+    query = " ".join(filter(None, (conclusion or question, lines[-1].text if lines else "")))
+    lessons = _lessons(db, work.user_id, query)
     return S.Live(
         trigger="thought_result" if finished else "work_outcome", domain="minecraft" if game is not None else "chat",
         now=now.astimezone(_zone(zone or work.input.get("zone"))),
         lines=lines, new_message="", goals=goals, work=tuple(work_items),
         thought=thought, earlier_thoughts=tuple(earlier), activity=_activity(game),
         sources=_sources(seen, goals, work_items, earlier, f"work:{work.id}",
-                         *(f"{k}" for k in (r.get("evidence_refs") or ()) if isinstance(k, str))))
+                         *(f"{k}" for k in (r.get("evidence_refs") or ()) if isinstance(k, str))), **lessons)
 
 
 # --------------------------------------------------------------------------- #
@@ -343,6 +381,11 @@ class Outcome:
     teacher_capture: dict[str, Any] | None = field(default=None, repr=False)
     # The learning capture this decision was recorded under (``decision_id`` is its attempt id), or None.
     capture: Any = field(default=None, repr=False)
+    # Lessons: whether its input showed the lessons offered, why not, and its own account of each.
+    lessons_received: bool = False
+    lessons_reason: str | None = None
+    lessons_weighed: list[dict[str, Any]] = field(default_factory=list)
+    lesson_problems: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -371,14 +414,48 @@ def decide(live: S.Live, ask=None, *, capture=None) -> Outcome:
         outcome = _teacher_decide(live, started, ask=ask, exact=exact)
     else:
         outcome = _local_decide(live, started, ask=ask, exact=exact)
+    _settle_lessons(outcome, live)
     if capture is not None:
+        if live.lessons:
+            # The lesson revisions offered are part of what the input was built from (shown or not: see input).
+            from dataclasses import replace
+            # As sources too: forgetting what a lesson rests on removes the raw copies that showed it.
+            capture = replace(capture, input_refs=tuple(capture.input_refs) + tuple(
+                {"ref": f"lesson:{v.id}", "revision": v.revision, "shown": outcome.lessons_received}
+                for v in live.lessons), sources=tuple(dict.fromkeys(
+                    (*capture.sources, *(f"lesson:{v.id}" for v in live.lessons)))))
         outcome.decision_id = str(capture.attempt_id)
         outcome.capture = capture
         try:
             _record_attempt(outcome, live, capture, exact, started_at)
         except Exception:  # noqa: BLE001 - capture never changes the decision
             logger.exception("student_two: capturing the attempt failed")
+        _record_lessons(outcome, live, capture.user_id)
     return outcome
+
+
+def _settle_lessons(outcome: Outcome, live: S.Live) -> None:
+    """Whether the lessons offered reached the model's input, and if not, why (said, never assumed)."""
+    if not live.lessons:
+        outcome.lessons_reason = live.lessons_note
+        return
+    situation = outcome.situation
+    if situation is not None and situation.lessons_shown:
+        outcome.lessons_received = True
+        return
+    if situation is None or not situation.text:
+        outcome.lessons_reason = "the decision failed before its input was built"
+    else:
+        outcome.lessons_reason = "this decision model's input has no lessons (its rendering doesn't show them)"
+
+
+def _record_lessons(outcome: Outcome, live: S.Live, user_id: uuid.UUID) -> None:
+    from app.services import memory_lessons
+
+    supply = memory_lessons.Supply(tuple(live.lessons), tuple(live.lessons_left_out))
+    memory_lessons.record_uses(user_id, outcome.decision_id, supply, consumer="student_2",
+                               received=outcome.lessons_received, reason=outcome.lessons_reason,
+                               weighed=outcome.lessons_weighed, decision_status=outcome.status)
 
 
 def _local_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, Any]) -> Outcome:
@@ -390,6 +467,7 @@ def _local_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, An
     situation = S.snapshot(live)
     text = S.render(situation, model.get("rendering"))
     exact.update(system=model.get("system") or "", prompt=text, snapshot=situation.snapshot, refs=situation.refs,
+                 lessons=_lesson_input(situation),
                  rendering=model.get("rendering"), settings={
                      "temperature": 0.0, "max_tokens": model.get("max_tokens", 400),
                      "chat_template_kwargs": model.get("chat_template_kwargs", {}),
@@ -431,9 +509,11 @@ def _record_attempt(outcome: Outcome, live: S.Live, capture, exact: dict[str, An
     learning_capture.attempt(
         capture, learner="student_2", provider=exact.get("provider"), model=outcome.model,
         input={"prompt": exact.get("prompt"), "snapshot": exact.get("snapshot"), "refs": exact.get("refs"),
-               "rendering": exact.get("rendering"), "system": None, "schema": None},
+               "rendering": exact.get("rendering"), "system": None, "schema": None,
+               "lessons": exact.get("lessons")},
         output=None if "raw_output" not in exact else {
-            "raw": exact["raw_output"], "decision": outcome.decision, "problems": outcome.problems},
+            "raw": exact["raw_output"], "decision": outcome.decision, "problems": outcome.problems,
+            "lessons_weighed": outcome.lessons_weighed, "lesson_problems": outcome.lesson_problems},
         status=outcome.status, error=outcome.error, started_at=started_at,
         produced_at=datetime.now(timezone.utc) if "raw_output" in exact else None,
         versions=exact.get("versions") or {}, settings=exact.get("settings") or {}, blobs=blobs, absent=absent)
@@ -456,10 +536,38 @@ def _ask_teacher(model: dict[str, Any], text: str) -> str:
     return result.choices[0].message.content or ""
 
 
+def _lesson_input(situation: S.Situation) -> dict[str, Any] | None:
+    """What the capture keeps of the lessons offered: each one (id, revision, as shown), whether the input showed
+    them, how many the budget left out."""
+    if not situation.lessons:
+        return None
+    return {"interface": LS.INTERFACE_VERSION, "shown": situation.lessons_shown, "cut": situation.lessons_cut,
+            "lessons": [v.to_dict() for v in situation.lessons]}
+
+
+def teacher_model(situation: S.Situation) -> tuple[str, dict[str, Any]]:
+    """The teacher's rendering and model call for a situation: ``memory-v1`` exactly when there are no lessons;
+    with lessons, ``lessons-v1``: the LESSONS section, the guide on weighing them, and the ``lessons_weighed``
+    field for its own account (outside the decision contract: ``parse`` never reads it)."""
+    from app.ai.Cognitive.simple import events as E
+    from app.services.cognitive_live import character_page
+
+    s = get_settings()
+    rendering = LS.RENDERING if situation.lessons else "memory-v1"
+    text = S.render(situation, rendering)
+    system = f'{E.prompt("decide_events_v1")}\n\n{E.SCHEMA_GUIDE}\n\nCHARACTER PAGE\n{character_page()}'
+    schema = E.decision_schema([ref for ref, _ in E.candidates(situation.snapshot)])
+    if situation.lessons_shown:
+        system += f"\n\n{LS.GUIDE}"
+        schema = dict(schema, properties=dict(schema["properties"],
+                                              lessons_weighed=LS.weighed_schema(situation.lesson_refs)),
+                      required=[*schema["required"], "lessons_weighed"])
+    return text, {"name": s.cognition_teacher_model, "system": system, "schema": schema, "rendering": rendering}
+
+
 def _teacher_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, Any] | None = None) -> Outcome:
     """Only EventTeacher's decision call: no sample reply, critic, or additional training samples."""
     from app.ai.Cognitive.simple import events as E
-    from app.services.cognitive_live import character_page
 
     s = get_settings()
     outcome = Outcome("unavailable", model=s.cognition_teacher_model)
@@ -470,19 +578,21 @@ def _teacher_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, 
     try:
         situation = S.snapshot(live)
         outcome.situation = situation
-        text = S.render(situation, "memory-v1")
-        model = {"name": s.cognition_teacher_model,
-                 "system": f'{E.prompt("decide_events_v1")}\n\n{E.SCHEMA_GUIDE}\n\nCHARACTER PAGE\n{character_page()}',
-                 "schema": E.decision_schema([ref for ref, _ in E.candidates(situation.snapshot)])}
-        capture.update(snapshot=situation.snapshot, refs=situation.refs, prompt=text,
-                       system=model["system"], schema=model["schema"])
+        text, model = teacher_model(situation)
+        rendering = model["rendering"]
+        versions = {"snapshot_version": E.SNAPSHOT_VERSION, "decision_version": E.DECISION_VERSION,
+                    "rendering": rendering, "prompt": "decide_events_v1"}
+        if situation.lessons_shown:
+            versions["lessons"] = LS.INTERFACE_VERSION
+        capture.update(snapshot=situation.snapshot, refs=situation.refs, prompt=text, rendering=rendering,
+                       system=model["system"], schema=model["schema"], lessons=_lesson_input(situation))
         if exact is not None:
             exact.update(provider="teacher", system=model["system"], schema=model["schema"], prompt=text,
-                         snapshot=situation.snapshot, refs=situation.refs, rendering="memory-v1",
+                         snapshot=situation.snapshot, refs=situation.refs, rendering=rendering,
+                         lessons=_lesson_input(situation),
                          settings={"reasoning_effort": "low", "max_completion_tokens": 4000, "store": False,
                                    "response_format": "json_schema strict"},
-                         versions={"snapshot_version": E.SNAPSHOT_VERSION, "decision_version": E.DECISION_VERSION,
-                                   "rendering": "memory-v1", "prompt": "decide_events_v1"})
+                         versions=versions)
         output = (ask or _ask_teacher)(model, text)
         capture["raw_output"] = output
         if exact is not None:
@@ -491,6 +601,9 @@ def _teacher_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, 
         outcome.decision = None if unreadable else decision
         outcome.problems = [unreadable] if unreadable else S.check(decision, situation)
         outcome.status = "invalid" if outcome.problems else "ok"
+        if situation.lessons_shown and not unreadable:
+            outcome.lessons_weighed, outcome.lesson_problems = LS.parse_weighed(output, situation.lesson_refs)
+            capture["lessons_weighed"] = outcome.lessons_weighed
     except Exception as exc:  # a provider failure is degraded cognition, never a Qwen fallback
         logger.exception("student_two: teacher decision failed")
         outcome.error = f"{type(exc).__name__}: {exc}"[:200]
@@ -633,7 +746,10 @@ def log(outcome: Outcome, *, user_id: uuid.UUID, conversation_id: uuid.UUID | No
                   "domain": outcome.situation.snapshot["domain"] if outcome.situation else None,
                   "refs": sorted(outcome.situation.refs) if outcome.situation else [],
                   "communication": d.get("communication"), "move": d.get("move"), "work": d.get("work"),
-                  "target": d.get("target"), "effect": outcome.effect}
+                  "target": d.get("target"), "effect": outcome.effect,
+                  "lessons": {"offered": len(outcome.situation.lessons) if outcome.situation else 0,
+                              "received": outcome.lessons_received,
+                              "weighed": [w["use"] for w in outcome.lessons_weighed]}}
         path = _path(get_settings().cognition_student_log_path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a") as f:

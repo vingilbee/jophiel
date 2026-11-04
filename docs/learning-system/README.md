@@ -1,6 +1,6 @@
 # Columbina learning system: staged plans
 
-Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); Step 2 design decisions were accepted on 2026-11-01 and it was built on request the same day ([implementation](02-implementation.md)). No other step is authorized by this split.
+Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implementation](01-implementation.md)); Step 2 design decisions were accepted on 2026-11-01 and it was built on request the same day ([implementation](02-implementation.md)); Step 3 likewise ([implementation](03-implementation.md)). No other step is authorized by this split.
 
 Architecture: [original design](../COLUMBINA_LEARNING_SYSTEM_DESIGN.md). This index organizes that design into smaller plans. Step 1 records capture decisions accepted 2026-11-01 and supersedes earlier conflicting capture and retention proposals.
 

@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AgentEventJob, CaptureBlob, LearningAssessment, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
+    AgentEventJob, CaptureBlob, LearningAssessment, LearningLessonJob, MemoryLesson, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
@@ -52,6 +52,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Learning's assessments (docs/learning-system/02-implementation.md): revisions, links, evidence and uses
     # cascade with them. Training examples they flagged stay flagged (scope training resets those).
     "assessment": (LearningAssessment,),
+    # Lessons (docs/learning-system/03-implementation.md): revisions, evidence and uses cascade with them; the
+    # lesson jobs also go with scope assessment (they cascade with their assessment).
+    "lessons": (LearningLessonJob, MemoryLesson),
 }
 
 

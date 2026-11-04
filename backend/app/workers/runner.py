@@ -117,6 +117,9 @@ def run(stop: threading.Event | None = None) -> None:
         # sampled exchanges; model calls, so on its own thread.
         worker_specs.append(("learning-assessment", learning.assess_once, "macrovision:learning-assessment:wakeups",
                              5.0))
+        # Lessons from supported assessments (docs/learning-system/03-implementation.md): one model call per
+        # assessment revision worth reading, on its own thread.
+        worker_specs.append(("learning-lessons", learning.lessons_once, "macrovision:learning-lessons:wakeups", 5.0))
         # What sources report (conversation, deliveries, games), captured once.
         worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
         # Background recall and thinking for user requests (shared-state pipeline, step 4) and autonomous

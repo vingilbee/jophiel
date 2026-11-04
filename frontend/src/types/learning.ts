@@ -195,3 +195,80 @@ export interface AssessmentListing {
   counts: Record<string, number>
   items: AssessmentSummary[]
 }
+
+/** Lessons from supported assessments, memory's (docs/learning-system/03-implementation.md). */
+export type AdaptationLessonStatus = 'accepted' | 'hypothesis' | 'episode_only' | 'withdrawn'
+export type LessonUseCase = 'not_received' | 'no_decision' | 'no_account' | 'applied' | 'unclear' | 'set_aside'
+
+export interface LessonUse {
+  lesson_id: string
+  revision: number
+  consumer: string
+  attempt_id: string
+  received: boolean
+  reason: string | null
+  ref: string | null
+  rank: number | null
+  reported: 'applied' | 'not_relevant' | 'outweighed' | 'conflict' | 'unclear' | null
+  reported_why: string | null
+  decision_status: string | null
+  case: LessonUseCase
+  explanation: string
+  at: string
+}
+
+export interface AdaptationLesson {
+  id: string
+  kind: 'preference' | 'strategy'
+  origin: 'stated' | 'inferred'
+  scope: 'standing' | 'situation' | 'episode'
+  status: AdaptationLessonStatus
+  statement: string
+  applies_when: string
+  exceptions: string[]
+  user_words: string[]
+  revision: number
+  status_reason: string | null
+  conflicts_with: string[]
+  support: number
+  counter: number
+  withdrawn_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AdaptationLessonDetail extends AdaptationLesson {
+  revisions: {
+    revision: number
+    op: string
+    status: AdaptationLessonStatus
+    scope: string
+    statement: string
+    applies_when: string
+    exceptions: string[]
+    user_words: string[]
+    reason: string
+    assessment_id: string | null
+    assessment_revision: number | null
+    at: string
+  }[]
+  evidence: {
+    role: 'support' | 'counter'
+    occasion: string
+    occasion_at: string
+    assessment_id: string | null
+    assessment_revision: number | null
+    refs: string[]
+    quote: string | null
+    why: string
+    current: boolean
+    added_revision: number
+  }[]
+  uses: LessonUse[]
+}
+
+export interface AdaptationListing {
+  counts: Partial<Record<AdaptationLessonStatus, number>>
+  items: AdaptationLesson[]
+  jobs: { id: string; assessment_id: string; state: string; outcome: string | null; last_error: string | null; updated_at: string }[]
+}

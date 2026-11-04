@@ -37,7 +37,8 @@ Columbina is a general conversational agent with a persistent identity, personal
     /components       # reusable UI: Logo, Button, ProtectedRoute, AppHeader, ProviderIcon, VoiceOrb, SenseStrip,
                        #   DesktopSessionPanel, ThoughtStream, MoodStrip (her inner state, debug)
     /pages             # route-level pages: LandingPage, LoginPage, DashboardPage (voice), ChatPage, PredictPage, IntegrationsPage,
-                       #   LearningPage (what she learned from playing: proposals, lessons, reflections)
+                       #   LearningPage (what she learned: assessments, lessons she carries forward with the user; from
+                       #   playing: proposals, game lessons, reflections)
     /audio             # mic capture worklet client, PCM playback, VAD, wake word
     /senses            # the eye: screen.ts (getDisplayMedia + sampling) + screen.worker.ts (diff/encode)
     /hooks             # custom React hooks: useAuth (session context), useChatSocket, useVoiceSession,
@@ -63,7 +64,8 @@ Columbina is a general conversational agent with a persistent identity, personal
         desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED)
         learning.py     # game learning: lessons, proposals, reflections under /api/learning; learning capture
                         #   (chains, gaps) and training examples under /api/learning/capture, /training-examples;
-                        #   retrospective assessments under /api/learning/assessments
+                        #   retrospective assessments under /api/learning/assessments; lessons (read only) under
+                        #   /api/learning/adaptation
         auth.py
       deps.py           # shared deps (get_current_user, get_current_user_optional)
     /models            # (empty — nutrition inference lives in /ai/MacroVision)
@@ -88,7 +90,9 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   adapters in services/shared_state.py
       /observe          # registry.py: what each kind of observation looks like and its memory rule (pure)
       /learning         # assessment.py: retrospective assessment (pure): the evidence bundle, the evaluator's
-                        #   contract and prompt, code checks of what it returns, fingerprints, qualitative statuses
+                        #   contract and prompt, code checks of what it returns, fingerprints, qualitative statuses;
+                        #   lessons.py: lessons (pure): the builder's bundle, contract and checks, the LESSONS section
+                        #   and guide Student 2 reads, its lessons_weighed account
       /recall           # contracts.py: recall requests, typed results, memory references, limits (pure);
                         #   history.py: source-backed history contracts, reader prompt/schema, check, rendering (pure)
       /mind             # her always-on mind (docs/COLUMBINA_MIND_DESIGN.md, docs/COLUMBINA_INNER_STATE_PLAN.md):
@@ -170,6 +174,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
                        #   writer, gaps); capture_chains.py: reading chains back; training_examples.py: derivatives;
                        #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions);
+                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences);
+                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting);
                        #   transcript_search.py: what was said (heard text, by speaker), her "said" search;
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
@@ -182,6 +188,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   coordinator (shared-state background work), desktop (gameplay driver) + agent_events (Columbina on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
                        #   learning (training examples from captures, raw-capture retention) + learning-assessment
+                       #   + learning-lessons (lessons from assessments)
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
     main.py             # FastAPI app entrypoint
   /desktop_controller   # desktop agent action contract + controller core. uv workspace member (pydantic, pyyaml,
@@ -397,6 +404,12 @@ docker-compose.yml      # local dev: postgres + backend + frontend (if used)
   - *Investigation:* code gathers the heard conversation (forgotten spans withheld), her turns as targets with Student 1/2 records (or why they're missing: lost, expired, never saved), facts that each say what they establish and don't (delivery, heard, channel, fallback, effect, gaps, quotes of her words, memory corrections), her hands' decisions and game outcomes, the user's notes, other open assessments. One Luna call per round (`assessment-v1`, strict schema); it may look earlier (window doubles), later, at exact inputs, or at more game outcomes. No round budget: stop when it concludes, needs missing evidence, or is stuck (nothing new to read, or too much to read at once).
   - *Code checks:* unshown refs dropped; targets and causes kept apart, each `supported`/`plausible`/`unresolved`/`contradicted`; a supported cause needs the component's own record captured and cited (missing -> `unresolved` + what's missing; not cited -> `plausible`), so a user's correction or a delivery failure alone never blames Student 1/2; planner and memory can't be established; the user's quotes must be exactly theirs (then supported); six dimensions unknown unless cited; choice judged apart from outcome; independence = distinct events.
   - *Revisions:* same evidence read again is no revision; new evidence (a late capture via `awaiting`, a memory correction, a later message another assessment named in `reopens`, the user's note via `POST /api/learning/assessments/{id}/notes`) reopens; the old revision is kept, superseded. A supported Student 2 cause flags that decision's training example `needs_review` (a `learning_assessment_uses` row); a revision that no longer supports it marks the use `reconsider` and tells the owner (`RECONSIDER`). Forgetting (`drop_for`) and conversation deletion remove assessments. Learning page "How it went"; reset scope `assessment`. Tests `tests/test_learning_assessment.py`; real-model eval `scripts/learning_assessment_eval.py --run` (10 fixed cases, not run yet). Clarification questions are stored only, not handed to cognition.
+- **Immediate adaptation: lessons, step 3 (2026-11-01, migration `f4a8c2e6b0d3`, uncommitted, branch `feature/learning-03-immediate-adaptation`):** decisions in `docs/learning-system/03-immediate-adaptation.md`, contracts/settings/limits in `docs/learning-system/03-implementation.md`. A supported assessment can change later decisions without training; lessons are experience Student 2 weighs, never commands.
+  - *Ownership:* learning proposes (`services/learning_lessons.py`, pure parts `app/ai/learning/lessons.py`, `learning-lessons` worker thread: one job per assessment revision with a stated preference/meaning, a supported cause, or a lesson resting on it; one Luna call); memory writes (`services/memory_lessons.py`, tables `memory_lessons`, `_revisions`, `_evidence`, `_uses`, `learning_lesson_jobs`).
+  - *Kinds and status:* `preference` (the user's exact words, kept only when found in a user line it cites or one a cited supported "stated" conclusion rests on; accepted at once) and `strategy` (her inference: needs a supported conclusion and evidence for where it applies; `hypothesis` until `LESSONS_MIN_OCCASIONS` (2) distinct assessed exchanges support it). `episode` scope is `episode_only`, never supplied; widening needs their words or more occasions. Withdrawing a preference needs their words; a strategy, their words or counterevidence from 2 occasions (else the counterexample is recorded). `withdrawn` is final; nothing is cut to fit (over-limit text drops the change).
+  - *Fences:* every change names the lesson revision it was made from (`Stale` -> read again); a job whose assessment was revised ends `superseded`; a new lesson repeating a withdrawn one needs evidence newer than the withdrawal; a revised assessment whose conclusions changed stops its evidence counting (`RECONSIDER["lessons"]` -> `memory_lessons.reconsider`). Every revision kept whole.
+  - *Student 2 (teacher path, Luna):* `gather`/`gather_result` add up to `LESSONS_SUPPLIED_MAX` (5) accepted lessons, whole (past the budget: most relevant, conflicts kept as pairs). Rendering `lessons-v1` = memory-v1 + LESSONS after MEMORY, `lessons.GUIDE`, and a `lessons_weighed` field outside the decision contract; with no lessons the input is exactly memory-v1. A local model gets them only if its manifest rendering is `lessons-v1` (qwen-4/5: offered, not received). Capture records lessons in input, `input_refs` and output; the teacher JSONL says `rendering: lessons-v1`.
+  - *Inspection:* `memory_lesson_uses` per decision and lesson (received or why not, Student 2's account); `memory_lessons.explain` tells never-reached / not accounted for / applied / set aside. `GET /api/learning/adaptation/lessons[/{id}]`, `/adaptation/decisions/{attempt}`; Learning page "What she carries forward with you". Immediate use is the conversation window (a correction is in the next decision's lines before any lesson exists). Forgetting drops lessons resting on fenced messages; reset scope `lessons`. Switches: `LEARNING_LESSONS_ENABLED` (new lessons), `LESSONS_SUPPLY_ENABLED` (off = baseline). Tests `tests/test_learning_lessons.py`; real-model walkthrough `scripts/lesson_adaptation_eval.py --run` (fixed cases, 36/36 over 3 runs on 2026-11-01). Only Student 2 receives lessons.
 - **Her insides are the owner's only (2026-11-01, the user's decision):** other users can only talk with her. `deps.require_owner` (404 for anyone else) guards every route under `/api/learning`, `/api/mind` and `/api/memory`; the chat socket sends `thought` frames only to the owner. `OWNER_EMAILS` (comma-separated) names the owner, else `MINECRAFT_PACK_OWNER_EMAIL`, else nobody. `UserOut.is_owner` (in `/api/auth/me`) lets the frontend hide the Learning tab (`tabsFor`, `ProtectedRoute ownerOnly`), the Mind panel and thoughts. Training data, its review and its deletion are the owner's, not each user's; whether the owner trains on other users' examples is undecided (step 5).
 ### Run the full stack locally (to test the chatbot)
 1. `docker compose up -d db` then `cd backend && uv run alembic upgrade head`

@@ -287,6 +287,21 @@ class Settings(BaseSettings):
     learning_assessment_max_chars: int = Field(default=60000, ge=4000)
     learning_assessment_max_attempts: int = Field(default=4, ge=1)
     learning_assessment_log_path: str = "var/learning_assessment.jsonl"
+    # Lessons (docs/learning-system/03-implementation.md; services/learning_lessons.py builds them from supported
+    # assessments, services/memory_lessons.py owns them). LEARNING_LESSONS_ENABLED off: no new lessons or changes to
+    # them (what exists stays). LESSONS_SUPPLY_ENABLED off: the baseline, lessons are kept but given to no decision.
+    # MIN_OCCASIONS: distinct assessed exchanges an inferred lesson needs before it is supplied (a stated preference
+    # needs the user's words only); also what withdrawing a strategy on counterevidence alone needs. SUPPLIED_MAX:
+    # the most lessons one decision is given (past it, the most relevant, whole).
+    learning_lessons_enabled: bool = True
+    lessons_supply_enabled: bool = True
+    lessons_min_occasions: int = Field(default=2, ge=1, le=20)
+    lessons_supplied_max: int = Field(default=5, ge=1, le=20)
+    learning_lessons_model: str = "gpt-6-luna"
+    learning_lessons_reasoning_effort: str | None = "low"
+    learning_lessons_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    learning_lessons_max_attempts: int = Field(default=4, ge=1)
+    learning_lessons_log_path: str = "var/learning_lessons.jsonl"
     # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
     # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
     # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is

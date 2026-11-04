@@ -3141,3 +3141,194 @@ class LearningAssessmentUse(Base):
         UniqueConstraint("assessment_id", "consumer", "ref", name="uq_learning_assessment_uses"),
         Index("ix_learning_assessment_uses_ref", "user_id", "consumer", "ref"),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Lessons (docs/learning-system/03-immediate-adaptation.md; implementation, statuses and settings:
+# docs/learning-system/03-implementation.md). Memory owns them (services/memory_lessons.py writes every row);
+# learning proposes them from supported assessments (services/learning_lessons.py). A lesson is experience for
+# cognition to weigh, never a command. ``preference``: what the user said they want, within the scope they gave
+# (their words kept); ``strategy``: what she inferred tends to work, from evidence for both the conclusion and where
+# it applies. Every change is a revision; a withdrawn lesson stays withdrawn. Evidence and uses are opaque refs.
+# --------------------------------------------------------------------------- #
+
+LESSON_KINDS = ("preference", "strategy")
+LESSON_ORIGINS = ("stated", "inferred")
+LESSON_SCOPES = ("standing", "situation", "episode")
+# accepted: supplied to cognition; hypothesis: an inference without enough independent support yet (kept, not
+# supplied); episode_only: about one past episode, never a standing rule (kept, not supplied); withdrawn: final.
+LESSON_STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
+LESSON_EVIDENCE_ROLES = ("support", "counter")
+LESSON_OPS = ("create", "support", "counter", "narrow", "revise", "withdraw", "reconsider")
+LESSON_REPORTED = ("applied", "not_relevant", "outweighed", "conflict", "unclear")
+LESSON_JOB_STATES = ("pending", "running", "done", "failed")
+
+
+class MemoryLesson(Base):
+    """One lesson as it stands now (its current revision). ``conflicts_with``: lesson ids it was found to point
+    against, equally relevant; shown together and flagged, never silently resolved."""
+
+    __tablename__ = "memory_lessons"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    applies_when: Mapped[str] = mapped_column(Text, nullable=False)
+    exceptions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # The user's exact words it rests on (a preference), never reworded.
+    user_words: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    conflicts_with: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                                 server_default=text("'[]'::jsonb"))
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When it was withdrawn, and when the evidence that withdrew it happened: older work can't bring it back.
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawn_occasion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("kind", LESSON_KINDS), name="ck_memory_lessons_kind"),
+        CheckConstraint(_in("origin", LESSON_ORIGINS), name="ck_memory_lessons_origin"),
+        CheckConstraint(_in("scope", LESSON_SCOPES), name="ck_memory_lessons_scope"),
+        CheckConstraint(_in("status", LESSON_STATUSES), name="ck_memory_lessons_status"),
+        CheckConstraint("btrim(statement) <> '' AND btrim(applies_when) <> ''", name="ck_memory_lessons_text"),
+        CheckConstraint("revision >= 1", name="ck_memory_lessons_revision"),
+        CheckConstraint("(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="ck_memory_lessons_withdrawn"),
+        # A stated preference keeps the user's words; an inference has none of its own.
+        CheckConstraint("(kind = 'preference') = (origin = 'stated')", name="ck_memory_lessons_origin_kind"),
+        UniqueConstraint("id", "user_id", name="uq_memory_lessons_id_user"),
+        Index("ix_memory_lessons_user", "user_id", "status"),
+    )
+
+
+class MemoryLessonRevision(Base):
+    """Every revision of a lesson, whole: what it said, its status, the operation that made it and why, and the
+    assessment revision (and lesson job) it came from. Never rewritten."""
+
+    __tablename__ = "memory_lesson_revisions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memory_lessons.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    op: Mapped[str] = mapped_column(String(16), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    applies_when: Mapped[str] = mapped_column(Text, nullable=False)
+    exceptions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    user_words: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
+    assessment_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("op", LESSON_OPS), name="ck_memory_lesson_revisions_op"),
+        CheckConstraint(_in("status", LESSON_STATUSES), name="ck_memory_lesson_revisions_status"),
+        UniqueConstraint("lesson_id", "revision", name="uq_memory_lesson_revisions"),
+    )
+
+
+class MemoryLessonEvidence(Base):
+    """What a lesson rests on or was found against, once per occasion and role. An occasion is one assessed
+    exchange (its trigger key): citing it twice, or assessing it again, is never a second occasion.
+    ``current`` is false once the assessment it came from was revised and not yet read again."""
+
+    __tablename__ = "memory_lesson_evidence"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memory_lessons.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(12), nullable=False)
+    occasion: Mapped[str] = mapped_column(String(160), nullable=False)
+    occasion_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
+    assessment_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The stored records it cites (``message:<id>``, ``attempt:<id>``): how forgetting finds it.
+    refs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    why: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    added_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("role", LESSON_EVIDENCE_ROLES), name="ck_memory_lesson_evidence_role"),
+        UniqueConstraint("lesson_id", "role", "occasion", name="uq_memory_lesson_evidence"),
+        Index("ix_memory_lesson_evidence_assessment", "user_id", "assessment_id"),
+        Index("ix_memory_lesson_evidence_refs", "refs", postgresql_using="gin"),
+    )
+
+
+class MemoryLessonUse(Base):
+    """Which lesson revision a consumer had for one decision (its capture attempt), whether it actually received
+    it (and why not: cut by the budget, a consumer whose input has no lessons, supply switched off), and what the
+    consumer said about it. Receiving is not influence; the report is the consumer's own account."""
+
+    __tablename__ = "memory_lesson_uses"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memory_lessons.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    consumer: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)  # opaque
+    received: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ref: Mapped[str | None] = mapped_column(String(8), nullable=True)  # its label in the input ("L1")
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reported: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reported_why: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"reported IS NULL OR {_in('reported', LESSON_REPORTED)}", name="ck_memory_lesson_uses_reported"),
+        CheckConstraint("received OR reported IS NULL", name="ck_memory_lesson_uses_received"),
+        UniqueConstraint("attempt_id", "lesson_id", "consumer", name="uq_memory_lesson_uses"),
+        Index("ix_memory_lesson_uses_attempt", "user_id", "attempt_id"),
+        Index("ix_memory_lesson_uses_lesson", "lesson_id", "created_at"),
+    )
+
+
+class LearningLessonJob(Base):
+    """Learning's work of reading one assessment revision for lessons: once per (assessment, revision), leased,
+    retried with backoff. A job whose assessment was revised meanwhile ends as ``superseded`` (the newer
+    revision has its own job)."""
+
+    __tablename__ = "learning_lesson_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
+    assessment_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("state", LESSON_JOB_STATES), name="ck_learning_lesson_jobs_state"),
+        UniqueConstraint("assessment_id", "assessment_revision", name="uq_learning_lesson_jobs"),
+        Index("ix_learning_lesson_jobs_due", "next_attempt_at",
+              postgresql_where=text("state IN ('pending', 'running')")),
+    )

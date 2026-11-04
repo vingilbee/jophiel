@@ -13,7 +13,7 @@ Parent: [Memory and learning design](COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md).
 **Execution planning update, 2026-10-31:** This document remains the architectural reference.
 Use the [step-by-step plan index](learning-system/README.md) for the smaller planning units,
 their dependencies, and subsequent user decisions. Affinity and mood are excluded from V1.
-The split plans do not authorize implementation. Step 1 now records accepted capture decisions and was built on request on 2026-11-01 ([implementation](learning-system/01-implementation.md)); Step 2 was built on request on 2026-11-01 ([implementation](learning-system/02-implementation.md)); other listed open decisions remain unsettled.
+The split plans do not authorize implementation. Step 1 now records accepted capture decisions and was built on request on 2026-11-01 ([implementation](learning-system/01-implementation.md)); Step 2 was built on request on 2026-11-01 ([implementation](learning-system/02-implementation.md)); Step 3 (immediate adaptation) was built on request the same day ([implementation](learning-system/03-implementation.md)); other listed open decisions remain unsettled.
 This revision replaces the earlier two-speed roadmap in this file. Existing game learning and memory capabilities
 are foundations to reuse; the general learning system described here is not implemented.
 
