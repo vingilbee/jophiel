@@ -39,7 +39,8 @@ log = logging.getLogger(__name__)
 
 SOURCE = "plan"
 # Reasons that are news about the plan, which the planner answers instead of a background turn.
-PLAN_KINDS = frozenset({"stuck", "needs_human", "struggling", "plan_low", "goal_done", "rethink"})
+# "trial": an experiment cognition chose needs something arranged first (services/learning_trials.py).
+PLAN_KINDS = frozenset({"stuck", "needs_human", "struggling", "plan_low", "goal_done", "rethink", "trial"})
 PLAN_PAUSES = frozenset({"paused:plan_complete", "paused:planning_timeout"})
 TALK_MESSAGES = 6
 GOAL_CHARS = 200
@@ -216,6 +217,11 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     needs = _needs(target)
     if needs:
         sections.append(("What it takes", [needs]))
+    from app.services import learning_trials
+
+    trial = learning_trials.planning_lines(db, session)
+    if trial:
+        sections.append(("An experiment to get ready for", trial))
     facts = desktop_game.planning_facts(db, session)
     sections.append(("What is happening", facts["now"]))
     sections.append(("What she can do", facts["skills"]))

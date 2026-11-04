@@ -495,6 +495,9 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
     from app.services import game_practice
 
     lines += game_practice.summary_lines(db, session, now)
+    from app.services import learning_trials
+
+    lines += learning_trials.summary_lines(db, session)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately

@@ -272,3 +272,96 @@ export interface AdaptationListing {
   items: AdaptationLesson[]
   jobs: { id: string; assessment_id: string; state: string; outcome: string | null; last_error: string | null; updated_at: string }[]
 }
+
+/** A bounded game trial (docs/learning-system/04-implementation.md): learning's experiment record. */
+export type TrialStatus =
+  | 'proposed'
+  | 'presented'
+  | 'deferred'
+  | 'rejected'
+  | 'expired'
+  | 'selected'
+  | 'preparing'
+  | 'executing'
+  | 'paused'
+  | 'observing'
+  | 'assessing'
+  | 'assessed'
+
+export interface TrialSummary {
+  id: string
+  status: TrialStatus
+  scenario: string
+  problem: string
+  revision: number
+  hypothesis: string | null
+  selected: string | null
+  ending: string | null
+  stop_reason: string | null
+  costs: Record<string, number | string>
+  limits: { attempts?: number; seconds?: number; blocks?: number }
+  deferral: { reason: string; since: string; expires_at: string } | null
+  linked_trial_id: string | null
+  created_at: string | null
+  closed_at: string | null
+}
+
+export interface TrialPrediction {
+  measure: string
+  expect: string
+  value?: number
+  high?: number
+}
+
+export interface TrialAlternative {
+  key: string
+  action: string
+  approach: string
+  predictions: TrialPrediction[]
+  expected: string
+  uncertainty: 'low' | 'medium' | 'high'
+  seconds: number | null
+  blocks: number | null
+  prerequisites: { item: string; count: number }[]
+}
+
+export interface TrialDetail extends TrialSummary {
+  selection: { alternative: string; reason: string; recommended: boolean; at: string } | null
+  deferrals: { reason: string; since: string }[]
+  revisions: {
+    revision: number
+    reason: string
+    at: string
+    proposal: {
+      hypothesis: string
+      recommendation: string
+      recommendation_why: string
+      alternatives: TrialAlternative[]
+      limits: { attempts: number; seconds: number; blocks: number }
+    }
+  }[]
+  events: { kind: string; at: string; payload: Record<string, unknown> }[]
+  assessments: {
+    n: number
+    current: boolean
+    hypothesis: 'supported' | 'contradicted' | 'unresolved'
+    test_started: boolean
+    missing: string[]
+    prediction_checks: { ref: string; prediction: string; status: 'met' | 'not_met' | 'unknown'; why: string }[]
+    result: {
+      why: string
+      failure_of: string
+      applicability: string
+      exceptions: string[]
+      explanations: { text: string; status: string }[]
+      lesson: { situation: string; advice: string } | null
+    }
+    at: string
+  }[]
+}
+
+export interface TrialListing {
+  counts: Partial<Record<TrialStatus, number>>
+  trials: TrialSummary[]
+  investigations: { id: string; kind: string; state: string; problem: string | null; error: string | null; at: string | null }[]
+}

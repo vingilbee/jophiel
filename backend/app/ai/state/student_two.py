@@ -18,10 +18,12 @@ MEMORY. Only a model whose rendering shows them gets them (``LESSON_RENDERINGS``
 without any lessons the text is exactly ``memory-v1``. Which lessons a decision had, and whether it received them,
 is recorded by ``services/memory_lessons.record_uses``.
 
-Three triggers are live: a user message; a thought that just finished (her background thinking for a request, or a
-thought of her own proposed to be said: [T1] with the thinking work behind it, for [T1]); and work that finished
-without a conclusion (failed or ran out of time). The last two have no new message: what she decides is whether
-and how to bring it up, and the mouth words it as a follow-up.
+Four triggers are live: a user message; a thought that just finished (her background thinking for a request, or a
+thought of her own proposed to be said: [T1] with the thinking work behind it, for [T1]); work that finished
+without a conclusion (failed or ran out of time); and a component proposal (learning's bounded game trial,
+docs/learning-system/04-implementation.md: each alternative is one [P*], pursuing one chooses it, declining or
+deferring any declines or defers the trial). The last three have no new message: what she decides is whether and
+how to bring it up (and, for a proposal, whether and when to run it).
 
 Refs are positions in the rendered snapshot ([G1], [W2], [A1]); ``Situation.refs`` maps each back to the live
 record it came from, so the effect lands on the right row. The model's output is parsed and checked here, never
@@ -37,7 +39,8 @@ from typing import Any
 from app.ai.Cognitive.simple import events as E
 from app.ai.learning import lessons as LS
 
-TRIGGERS = ("user_message", "thought_result", "work_outcome")
+TRIGGERS = ("user_message", "thought_result", "work_outcome", "component_proposal")
+PRODUCERS = ("mind", "planner", "curriculum")
 MESSAGE_CHARS = 700  # one conversation line, as the student sees it
 WINDOW = 12  # earlier lines shown
 
@@ -105,6 +108,18 @@ class Activity:
 
 
 @dataclass(frozen=True)
+class Proposal:
+    """A proposal not taken up yet ([P*]): ``key`` is its own store's ("trial:<id>:<revision>:<alternative>");
+    ``conflicts_with``: the Goal.key it competes with for her hands, if any."""
+
+    key: str
+    producer: str  # PRODUCERS: learning's trials are her curriculum
+    goal: str
+    purpose: str
+    conflicts_with: str | None = None
+
+
+@dataclass(frozen=True)
 class Remembered:
     """One record of the memory check, as the student reads it."""
 
@@ -144,6 +159,7 @@ class Live:
     lessons: tuple[LS.LessonView, ...] = ()
     lessons_left_out: tuple[tuple[str, int, str], ...] = ()
     lessons_note: str | None = None  # why there are none when retrieval didn't run or failed
+    proposals: tuple[Proposal, ...] = ()  # component_proposal: what is offered, not taken up yet
 
 
 @dataclass
@@ -221,7 +237,7 @@ def snapshot(live: Live) -> Situation:
         clock=now.strftime(E.CLOCK_FORMAT), messages=messages, new_message=" ".join(live.new_message.split()),
         quiet_seconds=last["user"] if last["user"] > 0 else 1, requests=[], thought=thought,
         earlier_thoughts=earlier, activity=activity, goals=goals, work=work, unavailable=[], restrictions=[],
-        proposals=[], assessments=[], user_refs=user_refs, seconds_since_user_message=0,
+        proposals=_proposals(live, refs, goal_index), assessments=[], user_refs=user_refs, seconds_since_user_message=0,
         seconds_since_her_last_message=last["columbina"], normalized=[])
     if E.ADDED_CAPABILITIES.get(live.domain):
         s["added_capabilities"] = sorted(E.ADDED_CAPABILITIES[live.domain])
@@ -229,6 +245,16 @@ def snapshot(live: Live) -> Situation:
     if not s["new_message"]:
         s["seconds_since_user_message"] = last["user"]
     return Situation(s, "", refs, lessons=tuple(live.lessons), lessons_cut=len(live.lessons_left_out))
+
+
+def _proposals(live: Live, refs: dict[str, str], goal_index: dict[str, int]) -> list[dict[str, Any]]:
+    out = []
+    for i, p in enumerate(live.proposals, 1):
+        refs[f"P{i}"] = p.key
+        out.append(dict(producer=p.producer if p.producer in PRODUCERS else "curriculum",
+                        goal=" ".join(p.goal.split())[:MESSAGE_CHARS], purpose=" ".join(p.purpose.split())[:900],
+                        conflicts_with_goal=goal_index.get(p.conflicts_with or "", 0)))
+    return out
 
 
 def _days(now: datetime, at: datetime) -> int:
@@ -307,6 +333,7 @@ _DOES = {"pursue": "take up {target}", "pause": "pause {target}", "resume": "res
          "request_replanning": "work out another way to do {target}",
          "request_recall": "look up your memory about {target}",
          "request_thinking": "think {target} over in the background: {think_about}",
+         "decline_proposal": "turn down {target}", "defer_proposal": "put off {target} for now",
          "recall_then_thinking": "look up your memory, then think {target} over: {think_about}"}
 
 
@@ -323,6 +350,8 @@ def _describe(ref: str, s: dict[str, Any]) -> str:
         return "the activity"
     if ref.startswith("T"):
         return "your thought"
+    if ref.startswith("P"):
+        return f'the proposal "{s["proposals"][int(ref[1:]) - 1]["goal"]}"'
     return ref
 
 
@@ -336,7 +365,10 @@ def brief(d: dict[str, Any], situation: Situation, *, effect: str | None = None)
     if d["move"] != "none":
         dials = ", ".join(f"{k} {v}" for k, v in (d["dials"] or {}).items())
         lines.append(f"- Style: {d['move'].replace('_', ' ')}" + (f" ({dials})" if dials else ""))
-    if d["work"] == "pursue":
+    if d["work"] == "pursue" and d["target"].startswith("P"):
+        lines.append(f"- What you're doing about it: take up {_describe(d['target'], s)}" + (f" ({effect})" if effect
+                     else "") + ". It starts after you speak: don't say it has already happened.")
+    elif d["work"] == "pursue":
         # The reply is where taking something up happens today: the mouth holds the tools and specialists.
         lines.append(f"- What you're doing about it: take up {_describe(d['target'], s)} now, with your tools or "
                      "specialists if one fits; say only what they actually return.")

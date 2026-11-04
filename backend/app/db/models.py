@@ -1281,7 +1281,8 @@ class GameSkillAttempt(Base):
     )
     game: Mapped[str] = mapped_column(String(32), nullable=False)
     task: Mapped[str] = mapped_column(Text, nullable=False)
-    # "offer": she offered and the user said yes; "user": the user asked for it.
+    # "offer": she offered and the user said yes; "user": the user asked for it; "trial": the execution of a
+    # bounded experiment cognition selected (services/learning_trials.py; its trial links back to it).
     origin: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="queued", server_default="queued")
     # [{"n", "approach", "code", "program": {status, reason, value, calls, log, seconds},
@@ -1301,7 +1302,7 @@ class GameSkillAttempt(Base):
         CheckConstraint("status IN ('queued', 'running', 'learned', 'failed', 'stopped')",
                         name="ck_game_skill_attempts_status"),
         # self: she started it herself (exploring, or a step no skill does; stage H3)
-        CheckConstraint("origin IN ('offer', 'user', 'self')", name="ck_game_skill_attempts_origin"),
+        CheckConstraint("origin IN ('offer', 'user', 'self', 'trial')", name="ck_game_skill_attempts_origin"),
         # One attempt at a time per session: her body can only learn one thing at once.
         Index("uq_game_skill_attempts_active_session", "session_id", unique=True,
               postgresql_where=text("status IN ('queued', 'running')")),
@@ -3332,3 +3333,262 @@ class LearningLessonJob(Base):
         Index("ix_learning_lesson_jobs_due", "next_attempt_at",
               postgresql_where=text("state IN ('pending', 'running')")),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Learning step 4: predictions and bounded game trials (docs/learning-system/04-implementation.md)
+# --------------------------------------------------------------------------- #
+
+# proposed -> presented -> (deferred | rejected | expired | selected); selected -> preparing -> executing
+# (<-> paused) -> observing -> assessing -> assessed. Every selected trial ends assessed.
+TRIAL_STATUSES = ("proposed", "presented", "deferred", "rejected", "expired", "selected", "preparing", "executing",
+                  "paused", "observing", "assessing", "assessed")
+TRIAL_PENDING = ("proposed", "presented", "deferred")  # a proposal cognition hasn't taken up
+TRIAL_LIVE = ("selected", "preparing", "executing", "paused", "observing", "assessing")  # taken up, not assessed
+TRIAL_CLOSED = ("rejected", "expired", "assessed")
+TRIAL_HYPOTHESIS = ("supported", "contradicted", "unresolved")
+TRIAL_TRIGGER_KINDS = ("struggling", "stuck", "hypothesis", "approach_changed")
+TRIAL_TRIGGER_STATES = ("pending", "running", "done", "failed")
+
+
+class LearningTrial(Base):
+    """One bounded experiment in a game, learning's authoritative record of it: the problem it tests, its current
+    proposal revision (the revisions themselves are ``learning_trial_revisions``, never rewritten), cognition's
+    choice, preparation, execution, its costs against its limits, and how it ended. ``hypothesis_item_id`` /
+    ``reminder_item_id`` are the working items memory keeps for it (her hypothesis; a deferral's reminder)."""
+
+    __tablename__ = "learning_trials"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="SET NULL"), nullable=True)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    scenario: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The unresolved problem it is about (one pending proposal per problem: new evidence revises it).
+    problem_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    problem: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="proposed", server_default="proposed")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    hypothesis_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reminder_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A materially different test of the same question, or the trial whose changed approach this one predicts.
+    linked_trial_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("learning_trials.id", ondelete="SET NULL"), nullable=True)
+    # Cognition's choice: {decision_id, alternative, revision, reason, other_goal, handling, at}; never changed.
+    selection: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    selected_alternative: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    selected_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The deferral in force {reason, condition, since, expires_at, decision_id}; every one is also kept in order.
+    deferral: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    deferrals: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # {attempts, seconds, blocks}: the agreed limits, fixed when it is selected.
+    limits: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    # Counted spending, preparation kept apart from the test: {prep_seconds, test_seconds, attempts, test_blocks,
+    # prep_blocks}.
+    costs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_skill_attempts.id", ondelete="SET NULL"), nullable=True)
+    # How it ended, in words, and the kind of ending (completed, limit, stopped, interrupted, not_started, ...).
+    ending: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    presentations: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    decide_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                    nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the stretch now being spent began (selected, resumed): the time budget counts active stretches only.
+    active_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exec_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exec_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("status", TRIAL_STATUSES), name="ck_learning_trials_status"),
+        CheckConstraint("revision >= 1", name="ck_learning_trials_revision"),
+        CheckConstraint(f"(closed_at IS NOT NULL) = ({_in('status', TRIAL_CLOSED)})", name="ck_learning_trials_closed"),
+        # Taken up means cognition chose an alternative of a revision.
+        CheckConstraint(f"NOT ({_in('status', TRIAL_LIVE)} OR status = 'assessed') OR "
+                        "(selection IS NOT NULL AND selected_alternative IS NOT NULL AND selected_revision IS NOT NULL)",
+                        name="ck_learning_trials_selection"),
+        UniqueConstraint("id", "user_id", name="uq_learning_trials_id_user"),
+        ForeignKeyConstraint(["hypothesis_item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="SET NULL (hypothesis_item_id)", name="fk_learning_trials_hypothesis"),
+        ForeignKeyConstraint(["reminder_item_id", "user_id"], ["working_items.id", "working_items.user_id"],
+                             ondelete="SET NULL (reminder_item_id)", name="fk_learning_trials_reminder"),
+        # One proposal per unresolved problem waiting for cognition: new evidence revises it.
+        Index("uq_learning_trials_pending_problem", "user_id", "problem_key", unique=True,
+              postgresql_where=text("status IN ('proposed', 'presented', 'deferred')")),
+        # One experiment at a time per session: her body runs one.
+        Index("uq_learning_trials_live_session", "session_id", unique=True,
+              postgresql_where=text("status IN ('selected', 'preparing', 'executing', 'paused', 'observing', "
+                                    "'assessing')")),
+        Index("ix_learning_trials_due", "next_check_at", postgresql_where=text("closed_at IS NULL")),
+        Index("ix_learning_trials_user", "user_id", "created_at"),
+    )
+
+
+class LearningTrialRevision(Base):
+    """One proposal revision, whole and checked, as learning made it before cognition saw it: hypothesis,
+    alternatives with their predicted observations, uncertainty, prerequisites, observation window, costs, limits
+    and recommendation. Immutable (a trigger refuses updates), and no revision is added once cognition selected one:
+    expectations are never rewritten after the fact."""
+
+    __tablename__ = "learning_trial_revisions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trial_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("learning_trials.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposal: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # What code dropped from the model's answer, with why.
+    dropped: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # The evidence it was made from ("experience:12", "event:3", "trial:<id>"), and the start state's position.
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("trial_id", "revision", name="uq_learning_trial_revisions"),
+    )
+
+
+class LearningTrialEvent(Base):
+    """What happened to a trial, in order, append-only (a trigger refuses updates): proposal, presentation,
+    cognition's decision (its capture attempt), deferral and reconsideration, preparation, readiness checks,
+    execution and each attempt, stops and limits, recovery, observations, assessment and what its owners did with
+    it."""
+
+    __tablename__ = "learning_trial_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trial_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("learning_trials.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    decision_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
+    skill_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_skill_attempts.id", ondelete="SET NULL"), nullable=True)
+    experience_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_experiences.id", ondelete="SET NULL"), nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_learning_trial_events_trial", "trial_id", "id"),
+    )
+
+
+class LearningTrialAssessment(Base):
+    """One reading of a trial's evidence. Code measured the effects and checked each prediction (met / not met /
+    unknown) and lists what is missing; the model's interpretation is kept only as far as code's checks allow.
+    Later evidence adds a new reading (``n``); earlier ones stay, ``current`` false."""
+
+    __tablename__ = "learning_trial_assessments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trial_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("learning_trials.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    n: Mapped[int] = mapped_column(Integer, nullable=False)
+    hypothesis: Mapped[str] = mapped_column(String(16), nullable=False)
+    test_started: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    measurements: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    prediction_checks: Mapped[list] = mapped_column(JSONB, nullable=False)
+    missing: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    dropped: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("hypothesis", TRIAL_HYPOTHESIS), name="ck_learning_trial_assessments_hypothesis"),
+        UniqueConstraint("trial_id", "n", name="uq_learning_trial_assessments"),
+        Index("uq_learning_trial_assessments_current", "trial_id", unique=True, postgresql_where=text("current")),
+    )
+
+
+class LearningTrialTrigger(Base):
+    """Something learning may investigate for a trial: her hands struggling or stuck on a step of an active goal,
+    an open hypothesis of hers in a game, an approach changed mid-trial. One pending per problem: repeats add their
+    evidence to it. Investigating it is one model call and makes or revises a proposal, never an action."""
+
+    __tablename__ = "learning_trial_triggers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("desktop_sessions.id", ondelete="CASCADE"),
+                                                  nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    problem_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    # {problem, evidence: [{kind, text, at, refs}], step, hypothesis_item_id, trial_id}
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                      nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("kind", TRIAL_TRIGGER_KINDS), name="ck_learning_trial_triggers_kind"),
+        CheckConstraint(_in("state", TRIAL_TRIGGER_STATES), name="ck_learning_trial_triggers_state"),
+        Index("uq_learning_trial_triggers_pending", "user_id", "problem_key", unique=True,
+              postgresql_where=text("state IN ('pending', 'running')")),
+        Index("ix_learning_trial_triggers_due", "next_attempt_at",
+              postgresql_where=text("state IN ('pending', 'running')")),
+    )
+
+
+# Expectations are never rewritten: a revision is immutable and none is added once cognition selected one;
+# the event log only grows.
+# DDL() formats its text, so a literal percent sign is doubled.
+LEARNING_TRIAL_FUNCTIONS_DDL = """
+CREATE OR REPLACE FUNCTION learning_trial_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION '%%: rows are never rewritten', TG_TABLE_NAME USING ERRCODE = 'check_violation';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION learning_trial_revision_open() RETURNS trigger AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM learning_trials WHERE id = NEW.trial_id
+               AND (selected_at IS NOT NULL OR user_id <> NEW.user_id)) THEN
+        RAISE EXCEPTION 'learning_trial_revisions: the trial was selected (or is not this user''s)'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+LEARNING_TRIAL_REVISION_DDL = """
+CREATE TRIGGER learning_trial_revisions_immutable BEFORE UPDATE ON learning_trial_revisions
+    FOR EACH ROW EXECUTE FUNCTION learning_trial_append_only();
+CREATE TRIGGER learning_trial_revisions_open BEFORE INSERT ON learning_trial_revisions
+    FOR EACH ROW EXECUTE FUNCTION learning_trial_revision_open();
+"""
+# Only a foreign key's SET NULL may touch an event (a deleted attempt or experience).
+LEARNING_TRIAL_EVENT_DDL = """
+CREATE TRIGGER learning_trial_events_append_only BEFORE UPDATE ON learning_trial_events
+    FOR EACH ROW WHEN (OLD.skill_attempt_id IS NOT DISTINCT FROM NEW.skill_attempt_id
+                       AND OLD.experience_id IS NOT DISTINCT FROM NEW.experience_id)
+    EXECUTE FUNCTION learning_trial_append_only();
+"""
+event.listen(LearningTrial.__table__, "after_create",
+             DDL(LEARNING_TRIAL_FUNCTIONS_DDL).execute_if(dialect="postgresql"))
+event.listen(LearningTrialRevision.__table__, "after_create",
+             DDL(LEARNING_TRIAL_REVISION_DDL).execute_if(dialect="postgresql"))
+event.listen(LearningTrialEvent.__table__, "after_create",
+             DDL(LEARNING_TRIAL_EVENT_DDL).execute_if(dialect="postgresql"))

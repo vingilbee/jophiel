@@ -19,7 +19,8 @@ from app.db.models import (
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
-    RecallReference, SemanticMemory, TrainingExample, TrainingExampleDeletion, WorkingItem,
+    RecallReference, SemanticMemory, TrainingExample, TrainingExampleDeletion, WorkingItem, LearningTrial,
+    LearningTrialTrigger,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
@@ -55,6 +56,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Lessons (docs/learning-system/03-implementation.md): revisions, evidence and uses cascade with them; the
     # lesson jobs also go with scope assessment (they cascade with their assessment).
     "lessons": (LearningLessonJob, MemoryLesson),
+    # Bounded game trials (docs/learning-system/04-implementation.md): revisions, events and assessments cascade
+    # with their trial. What they fed (a hypothesis's status, a game lesson, a move) belongs to those owners.
+    "trials": (LearningTrialTrigger, LearningTrial),
 }
 
 
