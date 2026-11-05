@@ -292,6 +292,12 @@ def _bounded(params, limit: int = 1024) -> dict:
     return params if len(json.dumps(params, default=str)) <= limit else {"omitted": "too large"}
 
 
+def _link(**ids) -> dict | None:
+    """The capture link of a game event (registry.CaptureLink): the ids that were recorded, or None."""
+    found = {k: (str(v)[:40] if k != "pack_seq" else v) for k, v in ids.items() if v not in (None, "")}
+    return found or None
+
+
 def experience_report(session: DesktopSession, experience: GameExperience,
                       context_id: uuid.UUID | None) -> Report | None:
     """The report for a game experience, or None for a kind or game observation doesn't mirror."""
@@ -306,6 +312,7 @@ def experience_report(session: DesktopSession, experience: GameExperience,
             "reason": registry.quote(str(p["reason"]), 300) if p.get("reason") else None,
             "seconds": float(seconds) if isinstance(seconds, (int, float)) else None,
             "step_id": str(p["step_id"])[:80] if p.get("step_id") else None, "params": _bounded(p.get("params")),
+            "detail": _link(attempt_id=p.get("attempt_id"), run_id=p.get("run_id")),
         }
     else:
         notice = str(p.get("kind") or "unknown")[:48]
@@ -316,6 +323,7 @@ def experience_report(session: DesktopSession, experience: GameExperience,
             "text": registry.quote(p.get("text"), 300),
             "dropped": {str(k)[:60]: int(v) for k, v in list(dropped.items())[:20]
                         if isinstance(v, (int, float))} if isinstance(dropped, dict) else {},
+            "detail": _link(pack_seq=p.get("seq") if isinstance(p.get("seq"), int) else None, pack_at=p.get("pack_at")),
         }
     return Report(user_id=session.owner_user_id, source=session.profile_id, source_instance=str(session.id),
                   source_event_key=f"experience:{experience.id}", kind=experience.kind, payload=payload,

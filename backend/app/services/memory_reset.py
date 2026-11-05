@@ -14,6 +14,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    TrajectoryChunk, TrajectoryStream,
     AgentEventJob, CaptureBlob, LearningAssessment, LearningLessonJob, MemoryLesson, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
@@ -45,8 +46,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # rebuilt for them), and event embeddings (rebuilt in the background). Deleting memories or their
     # sources elsewhere already removes their references.
     "recall": (RecallReconstructionSource, RecallReconstruction, RecallReference, RecallReceipt, MemoryEventEmbedding),
-    # Learning capture (docs/learning-system/01-implementation.md): raw decision captures and their gaps.
-    "capture": (DecisionExecution, DecisionAttempt, CaptureGap, CaptureBlob),
+    # Learning capture (docs/learning-system/01-implementation.md): raw decision captures and their gaps, and her
+    # trajectory (docs/learning-system/POST-AUDIT-01-implementation.md).
+    "capture": (DecisionExecution, DecisionAttempt, CaptureGap, CaptureBlob, TrajectoryChunk, TrajectoryStream),
     # Training examples derived from them, with deletion tombstones (a test reset starts over; a user's own
     # source deletion never removes examples, and their explicit deletion keeps the tombstone).
     "training": (TrainingExampleDeletion, TrainingExample),

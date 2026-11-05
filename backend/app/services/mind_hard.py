@@ -406,6 +406,8 @@ def gather(db: Session, source: Source, scope: Scope, problem: Problem) -> tuple
 def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: float) -> None:
     from app.services import mind
 
+    attempt_id = uuid.uuid4()  # before the call: where its conclusion goes carries this id
+    started_at = datetime.now(timezone.utc)
     try:
         with SessionLocal() as db:
             inp, token, name = gather(db, source, scope, problem)
@@ -426,6 +428,7 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
         thought = brain.think(inp, situation)
         if not source.shadow:
             _log_hard(scope, problem, system, render(inp), thought)
+            _capture_attempt(attempt_id, source, scope, problem, inp, thought, started_at=started_at)
         if thought.error or thought.kind is None:
             if source.shadow:
                 _log_shadow(scope, problem, system, render(inp), thought, status="nothing", why=None)
@@ -445,11 +448,14 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
                 assessment=thought.assessment if judged else None,
                 handoff=(lambda row: to_memory(db, source, scope, problem, inp, thought, row))
                 if status == "done" else None)
+            routed = None
             if status == "done":
                 routed = route(source, scope, saved.id, problem, thought, goal=source.current_goal(db, scope))
                 if routed:
                     mind._log({"ts": time.time(), "session": str(scope.activity), "source": source.name,
                                "routed": {k: [r.status, r.detail] for k, r in routed.items()}})
+            _capture_route(attempt_id, source, scope, thought, status=status, why=why, thought_id=saved.id,
+                           routed=routed)
     except Exception:  # noqa: BLE001 - a hard thought that fails is just not thought
         log.exception("mind: hard thought failed for %s %s", scope.source, scope.activity)
     finally:
@@ -459,6 +465,73 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             mind._set_thinking(scope.key, None)
         if _event_work(att):
             schedule(att, time.time())  # no tick comes back for event-source work
+
+
+def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, problem: Problem, inp: HardInput,
+                     thought: HardThought, *, started_at: datetime) -> None:
+    """A hard thought as asked (its exact text and system, what it read) and as answered, for learning
+    (docs/learning-system/POST-AUDIT-01-implementation.md). Never raises: capture never stops a thought."""
+    from app.ai.mind.hard import SCHEMA
+    from app.services import learning_capture
+
+    try:
+        messages = [m["id"] for m in inp.conversation if m.get("id")]
+        session_id = source.thought_session(scope)
+        refs = [f"message:{m}" for m in messages] + [str(r) for r in inp.memory_refs]
+        if session_id is not None:
+            refs.append(f"session:{session_id}")
+        ctx = learning_capture.Ctx(
+            user_id=scope.user_id, attempt_id=attempt_id, trigger=f"hard:{problem.trigger}"[:32],
+            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs),
+            sources=tuple(refs))
+        answered = thought.raw is not None
+        status = ("ok" if thought.kind is not None or (answered and not thought.error)
+                  else "invalid" if answered else "unavailable")
+        learning_capture.attempt(
+            ctx, learner="hard_thought", provider="openai", model=thought.model,
+            input={"system": None, "schema": None, "text": render(inp),
+                   "problem": {"trigger": problem.trigger, "topic": problem.topic, "query": problem.query,
+                               "anchor": problem.anchor},
+                   "source": scope.source, "activity": str(scope.activity), "messages": messages,
+                   "memory_refs": list(inp.memory_refs), "effort": bool(getattr(inp, "effort", None))},
+            blobs={"system": thought.system or "", "schema": json.dumps(SCHEMA, sort_keys=True)},
+            output={"raw": thought.raw,
+                    "parsed": {"kind": thought.kind, "conclusion": thought.conclusion, "thinking": thought.thinking,
+                               "for_hands": thought.for_hands, "question": thought.question,
+                               "follows": thought.follows, "assessment": thought.assessment},
+                    "usage": {"latency_ms": thought.latency_ms, "input_tokens": thought.input_tokens,
+                              "output_tokens": thought.output_tokens}} if answered else None,
+            status=status, error=thought.error, started_at=started_at,
+            produced_at=datetime.now(timezone.utc) if answered else None, settings=dict(thought.settings or {}),
+            versions={"schema": "hard_thought", "code": learning_capture.code_version()})
+    except Exception:  # noqa: BLE001
+        log.exception("mind: a hard thought's attempt was not captured")
+
+
+def _capture_route(attempt_id: uuid.UUID, source: Source, scope: Scope, thought: HardThought, *, status: str,
+                   why: str | None, thought_id: uuid.UUID, routed: dict | None) -> None:
+    """Where the conclusion went: her hands (a tip), an intention, her mouth; or why it went nowhere (the problem
+    stopped holding, the world moved on while she thought). Never raises."""
+    from app.services import learning_capture
+
+    try:
+        # A tip her hands refused (or have no way to take) went only partly where it was meant to.
+        tip = (routed or {}).get("tip")
+        result = ("not_executed" if status != "done" else "deviated" if tip is not None and tip.status != "accepted"
+                  else "succeeded")
+        learning_capture.execution(
+            user_id=scope.user_id, kind="thought_route", executor="mind_hard.route", result=result,
+            attempt_id=attempt_id, game_session_id=source.thought_session(scope),
+            intended={"kind": thought.kind, "for_hands": thought.for_hands, "question": thought.question,
+                      "conclusion": thought.conclusion},
+            executed={"status": status, "thought_id": str(thought_id),
+                      "routed": {k: [r.status, r.detail] for k, r in (routed or {}).items()},
+                      "dropped_reason": why},
+            deviation=(None if result == "succeeded" else f"the tip for her hands was {tip.status}: {tip.detail}"[:1000]
+                       if result == "deviated" else (why or f"the thought was {status}: the world moved on")[:1000]),
+            ended_at=datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001
+        log.exception("mind: where a hard thought went was not captured")
 
 
 def to_memory(db: Session, source: Source, scope: Scope, problem: Problem, inp: HardInput, thought: HardThought,

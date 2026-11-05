@@ -6,6 +6,7 @@ import { attachOwnAir } from './air.js'
 import { attachKills } from './kills.js'
 import { attachMotion } from './motion/motion.js'
 import { attachNoticing } from './noticing.js'
+import { programEvents } from './sandbox.js'
 import { attachSightings } from './sightings.js'
 import { attachWatching } from './watching.js'
 import { attachDoors } from './skills/doors.js'
@@ -20,10 +21,13 @@ const { pathfinder } = require('mineflayer-pathfinder')
 // motion: false gives the old instant turns (for comparing; the default is the natural motion layer).
 // memoryPath(): where this world's memory lives (explored ground, noted places).
 // modes: the process's ModeSettings, so background modes stay on across a reconnect.
-export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true, random, modes = null } = {}) {
+// trajectory: the process's Trajectory (src/trajectory.js): this connection becomes one stream of it. Attached
+// here, right after the bot is created, so the server's damage types are heard before she spawns.
+export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true, random, modes = null, trajectory = null } = {}) {
   attachOwnAir(bot) // before anything reads bot.oxygenLevel
   attachKills(bot) // before any skill holds on to bot.attack
   bot.loadPlugin(pathfinder)
+  trajectory?.instrument(bot) // her low-level actions, after the pathfinder is there to wrap
   // After the pathfinder, so each tick the motion layer adjusts what the pathfinder just asked for.
   const motionLayer = motion ? attachMotion(bot, { random }) : null
   attachDoors(bot)
@@ -39,5 +43,6 @@ export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true
   runner.on('mode', (result) => noticing.report('mode', worthSaying(result) ? 'heads_up' : 'info', result.text, {
     mode: result.mode, why: result.why, status: result.status, data: result.data
   }))
+  trajectory?.attach(bot, { runner, noticing, programs: programEvents })
   return { runner, motion: motionLayer, noticing, sightings, watching, memory, manifest: manifest(skills) }
 }

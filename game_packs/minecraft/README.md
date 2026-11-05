@@ -28,6 +28,7 @@ For Minecraft this replaces the VM key-pressing. You play in the VM as usual and
 | `src/skills/doors.js` | Routes through doors/gates, opens them on the way, closes them behind her |
 | `src/sandbox.js` | The sealed box her own code runs in (stage H): skills, single actions, state and log only |
 | `src/actions.js` | Single actions for her code (`act.attack/dig/place/look/equip/jump`): what a move no skill has is built from |
+| `src/trajectory.js` | Her trajectory for learning: every client tick (position, controls, health, inventory, entities near), the server's damage causes and death message, her actions, skill runs, programs and API commands, in self-contained gzip chunks the backend pulls (`GET /trajectory`). See `docs/learning-system/POST-AUDIT-01-implementation.md` |
 | `src/pack.js` | Wires pathfinding + skills + runner into a bot (the service and the tests use the same wiring) |
 | `scripts/smoke.js` | End-to-end check against a throwaway flying-squid server (no Minecraft needed) |
 | `test/integration/` | Every skill against a real vanilla server (flat test world, set up by console commands) |

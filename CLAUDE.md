@@ -184,7 +184,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   and handed to her mind;
                        #   memory_reset.py: wipe user memory for tests, `uv run python scripts/reset_memory.py`;
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
-                       #   writer, gaps); capture_chains.py: reading chains back; training_examples.py: derivatives;
+                       #   writer, gaps; planner and hard thoughts too); trajectory_capture.py + trajectory.py: her
+                       #   trajectory, every game tick pulled from the pack in chunks, read back (docs/learning-system/POST-AUDIT-01-implementation.md); capture_chains.py: reading chains back; training_examples.py: derivatives;
                        #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions);
                        #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences);
                        #   learning_trials.py: bounded game trials (investigation, cognition's choice, preparation,
@@ -222,6 +223,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   viewer; scripts/server.js = private server on the Mac. Runbook in its README;
                         #   src/sandbox.js = the sealed box her own code runs in (stage H; Node >= 24);
                         #   src/needs.js = what it takes to get an item or mine a block (GET /needs/<name>);
+                        #   src/trajectory.js = her trajectory: every tick, damage causes, actions, in chunks (GET /trajectory);
                         #   backend side: app/ai/desktop/practice.py + services/game_practice.py (H1, her learner).
                         #   `bun run test`, `bun run smoke`, `bun run itest` (real server, needs the EULA accepted)
 

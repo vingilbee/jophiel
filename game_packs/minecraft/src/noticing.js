@@ -257,6 +257,9 @@ export function attachNoticing (bot, { memory }) {
     onNotice (listener) {
       events.on('notice', listener)
     },
+    offNotice (listener) {
+      events.off('notice', listener)
+    },
     detach () {
       bot.off('physicsTick', onTick)
       bot.off('health', onHealth)

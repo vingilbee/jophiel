@@ -54,7 +54,9 @@ export function loadConfig (env = process.env) {
     viewerPort: int(env.PACK_VIEWER_PORT, 8791),
     viewerFirstPerson: (env.PACK_VIEWER_FIRST_PERSON ?? 'false') === 'true',
     viewDistance: int(env.PACK_VIEWER_VIEW_DISTANCE, 6),
-    nearbyRadius: int(env.PACK_NEARBY_RADIUS, 32)
+    nearbyRadius: int(env.PACK_NEARBY_RADIUS, 32),
+    // Her trajectory's buffer (src/trajectory.js): chunks kept for the backend to pull, oldest dropped first.
+    trajectoryBufferMb: int(env.PACK_TRAJECTORY_BUFFER_MB, 64)
   }
 }
 

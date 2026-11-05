@@ -176,6 +176,12 @@ class HardThought:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+    # As asked and answered, for the learning capture (services/mind_hard.py): the exact system text, the model and
+    # its settings, and the raw answer (None: no answer came back).
+    system: str | None = None
+    model: str | None = None
+    settings: dict = field(default_factory=dict)
+    raw: str | None = None
 
 
 def render(inp: HardInput) -> str:
@@ -234,11 +240,15 @@ class HardThinker:
         if self.model.startswith(("gpt-5", "gpt-6", "o")) and self.reasoning_effort:
             kwargs["reasoning_effort"] = self.reasoning_effort
         reasoning = self.reasoning_effort not in (None, "none")
+        system = self.instructions(inp.problem.trigger, inp.user, situation, effort=bool(inp.effort))
+        asked = {"system": system, "model": self.model,
+                 "settings": {**kwargs, "max_completion_tokens": 4000 if reasoning else 600,
+                              "schema": "hard_thought (strict)"}}
+        raw = None
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": self.instructions(inp.problem.trigger, inp.user, situation,
-                                                                           effort=bool(inp.effort))},
+                messages=[{"role": "system", "content": system},
                           {"role": "user", "content": render(inp)}],
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "hard_thought", "strict": True, "schema": SCHEMA}},
@@ -246,12 +256,14 @@ class HardThinker:
                 store=False,
                 **kwargs,
             )
-            out = json.loads(response.choices[0].message.content or "{}")
+            raw = response.choices[0].message.content
+            out = json.loads(raw or "{}")
         except Exception as exc:  # noqa: BLE001 - a failed thought is just no thought
-            return HardThought(None, None, latency_ms=_ms(started), error=f"{type(exc).__name__}: {exc}"[:300])
+            return HardThought(None, None, latency_ms=_ms(started), error=f"{type(exc).__name__}: {exc}"[:300],
+                               raw=raw, **asked)
         return parse(out, latency_ms=_ms(started),
                      input_tokens=getattr(response.usage, "prompt_tokens", None),
-                     output_tokens=getattr(response.usage, "completion_tokens", None))
+                     output_tokens=getattr(response.usage, "completion_tokens", None), raw=raw or "", **asked)
 
 
 def parse(out: dict, **extra) -> HardThought:

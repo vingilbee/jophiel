@@ -103,11 +103,24 @@ async function check () {
 
     const viewer = await fetch(`http://127.0.0.1:${VIEWER_PORT}/`).then((r) => r.status).catch(() => 0)
     if (viewer !== 200) return `FAIL: viewer gave ${viewer}`
+    // Her trajectory (src/trajectory.js): ticks in chunks, and a command recorded as it was answered.
+    const stop = await fetch(`http://127.0.0.1:${API_PORT}/skills/stop`, {
+      method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: '{}'
+    })
+    if (stop.status !== 200) return `FAIL: /skills/stop gave ${stop.status}`
+    await new Promise((resolve) => setTimeout(resolve, 6000)) // a chunk closes after 5 s
+    const traj = await get('/trajectory')
+    if (traj.status !== 200 || !traj.body.chunks?.length) return `FAIL: no trajectory chunks: ${JSON.stringify(traj.body).slice(0, 300)}`
+    const ticks = traj.body.chunks.reduce((n, c) => n + c.ticks, 0)
+    const kinds = traj.body.chunks.reduce((all, c) => ({ ...all, ...c.kinds }), {})
+    if (ticks < 50) return `FAIL: only ${ticks} ticks recorded`
+    if (!kinds.command || !kinds.perceived || !kinds.spawn) return `FAIL: trajectory events missing: ${JSON.stringify(kinds)}`
     console.log('\n' + after.body.text + '\n')
+    console.log(`trajectory: ${traj.body.chunks.length} chunks, ${ticks} ticks, events ${JSON.stringify(kinds)}`)
     return null
   }
   return 'FAIL: she never spawned'
 }
 
 const failure = await check()
-finish(failure ? 1 : 0, failure ?? 'PASS: joined, state read, other player seen, viewer up')
+finish(failure ? 1 : 0, failure ?? 'PASS: joined, state read, other player seen, viewer up, trajectory recorded')

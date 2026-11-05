@@ -268,6 +268,13 @@ class Settings(BaseSettings):
     learning_capture_retry_max_seconds: float = Field(default=30.0, gt=0)
     learning_capture_drain_seconds: float = Field(default=5.0, ge=0)
     learning_capture_gap_log_path: str = "var/learning_capture_gaps.jsonl"
+    # Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md): chunks of every game tick, pulled from
+    # the pack and saved by the same writer. Chunks wait in their own bound so a backlog never pushes out decisions
+    # (about 5 s of play each: 240 is 20 minutes behind); a fuller queue is a visible gap. Each pull takes at most
+    # this many chunks per call and this many calls per pass.
+    learning_capture_chunk_queue_max: int = Field(default=240, ge=1)
+    trajectory_pull_chunks: int = Field(default=40, ge=1, le=500)
+    trajectory_pull_calls: int = Field(default=10, ge=1, le=100)
     # The user's learning setting: Columbina may turn her decisions into training examples without asking each
     # time. Off: nothing new is derived (existing examples stay, and stay deletable).
     learning_derive_examples: bool = True

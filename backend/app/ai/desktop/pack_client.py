@@ -140,6 +140,14 @@ class PackClient:
         return self._call("GET", f"/programs/{program_id}", params={"wait": wait} if wait else None,
                           timeout=wait + 3.0)
 
+    def trajectory(self, *, stream: str | None = None, seq: int | None = None, limit: int = 40) -> dict:
+        """Her trajectory's chunks after (stream, seq), oldest first (pack src/trajectory.js): ``{run, chunks: [meta +
+        data (base64 gzip)], dropped, streams, more, coverage}``. Served also while she isn't in the world."""
+        params: dict = {"limit": limit}
+        if stream:
+            params |= {"stream": stream, "seq": seq if seq is not None else -1}
+        return self._call("GET", "/trajectory", params=params, timeout=15.0)
+
     def block_census(self, x: float, y: float, z: float, radius: int = 10) -> dict:
         """``{center, radius, counts: {block: n}, unloaded}``: blocks around a spot, air left out."""
         return self._call("GET", "/blocks", params={"x": x, "y": y, "z": z, "r": radius})

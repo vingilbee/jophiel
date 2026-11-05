@@ -21,6 +21,11 @@ the records without rewriting them.
   (or lines in the gap file when the database is the thing that's down). A sudden crash loses what was queued,
   without a gap: reconstruction then shows the missing link instead of a complete chain.
 
+Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md) goes through the same writer: chunks of every
+game tick (``trajectory_chunk``), their streams (``trajectory_stream``) and what the pack let go of before we took it
+(``trajectory_dropped``). Chunks wait in their own bound (``LEARNING_CAPTURE_CHUNK_QUEUE_MAX``), so a backlog of
+trajectory never pushes out a decision.
+
 Retention (``prune``, on the learning worker) and source deletion (``drop_raw_for``, from forgetting) remove raw
 copies; training examples (``services/training_examples.py``) are separate and stay.
 """
@@ -47,7 +52,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.models import (
     CAPTURE_EXECUTION_KINDS, CAPTURE_LEARNERS, CAPTURE_RESULTS, CaptureBlob, CaptureGap, ChatMessage,
-    DecisionAttempt, DecisionAttemptSource, DecisionExecution,
+    DecisionAttempt, DecisionAttemptSource, DecisionExecution, TrajectoryChunk, TrajectoryStream,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,6 +87,27 @@ def freeze(value: Any) -> Any:
 
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+_code_version: str | None = None
+
+
+def code_version() -> str:
+    """The code a learner ran under: the repository's commit (``+dirty`` with uncommitted changes), read once per
+    process; ``unknown`` when git can't say."""
+    global _code_version
+    if _code_version is None:
+        import subprocess
+
+        try:
+            head = subprocess.run(["git", "-C", BACKEND, "rev-parse", "--short=12", "HEAD"], capture_output=True,
+                                  text=True, timeout=2, check=True).stdout.strip()
+            dirty = subprocess.run(["git", "-C", BACKEND, "status", "--porcelain", "--untracked-files=no"],
+                                   capture_output=True, text=True, timeout=2).stdout.strip()
+            _code_version = (head + ("+dirty" if dirty else "")) or "unknown"
+        except (OSError, subprocess.SubprocessError):
+            _code_version = "unknown"
+    return _code_version
 
 
 def attempt_id_for(turn_id: uuid.UUID | None, learner: str, try_number: int | None) -> uuid.UUID:
@@ -123,7 +149,7 @@ class Ctx:
 
 @dataclass
 class _Record:
-    kind: str  # attempt / execution / gap
+    kind: str  # attempt / execution / chunk / stream / gap
     id: uuid.UUID
     user_id: uuid.UUID
     label: str
@@ -146,10 +172,11 @@ class CaptureService:
 
     def __init__(self, *, session_factory=None, queue_max: int | None = None, max_tries: int | None = None,
                  base_delay: float | None = None, max_delay: float | None = None, gap_path: str | None = None,
-                 clock=time.monotonic):
+                 chunk_queue_max: int | None = None, clock=time.monotonic):
         s = get_settings()
         self._session_factory = session_factory
         self.queue_max = queue_max or s.learning_capture_queue_max
+        self.chunk_queue_max = chunk_queue_max or s.learning_capture_chunk_queue_max
         self.max_tries = max_tries or s.learning_capture_max_tries
         self.base_delay = base_delay if base_delay is not None else s.learning_capture_retry_base_seconds
         self.max_delay = max_delay if max_delay is not None else s.learning_capture_retry_max_seconds
@@ -162,7 +189,9 @@ class CaptureService:
         self._thread: threading.Thread | None = None
         self._closed = False
         self._busy = 0
-        self.counts = {"queued": 0, "written": 0, "retried": 0, "gaps": 0, "gaps_to_file": 0}
+        self._chunks_waiting = 0  # trajectory chunks in the queue (their own bound)
+        self.counts = {"queued": 0, "written": 0, "retried": 0, "gaps": 0, "gaps_to_file": 0, "chunks_written": 0,
+                       "chunk_bytes_written": 0}
         self.last_error: str | None = None
 
     # -- the caller's side ------------------------------------------------------------------------------
@@ -178,14 +207,23 @@ class CaptureService:
             if self._closed:
                 self._gap_locked(record, "shutdown", "submitted after shutdown")
                 return False
-            if record.kind != "gap" and len(self._queue) >= self.queue_max:
-                self._gap_locked(record, "queue_full", f"{len(self._queue)} records waiting")
+            if record.kind == "chunk" and self._chunks_waiting >= self.chunk_queue_max:
+                self._gap_locked(record, "queue_full", f"{self._chunks_waiting} trajectory chunks waiting")
                 return False
+            if record.kind not in ("gap", "chunk") and len(self._queue) - self._chunks_waiting >= self.queue_max:
+                self._gap_locked(record, "queue_full", f"{len(self._queue) - self._chunks_waiting} records waiting")
+                return False
+            self._chunks_waiting += record.kind == "chunk"
             (self._gaps if record.kind == "gap" else self._queue).append(record)
             self.counts["queued"] += record.kind != "gap"
             self._start_locked()
             self._cond.notify()
         return True
+
+    def room_for_chunks(self, n: int = 1) -> bool:
+        """Whether ``n`` more trajectory chunks fit in their bound now (the collector pulls only then)."""
+        with self._cond:
+            return not self._closed and self._chunks_waiting + n <= self.chunk_queue_max
 
     def gap(self, *, user_id: uuid.UUID, record_kind: str, record_id: uuid.UUID, label: str, reason: str,
             detail: str | None = None, tries: int = 0, turn_id: uuid.UUID | None = None) -> None:
@@ -232,6 +270,7 @@ class CaptureService:
                 if due:
                     for r in due:
                         (self._gaps if r.kind == "gap" else self._queue).remove(r)
+                        self._chunks_waiting -= r.kind == "chunk"
                     self._busy += len(due)
                     return due
                 if self._closed and not self._queue and not self._gaps:
@@ -257,6 +296,9 @@ class CaptureService:
                 db.commit()
             with self._cond:
                 self.counts["written"] += record.kind != "gap"
+                if record.kind == "chunk":
+                    self.counts["chunks_written"] += 1
+                    self.counts["chunk_bytes_written"] += record.values.get("size_bytes", 0)
             return
         except _Permanent as exc:
             outcome, why = "source_gone", str(exc)
@@ -278,6 +320,7 @@ class CaptureService:
                 self.counts["retried"] += 1
                 record.next_at = self.clock() + self._delay(record.tries)
                 self._queue.append(record)
+                self._chunks_waiting += record.kind == "chunk"
             else:
                 self._gap_locked(record, "retries_exhausted" if outcome == "retry" else outcome, why)
             self._cond.notify_all()
@@ -308,6 +351,7 @@ class CaptureService:
         with self._cond:
             self._closed = True
             left, self._queue = list(self._queue), deque()
+            self._chunks_waiting = 0
             gaps, self._gaps = list(self._gaps), deque()
             for r in left:
                 self._gap_locked(r, "shutdown", "still queued at exit")
@@ -320,6 +364,7 @@ class CaptureService:
             now = self.clock()
             waiting = [r for r in self._queue]
             return {**self.counts, "waiting": len(waiting), "retrying": sum(1 for r in waiting if r.tries),
+                    "chunks_waiting": self._chunks_waiting, "chunk_queue_max": self.chunk_queue_max,
                     "gaps_waiting": len(self._gaps), "queue_max": self.queue_max, "max_tries": self.max_tries,
                     "oldest_retry_seconds": round(max((now - r.next_at for r in waiting if r.tries), default=0), 1),
                     "last_error": self.last_error}
@@ -383,7 +428,43 @@ def _write_gap(db: Session, record: _Record) -> None:
         raise
 
 
-_WRITERS = {"attempt": _write_attempt, "execution": _write_execution, "gap": _write_gap}
+def _write_chunk(db: Session, record: _Record) -> None:
+    try:
+        db.execute(insert(TrajectoryChunk).values(**record.values).on_conflict_do_nothing(index_elements=["id"]))
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        if _foreign_key_gone(exc):
+            raise _Permanent("its user or game session is gone") from exc
+        raise
+
+
+def _write_stream(db: Session, record: _Record) -> None:
+    """A stream's header, seen again on every pull: what is known only grows (an end once seen stays, the highest
+    seq the pack named, the newest expiry)."""
+    statement = insert(TrajectoryStream).values(**record.values)
+    excluded = statement.excluded
+    statement = statement.on_conflict_do_update(index_elements=["id"], set_={
+        "ended_at": func.coalesce(TrajectoryStream.ended_at, excluded.ended_at),
+        "end_reason": func.coalesce(TrajectoryStream.end_reason, excluded.end_reason),
+        "last_seq": func.greatest(TrajectoryStream.last_seq, excluded.last_seq),
+        "username": func.coalesce(excluded.username, TrajectoryStream.username),
+        "version": func.coalesce(excluded.version, TrajectoryStream.version),
+        "expires_at": func.greatest(TrajectoryStream.expires_at, excluded.expires_at),
+        "updated_at": func.now()},
+        where=TrajectoryStream.user_id == excluded.user_id)
+    try:
+        db.execute(statement)
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        if _foreign_key_gone(exc):
+            raise _Permanent("its user is gone") from exc
+        raise
+
+
+_WRITERS = {"attempt": _write_attempt, "execution": _write_execution, "chunk": _write_chunk, "stream": _write_stream,
+            "gap": _write_gap}
 
 
 # --------------------------------------------------------------------------- #
@@ -414,6 +495,9 @@ def install(svc: CaptureService | None) -> CaptureService | None:
 class _Nowhere(CaptureService):
     def submit(self, record: _Record) -> bool:
         return False
+
+    def room_for_chunks(self, n: int = 1) -> bool:
+        return False  # captures go nowhere: nothing is pulled from the pack either
 
     def gap(self, **_: Any) -> None:
         return None
@@ -547,6 +631,83 @@ def channel_delivery(*, user_id: uuid.UUID, delivery_id: uuid.UUID, assistant_me
 
 
 # --------------------------------------------------------------------------- #
+# Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md)
+# --------------------------------------------------------------------------- #
+
+
+def chunk_id_for(stream_id: uuid.UUID | str, seq: int) -> uuid.UUID:
+    """A chunk's id: the same chunk pulled twice is one row."""
+    return uuid.uuid5(uuid.UUID(str(stream_id)), f"seq:{int(seq)}")
+
+
+def _when(value: Any) -> datetime | None:
+    if not value:
+        return None
+    at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
+def trajectory_chunk(*, user_id: uuid.UUID, game_session_id: uuid.UUID | None, meta: dict[str, Any],
+                     data: bytes) -> uuid.UUID | None:
+    """Queue one chunk as the pack encoded it (``data`` is stored as given, never decoded here). Returns its id,
+    or None when ``meta`` doesn't describe a chunk (nothing queued, a gap noted). Never raises, never waits."""
+    svc = service()
+    try:
+        cid = chunk_id_for(meta["stream"], meta["seq"])
+        values = {
+            "id": cid, "user_id": user_id, "stream_id": uuid.UUID(str(meta["stream"])),
+            "run_id": uuid.UUID(str(meta["run"])), "game_session_id": game_session_id, "seq": int(meta["seq"]),
+            "first_tick": int(meta["first_tick"]), "ticks": int(meta["ticks"]), "events": int(meta.get("events") or 0),
+            "started_at": _when(meta["started_at"]), "ended_at": _when(meta["ended_at"]), "final": bool(meta.get("final")),
+            "format": int(meta.get("format") or 1), "encoding": str(meta.get("encoding") or "json+gzip")[:16],
+            "data": data, "size_bytes": len(data), "raw_bytes": int(meta.get("raw_bytes") or 0),
+            "sha256": str(meta.get("sha256") or hashlib.sha256(data).hexdigest())[:64],
+            "kinds": freeze(meta.get("kinds") or {}), "overhead": freeze(meta.get("overhead") or {}),
+            "expires_at": _expires()}
+    except Exception as exc:  # noqa: BLE001 - a chunk that can't be described is a gap, never a stopped pull
+        logger.exception("learning_capture: a trajectory chunk can't be recorded")
+        key = f"{meta.get('stream')}:{meta.get('seq')}"
+        svc.gap(user_id=user_id, record_kind="chunk", record_id=uuid.uuid5(uuid.NAMESPACE_URL, key),
+                label="trajectory", reason="unserializable", detail=f"{type(exc).__name__}: {exc}; chunk {key}")
+        return None
+    svc.submit(_Record("chunk", cid, user_id, "trajectory", values))
+    return cid
+
+
+def trajectory_stream(*, user_id: uuid.UUID, stream: dict[str, Any], run_id: str, game: str = "minecraft",
+                      coverage: dict[str, Any] | None = None) -> None:
+    """Queue a stream's header as the pack described it (seen again on every pull; what is known only grows)."""
+    svc = service()
+    try:
+        sid = uuid.UUID(str(stream["id"]))
+        values = {
+            "id": sid, "user_id": user_id, "run_id": uuid.UUID(str(run_id)), "stream_index": int(stream.get("index") or 0),
+            "game": game[:32], "username": (stream.get("username") or None) and str(stream["username"])[:64],
+            "version": (stream.get("version") or None) and str(stream["version"])[:32],
+            "started_at": _when(stream["started_at"]), "ended_at": _when(stream.get("ended_at")),
+            "end_reason": (stream.get("end_reason") or None) and str(stream["end_reason"])[:500],
+            "last_seq": int(stream.get("last_seq") if stream.get("last_seq") is not None else -1),
+            "coverage": freeze(coverage or {}), "expires_at": _expires()}
+    except Exception:  # noqa: BLE001
+        logger.exception("learning_capture: a trajectory stream can't be recorded")
+        return
+    svc.submit(_Record("stream", sid, user_id, "trajectory_stream", values))
+
+
+def trajectory_dropped(*, user_id: uuid.UUID, drop: dict[str, Any]) -> None:
+    """Chunks the pack let go of before we took them (its buffer was full): a content-free gap, once per range."""
+    try:
+        record_id = uuid.uuid5(uuid.UUID(str(drop["stream"])), f"dropped:{int(drop['from_seq'])}")
+    except Exception:  # noqa: BLE001
+        record_id = uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(drop, sort_keys=True, default=str))
+    detail = (f"stream {drop.get('stream')} seq {drop.get('from_seq')}-{drop.get('to_seq')} "
+              f"({drop.get('chunks')} chunks, ticks {drop.get('first_tick')}-{drop.get('last_tick')}, "
+              f"{drop.get('started_at')} to {drop.get('ended_at')}): {drop.get('reason')}")
+    service().gap(user_id=user_id, record_kind="chunk", record_id=record_id, label="trajectory",
+                  reason="pack_dropped", detail=detail)
+
+
+# --------------------------------------------------------------------------- #
 # Retention and source deletion
 # --------------------------------------------------------------------------- #
 
@@ -592,6 +753,12 @@ def prune(db: Session, now: datetime | None = None, *, batch: int = 500) -> dict
         DecisionAttempt.blob_hashes.op("?")(CaptureBlob.sha256)).exists()
     out["blobs"] = db.execute(delete(CaptureBlob).where(
         CaptureBlob.last_used_at < now - timedelta(hours=1), ~referenced)).rowcount or 0
+    expired = select(TrajectoryChunk.id).where(TrajectoryChunk.expires_at < now).limit(batch)
+    out["trajectory_chunks"] = db.execute(delete(TrajectoryChunk).where(TrajectoryChunk.id.in_(expired))).rowcount or 0
+    # A stream goes once it has expired and holds no chunk (its header is what says a chunk is missing or expired).
+    holds = select(TrajectoryChunk.id).where(TrajectoryChunk.stream_id == TrajectoryStream.id).exists()
+    out["trajectory_streams"] = db.execute(delete(TrajectoryStream).where(
+        TrajectoryStream.expires_at < now, ~holds)).rowcount or 0
     db.commit()
     return out
 
@@ -601,7 +768,9 @@ def forget_user_raw(db: Session, user_id: uuid.UUID) -> dict[str, int]:
     out = {"executions": db.execute(delete(DecisionExecution).where(DecisionExecution.user_id == user_id)).rowcount,
            "attempts": db.execute(delete(DecisionAttempt).where(DecisionAttempt.user_id == user_id)).rowcount,
            "gaps": db.execute(delete(CaptureGap).where(CaptureGap.user_id == user_id)).rowcount,
-           "blobs": db.execute(delete(CaptureBlob).where(CaptureBlob.user_id == user_id)).rowcount}
+           "blobs": db.execute(delete(CaptureBlob).where(CaptureBlob.user_id == user_id)).rowcount,
+           "trajectory_chunks": db.execute(delete(TrajectoryChunk).where(TrajectoryChunk.user_id == user_id)).rowcount,
+           "trajectory_streams": db.execute(delete(TrajectoryStream).where(TrajectoryStream.user_id == user_id)).rowcount}
     return out
 
 
@@ -614,4 +783,5 @@ def any_ref(*groups: Iterable[str]) -> tuple[str, ...]:
 
 
 __all__ = ["Ctx", "CaptureService", "attempt", "execution", "reply", "heard", "channel_delivery", "drop_raw_for",
-           "prune", "service", "install", "disabled", "attempt_id_for", "prior_for", "execution_id_for", "freeze"]
+           "prune", "service", "install", "disabled", "attempt_id_for", "prior_for", "execution_id_for", "freeze",
+           "trajectory_chunk", "trajectory_stream", "trajectory_dropped", "chunk_id_for"]

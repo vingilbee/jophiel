@@ -14,6 +14,7 @@ import { attachSkills } from './pack.js'
 import { ModeSettings } from './modes/modes.js'
 import { readState } from './state.js'
 import { startViewer, viewerSupports } from './viewer.js'
+import { Trajectory } from './trajectory.js'
 
 const TOKEN_FILE = 'var/api_token'
 const config = loadConfig()
@@ -40,6 +41,8 @@ let viewer = null
 let retryMs = 2000
 let quitting = false
 const modes = new ModeSettings() // background modes, kept across reconnects
+// Her trajectory (src/trajectory.js): one run per process, one stream per connection, kept for the backend.
+const trajectory = new Trajectory({ bufferBytes: config.trajectoryBufferMb * 1024 * 1024 })
 
 // Kick reasons arrive as chat components, sometimes wrapped in NBT.
 function reasonText (reason) {
@@ -49,6 +52,7 @@ function reasonText (reason) {
 
 function getState () {
   const state = readState(bot, { radius: config.nearbyRadius })
+  trajectory.perceived(state) // what she perceived of the place, now (it is cached between reads)
   const recent = Date.now() - 120000
   state.noticed = (noticing?.since(0) ?? []).filter((n) => Date.parse(n.at) >= recent).slice(-5)
   const skill = runner?.current
@@ -79,7 +83,7 @@ async function join () {
     // Microsoft sign-in prints a device code once; the token is cached in authCacheDir.
     onMsaCode: (data) => log(`sign in for her account: open ${data.verification_uri} and enter ${data.user_code}`)
   })
-  ;({ runner, motion, noticing, sightings, watching, manifest } = attachSkills(bot, { memoryPath, modes }))
+  ;({ runner, motion, noticing, sightings, watching, manifest } = attachSkills(bot, { memoryPath, modes, trajectory }))
   runner.on('start', (r) => log(`skill ${r.skill} ${JSON.stringify(r.params)}`))
   noticing.onNotice?.((n) => log(`noticed [${n.urgency}] ${n.kind}: ${n.text}`))
   runner.on('finish', (r) => log(`skill ${r.skill} -> ${r.status}${r.reason ? ` (${r.reason})` : ''} ${JSON.stringify(r.data)}`))
@@ -137,7 +141,8 @@ await startApi({
     noticing: () => (spawned ? noticing : null),
     modes: () => modes,
     recipe: (item) => recipeFor(bot, item),
-    needs: (name, count) => needsForBot(bot, name, count)
+    needs: (name, count) => needsForBot(bot, name, count),
+    trajectory: () => trajectory
   }
 })
 log(`api on http://${config.apiHost}:${config.apiPort}`)
@@ -147,6 +152,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
     log('leaving the world')
     quitting = true
+    trajectory.end('shutting down') // its last chunk says so (still in memory: a pack that exits loses its buffer)
     runner?.detach()
     bot?.quit()
     setTimeout(() => process.exit(0), 300)

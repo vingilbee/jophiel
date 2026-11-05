@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DDL, BigInteger, Boolean, CheckConstraint, Computed, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
+from sqlalchemy import DDL, BigInteger, Boolean, LargeBinary, CheckConstraint, Computed, Date, DateTime, FetchedValue, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, event, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -2759,9 +2759,15 @@ class CoordinatorOutput(Base):
 # written asynchronously and out of order, and a missing one is a visible gap, never a failed insert.
 # --------------------------------------------------------------------------- #
 
-CAPTURE_LEARNERS = ("student_1", "student_2", "hands")
+# The planner and hard thoughts joined in post-audit 1 (docs/learning-system/POST-AUDIT-01-implementation.md).
+CAPTURE_LEARNERS = ("student_1", "student_2", "hands", "planner", "hard_thought")
 CAPTURE_ATTEMPT_STATUSES = ("ok", "invalid", "unavailable", "error")
-CAPTURE_EXECUTION_KINDS = ("effect", "reply", "heard", "channel_delivery", "skill_run")
+# plan_apply: what application code did with the planner's decision (the plan revision it made, the rules it
+# carried); thought_route: where a hard thought's conclusion went; step_check: code counting a plan step done.
+CAPTURE_EXECUTION_KINDS = ("effect", "reply", "heard", "channel_delivery", "skill_run", "plan_apply", "thought_route",
+                           "step_check")
+# pack_dropped: trajectory chunks the game pack let go of before the backend took them (its buffer was full).
+CAPTURE_GAP_REASONS = ("queue_full", "retries_exhausted", "unserializable", "source_gone", "shutdown", "pack_dropped")
 # succeeded: did what was intended; deviated: did something, not exactly that (a reply cut off, a partial
 # delivery); failed: known failure; unknown: no result known (yet, or ever); not_executed: never started;
 # cancelled: stopped on purpose; handed_off: given to another owner (background work); not_sent: silence chosen.
@@ -2910,10 +2916,84 @@ class CaptureGap(Base):
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        CheckConstraint("reason IN ('queue_full', 'retries_exhausted', 'unserializable', 'source_gone', "
-                        "'shutdown')", name="ck_capture_gaps_reason"),
+        CheckConstraint(_in("reason", CAPTURE_GAP_REASONS), name="ck_capture_gaps_reason"),
         UniqueConstraint("record_id", name="uq_capture_gaps_record"),
         Index("ix_capture_gaps_user", "user_id", "detected_at"),
+    )
+
+
+# Her trajectory (docs/learning-system/POST-AUDIT-01-fill-missing-experience-capture.md; implementation:
+# docs/learning-system/POST-AUDIT-01-implementation.md): every game tick the pack's client exposed, in chunks the
+# pack encoded (JSON, gzipped: a checkpoint then one frame per tick, and the events in between). Each connection is
+# a stream; a chunk is self-contained, so retention may drop any one. Raw capture: kept
+# LEARNING_CAPTURE_RETENTION_DAYS, removed with the user or the game session it was collected in. Chunks name
+# their stream by id, not a foreign key: they arrive asynchronously, and a missing piece shows as a hole in seq.
+
+
+class TrajectoryStream(Base):
+    """One connection of her player (pack ``src/trajectory.js``): a run is a pack process, a stream one
+    connection in it. ``ended_at`` null: the end was never seen (still connected, or the pack stopped without
+    saying so). Never continuous with another stream."""
+
+    __tablename__ = "trajectory_streams"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    stream_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    game: Mapped[str] = mapped_column(String(32), nullable=False)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # the pack's clock
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=-1, server_default="-1")  # as the pack said
+    coverage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_trajectory_streams_user", "user_id", "started_at"),
+                      Index("ix_trajectory_streams_expires", "expires_at"))
+
+
+class TrajectoryChunk(Base):
+    """About 5 s of her trajectory as the pack encoded it (``data``: ``encoding`` bytes, never rewritten). ``id`` is
+    ``uuid5(stream, "seq:<n>")``, so a chunk saved twice is one row. Times are the pack's clock; ``captured_at``
+    the backend's."""
+
+    __tablename__ = "trajectory_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    stream_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # The session live when the backend collected it (None: she was in the world outside any session).
+    game_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desktop_sessions.id", ondelete="CASCADE"), nullable=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_tick: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ticks: Mapped[int] = mapped_column(Integer, nullable=False)
+    events: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    final: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    format: Mapped[int] = mapped_column(Integer, nullable=False)
+    encoding: Mapped[str] = mapped_column(String(16), nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)  # stored (encoded)
+    raw_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    kinds: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    overhead: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("stream_id", "seq", name="uq_trajectory_chunks_stream_seq"),
+        Index("ix_trajectory_chunks_user", "user_id", "started_at"),
+        Index("ix_trajectory_chunks_session", "game_session_id", "started_at"),
+        Index("ix_trajectory_chunks_expires", "expires_at"),
     )
 
 
