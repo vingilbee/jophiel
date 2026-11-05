@@ -802,7 +802,7 @@ def _plan(goal: str, steps: list[dict] | None, constraints: list[str] | None = N
     items = [PlanStepIn(**step) for step in (steps or [])] or [
         PlanStepIn(do=goal[:120], done_when=f"{goal} is done"[:120])
     ]
-    rules = [rule.strip()[:120] for rule in (constraints or []) if rule.strip()][:5]
+    rules = [rule.strip() for rule in (constraints or []) if rule.strip()][:5]
     return PlanIn(goal=goal[:200], steps=items, constraints=rules, target=_target(target))
 
 
@@ -947,7 +947,7 @@ def _fresh_start(session: DesktopSession) -> str:
 
 def _goal(text: str, target: str | None, rules: list[str] | None) -> dict:
     return {"text": " ".join(text.split())[:200], "target": _target(target),
-            "rules": [" ".join(rule.split())[:120] for rule in (rules or []) if rule.strip()][:5]}
+            "rules": [" ".join(rule.split()) for rule in (rules or []) if rule.strip()][:5]}
 
 
 def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None = None,

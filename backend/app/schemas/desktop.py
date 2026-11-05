@@ -22,6 +22,8 @@ CaptureScope = Literal["desktop", "game_window"]
 
 ProfileId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+# A rule her hands keep for the goal: whole, never cut (a cut rule was copied forward cut, seen live 2026-11-05).
+RuleText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 PlanText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 
@@ -110,7 +112,7 @@ class PlanIn(_In):
     goal: PlanText
     steps: list[PlanStepIn] = Field(min_length=1, max_length=50)  # the configured cap is enforced by the service
     if_stuck: PlanText | None = None
-    constraints: list[ShortText] = Field(default_factory=list, max_length=5)
+    constraints: list[RuleText] = Field(default_factory=list, max_length=5)
     # The item or block the goal is about (a game id, e.g. iron_ore): her planner works out
     # what it takes to get it (services/game_planning).
     target: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,64}$")] | None = None

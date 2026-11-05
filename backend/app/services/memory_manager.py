@@ -683,6 +683,10 @@ def on_plan_set(db: Session, session: DesktopSession, *, goal_text: str, source:
     elif goal.status == "suspended" and source in USER_PLAN_SOURCES:
         _set_status(db, goal, "active", "the user set a plan for it", _now())
     _link_session(session, goal)
+    if session.plan is not None:
+        # The goal this plan was made for. ``goal_id`` follows the session to a newer goal; this stays, so a
+        # revision can tell an old goal's plan (and its rules) from the current one's (seen live 2026-11-05).
+        session.plan = {**session.plan, "made_for_goal": str(goal.id)}  # reassign: JSONB doesn't track in place
     if source in USER_PLAN_SOURCES:  # her own revisions in the background don't move her attention
         focus(db, user_id, context.id)
     return goal

@@ -66,6 +66,24 @@ def test_needs_text_says_the_chain_in_order():
     assert "white_bed" in needs_text({"target": "bed", "known": False, "did_you_mean": ["white_bed"]})
 
 
+def test_a_rule_is_kept_whole_and_its_full_stop_does_not_make_it_another():
+    """Seen live 2026-11-05: a rule cut at 120 characters was copied forward cut, and the planner's copy of an old
+    rule with a full stop read as a new one, so the old one showed as carried by code and the copy as left out."""
+    from app.services.desktop_game import _plan
+
+    long_rule = ("When searching for iron ore, explore into a cave and search its exposed stone rather than "
+                 "repeatedly seeking iron from the surface, and come back up before night")
+    assert len(long_rule) > 120
+    old = ["Follow the user deeper into the cave", long_rule]
+    applied = game_planning._rules(old, ["follow the user deeper into the cave.", long_rule])
+    assert applied == old  # one copy each, whole
+    origins = game_planning._rule_origins(applied, proposed=["Follow the user deeper into the cave."],
+                                          previous_plan=old)
+    assert origins["carried_by_code"] == [long_rule]  # the planner did propose the first one
+    assert origins["left_out_by_limit"] == []
+    assert _plan("goal", None, applied).constraints == old
+
+
 # --------------------------------------------------------------------------- #
 # Real PostgreSQL: asking, routing, applying
 # --------------------------------------------------------------------------- #
@@ -216,6 +234,40 @@ def test_revise_merges_by_id_and_keeps_the_users_rules(db, alice, planning):
     assert session.plan["goal"] == "mine some iron" and session.plan["source"] == "columbina_mind"
     assert session.plan["constraints"] == ["stay dry", "avoid lava"] and session.plan["target"] == "iron_ore"
     assert session.state == "running"
+
+
+def test_a_revision_into_the_users_new_goal_leaves_the_old_goals_rules_behind(db, alice, planning):
+    """Seen live 2026-11-05: "make a bed, you don't have to follow me" while the plan was still the iron one;
+    her planner revised it into the bed and "Follow the user deeper into the cave" came along for 11 minutes."""
+    from app.services import memory_manager
+
+    session = _session(db, alice, state="paused")
+    session.plan = {**session.plan, "constraints": ["Follow the user deeper into the cave", "stay dry"]}
+    memory_manager.on_plan_set(db, session, goal_text="mine some iron", source="columbina_user_turn")
+    db.commit()
+    iron = session.plan["made_for_goal"]
+    bed = memory_manager.begin_goal(db, session, "Make a bed", by_user=True)
+    db.commit()
+    db.refresh(session)
+    assert session.plan["goal_id"] == str(bed.id) and session.plan["made_for_goal"] == iron
+    assert game_planning.made_for_other_goal(session.plan)
+    assert "came with a plan made for an earlier goal" in "\n".join(game_planning.plan_lines(session.plan))
+
+    game_planning.request(db, session, "stuck: no cobblestone for the furnace")
+    db.commit()
+    decision = PlanDecision("revise", why="The bed needs wool and planks.", goal="gather wool, then craft a bed",
+                            rules=["stay dry."], steps=[PlanStep(do="get 3 wool", done_when="gained 3 wool")])
+    assert _run(db, session, ScriptedPlanner(decision)).startswith("set (revised)")
+    db.refresh(session)
+    assert session.plan["constraints"] == ["stay dry."]  # listed again: kept; the cave rule ended with iron
+    assert session.plan["made_for_goal"] == str(bed.id) and not game_planning.made_for_other_goal(session.plan)
+
+
+def test_when_rules_overflow_the_planners_win_over_the_old_plans():
+    previous = [f"old rule {n}" for n in range(5)]
+    applied = game_planning._revised_rules([], previous, [], ["new rule"])
+    assert len(applied) == 5 and applied[-1] == "new rule" and "old rule 4" not in applied
+    assert applied[:4] == previous[:4]  # in the plan's order
 
 
 def test_a_users_goal_is_set_as_theirs_with_its_target_and_rules(db, alice, planning):
