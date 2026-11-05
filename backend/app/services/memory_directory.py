@@ -47,7 +47,8 @@ _FACT_AREA = {"constraint": ("standing", "Standing constraints (always apply)"),
 _ITEM_AREA = {"plan": ("plans", "Plans"), "question": ("questions", "Open questions"),
               "commitment": ("promises", "Promises"), "goal": ("goals", "Their goals"),
               "hypothesis": ("thoughts", "Your own open thoughts"), "decision": ("thoughts", "Your own open thoughts"),
-              "intention": ("thoughts", "Your own open thoughts")}
+              "intention": ("thoughts", "Your own open thoughts"),
+              "constraint": ("standing", "Standing constraints (always apply)")}
 STORE_WORD = {"fact": ("fact", "facts"), "episode": ("experience", "experiences"), "item": ("open item", "open items")}
 
 

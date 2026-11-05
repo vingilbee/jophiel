@@ -195,7 +195,7 @@ def thinking(monkeypatch, tmp_path):
                 during()
             return answer
         monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
-            think=answer_, instructions=lambda trigger, user, situation: "system"))
+            think=answer_, instructions=lambda trigger, user, situation, **kw: "system"))
     return SimpleNamespace(saved=saved, said=said, think=think, calls=calls, shadow=tmp_path / "shadow.jsonl")
 
 

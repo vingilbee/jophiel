@@ -109,6 +109,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   text; the Minecraft source), situation.py (what a source tells the general mind), gates.py (how hard
                         #   to think: Jev / OpenAI Decisions / chat / Strands), think.py (quick thoughts),
                         #   plan.py (her planner: the one author of her game plan),
+                        #   effort.py (her effort, pure: outcome / approach / actions / the user's rules as a
+                        #   timeline she and her planner read; docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md),
                         #   mood_layers.py (her inner state: reaction -> incident -> mood, frozen config in
                         #   Cognitive/simple/character/columbina.inner_state.json), inner_state.py (the flat model it replaced,
                         #   kept for comparison)
@@ -162,7 +164,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   game_correction.py: she corrects a reply the game outdated while she said it;
                        #   mind.py + mind_hard.py: her general mind (attention per user, quick and hard thoughts,
                        #   where conclusions go), over sources (app/ai/mind/contracts.py);
-                       #   mind_minecraft.py: Minecraft as a source and a body; mind_conversation.py: a conversation
+                       #   mind_minecraft.py: Minecraft as a source and a body (its senses and view coverage);
+                       #   effort.py: her effort in a game session, built from what was recorded (read-only); mind_conversation.py: a conversation
                        #   as a live source (hard thoughts on open questions, promises, intentions, quiet time);
                        #   inner_state_live.py: her mood from real conversations, no influence;
                        #   memory_manager.py: her working memory (contexts, goals, commitments, intentions,
@@ -323,6 +326,8 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - General mind over `Source`/`Body` contracts (`app/ai/mind/contracts.py`). Attention is per user: one hard thought at a time. Minecraft and conversation are sources.
 - Hard thoughts conclude (decision / guess / question / intention / feeling) and have no tools. Concluded thoughts reach memory as observations.
 - The planner is the one author of a game pack's plan. Inner state is observed only and has no influence yet.
+- No code-defined "stuck" (2026-11-04, the user's decision): no time limit or try count decides it. Code keeps the
+  effort record and picks when she looks back (a plan step ending); her mind judges progress and the cause.
 
 **Memory** (`docs/COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md`, `docs/COLUMBINA_MEMORY_SESSION{1,2,3}_*.md`, `docs/COLUMBINA_SOURCE_BACKED_RECALL.md`, `docs/COLUMBINA_MEMORY_CORRECTIONS.md`, `docs/COLUMBINA_MEMORY_CONFLICTS.md`, `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`)
 - Working memory (contexts, items, events, evidence), observation, shared recall, source-backed history, corrections, conflicts, forgetting, claims/entities/time, dependencies, transcript search and upkeep. Status of each stage: `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`.

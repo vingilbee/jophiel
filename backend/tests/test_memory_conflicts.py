@@ -202,7 +202,7 @@ class _Thinker:
     def __init__(self, during=None):
         self.during, self.calls = during, 0
 
-    def instructions(self, trigger, name, situation):
+    def instructions(self, trigger, name, situation, **kw):
         return "system"
 
     def think(self, inp, situation):

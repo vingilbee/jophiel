@@ -168,6 +168,8 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
   const held = bot.heldItem
   const surroundings = safeSurroundings(bot)
   return {
+    // Her height now and a while ago, counted from her own position over time.
+    heights: heightTrail(bot, now.getTime(), self.position.y),
     at: now.toISOString(),
     username: bot.username,
     // Everyone else in the world right now (the user is one of them).
@@ -212,6 +214,29 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     surroundings,
     // The lie of the land: the high ground, which way it rises or falls, and underground the way out.
     terrain: safeTerrain(bot, surroundings)
+  }
+}
+
+// Her height over the last few minutes, sampled as her state is read: what a player feels going down a
+// shaft or up a hill. Kept on the bot (one per player), at most one sample per HEIGHT_EVERY_MS.
+const HEIGHT_EVERY_MS = 5000
+const HEIGHT_KEPT_MS = 6 * 60 * 1000
+export function heightTrail (bot, nowMs, y) {
+  const trail = (bot.heightSamples ??= [])
+  if (!trail.length || nowMs - trail[trail.length - 1].t >= HEIGHT_EVERY_MS) trail.push({ t: nowMs, y })
+  while (trail.length && nowMs - trail[0].t > HEIGHT_KEPT_MS) trail.shift()
+  const at = (ago) => {
+    const old = trail.find((s) => nowMs - s.t <= ago + HEIGHT_EVERY_MS)
+    return old && nowMs - old.t >= ago - HEIGHT_EVERY_MS ? Math.floor(old.y) : null
+  }
+  const ys = trail.map((s) => Math.floor(s.y))
+  return {
+    now: Math.floor(y),
+    one_min_ago: at(60 * 1000),
+    five_min_ago: at(5 * 60 * 1000),
+    lowest: ys.length ? Math.min(...ys, Math.floor(y)) : Math.floor(y),
+    highest: ys.length ? Math.max(...ys, Math.floor(y)) : Math.floor(y),
+    over_s: trail.length ? Math.round((nowMs - trail[0].t) / 1000) : 0
   }
 }
 

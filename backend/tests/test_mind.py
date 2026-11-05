@@ -132,22 +132,51 @@ def test_one_hard_thought_at_a_time_with_a_gap(brain):
     assert len(brain.hard) == 2
 
 
-def test_a_step_that_keeps_failing_is_thought_over_at_the_4th_and_10th_failure(brain):
-    brain.session.plan = {"goal": "kill a sheep", "steps": [
-        {"id": "s60", "state": "active", "do": "attack the sheep", "done_when": "the sheep is dead"}]}
-    fails = [{"skill": "fight", "params": {"target": "sheep"}, "status": "refused", "reason": "sheep isn't hostile"}]
-    brain.driver["step"] = {"id": "s60", "do": "attack the sheep", "since": 90.0, "tries": 4, "failed": 3,
-                            "failures": fails * 3}
-    assert brain.run(Gate({"none": 0.9}))["hard"] is None
-    brain.driver["step"] = {**brain.driver["step"], "tries": 5, "failed": 4, "failures": fails * 4}
-    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] == "hard: failing"
+def test_a_step_that_ends_is_a_moment_to_look_back_with_no_count_of_tries(brain):
+    """Stage 2 (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md): no number decides she's stuck; a step ending makes her
+    look back over the whole effort, and her mind judges it. Many failed tries alone raise nothing."""
+    steps = [{"id": "s1", "state": "active", "do": "find iron ore"}, {"id": "s2", "state": "pending", "do": "mine it"}]
+    brain.session.plan = {"goal": "iron armor", "steps": steps}
+    fails = [{"skill": "go_to", "params": {"target": "block:iron_ore"}, "status": "failed",
+              "reason": "no iron_ore in sight within 64"}]
+    brain.driver["step"] = {"id": "s1", "do": "find iron ore", "since": 90.0, "tries": 12, "failed": 11,
+                            "failures": fails * 6}
+    assert brain.run(Gate({"none": 0.9}))["hard"] is None  # failing a lot: hers to notice when she looks back
+    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] is None
+    brain.session.plan = {"goal": "iron armor", "steps": [{**steps[0], "state": "done"}, {**steps[1], "state": "active"}]}
+    assert brain.run(Gate({"none": 0.9}), at=102)["hard"] == "hard: review"
     problem = brain.hard[-1]
-    assert problem.anchor == {"goal": "kill a sheep", "step_id": "s60"}
-    assert "4 failed: fight(target=sheep) -> sheep isn't hostile x4" in problem.text
+    assert problem.trigger == "review" and '"find iron ore" (done)' in problem.text
+    assert "tried it 12 times; 11 failed" in problem.text and "whole effort" in problem.text
     brain.landed()
-    assert brain.run(Gate({"none": 0.9}), at=130)["hard"] is None  # the same failure count: thought over already
-    brain.driver["step"] = {**brain.driver["step"], "failed": 10}
-    assert brain.run(Gate({"none": 0.9}), at=131)["hard"] == "hard: failing"
+    assert brain.run(Gate({"none": 0.9}), at=130)["hard"] is None  # the next step just started: nothing ended
+
+
+def test_her_hands_giving_up_is_looked_back_on_once(brain):
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s1", "state": "active", "do": "find iron ore"}]}
+    brain.driver["step"] = {"id": "s1", "do": "find iron ore", "since": 90.0, "tries": 3, "failed": 3, "failures": []}
+    assert brain.run(Gate({"none": 0.9}))["hard"] is None
+    brain.session.driver_status, brain.session.current_step_id = "stuck", "s1"
+    brain.driver["notes"] = "no iron anywhere I can see"
+    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] == "hard: review"
+    assert 'your hands gave up on it: "no iron anywhere I can see"' in brain.hard[-1].text
+    brain.landed()
+    assert brain.run(Gate({"none": 0.9}), at=130)["hard"] is None  # the same report: looked back on already
+
+
+def test_a_plan_that_moves_on_is_a_step_ended_only_once_her_hands_tried_it(brain):
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s1", "state": "active", "do": "follow Vincent"}]}
+    assert brain.run(Gate({"none": 0.9}))["hard"] is None
+    brain.session.plan_revision = 2
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s1", "state": "active", "do": "explore the cave"}]}
+    assert brain.run(Gate({"none": 0.9}), at=101)["hard"] is None  # replaced before anything was tried
+    brain.driver["step"] = {"id": "s1", "do": "explore the cave", "since": 100.0, "tries": 2, "failed": 0,
+                            "failures": []}
+    assert brain.run(Gate({"none": 0.9}), at=102)["hard"] is None
+    brain.session.plan_revision = 3
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s1", "state": "active", "do": "dig down"}]}
+    assert brain.run(Gate({"none": 0.9}), at=103)["hard"] == "hard: review"
+    assert '"explore the cave" (the plan moved on before it was done)' in brain.hard[-1].text
 
 
 def test_a_result_that_says_failed_while_she_got_the_loot_is_a_surprise(brain):

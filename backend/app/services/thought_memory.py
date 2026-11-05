@@ -229,8 +229,13 @@ def _apply(db: Session, observation: Observation, payload: registry.ThoughtConcl
                                reason=f"replaced by a later thought of yours: {payload.conclusion}"[:300],
                                source=thought)
     text = payload.question if kind == "question" and payload.question else payload.conclusion
+    # In a game, what she concluded serves the outcome the session plays for: it joins that effort
+    # (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md), so the outcome gathers the approaches she took for it.
+    goal = memory_manager.open_goal_of_session(db, observation.session_id)
+    serves = goal.id if goal is not None and goal.context_id == observation.context_id else None
     entry = memory_manager.add_item(db, user_id, kind=kind, text_=text, owner="columbina", epistemic="inferred",
-                                    context_id=observation.context_id, source=thought, reason=payload.reason)
+                                    context_id=observation.context_id, parent_id=serves, source=thought,
+                                    reason=payload.reason)
     if premise is not None:
         entry.premise_conflict_id = premise.id  # settling the disagreement closes it (memory_conflicts.settle)
     memory_manager.link(db, user_id, role="origin", source=Source("observation", observation.id), item_id=entry.id)

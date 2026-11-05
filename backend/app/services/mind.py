@@ -174,6 +174,7 @@ def thought_out(thought: MindThought) -> dict:
             "status": thought.status, "topic": thought.topic, "kind": thought.kind,
             "trigger": thought.trigger, "conclusion_kind": thought.conclusion_kind, "thinking": thought.thinking,
             "for_hands": thought.for_hands, "question": thought.question, "dropped_reason": thought.dropped_reason,
+            "assessment": thought.assessment,
             "session_id": str(thought.session_id) if thought.session_id else None,
             "source": thought.source, "activity_id": str(thought.activity_id) if thought.activity_id else None,
             "created_at": thought.created_at.isoformat() if thought.created_at else

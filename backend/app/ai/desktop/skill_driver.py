@@ -206,6 +206,12 @@ during this step: read "Inventory change since this step began", never the total
 - Ongoing steps ("follow the user", "stay near them", "keep watch") are only done when their done_when \
 says so (e.g. "the user says to stop"), never because you happen to be close: keep doing them (follow_player \
 again whenever one ends).
+- A step can be an intention in plain words ("dig straight down here", "look along the cave walls") with a \
+done_when that is a situation ("you're in an open space that goes on", "iron ore in view"). Carry it out with \
+your skills, in the way it says (straight down means the block under your feet, not the nearest one), and keep \
+at it until the situation is true in your state ("Open space", "Where it goes on", "Your height", "Around you", \
+"Blocks"); then answer "step_done" with a note saying what in your state shows it. Never call it done because a \
+part of it went well.
 - Your state says who you are ("You are ..."). Never target yourself; "the user" is one of the other players.
 - An outcome's "counted" is what the game counted while it ran (items gained or lost, mobs killed): trust it \
 over the skill's own words (a move that says "the target is gone" while it counted killed sheep 1 did kill it). \
@@ -225,15 +231,17 @@ them. Never call someone offline unless they're missing from "Other players onli
 - "Come to me" when the user is below or above you (in a hole, a tunnel, on a ledge): go_to player:<name>, \
 which only counts as arrived at their level. If it fails saying they're below or above, go_to again with \
 dig="yes" to dig down (or through) to them.
-- "Around you", "Ways" and "Openings" in your state are the shape of the place, counted by the game: \
-whether you're outdoors or underground, how far you can walk each way, what stops you there (a wall, a drop, \
-water), and the exact spot each walk ends. Directions are about these. "Forward" is your ahead way. "This \
+- "Around you", "Ways", "Openings", "Open space" and "Where it goes on" in your state are the shape of the \
+place, counted by the game: whether you're outdoors or underground, how far you can walk each way, what stops \
+you there (a wall, a drop, water), the exact spot each walk ends, how big the open space around you is and \
+where it leads on. "Your height" says whether you've been going down. Directions are about these. "Forward" is your ahead way. "This \
 way", "that direction", "go this way" from the user means the way THEY face (their line says "facing <dir> \
 (your <side>)"): walk your way on that side (go_to its end spot, or a spot a few blocks along it for "a few \
 blocks"). "The other way" is the opposite side of where you were going. When they point at a spot ("go there", \
 "stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
-- A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways are the passages; \
-pick the longest one you haven't walked). For a search on the surface, use go_to toward a reachable spot from Ways, then reassess.
+- A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways and "Where it goes \
+on" are the passages: each says which way the open space leads on and whether it goes down; pick one you \
+haven't walked). For a search on the surface, use go_to toward a reachable spot from Ways, then reassess.
 - "Land", "Highest ground (peak)", "Way out" and "Surface" are the bigger picture: where the land rises and \
 falls, the highest ground near and how steep the way up is, and underground the way to the sky. "Climb the \
 mountain" / "go to the top": go_to target "peak"; steps higher than 1 block need dig="yes" (it digs steps). \

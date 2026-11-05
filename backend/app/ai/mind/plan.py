@@ -28,9 +28,36 @@ INSTRUCTIONS = """\
 You are Jophiel's mind, planning. Right now she is {doing}. You are the only one \
 who writes her plan: her hands do its steps one at a time, and her replies to {user} \
 only pass on what {user} wants. Below: why you are planning now, the goal, the plan \
-(each open step with its id), what it takes (worked out by code from the game's own \
-data: trust it), what is happening, what she can do, what she has learned, her recent \
+(each open step with its id), her effort, what it takes (worked out by code from the game's \
+own data: trust it), what is happening, what she can do, what she has learned, her recent \
 thoughts and the talk.
+
+Her effort is the story of the outcome she's working toward, recorded by code: the outcome \
+(in her memory), the plan as her current approach, {user}'s rules for it, how long it has \
+taken, what was counted, how she perceives here and what her current view covers, and a \
+timeline of what she concluded, what her plans and hands did and what was said. Read it like \
+a person looking back over the last half hour: how long this has taken and whether it's \
+getting anywhere, what was already tried, whether earlier conclusions were carried out and what \
+came of them, and, when it isn't working, why (what she can do, what she can or can't perceive \
+from here, what's really there, or whether she has understood {user}). Code only recorded it; \
+judging it is yours. Parts of it may belong to an earlier session or another place: the times, \
+the gaps and what {user} said tell you which.
+
+The outcome and the plan are different things. The plan's goal is her current approach, or \
+what {user} asked just now ("follow me", "go over there"); the outcome stays until {user} says \
+it changed. When {user} cancels an action ("don't follow me"), that approach goes and the \
+outcome stays, with what they showed her.
+
+Look first, like a person does before deciding what to do next (stage 2 of \
+docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md):
+- sees: what she perceives right now that bears on the goal, in a few plain sentences: where she is (outdoors, \
+underground, in an open space and how big, which way it goes on), what's in view that matters, how her height \
+has changed. Only from what's below.
+- cannot_see: what her senses or her current view don't cover that matters here (what's behind rock, below \
+her, past where the open space was counted, an ore she hasn't seen). Not seeing something isn't it being absent.
+- progress: is her effort getting anywhere toward the outcome? "yes", "no" or "unclear", judged by you from \
+the whole record, not this moment alone. No rule of time or tries decides it. Empty when there's no effort.
+Then plan from what she sees, not from the recipe alone.
 
 Decide one:
 - keep: the plan still leads to the goal. Usually right: a slow step, news or a \
@@ -39,7 +66,9 @@ thought is no reason to change a plan that still works.
 failed for a reason that will happen again, a step no skill can do): fix it. In steps, \
 list the open steps in order: an existing step by its id in "keep" (its do and \
 done_when are then ignored), a new step with "keep" empty. Open steps you don't list \
-stay, at the end; to remove one, put it in drop with why.
+stay, at the end; to remove one, put it in drop with why. In goal, the plan's goal: her \
+approach now, in a few words. When the approach changed (it stopped working, or {user} \
+cancelled it), write the new one; never keep an approach {user} called off. Empty keeps it.
 - new_goal: {user} wants something new (use their words for the goal), or the goal is \
 done and she plays on by herself. Give the goal and all its steps. If what {user} \
 wants is what she is already doing, keep or revise instead.
@@ -48,11 +77,20 @@ they can give or do). She stops and asks.
 - done: the goal is finished and she doesn't play on by herself.
 
 How to plan:
-- Work backwards from the goal: what does the last step need, and what does that \
-need? Every prerequisite under "What it takes" comes before the step that needs it. \
-Don't plan for what she already has.
-- Steps use only her skills, as the source's rules for steps say, each with a \
-done_when the game can confirm. At most {max_steps} open steps.
+- Start from where she is and what she sees: what would a person standing there do next to get closer to the \
+outcome? "What it takes" says what is needed (every prerequisite before the step that needs it; nothing she \
+already has); it is the list of ingredients, not the plan. Getting to where those things are is part of the \
+plan: a search, a way down, a way in, from what she sees and can't see.
+- A step is an intention in plain words, the way a person would say it to themselves ("dig straight down here \
+until I break into open space", "walk the passage that goes down", "mine the iron ore in view"), as the \
+source's rules for steps say. When {user} told her how to do something, the step keeps their way, with their \
+end. Her hands carry each step out with their skills.
+- done_when: what will be true when the step is done, something her hands can tell from their state: a count \
+("gained 3 raw_iron") or a situation they can see ("in an open space that goes on", "iron ore in view", \
+"height below 40"). Never a count that stands in for an intention ("gained 1 dirt" for "dig down until a \
+cave"). At most {max_steps} open steps.
+- If no skill of hers can do an intention, keep the intention anyway: her hands will say what move is \
+missing, and she can teach herself that move. Don't shrink it into something a skill happens to do.
 - A failed step: read why first (counted failures, her hands' notes). Her hands' notes \
 are what they saw, not proof: before deciding something can't be done, check whether \
 a skill does it another way (digging through, going around, somewhere else).
@@ -73,6 +111,14 @@ unless the decision is wait_for_user (then ask is required).
 say: one short line to {user} about the plan, only if they'd want to know now (a goal \
 she picked herself, being done, a change of approach they'd notice). Usually empty. \
 Never both ask and say.
+follows: when this decision carries out one of her earlier conclusions or plans on the \
+timeline, its id there (like "D1a2b3c"); otherwise empty.
+user_rules: a rule {user} gave for the outcome that should hold beyond this plan ("this is your \
+task, don't follow me"), each with {user}'s exact words from the talk. Only new ones: the rules \
+already in force are listed in her effort.
+lift_rules: the ids of rules in force that {user} has taken back.
+places: places or things {user} pointed out that matter to the outcome (a name, where it is if \
+known, their exact words). Only new ones.
 why: her thinking, first person, one or two sentences: what she concluded and why \
 ("I still need the right tool before I can get that, so the tool comes first."). It is \
 shown as her thought.
@@ -90,6 +136,9 @@ class PlanStep:
 class PlanDecision:
     decision: str | None
     why: str | None = None
+    sees: str | None = None  # what she perceives now that bears on the goal, in the planner's words
+    cannot_see: str | None = None  # what her view doesn't cover that matters
+    progress: str | None = None  # her judgment of the effort: yes / no / unclear
     goal: str | None = None
     target: str | None = None
     steps: list[PlanStep] = field(default_factory=list)
@@ -97,6 +146,10 @@ class PlanDecision:
     rules: list[str] = field(default_factory=list)
     ask: str | None = None
     say: str | None = None
+    follows: str | None = None  # the earlier conclusion or plan it says it carries out (a timeline id)
+    user_rules: list[tuple[str, str]] = field(default_factory=list)  # (rule, the user's words)
+    lift_rules: list[str] = field(default_factory=list)  # ids of rules in force
+    places: list[tuple[str, str, str]] = field(default_factory=list)  # (name, where, the user's words)
     latency_ms: float = 0.0
     input_tokens: int | None = None
     error: str | None = None
@@ -105,6 +158,10 @@ class PlanDecision:
 SCHEMA = {
     "type": "object",
     "properties": {
+        # Looking comes first, so it's written before the decision.
+        "sees": {"type": "string"},
+        "cannot_see": {"type": "string"},
+        "progress": {"type": "string", "enum": ["yes", "no", "unclear", ""]},
         "decision": {"type": "string", "enum": list(DECISIONS)},
         "why": {"type": "string"},
         "goal": {"type": "string"},
@@ -121,8 +178,20 @@ SCHEMA = {
         "rules": {"type": "array", "items": {"type": "string"}},
         "ask": {"type": "string"},
         "say": {"type": "string"},
+        "follows": {"type": "string"},
+        "user_rules": {"type": "array", "items": {
+            "type": "object", "properties": {"rule": {"type": "string"}, "words": {"type": "string"}},
+            "required": ["rule", "words"], "additionalProperties": False,
+        }},
+        "lift_rules": {"type": "array", "items": {"type": "string"}},
+        "places": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "where": {"type": "string"}, "words": {"type": "string"}},
+            "required": ["name", "where", "words"], "additionalProperties": False,
+        }},
     },
-    "required": ["decision", "why", "goal", "target", "steps", "drop", "rules", "ask", "say"],
+    "required": ["sees", "cannot_see", "progress", "decision", "why", "goal", "target", "steps", "drop", "rules", "ask", "say", "follows",
+                 "user_rules", "lift_rules", "places"],
     "additionalProperties": False,
 }
 
@@ -146,10 +215,21 @@ def parse(out: dict) -> PlanDecision:
             drop[_clean(raw["id"])] = _clean(raw.get("why")) or ""
     ask, say = _clean(out.get("ask")), _clean(out.get("say"))
     target = (_clean(out.get("target")) or "").lower().replace(" ", "_") or None
+    from app.ai.mind.hard import follows_id
+
+    user_rules = [(_clean(r.get("rule")), _clean(r.get("words"))) for r in out.get("user_rules") or []
+                  if isinstance(r, dict)]
+    places = [(_clean(p.get("name")), _clean(p.get("where")) or "", _clean(p.get("words")) or "")
+              for p in out.get("places") or [] if isinstance(p, dict)]
     return PlanDecision(
-        decision, why=_clean(out.get("why")), goal=_clean(out.get("goal")), target=target, steps=steps,
+        decision, why=_clean(out.get("why")), sees=_clean(out.get("sees")), cannot_see=_clean(out.get("cannot_see")),
+        progress=out.get("progress") if out.get("progress") in ("yes", "no", "unclear") else None,
+        goal=_clean(out.get("goal")), target=target, steps=steps,
         drop=drop, rules=[rule for rule in (_clean(r) for r in out.get("rules") or []) if rule],
-        ask=ask, say=None if ask else say,
+        ask=ask, say=None if ask else say, follows=follows_id(out.get("follows")),
+        user_rules=[(rule, words) for rule, words in user_rules if rule and words],
+        lift_rules=[ref for ref in (_clean(r) for r in out.get("lift_rules") or []) if ref],
+        places=[(name, where, words) for name, where, words in places if name],
     )
 
 

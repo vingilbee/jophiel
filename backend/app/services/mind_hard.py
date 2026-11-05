@@ -32,7 +32,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -127,11 +127,46 @@ def reset() -> None:
 # Problems and scheduling
 # --------------------------------------------------------------------------- #
 
+# Problems about how her effort is going: while one waits, small ones of the same activity are added up into
+# it instead of each taking a thought (stage 2 of docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md: live 2026-11-04,
+# 25 of 35 hard thoughts were "you got cobblestone x1"). A look back is never pushed out by a surprise.
+GROUPED = ("surprise", "review")
+MEANWHILE_KEPT = 8
+
+
+def _meanwhile(problem: Problem) -> dict[str, int]:
+    return dict(problem.anchor.get("meanwhile") or {})
+
+
+def _fold(kept: Problem, other: Problem) -> Problem:
+    """``kept`` carries ``other`` (and what ``other`` carried) as counted lines of what else came up."""
+    counts = _meanwhile(kept)
+    for topic, n in [(other.topic, 1), *_meanwhile(other).items()]:
+        counts[topic] = counts.get(topic, 0) + n
+    counts = dict(list(counts.items())[-MEANWHILE_KEPT:])
+    return replace(kept, anchor={**kept.anchor, "meanwhile": counts})
+
+
 def _better(waiting: Problem | None, new: Problem) -> Problem:
-    """A newer problem replaces a waiting one; the mouth's hand-off always wins."""
+    """A newer problem replaces a waiting one; the mouth's hand-off always wins. Between surprises and look
+    backs, what's replaced is kept as a counted line, and a waiting look back stays (a surprise joins it)."""
     if waiting is not None and waiting.trigger == "handoff" and new.trigger != "handoff":
         return waiting
+    if waiting is not None and waiting.trigger in GROUPED and new.trigger in GROUPED:
+        if waiting.trigger == "review" and new.trigger == "surprise":
+            return _fold(waiting, new)
+        return _fold(new, waiting)
     return new
+
+
+def with_meanwhile(problem: Problem) -> Problem:
+    """The problem as she reads it: what else came up while it waited, counted, after its own text."""
+    counts = _meanwhile(problem)
+    if not counts:
+        return problem
+    lines = [f"- {topic}" + (f" (×{n})" if n > 1 else "") for topic, n in counts.items()]
+    return replace(problem, text=problem.text.rstrip() + "\nAlso since then (each was waiting to be thought "
+                   "about; added up here):\n" + "\n".join(lines))
 
 
 def _handoff_key(key: uuid.UUID | str) -> str:
@@ -357,6 +392,7 @@ def gather(db: Session, source: Source, scope: Scope, problem: Problem) -> tuple
     name = user.name if user and user.name else "the user"
     now = datetime.now(timezone.utc)
     refs: list[str] = []
+    problem = with_meanwhile(problem)
     base = HardInput(
         problem=problem, user=name, conversation=conversation(db, scope.user_id, now),
         memories=recall_references.for_thought(db, user_id=scope.user_id, source=scope.source,
@@ -385,7 +421,8 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             return
         situation = source.situation()
         brain = thinker()
-        system = brain.instructions(problem.trigger, name, situation)
+        judged = bool(getattr(inp, "effort", None))  # an effort to judge: she says whether it's getting anywhere
+        system = brain.instructions(problem.trigger, name, situation, effort=judged)
         thought = brain.think(inp, situation)
         if not source.shadow:
             _log_hard(scope, problem, system, render(inp), thought)
@@ -404,7 +441,8 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
                 db, user_id=scope.user_id, session_id=source.thought_session(scope), level="hard",
                 source=scope.source, activity_id=scope.activity, text=thought.conclusion, status=status, topic=problem.topic, trigger=problem.trigger,
                 conclusion_kind=thought.kind, thinking=thought.thinking, for_hands=thought.for_hands,
-                question=thought.question, dropped_reason=why,
+                question=thought.question, dropped_reason=why, follows=thought.follows,
+                assessment=thought.assessment if judged else None,
                 handoff=(lambda row: to_memory(db, source, scope, problem, inp, thought, row))
                 if status == "done" else None)
             if status == "done":
@@ -435,6 +473,8 @@ def to_memory(db: Session, source: Source, scope: Scope, problem: Problem, inp: 
     payload = {"thought_id": str(saved.id), "conclusion_kind": thought.kind, "conclusion": thought.conclusion,
                "question": thought.question, "reason": thought.thinking, "trigger": problem.trigger,
                "topic": (mind.base_topic(problem.topic) or "")[:200] or None, "basis": basis}
+    if getattr(inp, "effort", None) and thought.assessment:
+        payload["assessment"] = thought.assessment
     if problem.anchor.get("conflict"):
         payload["premise_conflict"] = str(problem.anchor["conflict"])
     try:
@@ -495,7 +535,8 @@ def _log_hard(scope: Scope, problem: Problem, system: str, text: str, thought: H
         "ts": time.time(), "session": str(scope.activity), "source": scope.source, "trigger": problem.trigger,
         "topic": problem.topic, "system": system, "input": text, "kind": thought.kind,
         "conclusion": thought.conclusion, "thinking": thought.thinking, "for_hands": thought.for_hands,
-        "question": thought.question, "error": thought.error, "ms": thought.latency_ms,
+        "question": thought.question, "follows": thought.follows, "assessment": thought.assessment,
+        "error": thought.error, "ms": thought.latency_ms,
         "input_tokens": thought.input_tokens, "output_tokens": thought.output_tokens})
 
 

@@ -169,10 +169,13 @@ def _pack_line(env: DesktopEnvironment) -> str:
              else "you're not in the world (the pack isn't running, or the server is down)")
     return (f"Minecraft as your own player [{game_pack.PACK_PROFILE_ID}]: {where}. You play next to the user "
             "(they have their own player), using skills: you decide what, your hands do it. Plan steps for it: "
-            f"things your skills can do ({PACK_SKILLS}; nothing else, e.g. no pillaring up or building a "
-            "whole structure in one go), each done_when "
-            "something the game can confirm "
-            "(e.g. \"gained 5 oak_log\", \"a crafting table placed\"). An amount to get counts from the "
+            "intentions in plain words that your hands carry out with their skills "
+            f"({PACK_SKILLS}), e.g. \"dig straight down here until I break into open space\", \"walk the "
+            "passage that goes down\", \"mine the iron ore in view\". A step no skill can do is still a step: "
+            "your hands will name the move that's missing and you can teach yourself it. Each done_when is "
+            "something your hands can tell from their state: a count (\"gained 5 oak_log\", \"a crafting "
+            "table placed\") or a situation in view (\"in an open space that goes on\", \"iron ore in "
+            "view\", \"height below 40\"). An amount to get counts from the "
             "step's start (\"gained 5 oak_log\"), not what you already hold; write \"have 5 oak_log\" only "
             "when you mean the total. For an ongoing request like "
             "\"follow me\": one step such as \"follow <the user's in-game name>\", done when \"the user says to stop\".")
@@ -1341,9 +1344,28 @@ def resume(db: Session, user_id: uuid.UUID, *, only_own_pauses: bool = False) ->
         return "You're already playing; there's no pause to lift."
     if only_own_pauses and session.reason_code not in SELF_RESUMABLE:
         raise DesktopError("not_yours", 409, "this pause wasn't yours to undo; tell the user instead")
+    if not only_own_pauses:
+        _reactivate_for_play(db, user_id, session)
     sessions.resume_session(db, user_id, session.id, expected_state_revision=session.state_revision,
                             reason="columbina_resume" if only_own_pauses else "user_resume")
     return "Resumed; you're playing again."
+
+
+def _reactivate_for_play(db: Session, user_id: uuid.UUID, session: DesktopSession) -> None:
+    """The user asked her to play on: a goal that was only put on hold is active again, so the resume isn't
+    refused. Seen live 2026-11-04: a quiet-time decision suspended the goal while the game sat paused, and
+    "go ahead and resume" took three turns of "reactivate it first". A goal of a closed world, or one that's
+    done or abandoned, still blocks (memory_manager.resume_blocked)."""
+    from app.db.models import MemoryContext
+    from app.services import memory_manager
+
+    goal = memory_manager.session_goal(db, session)
+    if goal is None or goal.status != "suspended":
+        return
+    context = db.get(MemoryContext, goal.context_id)
+    if context is None or context.status == "closed":
+        return
+    memory_manager.resolve(db, user_id, goal.id, status="active", reason="the user asked her to play on")
 
 
 def end(db: Session, user_id: uuid.UUID) -> str:

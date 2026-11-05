@@ -20,7 +20,7 @@ from app.ai.mind.situation import Situation
 
 # Which waiting problem starts first when several activities have one (lower first).
 PRIORITY = {"handoff": 0, "failing": 1, "surprise": 2, "promise": 2, "intention": 2, "conflict": 2, "big": 3,
-            "open": 3, "quiet": 9}
+            "open": 3, "quiet": 9, "review": 1}
 
 
 @dataclass(frozen=True)
