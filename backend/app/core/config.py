@@ -406,26 +406,9 @@ class Settings(BaseSettings):
     minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
     # Spending bound for skill decisions per session (each is one model call).
     minecraft_pack_max_decisions: int = Field(default=400, ge=1, le=10_000)
-    # Game learning (services/game_learning.py): skill outcomes and notices are
-    # recorded per session; when a session ends, one reflection call turns them
-    # into an episode, lessons (applied to her hands automatically) and code
-    # proposals (shown on the Learning page, never applied by the app).
-    # The A/B switch for measuring learning: False keeps recording and
-    # reflecting but leaves lessons out of her hands' prompt.
-    game_learning_apply_lessons: bool = True
-    game_learning_model: str = "gpt-6-luna"
-    # Sent only to models with reasoning controls. Reflection is rare and
-    # benefits from thinking, unlike a per-step driver call.
-    game_learning_reasoning_effort: str | None = "low"
-    # A stretch of play with fewer skill outcomes than this is too short to
-    # learn from (when the session goes offline or ends). A pause, often brief,
-    # waits for a longer stretch so it doesn't split one up.
-    game_learning_min_outcomes: int = Field(default=5, ge=1, le=1000)
-    game_learning_segment_outcomes: int = Field(default=15, ge=1, le=1000)
-    # Lessons shown to her hands per run, and active lessons kept per game.
-    game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
-    game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
-    game_learning_queue_name: str = "macrovision:game-learning:wakeups"
+    # Bounded game stretches enter the shared assessment lifecycle, including successful play.
+    learning_game_min_outcomes: int = Field(default=5, ge=1, le=1000)
+    learning_game_pause_outcomes: int = Field(default=15, ge=1, le=1000)
     # Teaching herself a move (stage H1, services/game_practice.py): she writes a
     # program over her skills, the pack's sandbox runs it, a critic checks the
     # counted result, and she fixes it, up to MAX_TRIES times. Started only from a

@@ -25,7 +25,7 @@ from app.ai.desktop.pack_client import PackClient
 from app.ai.desktop.skill_driver import SkillDriverDeps, SkillDriverRun
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
-from app.services import (desktop_commands, desktop_preview, game_learning, game_pack, game_practice, game_skills,
+from app.services import (desktop_commands, desktop_preview, game_experience, game_pack, game_practice, game_skills,
                           mind_hard)
 from app.services import desktop_sessions as sessions
 
@@ -111,7 +111,8 @@ def _hands_capture(session_id: uuid.UUID):
         if kind == "attempt":
             ctx = learning_capture.Ctx(user_id=owner, attempt_id=r["attempt_id"], trigger="hands_step",
                                        game_session_id=session_id, input_refs=tuple(r.get("input_refs") or ()),
-                                       sources=(f"session:{session_id}",))
+                                       sources=(f"session:{session_id}", *(ref["ref"] for ref in r.get("input_refs") or ()
+                                                                          if ref.get("ref", "").startswith("lesson:"))))
             learning_capture.attempt(
                 ctx, learner="hands", provider="openai", model=r.get("model"),
                 input=r["input"], output=None if r.get("output") is None else {**r["output"], "usage": r.get("usage")},
@@ -147,8 +148,9 @@ def _drive_skills(session_id: uuid.UUID, model) -> None:
         notice=lambda sid, kind, text: _db(sessions.driver_noticed)(sid, kind=kind, text=text),
         auto_goals=_db(sessions.auto_goals_set),
         messages=mind_hard.hands_messages,  # her mouth's tips and her own intentions
-        experience=_db(game_learning.record_experience),
-        lessons=_db(game_learning.lessons_for_run),
+        experience=_db(game_experience.record_experience),
+        lessons=_db(game_experience.lessons_for_run),
+        lesson_use=_db(game_experience.record_lesson_use),
         learning=_db(game_practice.holding),
         learned=_db(game_skills.for_session),
         learned_used=_db(game_skills.record_use),

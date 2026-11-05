@@ -43,7 +43,7 @@ from app.ai.learning import trials as T
 from app.core.config import get_settings
 from app.db.models import (
     DESKTOP_TERMINAL_STATES, TRIAL_CLOSED, TRIAL_LIVE, TRIAL_PENDING, ChatMessage, CoordinatorWork, DesktopSession,
-    GameExperience, GameLesson, GameSkillAttempt, LearningTrial, LearningTrialAssessment, LearningTrialEvent,
+    GameExperience, GameSkillAttempt, LearningTrial, LearningTrialAssessment, LearningTrialEvent,
     LearningTrialRevision, LearningTrialTrigger, WorkingItem,
 )
 from app.db.session import SessionLocal
@@ -298,18 +298,18 @@ def _finish_trigger(db: Session, trigger: LearningTrialTrigger, result: dict) ->
 
 def _bundle(db: Session, trigger: LearningTrialTrigger, session: DesktopSession, state: dict, manifest: list[dict],
             pending: LearningTrial | None) -> T.Bundle:
-    from app.services import game_learning
+    from app.services import game_experience
 
     s = get_settings()
     evidence = [T.Line(f"x{i}", f"{e.get('kind')}: {e.get('text')}",
                        f"experience:{e['experience_id']}" if e.get("experience_id") else "")
                 for i, e in enumerate(trigger.payload.get("evidence") or [], 1)]
-    game = game_learning.game_for_profile(session.profile_id) or "minecraft"
-    lessons = [T.Line(f"g{i}", f"({lesson.level}, {lesson.status}) when {lesson.situation}: {lesson.advice}",
-                      f"lesson:{lesson.id}")
-               for i, lesson in enumerate(db.scalars(select(GameLesson).where(
-                   GameLesson.user_id == session.owner_user_id, GameLesson.game == game,
-                   GameLesson.status != "retired").order_by(GameLesson.updated_at.desc()).limit(LESSONS_SHOWN)), 1)]
+    game = game_experience.game_for_profile(session.profile_id) or "minecraft"
+    from app.services import memory_lessons
+    lessons = [T.Line(f"g{i}", f"({v.status}) {v.statement}; applies: {v.applies_when}; "
+                               f"exceptions: {'; '.join(v.exceptions)}", f"lesson:{v.id}")
+               for i, v in enumerate(memory_lessons.for_game(
+                   db, session.owner_user_id, game, query=str(trigger.payload)).views, 1)]
     trials = []
     for i, (row, reading) in enumerate(_assessed(db, session.owner_user_id, game, limit=TRIALS_SHOWN), 1):
         revision = current_revision(db, row, row.selected_revision)
@@ -387,7 +387,7 @@ def _write_proposal(db: Session, trigger: LearningTrialTrigger, session: Desktop
                     bundle: T.Bundle, *, model: str | None, input_digest: str) -> tuple[LearningTrial | None, str]:
     """Persist the proposal before cognition sees it: a new trial, or a new revision of the one waiting for this
     problem (unless the proposer says it's a materially different test: then a new trial, linked)."""
-    from app.services import game_learning
+    from app.services import game_experience
 
     proposal = checked.proposal
     refs = bundle.refs()
@@ -416,7 +416,7 @@ def _write_proposal(db: Session, trigger: LearningTrialTrigger, session: Desktop
     else:
         key = trigger.problem_key
     trial = LearningTrial(
-        user_id=trigger.user_id, session_id=session.id, game=game_learning.game_for_profile(session.profile_id)
+        user_id=trigger.user_id, session_id=session.id, game=game_experience.game_for_profile(session.profile_id)
         or "minecraft", scenario=proposal["scenario"], problem_key=key[:160], problem=proposal["problem"],
         status="proposed", revision=1, linked_trial_id=linked, limits=proposal["limits"])
     db.add(trial)
@@ -1449,21 +1449,31 @@ def _assess(trial_id: uuid.UUID, *, assessor=None) -> None:
 
 def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dropped: list, *, model: str | None,
                       reason: str) -> None:
-    from app.services import game_learning
+    from app.services import game_experience
 
     with SessionLocal() as db:
         trial = db.get(LearningTrial, trial_id, with_for_update=True)
+        if trial is None or trial.status != "assessing":
+            return  # deleted/reset or superseded while the assessor was running
+        previous = db.scalar(select(LearningTrialAssessment).where(LearningTrialAssessment.trial_id == trial.id,
+                                                                   LearningTrialAssessment.current))
+        next_n = previous.n + 1 if previous else 1
         experience_id = None
         session_id = trial.session_id
         if session_id and db.get(DesktopSession, session_id) is not None:
             db.commit()
             # The trial's outcome is one of her game experiences (what reflection and her lessons cite).
-            experience_id = game_learning.record_experience(db, session_id, "skill_outcome", {
+            experience_id = game_experience.record_experience(db, session_id, "skill_outcome", {
+                "event_key": f"trial:{trial.id}:assessment:{next_n}",
                 "skill": f"trial:{trial.scenario}", "status": result["hypothesis"],
                 "reason": T.finding(ev.proposal, trial.selected_alternative, result, ev.measured.values)[:300],
-                "data": {"trial_id": str(trial.id), "ending": trial.ending, "measured": ev.measured.values},
+                "data": {"trial_id": str(trial.id), "ending": trial.ending, "measured": ev.measured.values,
+                         "measurement_sources": ev.measured.sources, "missing": ev.missing,
+                         "interpretation": result, "interpretation_is_not_independent_evidence": True},
                 "seconds": (trial.costs or {}).get("test_seconds"), "step_id": None})
             trial = db.get(LearningTrial, trial_id, with_for_update=True, populate_existing=True)
+            if trial is None or trial.status != "assessing":
+                return
         previous = db.scalar(select(LearningTrialAssessment).where(LearningTrialAssessment.trial_id == trial.id,
                                                                    LearningTrialAssessment.current))
         n = (previous.n + 1) if previous else 1
@@ -1476,8 +1486,7 @@ def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dr
             prediction_checks=ev.checks, missing=ev.missing, result=result, dropped=dropped, model=model,
             reason=reason)
         db.add(reading)
-        fed = _feed(db, trial, ev, result, experience_id) if previous is None or previous.hypothesis != result[
-            "hypothesis"] else {"note": "same reading: owners unchanged"}
+        fed = _feed(db, trial, ev, result, experience_id)
         trial.status, trial.closed_at, trial.lease_expires_at = "assessed", trial.closed_at or _now(), None
         _event(db, trial, "assessed", {"n": n, "hypothesis": result["hypothesis"], "fed": fed},
                experience_id=experience_id)
@@ -1486,15 +1495,23 @@ def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dr
 
 
 def _feed(db: Session, trial: LearningTrial, ev: T.TrialEvidence, result: dict, experience_id: int | None) -> dict:
-    """What persists, through each owner under its own rules: her hypothesis (memory: supported / disproved need
-    a source, the trial's experience), a lesson (game lessons: tentative until distinct sessions agree), and a
-    move (game skills: a program that worked, here counted by code). Nothing from an unresolved trial."""
-    from app.services import game_learning, game_skills, memory_manager
+    """Feed trial measurements and attributed conclusions to shared assessment; preserve memory's
+    hypothesis resolution and counted successful programs. No independent game lesson writes."""
+    from app.services import game_experience, game_skills, memory_manager
 
     fed: dict[str, Any] = {}
     status = result["hypothesis"]
+    if experience_id and trial.session_id:
+        from app.services import learning_assessment as LA
+        experience = db.get(GameExperience, experience_id)
+        assessment, _ = LA.open_assessment(
+            db, user_id=trial.user_id, kind="execution", key=f"trial:{trial.id}",
+            anchor_at=experience.occurred_at, game_session_id=trial.session_id,
+            trigger={"why": "a bounded trial result, with measured facts and attributed interpretation"},
+            evidence=[(f"experience:{experience_id}", "trial result", {})])
+        fed["assessment"] = str(assessment.id)
     if status == "unresolved":
-        return {"note": "unresolved: nothing persists beyond the record"}
+        return {**fed, "note": "unresolved: shared assessment revisits earlier learning; no move or hypothesis promotion"}
     if trial.hypothesis_item_id and experience_id:
         try:
             with db.begin_nested():
@@ -1507,13 +1524,6 @@ def _feed(db: Session, trial: LearningTrial, ev: T.TrialEvidence, result: dict, 
                     fed["hypothesis"] = "supported" if status == "supported" else "disproved"
         except Exception as exc:  # noqa: BLE001
             fed["hypothesis"] = f"not changed: {type(exc).__name__}"
-    lesson = result.get("lesson")
-    if lesson and experience_id and trial.session_id:
-        fed["lesson"] = game_learning.note_trial_lesson(
-            db, user_id=trial.user_id, game=trial.game, session_id=trial.session_id, key=lesson["key"],
-            situation=lesson["situation"], advice=lesson["advice"], level=lesson["level"],
-            verdict="supports" if status == "supported" else "contradicts", experience_ids=[experience_id],
-            trial_id=trial.id)
     if status == "supported":
         attempt_id = next((e.skill_attempt_id for e in db.scalars(select(LearningTrialEvent).where(
             LearningTrialEvent.trial_id == trial.id, LearningTrialEvent.kind == "execution_ended")

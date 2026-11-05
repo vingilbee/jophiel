@@ -9,10 +9,6 @@ import type {
   AssessmentSummary,
   Challenge,
   LearnedSkill,
-  Lesson,
-  Proposal,
-  ProposalStatus,
-  Reflection,
   TrialDetail,
   TrialListing,
   TrialStatus,
@@ -67,7 +63,7 @@ const USE_CASE_LABELS: Record<string, string> = {
 const TRIGGER_LABELS: Record<AssessmentSummary['trigger_kind'], string> = {
   correction: 'a correction',
   complaint: 'a complaint',
-  execution: 'something that failed',
+  execution: 'recorded activity or an outcome',
   sample: 'an ordinary exchange (sampled)',
 }
 
@@ -112,44 +108,9 @@ function day(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-/** A proposal as a self-contained brief a coding agent can act on. */
-function agentBrief(p: Proposal): string {
-  const evidence = p.evidence
-    .map((e) => {
-      const tag = e.after_implemented ? ' (after it was marked implemented)' : ''
-      const lines = e.examples.map((x) => `  - \`${x}\``).join('\n')
-      return `- Session ${e.session_id.slice(0, 8)} on ${day(e.at)}${tag}\n${lines}`
-    })
-    .join('\n')
-  return [
-    `# Proposal from Jophiel: ${p.title}`,
-    '',
-    `Game: ${p.game} · Area: ${p.area} · Seen ${p.occurrences}× · Key: \`${p.normalized_key}\` · Id: ${p.id}`,
-    '',
-    '## Problem',
-    p.problem,
-    '',
-    '## Suggested change',
-    p.suggestion,
-    '',
-    '## Evidence (skill outcomes recorded by code)',
-    evidence,
-    ...(p.user_note ? ['', '## Note from the user', p.user_note] : []),
-    '',
-    '## Context',
-    'The Minecraft game pack is in `game_packs/minecraft` (skills in `src/skills`, outcome contract in ' +
-      '`src/skills/contract.js`). Test on the test server (`bun run itest`) before it reaches the user\'s ' +
-      'world. Raw experiences are in the `game_experiences` table by id. When done, mark this proposal ' +
-      'implemented on the Learning page: if the problem comes back, it reopens by itself.',
-  ].join('\n')
-}
-
 export function LearningDetails() {
   const [challenges, setChallenges] = useState<Challenge[] | null>(null)
   const [skills, setSkills] = useState<LearnedSkill[] | null>(null)
-  const [proposals, setProposals] = useState<Proposal[] | null>(null)
-  const [lessons, setLessons] = useState<Lesson[] | null>(null)
-  const [reflections, setReflections] = useState<Reflection[] | null>(null)
   const [assessments, setAssessments] = useState<AssessmentListing | null>(null)
   const [adaptation, setAdaptation] = useState<AdaptationListing | null>(null)
   const [trials, setTrials] = useState<TrialListing | null>(null)
@@ -158,21 +119,15 @@ export function LearningDetails() {
 
   const load = useCallback(async () => {
     try {
-      const [c, s, p, l, r, a, ad, tr] = await Promise.all([
+      const [c, s, a, ad, tr] = await Promise.all([
         learningApi.challenges(),
         learningApi.skills(),
-        learningApi.proposals(),
-        learningApi.lessons(),
-        learningApi.reflections(),
         learningApi.assessments(onlyOpen ? 'unresolved' : undefined),
         learningApi.adaptationLessons(),
         learningApi.trials(),
       ])
       setChallenges(c)
       setSkills(s)
-      setProposals(p)
-      setLessons(l)
-      setReflections(r)
       setAssessments(a)
       setAdaptation(ad)
       setTrials(tr)
@@ -195,8 +150,6 @@ export function LearningDetails() {
     }
   }
 
-  const active = lessons?.filter((l) => l.status !== 'retired') ?? []
-  const retired = lessons?.filter((l) => l.status === 'retired') ?? []
 
   return (
     <div className="text-[#E4E8EC]">
@@ -226,7 +179,7 @@ export function LearningDetails() {
 
         <Section
           title="What she carries forward with you"
-          hint="Lessons from those assessments, kept by her memory and weighed (never obeyed) in later decisions. A preference is what you said you want, in your words; a hypothesis is her guess, not used until another occasion supports it; one episode corrects that time only. Each decision records which lessons it had and what it made of them: having a lesson isn't proof it shaped anything."
+          hint="Lessons from those assessments, kept by her memory and weighed (never obeyed) in later decisions. A preference is what you said you want, in your words; a scoped game hypothesis is tentative experience she can weigh cautiously, with its cause left unknown when the evidence cannot establish it; one episode corrects that time only. Each decision records which lessons it had and what it made of them: having a lesson isn't proof it shaped anything."
         >
           {adaptation === null && !error && <Loading />}
           {adaptation?.items.length === 0 && <Empty text="No lessons yet. They come from corrections and outcomes once an assessment supports them." />}
@@ -269,84 +222,8 @@ export function LearningDetails() {
           ))}
         </Section>
 
-        <Section title="Proposals" hint="Changes to the game code she suggests, with the outcomes behind them.">
-          {proposals === null && !error && <Loading />}
-          {proposals?.length === 0 && <Empty text="No proposals yet. They appear when a skill keeps failing in a way she can't fix by playing differently." />}
-          {proposals?.map((p) => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              onStatus={(status) => act(() => learningApi.updateProposal(p.id, { status }))}
-              onNote={(user_note) => act(() => learningApi.updateProposal(p.id, { user_note }))}
-            />
-          ))}
-        </Section>
-
-        <Section
-          title="Lessons"
-          hint="Applied automatically: skill lessons go to her hands, planning lessons to Jophiel when she sets goals. Seen in two sessions = confirmed; contradicted twice = retired."
-        >
-          {lessons === null && !error && <Loading />}
-          {lessons?.length === 0 && <Empty text="No lessons yet. Play a session with her and end it: she reflects when it ends." />}
-          {active.map((l) => (
-            <LessonRow
-              key={l.id}
-              lesson={l}
-              onRetire={() => act(() => learningApi.setLessonStatus(l.id, 'retired'))}
-              onDelete={() => act(() => learningApi.deleteLesson(l.id))}
-            />
-          ))}
-          {retired.length > 0 && (
-            <details className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3">
-              <summary className="cursor-pointer text-xs text-[#8C97A3]">Retired ({retired.length})</summary>
-              <div className="mt-3 flex flex-col gap-2">
-                {retired.map((l) => (
-                  <LessonRow
-                    key={l.id}
-                    lesson={l}
-                    onRestore={() => act(() => learningApi.setLessonStatus(l.id, 'trial'))}
-                    onDelete={() => act(() => learningApi.deleteLesson(l.id))}
-                  />
-                ))}
-              </div>
-            </details>
-          )}
-        </Section>
-
-        <Section title="Reflections" hint="One per ended game session.">
-          {reflections === null && !error && <Loading />}
-          {reflections?.length === 0 && <Empty text="No sessions reflected on yet." />}
-          {reflections && reflections.length > 0 && (
-            <ul className="divide-y divide-[#1C2228] rounded-2xl border border-[#1C2228] bg-[#0D1115]">
-              {reflections.map((r) => (
-                <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-xs">
-                  <span className="w-14 shrink-0 text-[#8C97A3]">{day(r.created_at)}</span>
-                  <span className="font-medium">{r.game}</span>
-                  <span className="text-[#9AA5B1]">{reflectionSummary(r)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
     </div>
   )
-}
-
-function reflectionSummary(r: Reflection): string {
-  if (r.status === 'pending' || r.status === 'processing') return 'reflecting…'
-  if (r.status === 'failed') return `failed: ${r.last_error ?? 'unknown error'}`
-  const res = r.result ?? {}
-  if (r.status === 'skipped') return `too short to learn from (${res.outcomes ?? 0} outcomes)`
-  const parts = [
-    `${res.outcomes ?? 0} outcomes`,
-    res.lessons?.new.length ? `${res.lessons.new.length} new lesson${res.lessons.new.length > 1 ? 's' : ''}` : '',
-    res.lessons?.supported.length ? `${res.lessons.supported.length} confirmed again` : '',
-    res.lessons?.contradicted.length ? `${res.lessons.contradicted.length} contradicted` : '',
-    res.proposals?.new.length ? `${res.proposals.new.length} new proposal${res.proposals.new.length > 1 ? 's' : ''}` : '',
-    res.proposals?.reopened.length ? `${res.proposals.reopened.length} reopened` : '',
-    res.episode_id ? 'remembered as an episode' : '',
-  ]
-  return parts.filter(Boolean).join(' · ')
 }
 
 function Section({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
@@ -371,83 +248,6 @@ function Empty({ text }: { text: string }) {
 
 const SMALL_BUTTON =
   'rounded-full border border-[#232A31] bg-[#0D1115] px-3 py-1 text-[11px] text-[#9AA5B1] transition-colors hover:border-[#F08AB0] hover:text-[#F08AB0] disabled:opacity-50'
-
-function ProposalCard({
-  proposal: p,
-  onStatus,
-  onNote,
-}: {
-  proposal: Proposal
-  onStatus: (status: ProposalStatus) => void
-  onNote: (note: string) => void
-}) {
-  const [note, setNote] = useState(p.user_note ?? '')
-  const [copied, setCopied] = useState(false)
-  const reopened = p.evidence.some((e) => e.after_implemented)
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(agentBrief(p))
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-4 sm:px-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-sm font-medium">{p.title}</h3>
-        <span className="text-[11px] text-[#8C97A3]">{p.area} · seen {p.occurrences}×</span>
-        <Chip label={p.status} />
-      </div>
-      {reopened && p.status === 'open' && (
-        <p className="mt-2 text-xs text-[#F08AB0]">Came back after it was marked implemented.</p>
-      )}
-      <p className="mt-3 text-sm text-[#C5CDD5]">{p.problem}</p>
-      <p className="mt-2 text-sm text-[#C5CDD5]">
-        <span className="font-medium">Suggestion: </span>
-        {p.suggestion}
-      </p>
-      <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-[#8C97A3]">Evidence ({p.evidence.length} session{p.evidence.length > 1 ? 's' : ''})</summary>
-        <ul className="mt-2 flex flex-col gap-1">
-          {p.evidence.flatMap((e) =>
-            e.examples.map((x, i) => (
-              <li key={`${e.session_id}-${i}`} className="font-mono text-[11px] break-words text-[#9AA5B1]">
-                {day(e.at)} · {x}
-              </li>
-            )),
-          )}
-        </ul>
-      </details>
-      <textarea
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        onBlur={() => note !== (p.user_note ?? '') && onNote(note)}
-        placeholder="Your note (e.g. the commit that fixed it)"
-        rows={1}
-        className="mt-3 w-full resize-y rounded-xl border border-[#1C2228] bg-[#0F1317] px-3 py-2 text-xs outline-none focus:border-[#2B4A5C]"
-      />
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button onClick={copy} className={SMALL_BUTTON}>{copied ? 'Copied' : 'Copy for agent'}</button>
-        {p.status !== 'accepted' && p.status !== 'implemented' && (
-          <button onClick={() => onStatus('accepted')} className={SMALL_BUTTON}>Accept</button>
-        )}
-        {p.status !== 'implemented' && (
-          <button onClick={() => onStatus('implemented')} className={SMALL_BUTTON}>Mark implemented</button>
-        )}
-        {p.status !== 'rejected' && (
-          <button onClick={() => onStatus('rejected')} className={SMALL_BUTTON}>Reject</button>
-        )}
-        {p.status !== 'open' && (
-          <button onClick={() => onStatus('open')} className={SMALL_BUTTON}>Reopen</button>
-        )}
-      </div>
-    </article>
-  )
-}
 
 function AssessmentCard({
   summary: a,
@@ -838,37 +638,5 @@ function SkillCard({
         <button onClick={onDelete} className={SMALL_BUTTON}>Delete</button>
       </div>
     </article>
-  )
-}
-
-function LessonRow({
-  lesson: l,
-  onRetire,
-  onRestore,
-  onDelete,
-}: {
-  lesson: Lesson
-  onRetire?: () => void
-  onRestore?: () => void
-  onDelete: () => void
-}) {
-  return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:flex-row sm:items-center">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-[#C5CDD5]">
-          <span className="text-[#8C97A3]">When {l.situation}: </span>
-          {l.advice}
-        </p>
-        <p className="mt-1 text-[11px] text-[#8C97A3]">
-          {l.level === 'plan' ? 'for planning' : 'for her hands'} · {l.game} · +{l.support_count} / −{l.contradict_count} · since {day(l.created_at)}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Chip label={l.status} />
-        {onRetire && <button onClick={onRetire} className={SMALL_BUTTON}>Retire</button>}
-        {onRestore && <button onClick={onRestore} className={SMALL_BUTTON}>Restore</button>}
-        <button onClick={onDelete} className={SMALL_BUTTON}>Delete</button>
-      </div>
-    </div>
   )
 }

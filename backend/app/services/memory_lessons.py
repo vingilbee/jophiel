@@ -12,9 +12,10 @@ proposes checked changes and this module applies them by its own rules.
   A withdrawn lesson accepts nothing, and a new lesson saying what a withdrawn one said needs evidence newer than the
   withdrawal (checked in ``lessons.check``). When an assessment is revised, the evidence it gave stops counting until
   its new revision is read (``reconsider``), so a lesson resting only on it stops being supplied.
-- **Retrieval.** ``for_decision``: a bounded selection of accepted lessons (``LESSONS_SUPPLIED_MAX``), whole
-  (statement, where it applies, exceptions, the user's words), by relevance when there are more than fit; a lesson
-  in an open conflict brings its counterpart. Never hypotheses, episode-only or withdrawn lessons.
+- **Retrieval.** ``for_decision`` supplies bounded, whole accepted lessons. ``for_game`` explicitly requests
+  situation hypotheses with current support as well, labelled tentative with applicability and source refs.
+  Episode-only, unsupported and withdrawn inferences stay out; conversational retrieval retains its prior policy.
+  Relevant conflicts are supplied together within the same budget.
 - **Uses.** ``record_uses``: which revision each decision had, whether it reached the consumer and why not (cut by the
   budget, a consumer whose input has no lessons, supply switched off), and what the consumer said about it.
   ``explain`` names which of the three cases a lesson not followed is: never reached, reached but not accounted for
@@ -49,7 +50,7 @@ log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 SHOWN_MAX = 40  # lessons the construction call sees (most recently changed first)
 WITHDRAWN_SHOWN = 10
-CONSUMERS = ("student_2",)
+CONSUMERS = ("student_2", "hands", "planner", "mind")
 _log_lock = threading.Lock()
 
 
@@ -74,12 +75,52 @@ def _min() -> int:
 # --------------------------------------------------------------------------- #
 
 
+def _independent(db, evidence) -> set[str]:
+    """Overlapping game source roots are one occasion even across distinct assessments.
+
+    Conversation occasions retain their existing identity. This prevents a failure assessment
+    and a later stretch reading of the same run from manufacturing independent support.
+    """
+    groups = []
+    for e in evidence:
+        roots = {r for r in e.refs or [] if r.startswith(("experience:", "attempt:", "execution:", "trajectory:"))}
+        from app.db.models import GameExperience, DecisionExecution
+        canonical = set()
+        for ref in roots:
+            prefix, value = ref.split(":", 1)
+            if prefix == "experience" and value.isdigit():
+                experience = db.get(GameExperience, int(value))
+                if experience is not None and experience.user_id == e.user_id:
+                    p = experience.payload or {}
+                    trial = (p.get("data") or {}).get("trial_id")
+                    canonical.add(f"trial:{trial}" if trial else f"attempt:{p['attempt_id']}"
+                                  if p.get("attempt_id") else ref)
+                    continue
+            if prefix == "execution":
+                execution = db.get(DecisionExecution, uuid.UUID(value))
+                if execution is not None and execution.user_id == e.user_id and execution.attempt_id is not None:
+                    canonical.add(f"attempt:{execution.attempt_id}")
+                    continue
+            canonical.add(ref)
+        keys = canonical or {"occasion:" + e.occasion}
+        touching = [g for g in groups if g[0] & keys]
+        merged = set(keys)
+        occasions = {e.occasion}
+        for g in touching:
+            merged.update(g[0])
+            occasions.update(g[1])
+            groups.remove(g)
+        groups.append((merged, occasions))
+    return {min(g[1]) for g in groups}
+
+
 def _counts(db: Session, lesson_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, Any]]:
     out: dict[uuid.UUID, dict[str, Any]] = {i: {"support": set(), "counter": set(), "occasions": set(),
                                                 "assessments": {}} for i in lesson_ids}
     if not lesson_ids:
         return out
-    for e in db.scalars(select(MemoryLessonEvidence).where(MemoryLessonEvidence.lesson_id.in_(lesson_ids))):
+    evidence = list(db.scalars(select(MemoryLessonEvidence).where(MemoryLessonEvidence.lesson_id.in_(lesson_ids))))
+    for e in evidence:
         o = out[e.lesson_id]
         o["occasions"].add(e.occasion)
         if e.current:
@@ -87,6 +128,9 @@ def _counts(db: Session, lesson_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[st
         if e.assessment_id is not None:
             o["assessments"][e.assessment_id] = max(o["assessments"].get(e.assessment_id, 0),
                                                     e.assessment_revision or 0)
+    for lesson_id, counts in out.items():
+        for role in ("support", "counter"):
+            counts[role] = _independent(db, (e for e in evidence if e.lesson_id == lesson_id and e.current and e.role == role))
     return out
 
 
@@ -257,9 +301,9 @@ def _evidence(db: Session, row: MemoryLesson, role: str, c: L.Change, source: So
 
 
 def _occasions(db: Session, lesson_id: uuid.UUID, role: str) -> int:
-    return db.scalar(select(func.count(func.distinct(MemoryLessonEvidence.occasion))).where(
+    return len(_independent(db, db.scalars(select(MemoryLessonEvidence).where(
         MemoryLessonEvidence.lesson_id == lesson_id, MemoryLessonEvidence.role == role,
-        MemoryLessonEvidence.current.is_(True))) or 0
+        MemoryLessonEvidence.current.is_(True)))))
 
 
 def _restatus(db: Session, row: MemoryLesson, op: str, why: str, source: Source | None) -> bool:
@@ -378,17 +422,22 @@ def _cosine(a: list[float] | None, b: list[float] | None) -> float:
 
 
 def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | None = None,
-                 embed=None) -> Supply:
-    """A bounded selection of accepted lessons for one decision. All of them while they fit; past the budget, the
+                 embed=None, include_tentative: bool = False) -> Supply:
+    """Accepted lessons, with supported situation hypotheses when include_tentative is requested.
+    All of them while they fit; past the budget, the
     most relevant (meaning when embeddings are available, else shared words), with a conflict's counterpart kept
     beside it. Whole lessons only: nothing is cut out of one."""
     budget = get_settings().lessons_supplied_max if budget is None else budget
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status == "accepted")
+                                                      MemoryLesson.status.in_(("accepted", "hypothesis") if include_tentative else ("accepted",)))
                            .order_by(MemoryLesson.created_at)))
     if not rows:
         return Supply()
     counts = _counts(db, [r.id for r in rows])
+    # A tentative strategy is usable only within a situation and with live support. A revised
+    # assessment may leave a hypothesis with zero current evidence; that is never supplied.
+    rows = [r for r in rows if r.status == "accepted" or
+            (r.scope == "situation" and counts[r.id]["support"])]
     ranked_by = "all_fit"
     chosen = rows
     left: list[tuple[MemoryLesson, str]] = []
@@ -431,8 +480,18 @@ def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | N
         conflicts = tuple(refs[uuid.UUID(o)] for o in r.conflicts_with or [] if uuid.UUID(o) in refs)
         views.append(L.LessonView(refs[r.id], str(r.id), r.revision, r.kind, r.scope, r.statement, r.applies_when,
                                   tuple(r.exceptions or ()), tuple(r.user_words or ()),
-                                  max(1, len(counts[r.id]["support"])), conflicts))
-    return Supply(tuple(views), tuple((str(r.id), r.revision, why) for r, why in left), len(rows), ranked_by)
+                                  len(counts[r.id]["support"]), conflicts, r.status, r.status_reason,
+                                  tuple(sorted({ref for e in db.scalars(select(MemoryLessonEvidence).where(
+                                      MemoryLessonEvidence.lesson_id == r.id, MemoryLessonEvidence.current.is_(True)))
+                                                for ref in e.refs or []}))))
+    return Supply(tuple(views), tuple((str(r.id), r.revision, why) for r, why in left), sum(r.status == "accepted" for r in rows), ranked_by)
+
+
+def for_game(db: Session, user_id: uuid.UUID, game: str | None, *, query: str = "") -> Supply:
+    """The same bounded retrieval used by conversation, with game context for ranking."""
+    if not game or not get_settings().lessons_supply_enabled:
+        return Supply(ranked_by="supply_off")
+    return for_decision(db, user_id, f"{game} {query}", include_tentative=True)
 
 
 def offered(user_id: uuid.UUID, query: str) -> Supply:

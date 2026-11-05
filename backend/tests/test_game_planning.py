@@ -272,3 +272,33 @@ def test_a_failed_planning_call_raises_so_the_job_is_retried(db, alice, planning
         _run(db, session, ScriptedPlanner(PlanDecision(None, error="timeout")))
     db.refresh(session)
     assert session.plan_revision == 1
+
+
+def test_shared_tentative_lesson_changes_a_later_plan_and_records_the_exact_revision(db, alice, planning):
+    import uuid
+    from datetime import datetime, timezone
+    from app.ai.learning import lessons as L
+    from app.services import memory_lessons as ML
+    from app.db.models import MemoryLessonUse
+    session = _session(db, alice, state="paused")
+    c = L.Change("create", None, None, None, "strategy", "situation",
+                 "Inspect the descent before committing; damage cause remains unknown",
+                 "minecraft descending into an uninspected shaft", [], [], ["experience:991"], None,
+                 "one costly outcome")
+    ML.apply(db, alice.id, [c], ML.Source("notice:991", datetime.now(timezone.utc), None, None),
+             embed=lambda _: None)
+    game_planning.request(db, session, "stuck: reconsider the descent")
+    db.commit()
+
+    class Planner(ScriptedPlanner):
+        def plan(self, text, **kw):
+            assert "damage cause remains unknown" in text and "Status: hypothesis" in text
+            return super().plan(text, **kw)
+    planner = Planner(PlanDecision("revise", why="Inspect before descent because the previous cost is unresolved",
+                                   steps=[PlanStep(do="inspect the shaft from above", done_when="shaft inspected")],
+                                   drop={"s2": "inspect first", "s3": "inspect first"}))
+    assert _run(db, session, planner).startswith("set (revised)")
+    db.refresh(session)
+    assert session.plan["steps"][0]["do"] == "inspect the shaft from above"
+    use = db.query(MemoryLessonUse).filter_by(consumer="planner").one()
+    assert use.received and use.revision == 1 and use.reported is None

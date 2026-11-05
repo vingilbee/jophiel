@@ -1170,12 +1170,14 @@ class GameExperience(Base):
     game: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(24), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    event_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint(
             "kind IN ('skill_outcome', 'notice', 'lessons_applied')", name="ck_game_experiences_kind"
         ),
+        UniqueConstraint("user_id", "event_key", name="uq_game_experiences_event"),
         Index("ix_game_experiences_session", "session_id", "id"),
         Index("ix_game_experiences_user_game", "user_id", "game", "id"),
     )
@@ -3687,3 +3689,10 @@ event.listen(LearningTrialRevision.__table__, "after_create",
              DDL(LEARNING_TRIAL_REVISION_DDL).execute_if(dialect="postgresql"))
 event.listen(LearningTrialEvent.__table__, "after_create",
              DDL(LEARNING_TRIAL_EVENT_DDL).execute_if(dialect="postgresql"))
+
+
+class LearningReset(Base):
+    """Per-user test-learning cutoff. Raw evidence and generated programs are retained."""
+    __tablename__ = "learning_resets"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

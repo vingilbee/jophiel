@@ -15,6 +15,9 @@ Resetting working alone keeps observations but skips any memory hadn't taken in,
 recall (what replies were given from memory, and memory-event embeddings; rebuilt in the background).
 capture (raw decision captures), training (training examples and their tombstones),
 assessment (learning's retrospective assessments, with their revisions, links and uses).
+consolidation (shared assessments/lessons/jobs, legacy game products/jobs, trial products,
+game episodes and pending learning receipts; preserve capture, game evidence and generated skills).
+Stop workers before consolidation reset and restart afterwards to clear in-memory decision contexts.
 Never touches core_memory, accounts, integrations or calorie/weight logs.
 Asks before deleting unless --yes.
 """

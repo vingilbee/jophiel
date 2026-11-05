@@ -124,7 +124,7 @@ def _param_schema(rule: dict) -> dict:
     return schema
 
 
-def skill_schema(manifest: list[dict]) -> dict:
+def skill_schema(manifest: list[dict], lesson_refs: list[str] | None = None) -> dict:
     """Strict JSON schema: a note, the step status and id, and one action
     (a skill from the manifest with its parameters, or a wait), or none."""
     actions = []
@@ -150,7 +150,7 @@ def skill_schema(manifest: list[dict]) -> dict:
         "required": ["skill", "params"],
         "additionalProperties": False,
     })
-    return {
+    schema = {
         "type": "object",
         "properties": {
             "note": {"type": "string", "description": "a few words on what you're doing and why"},
@@ -161,6 +161,12 @@ def skill_schema(manifest: list[dict]) -> dict:
         "required": ["note", "status", "step_id", "action"],
         "additionalProperties": False,
     }
+
+    if lesson_refs:
+        from app.ai.learning import lessons as L
+        schema["properties"]["lessons_weighed"] = L.weighed_schema(lesson_refs)
+        schema["required"].append("lessons_weighed")
+    return schema
 
 
 def _skill_line(skill: dict) -> str:
@@ -173,23 +179,10 @@ def _skill_line(skill: dict) -> str:
 
 
 def lessons_text(lessons: list[dict]) -> str:
-    """Lessons from earlier sessions (game learning), confirmed ones first: how
-    skills behave, then planning lessons as background (Jophiel plans with
-    those; the ones she wants kept arrive as the plan's rules)."""
-    def line(lesson: dict) -> str:
-        return (f"- When {lesson['situation']}: {lesson['advice']}"
-                + (" (tentative: seen once)" if lesson.get("status") == "trial" else ""))
-
-    skill = [line(lesson) for lesson in lessons if lesson.get("level", "skill") == "skill"]
-    plan = [line(lesson) for lesson in lessons if lesson.get("level") == "plan"]
-    text = ""
-    if skill:
-        text += ("\n\nWhat you learned in earlier sessions (follow it unless this situation is clearly different):\n"
-                 + "\n".join(skill))
-    if plan:
-        text += ("\n\nPlanning lessons Jophiel learned (she plans with these; keep them in mind):\n"
-                 + "\n".join(plan))
-    return text
+    from app.ai.learning import lessons as L
+    views = [L.LessonView(**v) for v in lessons]
+    lines = L.decision_lines(views)
+    return "\n\n" + "\n".join(lines) + "\n" + L.GUIDE if lines else ""
 
 
 def system_prompt(manifest: list[dict], game: str = "Minecraft", lessons: list[dict] | None = None) -> str:
@@ -378,6 +371,7 @@ class SkillDriverDeps:
     # Game learning: (session, kind, payload) appends an experience; lessons(session) loads her lessons.
     experience: Callable[[uuid.UUID, str, dict], None] | None = None
     lessons: Callable[[uuid.UUID], list[dict]] | None = None
+    lesson_use: Callable | None = None
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
     # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
@@ -504,6 +498,10 @@ class SkillDriverRun:
                          "why": why})
             self._save()
             return True
+        # Refresh between decisions so a newly assessed experience can inform this run.
+        supplied = self._load_lessons()
+        self._system = system_prompt(self.manifest, lessons=supplied)
+        self._schema = skill_schema(self.manifest, [v["ref"] for v in supplied])
         messages = deps.messages(self.session_id) if deps.messages else []
         text = self.prompt_text(view, current, state, messages)
         asked_at = deps.now()
@@ -959,6 +957,12 @@ class SkillDriverRun:
         """Her hands' decision as asked (system prompt, the step's text, the schema, the messages she was given)
         and as answered (her status for the step is her own claim; the run's result is recorded apart)."""
         model = self.deps.model
+        if self.deps.lesson_use:
+            try:
+                self.deps.lesson_use(self.session_id, attempt_id, getattr(self, "_supplied_lessons", []),
+                                     reply.output if reply else {}, status)
+            except Exception as exc:
+                self.deps.metric({"session": str(self.session_id), "event": "lesson_use_error", "error": str(exc)[:200]})
         self._capture(
             "attempt", attempt_id=attempt_id, model=getattr(model, "model", None) or type(model).__name__,
             input={"system": None, "schema": None, "text": text, "images": 0,
@@ -1022,10 +1026,12 @@ class SkillDriverRun:
             return []
 
     def _load_lessons(self) -> list[dict]:
+        self._supplied_lessons, self._lesson_refs = [], []
         if self.deps.lessons is None:
             return []
         try:
             lessons = self.deps.lessons(self.session_id)
+            self._supplied_lessons = lessons
             self._lesson_refs = [{"ref": f"lesson:{lesson['id']}", "status": lesson.get("status"),
                                   "revision": lesson.get("revision")} for lesson in lessons if lesson.get("id")]
             return lessons

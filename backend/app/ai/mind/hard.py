@@ -157,6 +157,7 @@ class HardInput:
     conversation: tuple[dict, ...] = ()  # {"role", "content", "ago", "id"?} oldest first
     memories: str | None = None
     memory_refs: tuple[str, ...] = ()  # the memories supplied ("event:42"), for what she read
+    lesson_supply: object | None = None
     learned: tuple[str, ...] = ()  # lessons and learned moves, as lines
     earlier: tuple[str, ...] = ()  # her earlier conclusions on this problem
     character: tuple[str, ...] = ()  # what she cares about

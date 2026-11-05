@@ -329,13 +329,6 @@ def coverage(state: dict | None) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _learned(db: Session, user_id: uuid.UUID) -> tuple[str, ...]:
-    from app.services import desktop_game, game_learning, game_pack, game_skills
-
-    lines = desktop_game._learned_lines(db, user_id, game_learning.game_for_profile(game_pack.PACK_PROFILE_ID))
-    lines += game_skills.summary_lines(db, user_id, desktop_game.PACK_GAME)
-    return tuple(line.strip() for line in lines if line.strip())
-
 
 def dropped(db: Session | None, session: DesktopSession | None, problem: Problem, cancelled: str | None) -> str | None:
     """Why the thought no longer applies, or None."""
@@ -466,10 +459,14 @@ class MinecraftSource:
         # Her effort: the outcome from memory and the story of it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
         # The plan's own goal is only her current approach, shown inside it.
         story = effort.lines_for_session(db, session, user=base.user, senses=SENSES, coverage=coverage(state))
+        from app.services import memory_lessons, desktop_game, game_skills
+        supply = memory_lessons.for_game(db, scope.user_id, "minecraft", query=problem.text)
+        learned = desktop_game._learned_lines(db, scope.user_id, "minecraft", supply=supply)
+        learned += game_skills.summary_lines(db, scope.user_id, "minecraft")
         now = _brief(state)
         shape = _shape(state)
         inp = replace(base, now=now + (f"\n{shape}" if shape else ""), goal=None if story else goal,
-                      effort=story, learned=_learned(db, scope.user_id))
+                      effort=story, learned=tuple(learned), lesson_supply=supply)
         return inp, game_moment.capture(db, session, state)
 
     def dropped(self, db: Session, scope: Scope, problem: Problem, cancelled: str | None) -> str | None:

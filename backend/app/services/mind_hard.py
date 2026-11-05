@@ -474,15 +474,23 @@ def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, proble
     from app.ai.mind.hard import SCHEMA
     from app.services import learning_capture
 
+    from app.services import memory_lessons
+    supply = getattr(inp, "lesson_supply", None)
+    if supply is not None:
+        memory_lessons.record_uses(scope.user_id, attempt_id, supply, consumer="mind", received=True,
+                                  decision_status="ok" if thought.kind else "no_conclusion")
     try:
         messages = [m["id"] for m in inp.conversation if m.get("id")]
         session_id = source.thought_session(scope)
         refs = [f"message:{m}" for m in messages] + [str(r) for r in inp.memory_refs]
+        refs += [f"lesson:{v.id}" for v in (supply.views if supply is not None else ())]
         if session_id is not None:
             refs.append(f"session:{session_id}")
         ctx = learning_capture.Ctx(
             user_id=scope.user_id, attempt_id=attempt_id, trigger=f"hard:{problem.trigger}"[:32],
-            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs),
+            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs) + tuple(
+                {"ref": f"lesson:{v.id}", "revision": v.revision, "status": v.status}
+                for v in (supply.views if supply is not None else ())),
             sources=tuple(refs))
         answered = thought.raw is not None
         status = ("ok" if thought.kind is not None or (answered and not thought.error)

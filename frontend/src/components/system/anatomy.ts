@@ -93,7 +93,6 @@ export const PARTS: PartAnatomy[] = [
       { id: 'assessments', label: 'Assessments' },
       { id: 'lessons', label: 'Lessons' },
       { id: 'trials', label: 'Trials' },
-      { id: 'game-lessons', label: 'Game lessons' },
     ],
   },
 ]

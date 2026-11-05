@@ -56,7 +56,7 @@ from app.services.learning_capture import execution_id_for
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 CONSUMER = "learning"
-TRIAGE_VERSION = "learning-triage-v1"
+TRIAGE_VERSION = "learning-triage-v2"
 ADAPTER = "learning_assessment"  # observation_adapters row: when assessment began (nothing older is swept)
 LEASE = timedelta(minutes=10)
 TRIAGE_RETRY = timedelta(seconds=15)
@@ -111,6 +111,10 @@ def open_assessment(db: Session, *, user_id: uuid.UUID, kind: str, key: str, anc
                     evidence: Iterable[tuple[str, str, dict]] = ()) -> tuple[LearningAssessment, bool]:
     """The assessment for a trigger, created once, with ``evidence`` ((ref, reason, detail)) attached once each.
     In the caller's transaction. Returns (row, changed): created, or something new attached to it."""
+    from app.services.memory_reset import learning_cutoff
+    if _aware(anchor_at) < learning_cutoff(db, user_id):
+        # In-flight capture and pending producers cannot repopulate a reset test attempt.
+        raise ValueError("assessment evidence predates the test-learning reset")
     now = _now()
     settle = timedelta(seconds=get_settings().learning_assessment_settle_seconds)
     created = db.execute(insert(LearningAssessment).values(
@@ -200,6 +204,9 @@ def _settle_receipt(receipt: ObservationProcessing, outcome: str, reason: str, n
 def _triage_one(db: Session, observation: Observation | None, now: datetime) -> tuple[str, str]:
     if observation is None:
         return "skipped", "the observation is gone"
+    from app.services.memory_reset import learning_cutoff
+    if _aware(observation.occurred_at or observation.received_at) < learning_cutoff(db, observation.user_id):
+        return "skipped", "predates test-learning reset"
     p, key = observation.payload or {}, (observation.source, observation.kind)
     if key == ("conversation", "user_message"):
         return _triage_message(db, observation, p, now)
@@ -224,6 +231,17 @@ def _triage_one(db: Session, observation: Observation | None, now: datetime) -> 
                         anchor_message_id=message.id, trigger={
                             "why": f"her {p.get('channel')} reply couldn't be delivered", "observation": observation.id})
         return "applied", "a failed delivery"
+    if key == ("minecraft_pack", "notice") and observation.salience == "critical":
+        experience = db.get(GameExperience, p.get("experience_id"))
+        if experience is None or experience.user_id != observation.user_id:
+            return "skipped", "the game experience is gone"
+        session = db.get(DesktopSession, experience.session_id)
+        open_assessment(db, user_id=observation.user_id, kind="execution",
+                        key=f"notice:{experience.id}", anchor_at=experience.occurred_at,
+                        game_session_id=experience.session_id, conversation_id=getattr(session, "conversation_id", None),
+                        trigger={"why": "a critical recorded experience; assess cost without assuming a cause"},
+                        evidence=[(f"experience:{experience.id}", "a critical notice", {})])
+        return "applied", "a critical game experience"
     if key == ("minecraft_pack", "skill_outcome"):
         if p.get("status") not in registry.SKILL_FAILED:
             return "skipped", "not a failure"
@@ -294,6 +312,11 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
     horizon = max(started_at(db), now - timedelta(days=get_settings().learning_capture_retention_days))
     done = {"replies": 0, "effects": 0, "corrections": 0, "arrived": 0}
 
+    from app.db.models import LearningReset
+
+    def after_reset(user_column, time_column):
+        return ~exists().where(LearningReset.user_id == user_column, LearningReset.cutoff_at > time_column)
+
     def unassessed(prefix: str, column):
         return ~exists().where(LearningAssessment.user_id == DecisionExecution.user_id,
                                LearningAssessment.trigger_key == literal(prefix) + cast(column, String))
@@ -301,6 +324,7 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
     replies = db.scalars(select(DecisionExecution).where(
         DecisionExecution.kind == "reply", DecisionExecution.result.in_(("failed", "deviated")),
         DecisionExecution.turn_id.is_not(None), DecisionExecution.captured_at >= horizon,
+        after_reset(DecisionExecution.user_id, func.coalesce(DecisionExecution.ended_at, DecisionExecution.captured_at)),
         unassessed("reply:", DecisionExecution.turn_id)).order_by(DecisionExecution.captured_at).limit(limit))
     for row in list(replies):
         anchor = _turn_message(db, row.turn_id, row.assistant_message_id)
@@ -314,6 +338,7 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
     effects = db.scalars(select(DecisionExecution).where(
         DecisionExecution.kind == "effect", DecisionExecution.result == "failed",
         DecisionExecution.captured_at >= horizon,
+        after_reset(DecisionExecution.user_id, func.coalesce(DecisionExecution.ended_at, DecisionExecution.captured_at)),
         unassessed("effect:", DecisionExecution.id)).order_by(DecisionExecution.captured_at).limit(limit))
     for row in list(effects):
         anchor = _turn_message(db, row.turn_id, None)
@@ -326,12 +351,14 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
         done["effects"] += 1
     corrections = db.scalars(select(MemoryCorrection).where(
         MemoryCorrection.kind == "mistaken", MemoryCorrection.created_at >= horizon,
+        after_reset(MemoryCorrection.user_id, MemoryCorrection.created_at),
         ~exists().where(LearningAssessmentEvidence.user_id == MemoryCorrection.user_id,
                         LearningAssessmentEvidence.ref == literal("correction:") + cast(MemoryCorrection.id, String)),
     ).order_by(MemoryCorrection.created_at).limit(limit))
     for row in list(corrections):
         message = db.get(ChatMessage, row.source_message_id)
-        if message is None:
+        from app.services.memory_reset import learning_cutoff
+        if message is None or _aware(message.created_at) < learning_cutoff(db, row.user_id):
             continue
         open_assessment(db, user_id=row.user_id, kind="correction", key=f"message:{message.id}",
                         anchor_at=message.created_at, conversation_id=message.conversation_id,
@@ -693,56 +720,141 @@ def _input_detail(record: DecisionAttempt) -> str | None:
     return "input as given:\n" + text[:INPUT_CHARS] + cut
 
 
+def _game_excerpt(value, limit=2400):
+    text = json.dumps(value, default=str)
+    return text if len(text) <= limit else text[:limit] + " [excerpt truncated; exact record available by source ref]"
+
+
+def _game_input(db, record):
+    from app.services import capture_chains
+    captured = capture_chains.attempt_out(db, record, blobs=True)
+    return "Captured input, including available actions and constraints: " + _game_excerpt(captured["input"], 12000)
+
+
 def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str], plan: Plan) -> None:
+    """Read factual outcomes and step-1 capture without merging claims into observations."""
+    from app.db.models import DesktopSessionEvent
+    from app.services import capture_chains, trajectory
+
     ev = out.ev
-    ids = sorted(i for i in (r.split(":", 1)[1] for r in attached if r.startswith("experience:")) if i.isdigit())
-    chosen = list(db.scalars(select(GameExperience).where(GameExperience.user_id == row.user_id,
-                                                          GameExperience.id.in_([int(i) for i in ids] or [-1]))))
-    first = min((e.id for e in chosen), default=None)
-    shown = GAME_BEFORE + GAME_MORE * plan.game
+    from app.services.memory_reset import learning_cutoff
+    cutoff = learning_cutoff(db, row.user_id)
+    ids = [int(r.split(":", 1)[1]) for r in attached
+           if r.startswith("experience:") and r.split(":", 1)[1].isdigit()]
+    chosen = list(db.scalars(select(GameExperience).where(
+        GameExperience.user_id == row.user_id, GameExperience.session_id == row.game_session_id,
+        GameExperience.id.in_(ids or [-1])).order_by(GameExperience.id)))
+    if not chosen:
+        out.awaiting.append("game experience missing or removed")
+        return
+    first = chosen[0].id
     before = list(db.scalars(select(GameExperience).where(
-        GameExperience.session_id == row.game_session_id, GameExperience.kind == "skill_outcome",
-        GameExperience.id < (first or 2 ** 62)).order_by(GameExperience.id.desc()).limit(shown))) if first else []
-    more = db.scalar(select(func.count()).select_from(GameExperience).where(
-        GameExperience.session_id == row.game_session_id, GameExperience.kind == "skill_outcome",
-        GameExperience.id < min((e.id for e in before), default=first or 0))) or 0 if first else 0
-    if more:
-        ev.can_look["game"] = f"{more} earlier game outcomes in this session"
-    hands = _Counter("h")
-    by_attempt: dict[str, str] = {}
+        GameExperience.user_id == row.user_id, GameExperience.session_id == row.game_session_id,
+        GameExperience.id < first, GameExperience.occurred_at >= cutoff).order_by(GameExperience.id.desc()).limit(GAME_BEFORE + GAME_MORE * plan.game)))
+    if before:
+        ev.can_look["game"] = "more earlier game outcomes and detailed capture"
+    by_attempt = {}
     for e in chosen:
         aid = _uuid((e.payload or {}).get("attempt_id"))
         if aid is None or str(aid) in by_attempt:
             continue
-        href = hands.next()
+        href = f"h{len(by_attempt) + 1}"
         by_attempt[str(aid)] = href
         record = db.get(DecisionAttempt, aid)
-        record = record if record is not None and record.user_id == row.user_id else None
-        step = (e.payload or {}).get("step_id")
-        ev.targets[href] = A.Target(href, "hands", f"her hands' decision for step {step}", f"run:{aid}",
-                                    (f"attempt:{aid}",))
+        record = record if record is not None and record.user_id == row.user_id and _aware(record.expires_at) > _now() else None
+        ev.targets[href] = A.Target(href, "hands", "her hands' decision", f"run:{aid}", (f"attempt:{aid}",))
         out.target_roots[href] = [f"attempt:{aid}", f"execution:{execution_id_for(aid, 'skill_run')}"]
         out.attempts[href] = {"hands": str(aid)}
         if record is None:
             out.awaiting.append(f"attempt:{aid}")
-        ev.add(A.Item(ref=f"{href}.d", kind="record", learner="hands", event=f"run:{aid}", roots=(f"attempt:{aid}",),
-                      target=href, captured=record is not None,
-                      text=(f"her hands' decision ({record.status}): {_record_summary(record)}" if record is not None
-                            else "her hands' decision: not captured"),
-                      detail=_input_detail(record) if plan.inputs and record is not None else None))
+        ev.add(A.Item(ref=f"{href}.d", kind="record", learner="hands", event=f"run:{aid}",
+                      roots=(f"attempt:{aid}",), target=href, captured=record is not None,
+                      text=(f"her hands' decision ({record.status}): {_record_summary(record)}; "
+                            f"available actions: {_game_excerpt((record.versions or {}).get('manifest'))}; "
+                            f"plan and step read: {_game_excerpt((record.input or {}).get('plan'))}"
+                            if record else "hands decision: missing or expired capture"),
+                      detail=_game_input(db, record) if record and plan.inputs else None))
+    # A stretch remains assessable when no hands decision was captured (ordinary play, notices,
+    # trials). That never establishes the quality of an uncaptured choice.
+    ev.targets["s1"] = A.Target("s1", "stretch", "the recorded stretch of play", f"assessment:{row.id}",
+                                tuple(f"experience:{e.id}" for e in chosen))
+    out.target_roots["s1"] = list(ev.targets["s1"].roots)
     for e in sorted(before + chosen, key=lambda x: x.id):
         p = e.payload or {}
         aid = str(_uuid(p.get("attempt_id")) or "")
-        counted = (p.get("data") or {}).get("counted")
-        ev.add(A.Item(ref=f"g{e.id}", kind="game", fact_kind="skill",
+        ev.add(A.Item(ref=f"g{e.id}", kind="game", fact_kind="skill" if e.kind == "skill_outcome" else "notice",
                       event=f"run:{aid}" if aid else f"experience:{e.id}", roots=(f"experience:{e.id}",),
-                      target=by_attempt.get(aid),
-                      text=f'[{_hm(e.occurred_at)}] skill {p.get("skill")}({json.dumps(p.get("params") or {})}) on step '
-                           f'{p.get("step_id")} ended {p.get("status")}'
-                           + (f': "{registry.quote(p.get("reason"))}"' if p.get("reason") else "")
-                           + (f"; counted while it ran: {json.dumps(counted)}" if counted else "")
-                           + ". Establishes: what the game reported for that run. Does not establish: whether the plan "
-                             "or the choice was right."))
+                      target=by_attempt.get(aid, "s1"),
+                      text=f"[{_hm(e.occurred_at)}] {e.kind}: {_game_excerpt(p)}; counted while it ran: {json.dumps((p.get('data') or {}).get('counted'))}. "
+                           "A recorded report, not proof of the cause or the quality of the choice."))
+    since = max(cutoff, min(_aware(e.occurred_at) for e in chosen) - timedelta(seconds=30))
+    until = max(_aware(e.occurred_at) for e in chosen) + timedelta(seconds=5)
+    # Include plans, applied rules, thoughts, measured outcomes and all three reports from step 1.
+    records = list(db.scalars(select(DecisionAttempt).where(
+        DecisionAttempt.user_id == row.user_id, DecisionAttempt.game_session_id == row.game_session_id,
+        DecisionAttempt.started_at >= since, DecisionAttempt.started_at <= until,
+        DecisionAttempt.expires_at > _now())
+        .order_by(DecisionAttempt.started_at).limit(100)))
+    for record in records:
+        target = by_attempt.get(str(record.id), "s1")
+        if record.learner == "hands" and target != "s1":
+            continue
+        ev.add(A.Item(ref=f"a{record.id.hex}", kind="record", learner=record.learner,
+                      event=f"attempt:{record.id}", roots=(f"attempt:{record.id}",), target=target,
+                      text=f"{record.learner} captured answer: {_game_excerpt(record.output)}",
+                      detail=_game_input(db, record) if plan.inputs else None))
+    executions = list(db.scalars(select(DecisionExecution).where(
+        DecisionExecution.user_id == row.user_id, DecisionExecution.game_session_id == row.game_session_id,
+        DecisionExecution.expires_at > _now(),
+        ((DecisionExecution.attempt_id.in_([r.id for r in records] + [uuid.UUID(a) for a in by_attempt])) |
+         ((DecisionExecution.ended_at >= since) & (DecisionExecution.ended_at <= until))))
+        .order_by(DecisionExecution.captured_at).limit(150)))
+    for ex in executions:
+        ev.add(A.Item(ref=f"x{ex.id.hex}", kind="fact", fact_kind="skill" if ex.kind == "skill_run" else ex.kind,
+                      event=f"run:{ex.attempt_id}" if ex.attempt_id else f"execution:{ex.id}",
+                      roots=(f"execution:{ex.id}",), target=by_attempt.get(str(ex.attempt_id), "s1"),
+                      text=_game_excerpt(capture_chains.execution_out(ex))))
+    held_executions = {str(e.attempt_id) for e in executions if e.kind == "skill_run"}
+    for aid in by_attempt:
+        if aid not in held_executions:
+            out.awaiting.append(f"execution:{execution_id_for(uuid.UUID(aid), 'skill_run')}")
+    gaps = list(db.scalars(select(CaptureGap).where(
+        CaptureGap.user_id == row.user_id,
+        CaptureGap.record_id.in_([uuid.UUID(a) for a in by_attempt] +
+                                [execution_id_for(uuid.UUID(a), 'skill_run') for a in by_attempt]))))
+    for gap in gaps:
+        ev.add(A.Item(ref=f"gap{gap.id}", kind="fact", event=f"gap:{gap.id}", roots=(f"gap:{gap.id}",),
+                      text=f"Missing capture: {gap.record_id} ({gap.reason}): {gap.detail or ''}"))
+    if len(records) == 100 or len(executions) == 150:
+        out.awaiting.append("capture window truncated at 100 attempts / 150 executions")
+    events = list(db.scalars(select(DesktopSessionEvent).where(
+        DesktopSessionEvent.session_id == row.game_session_id,
+        DesktopSessionEvent.occurred_at >= since, DesktopSessionEvent.occurred_at <= until)
+        .order_by(DesktopSessionEvent.id).limit(100)))
+    goal = db.scalar(select(DesktopSessionEvent).where(
+        DesktopSessionEvent.session_id == row.game_session_id, DesktopSessionEvent.type == "desktop.plan_set",
+        DesktopSessionEvent.occurred_at < since).order_by(DesktopSessionEvent.id.desc()).limit(1))
+    for e in ([goal] if goal else []) + events:
+        ev.add(A.Item(ref=f"p{e.id}", kind="fact", event=f"session_event:{e.id}",
+                      roots=(f"session_event:{e.id}",), target="s1",
+                      text=f"[{_hm(e.occurred_at)}] {e.type}: {_game_excerpt(e.payload)}"))
+    streams = trajectory.streams(db, row.user_id, session_id=row.game_session_id, since=since, until=until)
+    if not streams:
+        out.awaiting.append("trajectory missing or expired for this stretch")
+    for st in streams:
+        detail = trajectory.read(db, row.user_id, uuid.UUID(st["id"]), since=since, until=until,
+                                 ticks=False, max_chunks=20 + 20 * plan.game)
+        if detail:
+            events = detail.pop("events", [])
+            bound = 12 + 12 * plan.game
+            if len(events) > bound:
+                detail["events_omitted"] = len(events) - bound
+                ev.can_look["game"] = "more trajectory events from the recorded stretch"
+                events = events[:bound // 2] + events[-bound // 2:]
+            detail["events"] = [_game_excerpt(e, 900) for e in events]
+            ev.add(A.Item(ref=f"t{st['id'].replace('-', '')}", kind="game", fact_kind="trajectory",
+                          event=f"trajectory:{st['id']}", roots=(f"trajectory:{st['id']}",), target="s1",
+                          text="Pack clock and coverage (not the backend clock): " + json.dumps(detail, default=str)))
 
 
 def _quotes(text: str) -> list[str]:
@@ -761,7 +873,7 @@ def _trigger_text(row: LearningAssessment, ev: A.Evidence, lines: dict, anchor: 
         return (f"An ordinary exchange, sampled ({why}): assess how her turn(s) before {where} went, with the user's "
                 f"message {where} as their response. There may be no feedback in it at all.", refs)
     game = [ref for ref in ev.targets if ref.startswith("h")]
-    return (f"An execution problem: {why}" + (f" ({where})." if where else ".")
+    return (f"Recorded experience: {why}" + (f" ({where})." if where else ".")
             + (f" Targets: {', '.join(game)}." if game else ""), refs + tuple(game))
 
 
@@ -972,13 +1084,15 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
     # Lessons (docs/learning-system/03-implementation.md): learning reads this revision for what should persist.
     from app.services import learning_lessons
     learning_lessons.on_revision(db, row, n, result)
+    from app.services import memory_episodes
+    memory_episodes.from_assessment(db, row, n, result.get("episode"))
     for entry in result["reopens"]:
         other = db.scalar(select(LearningAssessment).where(LearningAssessment.id == _uuid(entry["id"]),
                                                            LearningAssessment.user_id == row.user_id).with_for_update())
         if other is None:
             continue
         added = attach(db, other, [(root, f"assessment {row.id} found this bears on it", {})
-                                   for root in entry["roots"] if root.startswith("message:")])
+                                   for root in entry["roots"] if root.startswith(("message:", "experience:", "execution:", "attempt:"))])
         if added:
             _reopen(other, now, f"new evidence: {', '.join(added)}")
     _log({"op": "revision", "assessment": str(row.id), "revision": n, "outcome": summary["outcome"],

@@ -22,7 +22,7 @@ from app.db.models import (
     RecallReceipt, RecallReference, SemanticMemory, User, WorkingItem,
 )
 from app.services import (
-    chat as chat_service, desktop_sessions, game_learning, memory_manager, memory_reset, mind, observation,
+    chat as chat_service, desktop_sessions, game_experience, memory_manager, memory_reset, mind, observation,
     observation_memory, recall, recall_embeddings, recall_references,
 )
 from tests.db_support import database  # noqa: F401  (fixture)
@@ -34,12 +34,12 @@ from tests.test_observation import PACK, _fail, _pack_session, _tick, _world
 @pytest.fixture(autouse=True)
 def on(monkeypatch, tmp_path, database):
     settings = config.get_settings().model_copy(update={
-        "memory_manager_enabled": True, "observation_enabled": True, "game_learning_enabled": True,
+        "memory_manager_enabled": True, "observation_enabled": True,
         "recall_enabled": True, "recall_association_enabled": True, "long_term_memory_enabled": True,
         "observation_tick_budget_seconds": 10.0, "memory_manager_log_path": str(tmp_path / "memory.jsonl"),
         "observation_log_path": str(tmp_path / "observation.jsonl"), "recall_log_path": str(tmp_path / "recall.jsonl")})
     getter = lambda: settings  # noqa: E731
-    for module in (memory_manager, observation, observation_memory, game_learning, config, recall,
+    for module in (memory_manager, observation, observation_memory, config, recall,
                    recall_references, recall_embeddings):
         monkeypatch.setattr(module, "get_settings", getter)
     for module in (recall_references, recall_embeddings, recall_tools):
@@ -54,7 +54,7 @@ def _played(db, user, *, end=True):
     session = _pack_session(db, user)
     world = _world(db, session)
     _fail(db, session, skill="mine", reason="no pickaxe that can mine obsidian")
-    game_learning.record_experience(db, session.id, "notice", {
+    game_experience.record_experience(db, session.id, "notice", {
         "kind": "died", "urgency": "danger", "text": "fell into lava",
         "data": {"dropped": {"iron_pickaxe": 1, "cobblestone": 23}}})
     _tick(db)

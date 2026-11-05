@@ -32,7 +32,7 @@ from app.db.models import (DESKTOP_TERMINAL_STATES, ChatMessage, Conversation, D
                            DesktopSessionEvent, GameExperience)
 from app.ai.desktop import step_check
 from app.schemas.desktop import PlanAppend, PlanIn, PlanReplace, PlanStepIn, SessionCreate
-from app.services import (agent_events, desktop_commands, desktop_preview, game_learning, game_moment,
+from app.services import (agent_events, desktop_commands, desktop_preview, game_experience, game_moment,
                           game_pack, game_planning, game_players)
 from app.services import desktop_sessions as sessions
 from app.services.desktop_sessions import DesktopError
@@ -181,7 +181,7 @@ def _pack_line(env: DesktopEnvironment) -> str:
             "\"follow me\": one step such as \"follow <the user's in-game name>\", done when \"the user says to stop\".")
 
 
-PACK_GAME = "minecraft"  # game_learning.GAME_BY_PROFILE[game_pack.PACK_PROFILE_ID]
+PACK_GAME = "minecraft"  # game_experience.GAME_BY_PROFILE[game_pack.PACK_PROFILE_ID]
 
 
 def _who_is_who(db: Session, user_id: uuid.UUID, env: DesktopEnvironment) -> str | None:
@@ -326,7 +326,7 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             lines.append(line)
             games.extend(vm_games)
     if has_pack:
-        lines.extend(_learned_lines(db, user_id, game_learning.game_for_profile(game_pack.PACK_PROFILE_ID)))
+        lines.extend(_learned_lines(db, user_id, game_experience.game_for_profile(game_pack.PACK_PROFILE_ID)))
     return lines, games
 
 
@@ -442,33 +442,20 @@ def _vm_details(session: DesktopSession, driver: dict, now: float) -> tuple[list
     return lines, facts
 
 
-def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[str]:
-    """What she learned from playing, for planning: plan lessons and her recap
-    of the last session (both written by her own reflection, from code-recorded
-    outcomes)."""
+def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None, *, supply=None) -> list[str]:
+    from app.ai.learning import lessons as L
+    from app.services import memory_lessons
+
     if game is None:
         return []
-    lines = []
-    lessons = game_learning.plan_lessons(db, user_id, game)
-    if lessons:
-        lines.append("What you learned playing Minecraft (use it when you set goals and steps; a rule your hands "
-                     "must keep the whole time goes in the plan's constraints):")
-        lines += [f"- When {lesson.situation}: {lesson.advice}"
-                  + (" (tentative: seen once)" if lesson.status == "trial" else "") for lesson in lessons]
-    skill = game_learning.skill_lessons(db, user_id, game)
-    if skill:
-        lines.append("How your moves behave (what your hands learned):")
-        lines += [f"- When {lesson.situation}: {lesson.advice}"
-                  + (" (tentative: seen once)" if lesson.status == "trial" else "") for lesson in skill]
-    gaps = game_learning.known_gaps(db, user_id, game)
-    if gaps:
-        lines.append("What you know you can't do yet (you asked for it to be built; not done): "
-                     + "; ".join(gap.title for gap in gaps)
-                     + ". If the user asks for one of these, say so and ask for help instead of trying.")
-    episode = game_learning.latest_episode(db, user_id, game)
+    supply = supply if supply is not None else memory_lessons.for_game(db, user_id, game)
+    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
+    if lines:
+        lines.append(L.GUIDE.split("lessons_weighed:")[0])
+    from app.services import memory_episodes
+    episode = memory_episodes.latest_game(db, user_id, game)
     if episode is not None:
-        lines.append(f"Last session (your recap, {_ago(time.time() - episode.event_at.timestamp())}): "
-                     f"{episode.summary}")
+        lines.append(f"Earlier experience (her interpretation, not new evidence): {episode.summary}")
     return lines
 
 
@@ -540,11 +527,15 @@ def planning_facts(db: Session, session: DesktopSession) -> dict[str, list[str]]
     now = time.time()
     driver = desktop_commands.load_driver_state(session.id) or {}
     who = _who_is_who(db, session.owner_user_id, env)
+    from app.services import memory_lessons
+    supply = memory_lessons.for_game(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id),
+                                     query=str(session.plan or {}))
     return {
         "now": _pack_details(db, env, session, driver, now)[0],
         "skills": _skill_manual(env) + game_skills.summary_lines(db, session.owner_user_id, PACK_GAME),
         "steps": [_pack_line(env)],
-        "learned": _learned_lines(db, session.owner_user_id, game_learning.game_for_profile(session.profile_id)),
+        "learned": _learned_lines(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id), supply=supply),
+        "lesson_supply": supply,
         "who": [who] if who else [],
     }
 

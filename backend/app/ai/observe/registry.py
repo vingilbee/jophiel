@@ -311,7 +311,7 @@ _SPECS = [
              lambda p: "notable" if p.status in SKILL_FAILED else "routine", _skill_summary, _skill_memory,
              consumers=("memory", "learning")),
     KindSpec("minecraft_pack", "notice", 1, GameNotice, "environment", "observed", "external",
-             _notice_salience, _notice_summary, _notice_memory),
+             _notice_salience, _notice_summary, _notice_memory, consumers=("memory", "learning")),
     KindSpec("minecraft_pack", "source_availability", 1, SourceAvailability, "system", "observed", "system",
              _fixed("notable"), _availability_summary, _availability_memory("minecraft_pack")),
     KindSpec("mind", "thought_concluded", 1, ThoughtConcluded, "columbina", "inferred", "model", _fixed("notable"),

@@ -705,7 +705,7 @@ def test_a_failed_skill_run_targets_her_hands_and_repeats_join_one_assessment(en
     causes = {c["component"]: c for c in rev.result["causes"]}
     # The planner's decisions aren't captured: a cause on it can be proposed, never established.
     assert causes["hands"]["status"] == "supported" and causes["planner"]["status"] == "unresolved"
-    assert any("planner's decisions aren't captured" in m["what"] for m in rev.result["missing"])
+    assert any("planner decision is missing" in m["what"] for m in rev.result["missing"])
 
 
 # --------------------------------------------------------------------------- #

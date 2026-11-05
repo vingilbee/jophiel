@@ -19,7 +19,7 @@ from app.db.models import (
     ObservationSource, User,
 )
 from app.services import (
-    chat as chat_service, game_learning, memory_manager, memory_reset, mind, observation, observation_adapters,
+    chat as chat_service, game_experience, memory_manager, memory_reset, mind, observation, observation_adapters,
     observation_memory,
 )
 from app.services.observation import Report
@@ -33,11 +33,11 @@ PACK = "minecraft_pack"
 @pytest.fixture(autouse=True)
 def on(monkeypatch, tmp_path):
     settings = config.get_settings().model_copy(update={
-        "memory_manager_enabled": True, "observation_enabled": True, "game_learning_enabled": True,
+        "memory_manager_enabled": True, "observation_enabled": True,
         "observation_tick_budget_seconds": 10.0, "memory_manager_log_path": str(tmp_path / "memory.jsonl"),
         "observation_log_path": str(tmp_path / "observation.jsonl")})
     getter = lambda: settings  # noqa: E731
-    for module in (memory_manager, observation, observation_memory, game_learning, config):
+    for module in (memory_manager, observation, observation_memory, config):
         monkeypatch.setattr(module, "get_settings", getter)
     monkeypatch.setattr(observation, "_last_sweep", 0.0)
     return settings
@@ -76,7 +76,7 @@ def _world(db, session, goal="reach the Nether") -> MemoryContext:
 
 
 def _fail(db, session, skill="mine", reason="no pickaxe", step="s1", status="failed") -> None:
-    game_learning.record_experience(db, session.id, "skill_outcome", {
+    game_experience.record_experience(db, session.id, "skill_outcome", {
         "skill": skill, "params": {"block": "stone"}, "status": status, "reason": reason, "step_id": step})
 
 

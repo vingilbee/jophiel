@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    TrajectoryChunk, TrajectoryStream,
+    TrajectoryChunk, TrajectoryStream, LearningReset, User,
     AgentEventJob, CaptureBlob, LearningAssessment, LearningLessonJob, MemoryLesson, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
@@ -26,6 +26,7 @@ from app.db.models import (
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
 SCOPES: dict[str, tuple[type, ...]] = {
+    "consolidation": (LearningTrialTrigger, LearningTrial, LearningLessonJob, MemoryLesson, LearningAssessment, GameReflectionJob, GameLesson, GameProposal),
     "conversations": (Conversation,),
     # Corrections go with the consolidation that read them (their memory events, if any, are working memory).
     # Forget requests and their tombstones too: a test reset starts over (a user's forget never does this).
@@ -76,6 +77,29 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     if unknown:
         raise ValueError(f"unknown scope(s): {', '.join(sorted(unknown))}")
     counts: dict[str, int] = {}
+    if "consolidation" in chosen:
+        from datetime import datetime, timezone
+        from sqlalchemy.dialects.postgresql import insert
+        cutoff = datetime.now(timezone.utc)
+        targets = ids if ids is not None else list(db.scalars(select(User.id)))
+        for user_id in targets:
+            db.execute(insert(LearningReset).values(user_id=user_id, cutoff_at=cutoff)
+                       .on_conflict_do_update(index_elements=[LearningReset.user_id], set_={"cutoff_at": cutoff}))
+        episode_delete = delete(EpisodicMemory).where(EpisodicMemory.context["source"].astext == "game")
+        if ids is not None:
+            episode_delete = episode_delete.where(EpisodicMemory.user_id.in_(ids))
+        counts["game_episodes"] = db.execute(episode_delete).rowcount or 0
+        receipts = update(ObservationProcessing).where(
+            ObservationProcessing.consumer.in_(("learning", "trials")),
+            ObservationProcessing.status.in_(("pending", "retry")))
+        if ids is not None:
+            receipts = receipts.where(ObservationProcessing.user_id.in_(ids))
+        counts["pending_learning_receipts"] = db.execute(receipts.values(
+            status="skipped", processed_at=cutoff, reason="test learning reset")).rowcount or 0
+        pending = delete(LearningTrialTrigger)
+        if ids is not None:
+            pending = pending.where(LearningTrialTrigger.user_id.in_(ids))
+        db.execute(pending)
     for scope in chosen:
         if scope == "working":
             unlink = update(DesktopSession).where(DesktopSession.goal_item_id.is_not(None)).values(goal_item_id=None)
@@ -116,10 +140,26 @@ def preview(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     """Rows ``reset`` would delete, without deleting anything."""
     ids = None if user_ids is None else list(user_ids)
     counts: dict[str, int] = {}
+    scopes = list(scopes)
     for scope in scopes:
         for model in SCOPES[scope]:
             query = select(func.count()).select_from(model)
             if ids is not None:
                 query = query.where(model.user_id.in_(ids))
             counts[model.__tablename__] = db.scalar(query) or 0
+    if "consolidation" in scopes:
+        query = select(func.count()).select_from(EpisodicMemory).where(EpisodicMemory.context["source"].astext == "game")
+        receipts = select(func.count()).select_from(ObservationProcessing).where(
+            ObservationProcessing.consumer.in_(("learning", "trials")), ObservationProcessing.status.in_(("pending", "retry")))
+        if ids is not None:
+            query = query.where(EpisodicMemory.user_id.in_(ids))
+            receipts = receipts.where(ObservationProcessing.user_id.in_(ids))
+        counts["game_episodes"] = db.scalar(query) or 0
+        counts["pending_learning_receipts"] = db.scalar(receipts) or 0
     return counts
+
+
+def learning_cutoff(db: Session, user_id: uuid.UUID):
+    from datetime import datetime, timezone
+    row = db.get(LearningReset, user_id)
+    return row.cutoff_at if row is not None else datetime.min.replace(tzinfo=timezone.utc)

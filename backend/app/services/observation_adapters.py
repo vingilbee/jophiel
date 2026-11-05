@@ -11,7 +11,7 @@ Conversation (pulled from the mind loop; the chat path is untouched):
 
 Minecraft (``minecraft_pack``):
 - skill outcomes and notices are captured in the same transaction that writes the game experience
-  (``game_learning.record_experience``), with the context of the session's goal at that moment. If
+  (``game_experience.record_experience``), with the context of the session's goal at that moment. If
   capture fails, the experience is written alone and the session's source state remembers where to
   recover from;
 - availability: the pack environment going offline or coming back.
@@ -280,7 +280,7 @@ def _sweep_missed_experiences(db: Session, now: datetime) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# Game experiences (inline, from game_learning.record_experience)
+# Game experiences (inline, from game_experience.record_experience)
 # --------------------------------------------------------------------------- #
 
 

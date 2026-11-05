@@ -298,7 +298,9 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     talk = _talk(db, session.owner_user_id, read)
     if read is not None:
         read["goal_item_id"] = getattr(memory_manager.open_goal_of_session(db, session.id), "id", None)
-        read["lessons"] = _lessons_supplied(db, session) if facts["learned"] else []
+        read["lesson_supply"] = facts["lesson_supply"]
+        read["lessons"] = [{"ref": f"lesson:{v.id}", "status": v.status, "revision": v.revision}
+                           for v in facts["lesson_supply"].views]
     if talk:
         sections.append(("Recent talk (oldest first)", talk))
     return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
@@ -373,22 +375,6 @@ def _rule_origins(applied: list[str], *, proposed=None, user_memory=None, previo
         "left_out_by_limit": [r for k, r in every.items() if k not in applied_keys],
     }
 
-
-def _lessons_supplied(db: Session, session: DesktopSession) -> list[dict]:
-    """The game lessons the planning input showed (desktop_game._learned_lines reads the same ones), by id,
-    status and revision."""
-    from app.services import game_learning
-
-    game = game_learning.game_for_profile(session.profile_id)
-    if game is None:
-        return []
-    try:
-        lessons = [*game_learning.plan_lessons(db, session.owner_user_id, game),
-                   *game_learning.skill_lessons(db, session.owner_user_id, game)]
-    except Exception:  # noqa: BLE001 - what was read is recorded when it can be; never a failed plan
-        return [{"ref": "game_lessons", "note": "could not be listed"}]
-    return [{"ref": f"game_lesson:{lesson.id}", "status": lesson.status, "revision": lesson.revision}
-            for lesson in lessons]
 
 
 def apply(db: Session, session: DesktopSession, decision, *, read_revision: int, goal: dict | None,
@@ -502,6 +488,9 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
     topic = (f"planning: {goal['text']}" if goal else "planning: " + "; ".join(reasons))[:GOAL_CHARS]
     decision = (planner or _get_planner()).plan(
         text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
+    from app.services import memory_lessons
+    memory_lessons.record_uses(user_id, attempt_id, read["lesson_supply"], consumer="planner",
+                              received=True, decision_status="ok" if decision.decision else "invalid")
     _capture_attempt(attempt_id, user_id=user_id, session_id=session_id, job_id=job_id, try_number=try_number,
                      text=text, reasons=reasons, goal=goal, read=read, read_revision=read_revision,
                      plan_before=plan_before, decision=decision, started_at=started_at)
@@ -587,7 +576,7 @@ def _capture_attempt(attempt_id: uuid.UUID, *, user_id, session_id, job_id, try_
     from app.services import learning_capture
 
     try:
-        refs = [f"session:{session_id}"]
+        refs = [f"session:{session_id}", *(r["ref"] for r in read.get("lessons") or () if r.get("ref"))]
         if read.get("goal_item_id"):
             refs.append(f"item:{read['goal_item_id']}")
         ctx = learning_capture.Ctx(

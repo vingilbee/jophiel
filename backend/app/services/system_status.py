@@ -45,7 +45,7 @@ PARTS: tuple[Part, ...] = (
     Part("memory", "Memory", ("memory", "recall-embeddings")),
     Part("observation", "Observation", ("observation",)),
     Part("learning", "Learning", ("learning", "learning-assessment", "learning-lessons"),
-         desktop_only=("learning-trials", "game-learning", "trajectory")),
+         desktop_only=("learning-trials", "trajectory")),
 )
 
 _local = threading.local()

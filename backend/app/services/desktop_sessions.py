@@ -1045,9 +1045,9 @@ def _transition(session: DesktopSession, to_state: str, *, reason: str, db: Sess
         session.ended_at = _now()
     if previous == "running" or to_state in DESKTOP_TERMINAL_STATES:
         # Out of play (paused, offline, ended): reflect on the stretch just played.
-        from app.services import game_learning
+        from app.services import game_assessment
 
-        game_learning.schedule_reflection(db, session, to_state)
+        game_assessment.schedule(db, session, to_state)
     _record(db, session, "desktop.session_state", {"state": to_state, "previous_state": previous, "reason": reason})
 
 

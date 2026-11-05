@@ -462,8 +462,10 @@ def test_from_failure_to_assessment_only_cognitions_choice_starts_it_and_each_ow
     assert "Alternative chosen by cognition: dig steps" in model.calls[0]
     # Each owner, under its own rules.
     assert db.get(WorkingItem, trial.hypothesis_item_id).status == "supported"
-    lesson = db.scalar(select(GameLesson))
-    assert (lesson.normalized_key, lesson.status) == ("trial:dig_steps", "trial")  # one success: tentative
+    from app.db.models import LearningAssessment
+    assert db.scalar(select(GameLesson)) is None
+    shared = db.scalar(select(LearningAssessment).where(LearningAssessment.trigger_key == f"trial:{trial.id}"))
+    assert shared is not None  # checked results now enter the shared lifecycle, never a second lesson store
     assert db.scalar(select(GameLearnedSkill)).attempt_id == attempt.id
     outcome = db.scalar(select(GameExperience).where(GameExperience.payload["skill"].astext == "trial:climb_obstacle"))
     assert outcome.payload["status"] == "supported"

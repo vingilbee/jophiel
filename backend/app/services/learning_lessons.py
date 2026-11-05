@@ -60,11 +60,15 @@ def _aware(at: datetime | None) -> datetime | None:
 # --------------------------------------------------------------------------- #
 
 
-def worth_reading(result: dict) -> bool:
+def worth_reading(result: dict, *, game: bool = False) -> bool:
     """A revision a lesson could rest on: the user's own stated meaning or preference, or a cause supported on its
     component's own record (code-checked in step 2)."""
     return bool(result.get("user_stated")) or any(
-        c.get("status") == "supported" and c.get("component") != "unclear" for c in result.get("causes") or [])
+        c.get("status") == "supported" and c.get("component") != "unclear" for c in result.get("causes") or []) or any(
+        d.get("status") == "supported" and d.get("value") != "unknown"
+        and d.get("dimension") in ("cost", "goal_progress", "knowledge_gain")
+        and (game or any(r.startswith(("experience:", "trajectory:")) for r in d.get("roots") or []))
+        for d in result.get("dimensions") or [])
 
 
 def on_revision(db: Session, row: LearningAssessment, revision: int, result: dict) -> bool:
@@ -73,7 +77,7 @@ def on_revision(db: Session, row: LearningAssessment, revision: int, result: dic
         return False
     tied = db.scalar(select(exists().where(MemoryLessonEvidence.user_id == row.user_id,
                                            MemoryLessonEvidence.assessment_id == row.id)))
-    worth = worth_reading(result)
+    worth = worth_reading(result, game=row.game_session_id is not None)
     if not (worth or tied):
         return False
     reason = ("a lesson rests on an earlier revision of it" if tied and not worth else

@@ -85,7 +85,7 @@ def _pack_session(db: Session, user_id: uuid.UUID) -> DesktopSession:
 
 
 def _game(session: DesktopSession) -> str:
-    from app.services.game_learning import game_for_profile
+    from app.services.game_experience import game_for_profile
 
     return game_for_profile(session.profile_id) or "minecraft"
 

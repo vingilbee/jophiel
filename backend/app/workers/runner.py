@@ -9,7 +9,7 @@ import redis
 from app.core.config import get_settings
 from app.services import system_status
 from app.workers import (
-    agent_events, chat, desktop, file_deletion, game_learning, game_practice, learning,
+    agent_events, chat, desktop, file_deletion, game_practice, learning,
     memory, mind, recall_embeddings, observation,
     whatsapp,
 )
@@ -108,8 +108,6 @@ def run(stop: threading.Event | None = None) -> None:
             # Columbina waking on game events: its own thread, so a background
             # turn never sits in front of a reply (and vice versa).
             worker_specs.append(("agent-events", agent_events.run_once, "macrovision:agent-events:wakeups", 1.0))
-            # Reflection on ended game sessions: rare, slow model calls on their own thread.
-            worker_specs.append(("game-learning", game_learning.run_once, settings.game_learning_queue_name, 5.0))
             # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
             worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
             # Bounded game trials (docs/learning-system/04-implementation.md): investigation, cognition's choice,
