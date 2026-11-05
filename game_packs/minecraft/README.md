@@ -2,7 +2,7 @@
 
 Stage G of `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`. A small Node.js service on the Mac that joins a
 Minecraft world as her own player, reads her state, lets you watch, and runs **skills** (go_to,
-mine, fight, explore, eat, sleep, craft, follow_player, place, collect_items, give, look_at, store,
+mine, fight, eat, sleep, craft, follow_player, place, collect_items, give, look_at, store,
 take, smelt, wear, hold, put_in_hotbar, surface) one at a time when asked through its API, and keeps a list of what she **notices**.
 Phases 0-3 are built: she joins, reads her state, runs skills, moves through a natural-motion
 layer, notices things, and **her hands (the driver model) pick skills** in a game session that
@@ -110,7 +110,7 @@ Every skill follows the same contract: one goal, one fast loop, no AI inside, ne
 skill (her hands chain them). It always ends with exactly one outcome: `done`, `failed` (with why),
 `lost`, `blocked`, `hurt`, `timeout` or `stopped`, plus a few numbers.
 
-No skill sees through walls: `mine`, gather, `go_to block:`, `explore`'s goal and her notable blocks
+No skill sees through walls: `mine`, gather, `go_to block:`, and her notable blocks
 count only blocks with a face in her line of sight, or that she has seen before (`src/sight.js`).
 
 **The shape of the place** (`src/surroundings.js`, in the state as `surroundings` and in the text as
@@ -148,7 +148,6 @@ block broken or block gained. A player in spectator mode is said to be invisible
 | `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `peak`, `surface`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
 | `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
 | `fight` | `target`: `nearest_hostile` or a mob type; `count` (hostiles: all nearby; other mobs: 1) | `count` dead / no hostiles left | Outnumbered (flees), none found, an animal got away. Never players |
-| `explore` | `goal`: `block:<type>` / `mob:<type>` (optional), `radius` | Goal found (says where), or area covered | Night, danger within 8 blocks |
 | `eat` | `food` (optional) | Ate | Not hungry, nothing to eat |
 | `sleep` | — | Woke up in the morning | Not night, no bed within 32, monsters nearby |
 | `craft` | `item`, `count` | Crafted `count` | No recipe, missing ingredients (lists them), needs a crafting table |
@@ -217,7 +216,7 @@ counts blocks around a spot (the learner compares it before and after a try).
 `fight`: creepers first, then skeletons, then zombies, nearest first; best weapon in hand, shield
 in the off hand and raised while the swing recharges; hits only at full charge; steps back after a
 hit; strafes against skeletons; hits a creeper once, then backs off.
-`explore` remembers explored chunks and noted places (water, lava, villages, caves) per world in
+World memory records visited chunks and noted places (water, lava, villages, caves) per world in
 `var/explore/`.
 
 ### How she moves (motion style layer)
@@ -239,7 +238,7 @@ skills only *request* a direction, and each tick (20/s) her head moves toward it
   No bunny-hopping: jumps only for real obstacles.
 - **Gaze:** looks slightly down at the ground ahead while walking (more when focused), glances at
   mobs and players near her path, and when idle looks around and at players nearby.
-- **Styles:** `relaxed` (go_to, explore, follow_player), `focused` (mine, craft, eat, sleep),
+- **Styles:** `relaxed` (go_to, follow_player), `focused` (mine, craft, eat, sleep),
   `combat` (fight). The numbers are in `src/motion/styles.js`; tune them there.
 
 `GET /state` shows `motion`: current style, the biggest head turn in one tick so far, snaps (turns

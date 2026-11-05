@@ -32,7 +32,7 @@ export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true
   const noticing = attachNoticing(bot, { memory })
   // What the other players do: into the state, and the news of it into her notices.
   const watching = attachWatching(bot, { report: noticing.report })
-  const skills = createSkills({ memory })
+  const skills = createSkills()
   const runner = new SkillRunner(bot, skills, { maxSeconds, motion: motionLayer, modes })
   // What a mode did is something she noticed: her hands see it, and it's in her play log.
   // The ones worth a line are heads-ups, so Columbina hears about them too.

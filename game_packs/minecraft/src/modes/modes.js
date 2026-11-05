@@ -16,7 +16,7 @@ import { seenBlocks } from '../sight.js'
 export const MODE_NAMES = ['guard', 'gather', 'pickup']
 // Skills a mode may put on hold and pick back up. The quick ones (craft, place, eat, sleep, give)
 // finish in a moment; fight is already what guard would do.
-export const RESUMABLE = new Set(['follow_player', 'go_to', 'explore', 'mine', 'collect_items'])
+export const RESUMABLE = new Set(['follow_player', 'go_to', 'mine', 'collect_items'])
 
 const GUARD_RADIUS = 8 // a hostile this close to her or to the player she's with
 const GUARD_REACH = 12 // ...and no further than this from her: she doesn't run off after it

@@ -1,5 +1,5 @@
 // What she remembers about one world: ground she has explored (chunks) and places she noted.
-// One instance per world, shared by explore and the noticing layer, saved to var/explore/.
+// One instance per world, used by the noticing layer, saved to var/explore/.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 

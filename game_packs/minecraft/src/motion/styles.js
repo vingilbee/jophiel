@@ -47,7 +47,6 @@ export const STYLES = {
 // Which style each skill moves in.
 export const SKILL_STYLE = {
   go_to: 'relaxed',
-  explore: 'relaxed',
   follow_player: 'relaxed',
   mine: 'focused',
   craft: 'focused',

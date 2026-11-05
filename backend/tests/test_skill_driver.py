@@ -481,7 +481,8 @@ def test_directions_and_caves_are_read_from_the_surroundings():
     prompt = system_prompt(MANIFEST)
     assert '"This way", "that direction"' in prompt and "the way THEY face" in prompt
     assert "go_to looking:<name>" in prompt
-    assert "never use it for a cave" in prompt
+    assert "go_to an Openings spot" in prompt
+    assert "use go_to toward a reachable spot from Ways" in prompt
 
 
 def test_peak_surface_and_spectators_are_in_the_rules():

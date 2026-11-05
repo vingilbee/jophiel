@@ -138,6 +138,15 @@ class Memory:
 
 
 @dataclass(frozen=True)
+class Capability:
+    name: str
+    actions: tuple[str, ...]
+    enabled: bool
+    connection: str
+    control: str | None = None
+
+
+@dataclass(frozen=True)
 class Live:
     """Everything the snapshot is made from, read by the services adapter."""
 
@@ -159,6 +168,9 @@ class Live:
     lessons: tuple[LS.LessonView, ...] = ()
     lessons_left_out: tuple[tuple[str, int, str], ...] = ()
     lessons_note: str | None = None  # why there are none when retrieval didn't run or failed
+    capabilities: tuple[Capability, ...] = ()
+    hands_now: str | None = None
+    activity_state: str | None = None
     proposals: tuple[Proposal, ...] = ()  # component_proposal: what is offered, not taken up yet
 
 
@@ -171,7 +183,9 @@ class Situation:
     # is the trained models' contract.
     lessons: tuple[LS.LessonView, ...] = ()
     lessons_cut: int = 0
-    lessons_shown: bool = False  # set by ``render``: whether the text it made shows them
+    capabilities: tuple[Capability, ...] = ()
+    lessons_shown: bool = False
+    activity_context: str = ""  # set by ``render``: whether the text it made shows them
 
     @property
     def lesson_refs(self) -> list[str]:
@@ -244,7 +258,8 @@ def snapshot(live: Live) -> Situation:
     s["memory"] = _memory(live, now) if s["new_message"] else E.no_memory(checked=False)
     if not s["new_message"]:
         s["seconds_since_user_message"] = last["user"]
-    return Situation(s, "", refs, lessons=tuple(live.lessons), lessons_cut=len(live.lessons_left_out))
+    return Situation(s, "", refs, lessons=tuple(live.lessons), lessons_cut=len(live.lessons_left_out),
+                     capabilities=live.capabilities, activity_context=_activity_context(live))
 
 
 def _proposals(live: Live, refs: dict[str, str], goal_index: dict[str, int]) -> list[dict[str, Any]]:
@@ -272,6 +287,38 @@ def _memory(live: Live, now: datetime) -> dict[str, Any]:
     return dict(search=search, several_fit=m.several_fit and len(records) >= 2, records=records)
 
 
+def _activity_context(live: Live) -> str:
+    if live.activity is None or live.activity_state is None:
+        return ""
+    lines = [
+        "ACTIVITY AT THE START OF THIS TURN",
+        f"- {live.activity.situation}. Session state: {live.activity_state}.",
+        f"- Hands running: {live.hands_now or 'no skill reported'}.",
+    ]
+    if live.thought is not None:
+        lines.append(f"- Latest thought ({_ago(live.now, live.thought.at)}s ago): {live.thought.text}")
+    lines.append("A thought can suggest a next step. Treat it as a thought until the plan or Hands confirms the change. "
+                 "When the user asks what you are thinking, use the relevant thought and distinguish it from what Hands is doing.")
+    return "\n".join(lines)
+
+
+def _capability_context(capabilities: tuple[Capability, ...]) -> str:
+    if not capabilities:
+        return ""
+    lines = [
+        "CURRENT CAPABILITIES",
+        "Use the recent conversation to interpret what the user is referring to. "
+        "A missing activity link does not mean a capability is disconnected. "
+        "Connection does not imply permission, readiness, or that any action succeeded.",
+    ]
+    for item in capabilities:
+        state = ", ".join(("enabled" if item.enabled else "disabled", item.connection))
+        if item.control:
+            state += f", controls: {item.control}"
+        lines.append(f"- {item.name} ({state}): {'; '.join(item.actions)}")
+    return "\n".join(lines)
+
+
 def render(situation: Situation, rendering: str | None) -> str:
     """The text the student reads. ``rendering`` is how its training data was rendered (the model's manifest):
     None = before the exchange line existed (qwen-4), so the line is left out; anything before ``memory-v1`` never
@@ -287,6 +334,10 @@ def render(situation: Situation, rendering: str | None) -> str:
         lines[at:at] = LS.decision_lines(situation.lessons, cut=situation.lessons_cut)
         text = "\n".join(lines)
         situation.lessons_shown = True
+    if context := _capability_context(situation.capabilities):
+        text += "\n\n" + context
+    if situation.activity_context:
+        text += "\n\n" + situation.activity_context
     situation.text = text
     return text
 
@@ -378,4 +429,8 @@ def brief(d: dict[str, Any], situation: Situation, *, effect: str | None = None)
                                                       think_about=d["think_about"].strip())
         lines.append(f"- What you're doing about it: {does}" + (f" ({effect})" if effect else "") + ". It "
                      "starts after you speak: don't say it has already happened.")
+    if situation.activity_context:
+        lines.append(situation.activity_context)
+    if context := _capability_context(situation.capabilities):
+        lines.append(context)
     return "\n".join(lines)

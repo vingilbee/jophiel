@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.ai.state.decisions import ResultDecision, RESULT_GAP
-from app.db.models import ChatMessage, CoordinatorOutput, CoordinatorWork
+from app.db.models import ChatMessage, CoordinatorOutput, CoordinatorWork, DesktopEnvironment, DesktopSession
 from app.services import autonomous_speech, cognition_decisions, coordinator
 from app.services import chat as chat_service
 from test_coordinator import env, _run_chat  # noqa: F401
@@ -48,6 +48,44 @@ def test_proposal_cognition_mouth_and_receipt(env, monkeypatch, action):
         assert output.decision == (action or "blocked")
         assert output.status == ("delivered" if action in ("respond", "ask") else "not_sent")
     assert not coordinator.execute_once()
+
+
+def test_unlinked_minecraft_proposal_reaches_cognition_in_active_voice_chat(env, monkeypatch):
+    socket_id = uuid.uuid4()
+    monkeypatch.setattr(autonomous_speech.voice_target, "current", lambda _: (socket_id, env.conversation.id))
+    calls = []
+
+    def decide(inp):
+        calls.append(inp)
+        return ResultDecision("silent", "stub", True)
+
+    def unexpected_restraint(*args):
+        pytest.fail("Minecraft proposals must reach cognition without the recent-reply heuristic")
+
+    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", decide)
+    monkeypatch.setattr(autonomous_speech, "_restraint", unexpected_restraint)
+    with env.db() as db:
+        desktop = DesktopEnvironment(owner_user_id=env.user.id, display_name="Minecraft", hosting_kind="game_pack")
+        db.add(desktop)
+        db.flush()
+        game = DesktopSession(owner_user_id=env.user.id, environment_id=desktop.id, profile_id="minecraft_pack",
+                              profile_revision=1, state="running", max_duration_seconds=600)
+        db.add(game)
+        db.commit()
+        activity_id = game.id
+        assert game.conversation_id is None
+        assert autonomous_speech.submit(
+            db, user_id=env.user.id, activity_id=activity_id, source="minecraft",
+            event_id=uuid.uuid4(), text="I need wood first.", reasons=["light: need wood"],
+            commentary_mode="occasional").startswith("Proposed")
+        work = db.scalar(select(CoordinatorWork))
+        assert work.conversation_id == env.conversation.id
+        assert work.input["voice_socket_id"] == str(socket_id)
+
+    assert coordinator.execute_once()
+    assert len(calls) == 1 and calls[0].activity_id == str(activity_id)
+    with env.db() as db:
+        assert db.scalar(select(CoordinatorOutput)).decision == "silent"
 
 
 def test_duplicate_proposal_and_new_user_fence(env, monkeypatch):

@@ -413,8 +413,9 @@ def prepare(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messa
                           reservation="chat job lease + one assistant row per turn" if job is not None
                           else "the socket that owns the turn", voice=voice),
         inner_state=Projection.off("inner_state", "observational only: never steers a reply"),
-        activities=Projection.missing("activities", "not projected yet; the game summary still reaches her "
-                                                    "through its own section"),
+        activities=(Projection("activities", "available", reason="shared activity snapshot")
+                    if student.situation and student.situation.activity_context
+                    else Projection.missing("activities", "no shared activity for this turn")),
         situation=Projection.missing("observation", "not projected yet"),
         mind=Projection.off("mind", "not routed to yet (asynchronous thinking: later in step 4)"),
         health=_health(cognition, memory),

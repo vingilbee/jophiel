@@ -70,7 +70,7 @@ def test_her_answer_is_found_word_for_word_and_credited_to_her(db, alice):
     assert record.subkind == "columbina" and "Amazon carries more water" in record.content
     assert record.content in RIVERS or record.content.strip("…") in RIVERS  # her words, never rebuilt
     line = recall.render(found, now=NOW, zone="UTC")
-    assert "Your own words (you, Columbina" in line and '"Geography chat"' in line and "not a checked fact" in line
+    assert "Your own words (you, Jophiel" in line and '"Geography chat"' in line and "not a checked fact" in line
 
     theirs = _search(db, alice, "rivers oceans", who="user")
     assert [r.ref.id for r in theirs.records] == [str(asked.id)]

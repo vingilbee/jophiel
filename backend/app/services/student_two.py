@@ -146,6 +146,36 @@ def live_game(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID | None
         DesktopSession.state.not_in(DESKTOP_TERMINAL_STATES)).order_by(DesktopSession.started_at.desc()).limit(1))
 
 
+def _turn_game(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID | None) -> DesktopSession | None:
+    """Read the current game even when this conversation is not its commentary target."""
+    linked = live_game(db, user_id, conversation_id)
+    if linked is not None or not get_settings().desktop_agent_enabled:
+        return linked
+    return db.scalar(select(DesktopSession).where(
+        DesktopSession.owner_user_id == user_id,
+        DesktopSession.profile_id.in_(("minecraft_pack", "minecraft_java")),
+        DesktopSession.state.not_in(DESKTOP_TERMINAL_STATES),
+    ).order_by(DesktopSession.started_at.desc()).limit(1))
+
+
+def _hands_now(game: DesktopSession | None) -> str | None:
+    if game is None or game.state != "running":
+        return None
+    from redis import RedisError
+    from app.services import desktop_commands
+
+    try:
+        driver = desktop_commands.load_driver_state(game.id) or {}
+    except (RedisError, ValueError):
+        return None
+    running = driver.get("running") or {}
+    if not running.get("skill"):
+        return None
+    params = ", ".join(f"{key}={value}" for key, value in (running.get("params") or {}).items()
+                       if key != "time_limit")
+    return f"{running['skill']}({params})"
+
+
 def _lines(db: Session, conversation_id: uuid.UUID, before_sequence: int | None,
            seen: list[str] | None = None) -> list[S.Line]:
     """``seen``: collects the shown messages' refs (the capture's sources)."""
@@ -252,13 +282,18 @@ def _thoughts(db: Session, activity: uuid.UUID | None, now: datetime,
     return (made[0] if made else None), list(reversed(made[1:]))
 
 
-def _activity(game: DesktopSession | None) -> S.Activity | None:
+def _activity(game: DesktopSession | None, *, goal: str | None = None) -> S.Activity | None:
     if game is None:
         return None
     plan = game.plan or {}
     step = next((st.get("do") for st in plan.get("steps", []) if st.get("state") == "active"), None)
-    situation = "Playing Minecraft together" + (f"; the plan: {plan['goal']}" if plan.get("goal") else "") + (
-        f"; doing now: {step}" if step else "")
+    situation = "Playing Minecraft together"
+    if goal:
+        situation += f"; goal: {goal}"
+    if plan.get("goal") and plan["goal"] != goal:
+        situation += f"; the plan: {plan['goal']}"
+    if step:
+        situation += f"; current step: {step}"
     state = "running" if game.state == "running" else "paused"
     by = "none"
     if state == "paused":
@@ -318,8 +353,11 @@ def gather(db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None
     now = now or datetime.now(timezone.utc)
     trigger = db.get(ChatMessage, trigger_message_id) if trigger_message_id else None
     before = trigger.conversation_sequence if trigger is not None else None
-    game = live_game(db, user_id, conversation_id)
+    from app.services import capability_registry, memory_manager
+
+    game = _turn_game(db, user_id, conversation_id)
     thought, earlier = _thoughts(db, game.id if game else conversation_id, now)
+    goal = memory_manager.session_goal(db, game) if game else None
     seen: list[str] = []
     lines = tuple(_lines(db, conversation_id, before, seen)) if conversation_id else ()
     goals = tuple(_goals(db, user_id, _goal_context(db, user_id, game), game))
@@ -329,7 +367,9 @@ def gather(db: Session, *, user_id: uuid.UUID, conversation_id: uuid.UUID | None
         trigger="user_message", domain="minecraft" if game is not None else "chat",
         now=now.astimezone(_zone(zone)), lines=lines,
         new_message=message, goals=goals, work=work, thought=thought, earlier_thoughts=tuple(earlier),
-        activity=_activity(game), memory=memory,
+        activity=_activity(game, goal=goal.text if goal else None), memory=memory,
+        capabilities=capability_registry.for_user(db, user_id),
+        hands_now=_hands_now(game), activity_state=game.state if game else None,
         sources=_sources(seen, goals, work, (thought, *earlier),
                          f"message:{trigger_message_id}" if trigger_message_id else "", *memory_refs), **lessons)
 
@@ -404,11 +444,20 @@ def gather_result(db: Session, work: CoordinatorWork, *, zone: str | None = None
     goals = tuple(_goals(db, work.user_id, _goal_context(db, work.user_id, game), game))
     query = " ".join(filter(None, (conclusion or question, lines[-1].text if lines else "")))
     lessons = _lessons(db, work.user_id, query)
+    activity = _activity(game)
+    if autonomous and activity is not None:
+        from dataclasses import replace
+
+        activity = replace(activity, situation=(
+            f"{activity.situation}. User's game commentary setting: {game.commentary_mode}. "
+            "Decide whether this thought adds something useful to the recent conversation. "
+            "Stay silent if the reply already covered it or it would duplicate a reply in progress."
+        ))
     return S.Live(
         trigger="thought_result" if finished else "work_outcome", domain="minecraft" if game is not None else "chat",
         now=now.astimezone(_zone(zone or work.input.get("zone"))),
         lines=lines, new_message="", goals=goals, work=tuple(work_items),
-        thought=thought, earlier_thoughts=tuple(earlier), activity=_activity(game),
+        thought=thought, earlier_thoughts=tuple(earlier), activity=activity,
         sources=_sources(seen, goals, work_items, earlier, f"work:{work.id}",
                          *(f"{k}" for k in (r.get("evidence_refs") or ()) if isinstance(k, str))), **lessons)
 

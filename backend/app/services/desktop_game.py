@@ -52,13 +52,13 @@ GOAL_REPEAT_MINUTES = 5
 LATELY_SECONDS = 5 * 60
 LATELY_LINES = 14
 # Her hands' moves that finished as asked aren't news (the timeline would be all go_to).
-QUIET_SKILLS = {"go_to", "follow_player", "explore", "look_at"}
+QUIET_SKILLS = {"go_to", "follow_player", "look_at"}
 # Her skill manual comes from the pack; it only changes when the pack restarts.
 MANUAL_TTL_SECONDS = 300
 _manual_cache: dict = {"at": 0.0, "lines": []}
 
 # What her own Minecraft player's skills do, in words (the pack's manifest is the truth).
-PACK_SKILLS = ("go somewhere, mine, fight, explore, craft, place a block, eat, sleep, follow, store, take, "
+PACK_SKILLS = ("go somewhere, mine, fight, craft, place a block, eat, sleep, follow, store, take, "
                "smelt, give, pick up items, look at something")
 
 # Written to Columbina: she is the one playing. The fast model that presses the

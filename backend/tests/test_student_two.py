@@ -56,6 +56,35 @@ def test_a_chat_situation_renders_like_training_with_refs_to_live_records():
     assert E.EXCHANGE[1] in S.render(situation, "exchange-line-v1").split("\n")  # qwen-5's
 
 
+def test_capabilities_reach_the_decision_and_reply_without_a_linked_activity():
+    situation = S.snapshot(_live(
+        new_message="follow me",
+        lines=(S.Line("user", "let's play Minecraft", NOW - timedelta(seconds=20)),),
+        capabilities=(S.Capability("Minecraft pack", ("Follow players",), True, "connected", "paused"),
+                      S.Capability("Google", ("Read mail",), False, "account not linked")),
+    ))
+    decision, _ = S.parse(json.dumps(SAY))
+    for text in (S.render(situation, "memory-v1"), S.brief(decision, situation)):
+        assert "Minecraft pack (enabled, connected, controls: paused)" in text
+        assert "Google (disabled, account not linked)" in text
+    assert "let's play Minecraft" in situation.text
+    assert "A1" not in situation.refs
+
+
+def test_decision_and_mouth_share_the_same_game_activity_snapshot():
+    situation = S.snapshot(_live(
+        domain="minecraft", new_message="what are you thinking?",
+        activity=S.Activity("s-1", "running", "Playing Minecraft together; the plan: get iron armor"),
+        activity_state="running", hands_now="go_to(target=hill)",
+        thought=S.Thought("t-1", "conclusion", "I need wood first for a pickaxe.", NOW - timedelta(seconds=5)),
+    ))
+    decision, _ = S.parse(json.dumps(SAY))
+    assert situation.activity_context in S.render(situation, "memory-v1")
+    assert situation.activity_context in S.brief(decision, situation)
+    assert "Hands running: go_to(target=hill)" in situation.activity_context
+    assert "I need wood first for a pickaxe." in situation.activity_context
+
+
 def test_a_game_situation_has_its_activity_step_and_her_thoughts():
     game = S.Activity("s-1", "running", "Playing Minecraft together; the plan: get iron; doing now: mine stone")
     goal = S.Goal("g-1", "Get iron", "user", "active", "has iron ingots", NOW - timedelta(minutes=20), "objective")
@@ -168,6 +197,30 @@ def test_a_game_conversation_is_the_minecraft_setting_with_its_goal_and_step(db,
     assert [g.key for g in live.goals][0] == str(session.goal_item_id)
     situation = S.snapshot(live)
     assert "A1" in situation.refs and situation.refs["G1"] == str(session.goal_item_id)
+
+
+def test_gather_sees_paused_hands_in_another_chat_only_for_the_owner(db, alice, bob, monkeypatch):
+    from app.services import capability_registry
+
+    settings = capability_registry.get_settings().model_copy(update={"desktop_agent_enabled": True})
+    monkeypatch.setattr(capability_registry, "get_settings", lambda: settings)
+    monkeypatch.setattr(student_two, "get_settings", lambda: settings)
+    _paired_env(db, alice)
+    desktop_game.start(db, alice.id, goal="explore")
+    session = svc.list_sessions(db, alice.id, live_only=True)[0]
+    svc.controller_ready(db, session.id)
+    svc.pause_session(db, alice.id, session.id)
+    conversation, rows = _talk(db, alice, ("user", "follow me"))
+
+    live = student_two.gather(db, user_id=alice.id, conversation_id=conversation.id,
+                              trigger_message_id=rows[0].id, message="follow me", zone=None)
+    assert live.activity is not None and live.activity.key == str(session.id)
+    assert live.activity_state == "paused"
+    hands = next(capability for capability in live.capabilities if capability.name == "Legion VM")
+    assert (hands.enabled, hands.connection, hands.control) == (True, "connected", "paused")
+    other = student_two.gather(db, user_id=bob.id, conversation_id=None, trigger_message_id=None,
+                               message="hi", zone=None)
+    assert all(capability.name != "Legion VM" for capability in other.capabilities)
 
 
 def test_its_work_is_carried_out_on_the_record_its_ref_names(db, alice):

@@ -1,6 +1,6 @@
 """Durable autonomous proposals; cognition authorizes, the existing chat mouth delivers.
 
-No latest-conversation fallback. Completed producer work is queued as a mind result,
+Minecraft proposals prefer an active voice conversation. No latest-conversation fallback. Completed producer work is queued as a mind result,
 not sent back through the thinker. Student 2 decides whether it is said; when it can't decide, it stays
 private (blocked).
 
@@ -25,10 +25,11 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import (
-    AutonomousDelivery, ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork, DesktopSession,
+    DESKTOP_TERMINAL_STATES, AutonomousDelivery, ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork,
+    DesktopSession,
     MemoryConflict, WorkingItem,
 )
-from app.services import agent_say, coordinator, desktop_preview
+from app.services import agent_say, coordinator, desktop_preview, voice_target
 
 
 def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, DesktopSession | None]:
@@ -52,6 +53,14 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     question's note); checked again before it's said."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
+    voice_socket = None
+    if session is not None and session.owner_user_id == user_id and session.state not in DESKTOP_TERMINAL_STATES:
+        active = voice_target.current(user_id)
+        if active is not None:
+            socket_id, conversation_id = active
+            voice_conversation = db.get(Conversation, conversation_id)
+            if voice_conversation is not None and voice_conversation.user_id == user_id:
+                conversation, voice_socket = voice_conversation, str(socket_id)
     if conversation is None:
         coordinator._log({"op": "autonomous_rejected", "event": event, "reason": "no_scoped_target"})
         return "Rejected: activity has no owned conversation target."
@@ -81,6 +90,7 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
         idempotency_key=f"autonomous:{request}", result=result,
         input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "source": source, "event_id": event, "reasons": reasons,
                "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal",
+               "voice_socket_id": voice_socket,
                "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
     db.commit()
@@ -128,12 +138,14 @@ def valid(db, work) -> bool:
     if work.input["source"] == "minecraft":
         session = db.get(DesktopSession, work.activity_id)
         if (session is None or session.owner_user_id != work.user_id
-                or session.conversation_id != work.conversation_id
+                or session.state in DESKTOP_TERMINAL_STATES
                 or any(getattr(session, attr) != work.input_versions[key] for key, attr in
                        (("plan", "plan_revision"), ("execution", "execution_generation"),
                         ("state", "state_revision")))):
             return False
-        mode = session.commentary_mode
+        if socket_id := work.input.get("voice_socket_id"):
+            return voice_target.current(work.user_id) == (uuid.UUID(socket_id), work.conversation_id)
+        return session.conversation_id == work.conversation_id
     elif work.input["source"] == "conversation":
         # Everyday chat: Student 2 decides whether it is said (no game pacing rules); the fences above (deadline,
         # a newer user message) and these still hold.
