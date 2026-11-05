@@ -34,6 +34,8 @@ export function describeState (state) {
     `Nearby: ${state.nearby.length ? state.nearby.map((e) => `${e.label} ${where(e)}`).join('; ') : 'nothing within range'}.`,
     `Blocks: ${state.blocks?.length ? state.blocks.map((b) => `${b.name} ${where(b)}`).join('; ') : 'nothing notable close by'}.`
   ]
+  const height = describeHeights(state.heights)
+  if (height) lines.push(height)
   lines.push(...describeSurroundings(state.surroundings))
   lines.push(...describeTerrain(state.terrain))
   const spectating = new Set(state.players_spectating ?? [])
@@ -79,4 +81,14 @@ export function hearts (health) {
 function describePitch (down) {
   if (Math.abs(down) <= 10) return 'level'
   return down > 0 ? `${down}° down` : `${-down}° up`
+}
+
+// Her height over time, so going down (a shaft) or not (mining a wall) shows without working it out.
+export function describeHeights (h) {
+  if (!h || h.over_s < 20) return null
+  const parts = [`Your height: ${h.now} now`]
+  if (h.one_min_ago !== null) parts.push(`${h.one_min_ago} a minute ago`)
+  if (h.five_min_ago !== null) parts.push(`${h.five_min_ago} five minutes ago`)
+  const minutes = Math.max(1, Math.round(h.over_s / 60))
+  return parts.join(', ') + `; between ${h.lowest} and ${h.highest} over the last ${minutes} min.`
 }

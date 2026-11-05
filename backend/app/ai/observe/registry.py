@@ -102,6 +102,8 @@ class ThoughtConcluded(_Payload):
     basis: ThoughtBasis = Field(default_factory=ThoughtBasis)
     supersedes: str | None = None  # the unfinished thought it carried on from
     premise_conflict: str | None = None  # the unresolved disagreement it was about (its problem's conflict)
+    # Her judgment of the effort (progress, cause, check, if_supported, leaves_unknown), when she had one.
+    assessment: dict[str, str] | None = None
 
 
 class SkillOutcome(_Payload):

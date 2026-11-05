@@ -67,15 +67,48 @@ def is_plan_news(reason: str) -> bool:
 # Asking for a plan
 # --------------------------------------------------------------------------- #
 
+# A thought asking to rethink the plan waits until the plan has stood this long. Live 2026-11-04 every
+# thought asked for a rethink: 44 revisions in 24 minutes, each changing her route before the last had
+# a chance to work. The user's goals, her hands stuck or struggling, and a goal done never wait.
+RETHINK_GAP_S = 60.0
+
+
+def _last_plan_change(db: Session, session: DesktopSession):
+    from app.db.models import DesktopSessionEvent
+
+    return db.scalar(select(DesktopSessionEvent.occurred_at).where(
+        DesktopSessionEvent.session_id == session.id, DesktopSessionEvent.type == "desktop.plan_set",
+    ).order_by(DesktopSessionEvent.id.desc()).limit(1))
+
+
 def request(db: Session, session: DesktopSession, reason: str, *, goal: dict | None = None) -> None:
     """Queue planning for this session, in the caller's transaction (the caller commits, then
     calls ``agent_events.wake``). ``goal``: what the user wants now ({text, target, rules});
-    a newer one replaces an older one still waiting."""
+    a newer one replaces an older one still waiting. A rethink soon after the plan changed waits
+    (``RETHINK_GAP_S``); anything else makes the waiting job due now."""
+    from datetime import datetime, timedelta, timezone
+
     payload = {"session_id": str(session.id), "plan_revision": session.plan_revision}
     if goal is not None:
         payload["goal"] = {**goal, "at": time.time()}
     agent_events.enqueue(db, user_id=session.owner_user_id, source=SOURCE, dedupe_key=str(session.id),
                          reason=reason[:400], payload=payload)
+    now = datetime.now(timezone.utc)
+    due = now
+    if goal is None and reason.startswith("rethink"):
+        changed = _last_plan_change(db, session)
+        if changed is not None:
+            changed = changed if changed.tzinfo else changed.replace(tzinfo=timezone.utc)
+            due = max(now, changed + timedelta(seconds=RETHINK_GAP_S))
+    pending = (AgentEventJob.source == SOURCE, AgentEventJob.dedupe_key == str(session.id),
+               AgentEventJob.status == "pending")
+    if due > now:
+        # Only ever later for a job that holds nothing but rethinks.
+        job = db.scalar(select(AgentEventJob).where(*pending))
+        if job is not None and all(r.startswith("rethink") for r in job.reasons):
+            job.not_before = max(job.not_before, due) if job.not_before else due
+    else:
+        db.execute(update(AgentEventJob).where(*pending, AgentEventJob.not_before > now).values(not_before=now))
 
 
 def cancel_waiting(db: Session, session_id: uuid.UUID) -> None:
@@ -190,6 +223,22 @@ def _talk(db: Session, user_id: uuid.UUID) -> list[str]:
             for turn in history]
 
 
+def _user_name(db: Session, user_id: uuid.UUID) -> str:
+    user = db.get(User, user_id)
+    return user.name if user and user.name else "the user"
+
+
+def _coverage() -> tuple[str, ...]:
+    """What her current view covers, from the game's state now (nothing when it can't be read)."""
+    from app.ai.desktop.pack_client import PackClient, PackError
+    from app.services import mind_minecraft
+
+    try:
+        return mind_minecraft.coverage(PackClient.from_settings().state())
+    except PackError:
+        return ()
+
+
 def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: dict | None) -> str:
     """The planning input, most important first: why now, the goal, the plan, what it takes,
     what is happening, what she can do, what she learned, who is who, the talk."""
@@ -213,6 +262,12 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
                                                + (f" ({desktop_game.REASONS.get(session.reason_code, session.reason_code)})"
                                                   if session.state != "running" and session.reason_code else "")
                                                + "."]))
+    from app.services import effort, mind_minecraft
+
+    story = effort.lines_for_session(db, session, user=_user_name(db, session.owner_user_id),
+                                     senses=mind_minecraft.SENSES, coverage=_coverage())
+    if story:
+        sections.append(("Her effort (recorded by code; judging it is yours)", list(story)))
     target = (goal or {}).get("target") or (session.plan or {}).get("target")
     needs = _needs(target)
     if needs:
@@ -274,6 +329,17 @@ def _rules(*groups) -> list[str]:
     return out[:5]
 
 
+def _users_rules(db: Session, session: DesktopSession) -> list[str]:
+    """The user's rules in force for the outcome (memory): her hands keep them in every plan for it."""
+    from app.services import memory_manager
+
+    goal = memory_manager.open_goal_of_session(db, session.id)
+    if goal is None:
+        return []
+    return [entry.text for entry in memory_manager.serving(db, goal)
+            if entry.kind == "constraint" and entry.closed_at is None]
+
+
 def apply(db: Session, session: DesktopSession, decision, *, read_revision: int, goal: dict | None) -> str:
     """Apply one decision to the session (owner-scoped through desktop_game). Returns what
     happened, for the log."""
@@ -287,6 +353,7 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
     user_id = session.owner_user_id
     plan = session.plan or {}
     max_steps = get_settings().desktop_plan_max_steps
+    held = _users_rules(db, session)
     try:
         if decision.decision == "keep":
             return "kept" + desktop_game.unpause_after_planning(db, user_id, "columbina_mind")
@@ -294,12 +361,14 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
             steps = merged_steps(plan.get("steps", []), decision.steps, decision.drop)[:max_steps]
             if not steps:
                 return "nothing to do: a revision with no steps"
-            if _same_steps(plan.get("steps", []), steps):
+            if _same_steps(plan.get("steps", []), steps) and (decision.goal or plan.get("goal")) == plan.get("goal"):
                 return "kept (the revision changed nothing)" + desktop_game.unpause_after_planning(
                     db, user_id, "columbina_mind")
+            # The plan's goal is her approach: a revision may change it (seen live 2026-11-04: "follow tearDrop12"
+            # outlived ~40 revisions that each said to stop following, because only a new goal could replace it).
             return desktop_game.replace_from_planner(
-                db, user_id, read_revision=read_revision, goal=plan.get("goal") or decision.goal or "",
-                steps=steps, constraints=_rules(plan.get("constraints"), (goal or {}).get("rules"), decision.rules),
+                db, user_id, read_revision=read_revision, goal=decision.goal or plan.get("goal") or "",
+                steps=steps, constraints=_rules(held, plan.get("constraints"), (goal or {}).get("rules"), decision.rules),
                 target=decision.target or plan.get("target"), source="columbina_mind", new_goal=False)
         if decision.decision == "new_goal":
             steps = [{"do": s.do[:120], "done_when": (s.done_when or f"{s.do} is done")[:120]}
@@ -309,7 +378,7 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
                 return "nothing to do: a new goal needs a goal and steps"
             return desktop_game.replace_from_planner(
                 db, user_id, read_revision=read_revision, goal=text, steps=steps,
-                constraints=_rules((goal or {}).get("rules"), decision.rules),
+                constraints=_rules((goal or {}).get("rules"), decision.rules),  # a new outcome: its own rules
                 target=decision.target or (goal or {}).get("target"),
                 # The user's own goal counts as them taking part (it resets her own-goal limit).
                 source="columbina_user_turn" if goal else "columbina_planning_turn", new_goal=True)
@@ -381,12 +450,74 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
                 reasons=[f"{kind}: {decision.why or ''}"], commentary_mode=commentary_mode,
                 question=bool(decision.ask))
             said = line if result.startswith("Said") else None
+        remembered = remember(db, session, decision)
         if decision.why:
             mind.save_thought(db, user_id=user_id, session_id=session_id, level="hard", kind="plan",
-                              text=decision.why, said=said, status="done" if applied else "stale", topic=topic)
+                              text=decision.why, said=said, status="done" if applied else "stale", topic=topic,
+                              follows=decision.follows,
+                              assessment={"progress": decision.progress} if decision.progress else None)
+        else:
+            db.commit()
     mind.log_decision({"ts": time.time(), "session": str(session_id), "plan": decision.decision, "outcome": outcome,
               "reasons": reasons, "goal": goal, "why": decision.why, "steps": [vars(s) for s in decision.steps],
               "drop": decision.drop, "rules": decision.rules, "target": decision.target, "ask": decision.ask,
-              "say": decision.say, "said": bool(said), "ms": decision.latency_ms,
-              "input_tokens": decision.input_tokens})
+              "say": decision.say, "said": bool(said), "follows": decision.follows, "remembered": remembered,
+              "sees": decision.sees, "cannot_see": decision.cannot_see, "progress": decision.progress,
+              "ms": decision.latency_ms, "input_tokens": decision.input_tokens})
     return outcome
+
+
+def _said_by_user(db: Session, user_id: uuid.UUID, words: str, since) -> uuid.UUID | None:
+    """The user's message these words come from (said since the outcome was set), or None: a rule or place
+    is kept as the user's only when they really said it."""
+    from app.db.models import ChatMessage, Conversation
+
+    wanted = " ".join(words.split()).lower().strip(' "\'.')
+    if len(wanted) < 3:
+        return None
+    rows = db.execute(select(ChatMessage.id, ChatMessage.content).join(
+        Conversation, Conversation.id == ChatMessage.conversation_id).where(
+        Conversation.user_id == user_id, ChatMessage.role == "user", ChatMessage.created_at >= since,
+    ).order_by(ChatMessage.created_at.desc()).limit(200)).all()
+    for message_id, content in rows:
+        if wanted in " ".join(str(content).split()).lower():
+            return message_id
+    return None
+
+
+def remember(db: Session, session: DesktopSession, decision) -> list[str]:
+    """The user's rules and places the planner named, kept under the outcome (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+    Which layer a correction changes is the planner's call; code only checks the user really said it."""
+    from app.services import memory_manager
+
+    goal = memory_manager.open_goal_of_session(db, session.id)
+    if goal is None or not (decision.user_rules or decision.lift_rules or decision.places):
+        return []
+    done: list[str] = []
+    try:
+        with db.begin_nested():
+            for rule, words in decision.user_rules:
+                message_id = _said_by_user(db, session.owner_user_id, words, goal.created_at)
+                if message_id is None:
+                    done.append(f"rule not kept (words not found): {rule}"[:200])
+                    continue
+                entry = memory_manager.add_constraint(
+                    db, session.owner_user_id, goal, rule, user_words=words,
+                    source=memory_manager.Source("message", message_id))
+                done.append(f"rule {memory_manager.ref(entry)}: {rule}"[:200])
+            for ref in decision.lift_rules:
+                try:
+                    memory_manager.lift_constraint(db, session.owner_user_id, ref,
+                                                   reason=decision.why or "the user took it back")
+                    done.append(f"lifted {ref}")
+                except memory_manager.MemoryError as exc:
+                    done.append(f"not lifted {ref}: {exc.message}"[:200])
+            for name, where, words in decision.places:
+                message_id = _said_by_user(db, session.owner_user_id, words, goal.created_at) if words else None
+                memory_manager.add_reference(db, session.owner_user_id, goal, name, where=where, words=words,
+                                             message_id=message_id)
+                done.append(f"place: {name}"[:200])
+    except Exception:  # noqa: BLE001 - memory never gets in the way of the plan
+        log.exception("planning: rules/places not kept for session %s", session.id)
+        return ["failed"]
+    return done

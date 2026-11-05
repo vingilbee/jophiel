@@ -10,7 +10,12 @@
 //   up one block or down at most three, like walking does) and what stops her there: a wall, a
 //   drop, water, lava; plus where the walk ends, so go_to can take her there;
 // - openings: from open sky, walkable ground that goes in under a rock roof (a cave mouth or a
-//   tunnel), seen along 16 directions.
+//   tunnel), seen along 16 directions;
+// - space: the open space she is in, filled through air from where she stands (never through rock,
+//   so nothing she couldn't see): how big it is, the floor in it, and where it goes on past what was
+//   counted (passages). Measurements only: whether that's a cave, a tunnel or a hole she dug is hers
+//   to judge. Added 2026-11-04: underground nothing said which way a passage led, and "dig down
+//   until you're in a cave" had nothing to be checked against.
 // The walk reads the blocks along the ground in front of her, which she'd mostly see; it stops at
 // the first wall, so it doesn't look through hills.
 import { createRequire } from 'node:module'
@@ -176,6 +181,105 @@ export function walk (at, feet, dx, dz, max = WAY_MAX) {
 
 const vector = (yaw) => ({ x: -Math.sin(yaw), z: -Math.cos(yaw) })
 
+export const SPACE_REACH = 12 // blocks out from her, sideways, the open space is counted
+export const SPACE_ABOVE = 4 // and above her head (more would count the whole sky over a shaft she dug)
+export const SPACE_BELOW = 8 // and below her feet
+const SPACE_MAX_CELLS = 6000
+
+const compassOf = (dx, dz) => COMPASS[Math.round(((Math.atan2(-dx, -dz) / (Math.PI / 4)) % 8 + 8)) % 8]
+
+// The open space around her: air connected to where she stands (feet or head), side by side through
+// the six faces of each block, within SPACE_REACH sideways, SPACE_ABOVE above her head and SPACE_BELOW below
+// her feet.
+export function space (at, feet, yaw, { reach = SPACE_REACH, above = SPACE_ABOVE, below = SPACE_BELOW,
+  maxCells = SPACE_MAX_CELLS } = {}) {
+  const fx = Math.floor(feet.x)
+  const fy = Math.floor(feet.y)
+  const fz = Math.floor(feet.z)
+  const key = (x, y, z) => `${x},${y},${z}`
+  const seen = new Set()
+  const queue = []
+  for (const y of [fy, fy + 1]) {
+    if (open(at(fx, y, fz))) {
+      seen.add(key(fx, y, fz))
+      queue.push([fx, y, fz])
+    }
+  }
+  if (!queue.length) return null
+  const bounds = { x0: fx, x1: fx, y0: fy, y1: fy, z0: fz, z1: fz }
+  const floor = new Set()
+  const touches = new Set()
+  const leaks = new Map() // compass or up/down -> { cells, low, high, x, y, z (the nearest cell) }
+  let full = false
+  const leak = (dir, x, y, z) => {
+    const l = leaks.get(dir) ?? { cells: 0, low: Infinity, high: -Infinity, near: Infinity }
+    l.cells++
+    l.low = Math.min(l.low, y - fy)
+    l.high = Math.max(l.high, y - fy)
+    const d = Math.hypot(x - fx, z - fz)
+    if (d < l.near) Object.assign(l, { near: d, at: { x, y, z } })
+    leaks.set(dir, l)
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const [x, y, z] = queue[i]
+    bounds.x0 = Math.min(bounds.x0, x); bounds.x1 = Math.max(bounds.x1, x)
+    bounds.y0 = Math.min(bounds.y0, y); bounds.y1 = Math.max(bounds.y1, y)
+    bounds.z0 = Math.min(bounds.z0, z); bounds.z1 = Math.max(bounds.z1, z)
+    const under = at(x, y - 1, z)
+    if (solid(under) && open(at(x, y + 1, z))) floor.add(`${x},${z}`)
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+      const nx = x + dx
+      const ny = y + dy
+      const nz = z + dz
+      const k = key(nx, ny, nz)
+      if (seen.has(k)) continue
+      const b = at(nx, ny, nz)
+      if (!b) continue
+      if (liquid(b)) {
+        touches.add(liquidName(b))
+        continue
+      }
+      if (!open(b)) continue
+      if (Math.abs(nx - fx) > reach || Math.abs(nz - fz) > reach) {
+        seen.add(k) // counted once as a way on, never as part of the space
+        leak(compassOf(nx - fx, nz - fz), x, y, z)
+        continue
+      }
+      if (ny - (fy + 1) > above) { seen.add(k); leak('up', x, y, z); continue }
+      if (fy - ny > below) { seen.add(k); leak('down', x, y, z); continue }
+      if (queue.length >= maxCells) { full = true; continue }
+      seen.add(k)
+      queue.push([nx, ny, nz])
+    }
+  }
+  const passages = [...leaks].map(([dir, l]) => {
+    const dx = l.at.x + 0.5 - feet.x
+    const dz = l.at.z + 0.5 - feet.z
+    return {
+      dir, cells: l.cells, low: l.low, high: l.high, at: l.at,
+      side: dir === 'up' || dir === 'down' ? dir : bearingWord(relativeBearing(yaw, dx, dz))
+    }
+  })
+  // The widest first: a big opening onward before a crack.
+  passages.sort((a, b) => b.cells - a.cells)
+  let headroom = 0
+  while (headroom < above && open(at(fx, fy + 2 + headroom, fz))) headroom++
+  return {
+    cells: queue.length,
+    full,
+    across: { x: bounds.x1 - bounds.x0 + 1, z: bounds.z1 - bounds.z0 + 1 },
+    below: fy - bounds.y0, // how far the space reaches below her feet
+    above: bounds.y1 - (fy + 1), // and above her head
+    headroom, // open blocks straight above her head
+    floor: floor.size, // blocks of floor in it she could stand on
+    touches: [...touches].sort(),
+    passages: passages.slice(0, 5),
+    reach,
+    reach_above: above,
+    reach_below: below
+  }
+}
+
 // Everything above, for her at `feet` facing `yaw` (mineflayer: 0 north, +pi/2 west).
 export function surroundings (at, feet, yaw) {
   const over = overhead(at, feet)
@@ -210,7 +314,7 @@ export function surroundings (at, feet, yaw) {
     openings.sort((a, b) => a.distance - b.distance)
   }
   for (const w of ways) delete w.opening
-  return { overhead: over, ways, openings: openings.slice(0, 4) }
+  return { overhead: over, ways, openings: openings.slice(0, 4), space: space(at, feet, yaw) }
 }
 
 export function readSurroundings (bot) {
@@ -255,6 +359,40 @@ export function describeOpening (o) {
     `${o.down >= 2 ? `, sloping down ${o.down} m` : ''} (a cave or tunnel mouth)`
 }
 
+function level (low, high) {
+  if (high <= -2) return `from ${-high}${high === low ? '' : `-${-low}`} m below your feet`
+  if (low >= 2) return `from ${low}${high === low ? '' : `-${high}`} m above your feet`
+  if (low <= -2) return `level with you and down to ${-low} m below`
+  if (high >= 2) return `level with you and up to ${high} m above`
+  return 'level with you'
+}
+
+export function describePassage (p, reach) {
+  if (p.dir === 'up') return `up: it goes on higher than ${reach.reach_above} m above your head (${p.cells} open block${p.cells === 1 ? '' : 's'} wide)`
+  if (p.dir === 'down') return `down: it goes on deeper than ${reach.reach_below} m below your feet (${p.cells} open block${p.cells === 1 ? '' : 's'} wide)`
+  return `${p.side} (${p.dir}): it goes on past ${reach.reach} m, ${level(p.low, p.high)} ` +
+    `(${p.cells} open block${p.cells === 1 ? '' : 's'} wide, nearest at ${p.at.x} ${p.at.y} ${p.at.z})`
+}
+
+export function describeSpace (sp) {
+  if (!sp) return []
+  const size = sp.full ? `more than ${sp.cells} open blocks (counting stopped)` : `${sp.cells} open blocks`
+  const lines = [
+    `Open space you're in (air connected to where you stand, counted out to ${sp.reach} m sideways, ` +
+      `${sp.reach_above} m above your head and ${sp.reach_below} m below your feet, never through rock): ${size}, ${sp.across.x} × ${sp.across.z} m across, from ` +
+      `${sp.below} m below your feet to ${sp.above} m above your head; ${sp.headroom} m open straight above ` +
+      `your head; floor you could stand on: ${sp.floor} block${sp.floor === 1 ? '' : 's'}` +
+      (sp.touches.length ? `; it meets ${sp.touches.join(' and ')}` : '') + '.'
+  ]
+  if (sp.passages.length) {
+    lines.push('Where it goes on (passages out of what was counted, widest first):')
+    for (const p of sp.passages) lines.push(`  ${describePassage(p, sp)}`)
+  } else {
+    lines.push('Where it goes on: nowhere within what was counted: closed in all round.')
+  }
+  return lines
+}
+
 // The lines for her state text, ahead first, then clockwise.
 export function describeSurroundings (s) {
   if (!s) return []
@@ -265,5 +403,6 @@ export function describeSurroundings (s) {
     lines.push('Openings:')
     for (const o of s.openings) lines.push(`  ${describeOpening(o)}`)
   }
+  lines.push(...describeSpace(s.space))
   return lines
 }

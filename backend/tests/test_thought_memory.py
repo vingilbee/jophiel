@@ -78,7 +78,7 @@ def mind_env(db_env, monkeypatch, tmp_path):
             return HardThought(kind, conclusion, thinking=thinking, question=question)
 
         monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
-            think=answer, instructions=lambda trigger, user, situation: "system"))
+            think=answer, instructions=lambda trigger, user, situation, **kw: "system"))
         mind_hard.run(mind_conversation.SOURCE, scope, att, Problem("quiet", "x", topic, "sister"), 100.0)
         with db_env.db() as db:
             return db.scalar(select(MindThought).where(MindThought.user_id == ids.user)

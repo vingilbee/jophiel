@@ -127,3 +127,57 @@ test('leaves and a trunk overhead are outdoors, a thin roof is a roof', () => {
   const hut = world().put('oak_planks', -3, 68, -3, 3, 68, 3)
   assert.deepEqual(overhead(hut.at, FEET), { kind: 'roof', block: 'oak_planks', up: 3, solid_above: 1 })
 })
+
+// ---- the open space she is in (measurements; what it is is hers to judge) ----
+import { describeSpace, space } from '../src/surroundings.js'
+import { describeHeights } from '../src/describe.js'
+import { heightTrail } from '../src/state.js'
+
+test('a shaft she dug: one block across, going on only upward', () => {
+  const w = world().put('air', 0, 58, 0, 0, 63, 0)
+  const sp = space(w.at, { x: 0.5, y: 58, z: 0.5 }, 0)
+  assert.equal(sp.cells, 6)
+  assert.deepEqual(sp.across, { x: 1, z: 1 })
+  assert.equal(sp.floor, 1)
+  assert.deepEqual(sp.passages.map((p) => p.dir), ['up'])
+  const text = describeSpace(sp).join('\n')
+  assert.match(text, /6 open blocks, 1 × 1 m across/)
+  assert.match(text, /up: it goes on higher than 4 m above your head \(1 open block wide\)/)
+  assert.doesNotMatch(text, /cave/) // what it is, is hers to say
+})
+
+test('a room with a passage north that goes down, and water at its edge', () => {
+  const w = world()
+    .put('air', -5, 40, -5, 5, 43, 5) // a room 11 x 11, 4 high
+    .put('air', 0, 40, -20, 1, 41, -6) // a tunnel north, 2 wide
+    .put('air', 0, 36, -20, 1, 39, -8) // that drops 4 m further on
+    .put('water', 5, 40, 5)
+  const sp = space(w.at, { x: 0.5, y: 40, z: 0.5 }, 0)
+  assert.deepEqual(sp.across, { x: 11, z: 18 }) // the tunnel counted out to 12 m
+  assert.equal(sp.headroom, 2)
+  assert.deepEqual(sp.touches, ['water'])
+  const north = sp.passages.find((p) => p.dir === 'north')
+  assert.equal(north.side, 'ahead')
+  assert.ok(north.low <= -2, `low ${north.low}`)
+  assert.match(describeSpace(sp).join('\n'), /ahead \(north\): it goes on past 12 m, level with you and down to 4 m below/)
+})
+
+test('a closed pocket: nowhere it goes on', () => {
+  const w = world().put('air', 0, 40, 0, 0, 41, 0)
+  const sp = space(w.at, { x: 0.5, y: 40, z: 0.5 }, 0)
+  assert.equal(sp.cells, 2)
+  assert.deepEqual(sp.passages, [])
+  assert.match(describeSpace(sp).join('\n'), /closed in all round/)
+})
+
+test('her height over the last minutes, sampled as her state is read', () => {
+  const bot = {}
+  for (let s = 0; s <= 300; s += 5) heightTrail(bot, s * 1000, 75 - Math.floor(s / 20))
+  const h = heightTrail(bot, 301000, 60)
+  assert.equal(h.now, 60)
+  assert.equal(h.one_min_ago, 63)
+  assert.equal(h.five_min_ago, 75)
+  assert.equal(describeHeights(h), 'Your height: 60 now, 63 a minute ago, 75 five minutes ago; between 60 and 75 ' +
+    'over the last 5 min.')
+  assert.equal(describeHeights(heightTrail({}, 0, 64)), null) // too soon to say anything
+})

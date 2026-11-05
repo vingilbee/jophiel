@@ -120,10 +120,13 @@ def _apply(db: Session, observation: Observation, now: datetime) -> tuple[str, s
     key = (f"observation-coalesce:{decision.coalesce_key}" if decision.coalesce_key
            else f"observation:{observation.id}:{registry.RULE_VERSION}")
     source = memory_manager.Source("observation", observation.id)
+    # What happened in a game session belongs to the effort its goal is: on that outcome's timeline.
+    goal = memory_manager.open_goal_of_session(db, observation.session_id)
     event = memory_manager.record_event(
         db, observation.user_id, kind=decision.kind,
         text=decision.text + registry.age_note(observation.occurred_at, observation.received_at, now),
         epistemic=decision.epistemic, context_id=context_id,
+        item_id=goal.id if goal is not None and goal.context_id == context_id else None,
         occurred_at=observation.occurred_at or observation.received_at, dedupe_key=key[:500])
     if event is not None:
         memory_manager.link(db, observation.user_id, role="origin", source=source, event_id=event.id)

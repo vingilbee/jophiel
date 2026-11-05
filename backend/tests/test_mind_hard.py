@@ -55,14 +55,22 @@ def test_what_she_reads_is_one_text_in_a_fixed_order():
     assert positions == sorted(positions)
 
 
-def test_a_thought_about_a_step_or_goal_that_is_gone_is_dropped():
+def test_a_thought_about_an_outcome_or_goal_that_is_gone_is_dropped():
     problem = failing_problem()
     assert mind_minecraft.dropped(None, session(), problem, None) is None
     assert mind_minecraft.dropped(None, session(), problem, "the goal changed") == "the goal changed"
     assert mind_minecraft.dropped(None, session(state="ended"), problem, None) == "the game ended"
-    over = {**PLAN, "steps": [{**PLAN["steps"][0], "state": "done"}]}
-    assert mind_minecraft.dropped(None, session(plan=over), problem, None) == "that step is over"
-    assert mind_minecraft.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), problem, None) == "the goal changed"
+    goal = uuid.uuid4()
+    review = Problem("review", "A step of your plan just ended.", topic="looking back: x", query="x",
+                     anchor={"outcome": str(goal)})
+    assert mind_minecraft.dropped(None, session(goal_item_id=goal), review, None) is None
+    # The plan's goal is only her approach: a look back holds while the outcome does.
+    assert mind_minecraft.dropped(None, session(goal_item_id=goal, plan={**PLAN, "goal": "make a bed"}), review,
+                                  None) is None
+    assert mind_minecraft.dropped(None, session(goal_item_id=uuid.uuid4()), review, None) == "the outcome changed"
+    big = Problem("big", "You're starting: kill a sheep.", topic="before: kill a sheep", query="x",
+                  anchor={"goal": "kill a sheep"})
+    assert mind_minecraft.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), big, None) == "the goal changed"
     quiet = Problem("quiet", "Nothing is happening.", topic="quiet: x", query="x")
     assert mind_minecraft.dropped(None, session(plan={**PLAN, "goal": "make a bed"}), quiet, None) is None
 
@@ -111,7 +119,7 @@ def _run(monkeypatch, thought: HardThought, sess=None, cancelled=None, after=Non
         return thought
 
     monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
-        think=think, instructions=lambda trigger, user, situation: "system"))
+        think=think, instructions=lambda trigger, user, situation, **kw: "system"))
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw) or SimpleNamespace(id=uuid.uuid4()))
     monkeypatch.setattr(mind_hard, "route", lambda source, scope, tid, problem, t, goal: sent.append(t.kind) or {})
     att = mind_hard.Attention(running=failing_problem(), running_scope=SCOPE, cancelled=cancelled)
@@ -128,9 +136,9 @@ def test_a_landed_thought_is_saved_and_sent_on_unless_dropped(monkeypatch):
                 "for_hands": "check the mutton, not the result", "dropped_reason": None}
     assert {key: saved[0][key] for key in expected} == expected
     assert sent == ["guess"]
-    over = session(plan={**PLAN, "steps": [{**PLAN["steps"][0], "state": "done"}]})
-    saved, sent = _run(monkeypatch, guess, after=over)  # the step ended while she thought
-    assert (saved[0]["status"], saved[0]["dropped_reason"], sent) == ("dropped", "that step is over", [])
+    over = session(state="ended")
+    saved, sent = _run(monkeypatch, guess, after=over)  # the game ended while she thought
+    assert (saved[0]["status"], saved[0]["dropped_reason"], sent) == ("dropped", "the game ended", [])
     saved, sent = _run(monkeypatch, guess, sess=over)  # it had ended before she started: not thought about
     assert (saved, sent) == ([], [])
     saved, sent = _run(monkeypatch, HardThought(None, None, thinking="nothing to conclude"))

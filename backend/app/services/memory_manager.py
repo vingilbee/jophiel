@@ -33,6 +33,7 @@ from app.core.config import get_settings
 from app.db.models import (
     DESKTOP_TERMINAL_STATES,
     WORKING_ITEM_CLOSED,
+    WORKING_ITEM_SERVES,
     WORKING_ITEM_STATUSES,
     ChatMessage,
     Conversation,
@@ -41,6 +42,8 @@ from app.db.models import (
     GameExperience,
     MemoryContext,
     MemoryEvent,
+    MemoryEntity,
+    MemoryEntityLink,
     MemoryEvidence,
     MemoryManagerState,
     MindThought,
@@ -304,8 +307,10 @@ def add_item(db: Session, user_id: uuid.UUID, *, kind: str, text_: str, owner: s
     state(db, user_id)  # the due checks only see users with a state row
     if parent_id is not None:
         parent = item(db, user_id, parent_id)
+        if kind not in WORKING_ITEM_SERVES:
+            raise MemoryError("invalid", f"a {kind} doesn't go under a goal")
         if parent.kind != "goal" or parent.closed_at is not None:
-            raise MemoryError("invalid", "a sub-goal goes under an open goal")
+            raise MemoryError("invalid", "it goes under an open goal")
         context_id = parent.context_id
     context = _context(db, user_id, context_id) if context_id else focused(db, user_id)
     if context.status == "closed":
@@ -598,7 +603,8 @@ def record_correction(db: Session, user_id: uuid.UUID, *, text_: str, context_id
 
 def _kind_word(entry: WorkingItem) -> str:
     return {"goal": "Sub-goal" if entry.parent_id else "Goal", "commitment": "Commitment", "intention": "Intention",
-            "question": "Question", "hypothesis": "Suspicion", "decision": "Decision", "plan": "Plan"}[entry.kind]
+            "question": "Question", "hypothesis": "Suspicion", "decision": "Decision", "plan": "Plan",
+            "constraint": "Rule from the user"}[entry.kind]
 
 
 # --------------------------------------------------------------------------- #
@@ -728,6 +734,75 @@ def goal_line(db: Session, session: DesktopSession) -> str | None:
 
 
 # --------------------------------------------------------------------------- #
+# An effort: an outcome and what serves it (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md)
+# --------------------------------------------------------------------------- #
+
+
+def open_goal_of_session(db: Session, session_id: uuid.UUID | None) -> WorkingItem | None:
+    """The open goal a game session plays for, or None. What her thoughts and the game's events in that
+    session serve."""
+    session = db.get(DesktopSession, session_id) if session_id else None
+    goal = db.get(WorkingItem, session.goal_item_id) if session is not None and session.goal_item_id else None
+    return goal if goal is not None and goal.closed_at is None else None
+
+
+def serving(db: Session, goal: WorkingItem) -> list[WorkingItem]:
+    """Everything that points at the goal (her approaches, the user's rules, sub-goals), oldest first."""
+    return list(db.scalars(select(WorkingItem).where(WorkingItem.user_id == goal.user_id,
+                                                     WorkingItem.parent_id == goal.id)
+                           .order_by(WorkingItem.created_at)))
+
+
+def add_constraint(db: Session, user_id: uuid.UUID, goal: WorkingItem, text_: str, *, user_words: str,
+                   source: Source | None = None) -> WorkingItem:
+    """A rule the user gave for this outcome, in force until lifted. ``user_words``: what they said."""
+    if not " ".join((user_words or "").split()):
+        raise MemoryError("invalid", "a rule from the user needs their words")
+    for entry in serving(db, goal):
+        if (entry.kind == "constraint" and entry.closed_at is None
+                and " ".join(entry.text.split()).lower() == " ".join(text_.split()).lower()):
+            return entry  # already in force
+    return add_item(db, user_id, kind="constraint", text_=text_, owner="user", epistemic="reported",
+                    parent_id=goal.id, source=source, user_words=user_words)
+
+
+def lift_constraint(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, reason: str,
+                    source: Source | None = None) -> WorkingItem:
+    entry = item(db, user_id, key)
+    if entry.kind != "constraint":
+        raise MemoryError("invalid", "only a rule from the user can be lifted")
+    return resolve(db, user_id, entry.id, status="lifted", reason=reason, source=source)[0]
+
+
+def add_reference(db: Session, user_id: uuid.UUID, goal: WorkingItem, name: str, *, where: str | None = None,
+                  words: str | None = None, kind: str = "place",
+                  message_id: uuid.UUID | None = None) -> MemoryEntity:
+    """A place or thing that matters to this outcome ("the cave Vincent showed me", where it is)."""
+    name = " ".join((name or "").split())[:200]
+    if not name:
+        raise MemoryError("invalid", "name the place or thing")
+    for entity in references(db, goal):
+        if (entity.name or "").lower() == name.lower():
+            return entity
+    entity = MemoryEntity(user_id=user_id, kind=kind, name=name, source_message_id=message_id,
+                          metadata_={"where": " ".join((where or "").split())[:200] or None,
+                                     "words": " ".join((words or "").split())[:300] or None,
+                                     "for_goal": str(goal.id)})
+    db.add(entity)
+    db.flush()
+    db.add(MemoryEntityLink(user_id=user_id, entity_id=entity.id, item_id=goal.id, role="reference"))
+    db.flush()
+    _log({"op": "reference", "user": str(user_id), "goal": str(goal.id), "entity": str(entity.id)})
+    return entity
+
+
+def references(db: Session, goal: WorkingItem) -> list[MemoryEntity]:
+    return list(db.scalars(select(MemoryEntity).join(MemoryEntityLink, MemoryEntityLink.entity_id == MemoryEntity.id)
+                           .where(MemoryEntityLink.item_id == goal.id, MemoryEntityLink.role == "reference",
+                                  MemoryEntity.status == "active").order_by(MemoryEntity.created_at)))
+
+
+# --------------------------------------------------------------------------- #
 # The view: what we're doing, for her reply, her mind and her planner (spec §6)
 # --------------------------------------------------------------------------- #
 
@@ -779,6 +854,8 @@ def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[u
         line = f"You suspect {tag} (your own guess, not confirmed): {entry.text}"
     elif entry.kind == "decision":
         line = f"You decided {tag}: {entry.text}"
+    elif entry.kind == "constraint":
+        line = f'{user_name}\'s rule {tag}: {entry.text} (their words: "{entry.user_words}")'
     elif entry.kind == "plan":
         from app.services import memory_time
 

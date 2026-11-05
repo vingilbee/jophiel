@@ -1138,6 +1138,12 @@ class MindThought(Base):
     # No foreign key: the activity is a different table per source. session_id stays for game thoughts.
     source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # The earlier conclusion it says it carries out (a short id from her effort timeline), as the model said
+    # it; code never infers it (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+    follows: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Her judgment of the effort when she had one to judge: progress (yes/no/unclear), and when it isn't, the
+    # cause she favours, a check, what it would support and what it would leave unknown (stage 2).
+    assessment: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -1427,7 +1433,10 @@ sa_text = text
 
 MEMORY_CONTEXT_KINDS = ("general", "activity", "project", "world")
 MEMORY_CONTEXT_STATUSES = ("active", "paused", "closed")
-WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question", "hypothesis", "decision", "plan")
+WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question", "hypothesis", "decision", "plan", "constraint")
+# What may point at the goal it serves (parent_id): a sub-goal, and her own items and the user's rules for it
+# (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md: an outcome gathers the approaches taken for it).
+WORKING_ITEM_SERVES = ("goal", "decision", "intention", "hypothesis", "question", "constraint")
 # Per kind: (open statuses, closed statuses).
 WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "goal": (("active", "suspended"), ("completed", "abandoned")),
@@ -1440,6 +1449,9 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # Something the user means to do at a time ("visit Nora in December"): its time passing without word of
     # it makes it needs_review, never happened.
     "plan": (("planned", "needs_review"), ("happened", "cancelled")),
+    # A rule the user gave for an outcome, in their words ("this is your task, don't follow me"): in force until
+    # lifted. Which layer a correction changes is cognition's call; this is where a lasting rule goes.
+    "constraint": (("active",), ("lifted",)),
 }
 WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
 # basis: what she read when she thought it; restated: she reached it again. Neither is support.
@@ -1548,7 +1560,10 @@ class WorkingItem(Base, TimeFieldsMixin):
         CheckConstraint("btrim(text) <> ''", name="ck_working_items_text"),
         CheckConstraint(f"(closed_at IS NOT NULL) = (status IN ({_in(WORKING_ITEM_CLOSED)}))",
                         name="ck_working_items_closed"),
-        CheckConstraint("parent_id IS NULL OR (kind = 'goal' AND parent_id <> id)", name="ck_working_items_parent"),
+        CheckConstraint(f"parent_id IS NULL OR (kind IN ({_in(WORKING_ITEM_SERVES)}) AND parent_id <> id)",
+                        name="ck_working_items_parent"),
+        CheckConstraint("kind <> 'constraint' OR coalesce(btrim(user_words), '') <> ''",
+                        name="ck_working_items_constraint_words"),
         CheckConstraint("(kind = 'commitment') = (owed_to IS NOT NULL)", name="ck_working_items_owed_to"),
         # Owed by one party to the other; "I'll remember to..." to herself is an intention.
         CheckConstraint("kind <> 'commitment' OR (owner IN ('user', 'columbina') AND owed_to IN ('user', 'columbina') "
@@ -1683,7 +1698,7 @@ class MemoryEvidence(Base):
 
 
 
-MEMORY_ENTITY_LINK_ROLES = ("participant", "place", "about")
+MEMORY_ENTITY_LINK_ROLES = ("participant", "place", "about", "reference")
 
 
 class MemoryEntityLink(Base):

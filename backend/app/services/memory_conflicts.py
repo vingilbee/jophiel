@@ -81,7 +81,7 @@ def record(db: Session, *, job: MemoryJob, message_id: uuid.UUID, user_text: str
 
 # What settling a disagreement closes an open item that depends on it as, per kind.
 _CLOSES = {"question": "answered", "intention": "dropped", "decision": "withdrawn", "hypothesis": "unresolved",
-           "commitment": "cancelled", "goal": "abandoned"}
+           "commitment": "cancelled", "goal": "abandoned", "constraint": "lifted"}
 
 
 def settle(db: Session, fact: SemanticMemory, status: str, *, message_id: uuid.UUID | None) -> int:

@@ -1,7 +1,8 @@
 # Effort awareness and getting unstuck
 
-Status: **design, not built** (2026-11-04, branch `feature/effort-and-stuck`). Revised the same day after review.
-Wait for an explicit "ok to implement".
+Status: **stage 1 built and tested live** (2026-11-04, branch `feature/effort-and-stuck`, migration `c5f1a7d3e9b2`).
+**Stage 2 built** (2026-11-04, migration `d8a2c6f4b1e7`) with **2b** (the planner looks first; open space and height
+in her state), not yet tried live. Stages 3-4 are design only.
 
 ## The goal in one line
 
@@ -138,22 +139,30 @@ Fixed capabilities aren't enough. Each moment also states what this particular o
 "underground: ways cover 24 blocks along the ground; openings aren't detected here; nothing here says which passage
 descends". That lets her answer "which branch goes deeper?" with "I can't tell from here" for the right reason.
 
-## 3. The stuck signal (general, code)
+## 3. Looking back: when she judges whether it's getting anywhere
 
-Raised when an effort has spent **too much active time without new observations** or keeps **repeating approaches
-that already failed or told her nothing**. Thresholds start as **configurable defaults per source** (a game moves in
-minutes, an email search in seconds).
+**Revised 2026-11-04 (the user's decision): no code-defined stuck signal.** No time limit or count of tries
+decides that she's stuck; that is her mind's judgment, made from the whole record. Code only decides *when* she
+looks back, at moments where looking back makes sense, and never what she concludes.
 
-It wakes one hard thought of a new kind, `stuck`. While it runs, **repetitive small surprises on the same effort are
-aggregated** ("cobblestone +5 over 3 min"), while important changes and interruptions (danger, death, the user
-speaking, a correction) still come through as their own moments.
+- **Every hard thought that has an effort judges it**: is the effort getting anywhere (yes / no / unclear),
+  from the whole record, not the moment alone.
+- **A look back** (hard-thought trigger `review`) starts when a part of the effort ends: a step of her plan is
+  done; her hands give up on it (stuck); or the plan moves on while the step was unfinished *after her hands
+  had tried it* (a step replaced before anything was tried isn't a part that ended).
+- The old "step keeps failing" prompt (her hands' 4th and 10th failed try) is gone from Minecraft: it was a
+  count, and it saw one step, not the effort (in the morning session the plan changed ~40 times, resetting it).
+- While a look back waits, small surprises on the same activity are **added up into it** ("surprise: you got
+  cobblestone +1 (×4)") instead of each taking a thought, and a surprise never pushes a waiting look back out.
+  Two waiting surprises are grouped the same way. Danger, the user speaking, a hand-off and a goal change come
+  through as before.
 
-Being stuck is **evidence available to cognition**, never an automatic announcement. She decides whether saying
-"I've been at this 20 minutes and I'm not getting anywhere" would help.
+Being stuck is **hers to know**, never an automatic announcement. She decides whether saying "I've been at
+this a while and I'm not getting anywhere" would help.
 
-## 4. The stuck thought (mind)
+## 4. Why it isn't working (mind)
 
-A hard thought with the four layers, the observed facts, the attempts and what came of her conclusions, the
+Any hard thought with an effort (a look back above all) reads the four layers, the observed facts, the attempts and what came of her conclusions, the
 source's senses and the current coverage. It weighs four causes:
 
 1. **My ability:** the skill or tool can't do this (a search radius too small; go_to only finds blocks already seen).
@@ -161,8 +170,9 @@ source's senses and the current coverage. It weighs four causes:
 3. **The situation:** it may not be here.
 4. **My understanding:** I have the outcome, approach or a constraint wrong.
 
-It concludes as today (decision / guess / question / intention). A **guess** names the cause it favours and a check,
-stating in advance **what each result would support and what it would leave unknown**:
+It concludes as today (decision / guess / question / intention), and besides the conclusion gives her judgment
+(`mind_thoughts.assessment`): `progress`, and when it isn't "yes", the `cause` she favours, a `check`, what it
+would support (`if_supported`) and what it would leave unknown (`leaves_unknown`), stated in advance:
 
 > Guess: perception. Check: go to the nearest high point and read the openings.
 > A cave in view supports perception (it was there, I couldn't see it).
@@ -209,6 +219,29 @@ Give the mind and the planner, for each effort:
 
 **Promise:** a more reliable account. Not a fix for wandering or the wrong goal on its own.
 
+**As built (2026-11-04):**
+
+| Piece | Where |
+|---|---|
+| The record's shape, collapsing repeats, active/paused time, rendering | `app/ai/mind/effort.py` (pure) |
+| Building it for a game session from the existing records (plan events, skill runs, her thoughts, the conversation, pauses, rules, places) | `app/services/effort.py` |
+| Her hard thoughts read it in place of the plan's goal; the shape of the place is back in her view; she names `follows` | `app/ai/mind/hard.py`, `services/mind_minecraft.py` (`SENSES`, `coverage`, `_shape`), `services/mind_hard.py` |
+| Her planner reads it, names `follows`, and names the user's rules (`user_rules`, `lift_rules`) and places | `app/ai/mind/plan.py`, `services/game_planning.py` (`remember`) |
+| Schema: `constraint` items, items under the goal they serve, `reference` entity links, `mind_thoughts.follows` | migration `c5f1a7d3e9b2`, `services/memory_manager.py` |
+| Her concluded thoughts and the game's failure events attach to the session's goal | `services/thought_memory.py`, `services/observation_memory.py` |
+| Tests | `tests/test_effort.py` |
+
+Choices made while building:
+
+- The timeline lists the last 30 min of active play. Her conclusions, plans, the user's words and stuck notes are
+  always listed; when it runs past about 100 lines, the oldest stretches of hand runs, replies and pauses between
+  them become one summary line each ("hands: 14 runs, 5 failed (no iron_ore in sight ×3)"). On the 2026-11-04
+  session that is about 20,000 characters.
+- A rule is kept as the user's only when the planner's quoted words are found in a user message since the outcome
+  was set (that message becomes its evidence); otherwise it's logged as not kept.
+- Hand runs that were decided but discarded before running (`not_executed`) are left out: nothing happened.
+- The conversation source gets no effort yet (no outcome to hang it on); its hard thoughts read as before.
+
 **Measure, on a real session compared with 2026-11-04:**
 
 - repeated conclusions per effort, and how many were never acted on;
@@ -217,7 +250,76 @@ Give the mind and the planner, for each effort:
 - "which way / can you see it" questions: does she answer from coverage instead of guessing?
 - active time to the first new observation after a failure.
 
-### Stage 2: the stuck signal and the stuck thought
+**Live test 1 (2026-11-04, 20:35–20:59, new map, same outcome): still bad.** The effort reached 23 of 31 hard
+thoughts; she kept the user's rule (stored from "No, don't follow me. This is your task."), named `follows`, and
+noticed her loops. Her control didn't change, for three reasons, fixed after:
+
+| Found | Fix |
+|---|---|
+| A revision never replaced the plan's goal: "follow tearDrop12" outlived ~40 revisions that each said to stop following; her hands kept running `follow_player` | a revision may change the plan's goal (her approach); the user's rules in force go into every plan's rules for that outcome (`game_planning.apply`) |
+| Every surprise thought went to Student 2, which asked for a rethink: 44 plan revisions in 24 min; going in and out of a cave started a new thought each time; the coverage line ("cave mouths aren't detected from here") read as advice to go back out | a rethink within 60 s of the last plan change waits (`RETHINK_GAP_S`; goals, stuck and other news never wait); going in/out raises at most one hard thought per 2 min (`PLACE_SURPRISE_GAP_S`); coverage worded as facts only |
+| A quiet-time decision suspended the goal; "go ahead and resume" was refused three turns running | resuming for the user makes a suspended goal active again (`desktop_game._reactivate_for_play`); a closed world or a finished goal still blocks |
+| On a new map she read the morning's history as if it were now | no code rule for "a new attempt" (the user's decision): the timeline shows the time now, marks stretches of 10+ min with nothing recorded, and says parts may belong to an earlier session or place, judged from times, gaps and what the user said |
+
+### Stage 2: looking back, and why it isn't working
+
+**Promise:** she judges, at natural moments, whether her effort is getting anywhere and, when it isn't, why and
+how she'd check. Nothing in code decides she's stuck. Not yet: testing the check (stage 3).
+
+**As built (2026-11-04):**
+
+| Piece | Where |
+|---|---|
+| Trigger `review`; `progress`, `cause`, `check`, `if_supported`, `leaves_unknown` in her answer (asked only when she has an effort; a cause only with progress not "yes", a check only with a cause) | `app/ai/mind/hard.py` (`CAUSES`, `EFFORT_RULES`, `assessment`) |
+| A look back when a step ends (done, hands gave up, plan moved on after her hands tried it); the 4th/10th-failure prompt removed | `services/mind_minecraft.py` (`step_ended`) |
+| Surprises added up into a waiting look back (and into each other); a look back holds while its outcome does | `services/mind_hard.py` (`_better`, `with_meanwhile`), `mind_minecraft.dropped` |
+| Her judgment stored and handed to memory | migration `d8a2c6f4b1e7` (`mind_thoughts.assessment`), `ThoughtConcluded.assessment` |
+| Her earlier judgments on her timeline ("[getting anywhere: no; cause: perception; check: …]") | `services/effort.py` (`judged`) |
+| Tests | `tests/test_effort.py`, `tests/test_mind.py` |
+
+**Measure, on a real session:**
+
+| Try | Expect |
+|---|---|
+| Send her after something that isn't nearby | Look backs as steps end; once it isn't working, `progress: no` with a cause and a check |
+| Read a look back | The cause fits the record; `leaves_unknown` says what a negative check wouldn't show; no earlier conclusion repeated |
+| After it | Her next plan or tip carries it out (`follows` names it), or she asks you (cause: understanding) |
+| Count surprise thoughts per 30 min | Clearly fewer than 25 of 35 (2026-11-04 morning) |
+
+### Stage 2b: her planner looks first, and she sees the space she's in
+
+**Why (session 2026-11-04 21:18–21:29):** her mind understood "dig the block beneath you until you find a cave",
+but her planner wrote `mine(grass_block, count=1)` → `mine(stone, count=1)` → `mine(iron_ore, count=23, radius=64)`.
+Every step had to be one skill call with a counted finish line, so the user's method shrank to "gain 1 dirt";
+she dug about 5 blocks (the `mine` skill breaks the *nearest* stone, not the one beneath) and her hands went
+back to the surface for the iron search. The planner already saw her full state; what it lacked was the order a
+person plans in, and the hands lacked a measure of the space around them.
+
+The user's decisions: no new skills (she learns them herself from now on); the planner plans like a person,
+from what she perceives; perception reports measurements, never what the place *is*.
+
+**As built (2026-11-04):**
+
+| Piece | Where |
+|---|---|
+| The planner writes `sees`, `cannot_see` and `progress` before deciding; plans from where she is ("What it takes" is the ingredients, not the plan); steps are intentions in plain words, keeping the user's method; `done_when` a count or a situation her hands can see, never a count standing in for an intention; an intention no skill can do stays, so her hands name the missing move and she can teach herself it | `app/ai/mind/plan.py`, `services/desktop_game._pack_line`, `services/game_planning.py` (logged; `progress` on the plan's thought) |
+| Her hands carry out an intention the way it says ("straight down" = under her feet) until the situation shows in their state, and say what shows it | `app/ai/desktop/skill_driver.py` |
+| **Open space**: the air connected to where she stands, filled through air only, out to 12 blocks sideways, 4 above her head, 8 below her feet: size, floor, water/lava at its edge, and the passages where it goes on (direction, level or going down) | `game_packs/minecraft/src/surroundings.js` (`space`, `describeSpace`) |
+| **Height** now, a minute ago, five minutes ago | `game_packs/minecraft/src/state.js` (`heightTrail`), `src/describe.js` |
+| Her mind reads both; her senses and coverage say what they do and don't cover | `services/mind_minecraft.py` (`SHAPE_KEPT`, `SENSES`, `coverage`) |
+| Tests | `game_packs/minecraft/test/surroundings.test.js`, `tests/test_effort.py` |
+
+What gets harder: a situation finish line ("in an open space that goes on") is judged by her hands from what
+they see, so it can be wrong (a hole she dug taken for a cave, or a small cave missed). Her look back (stage 2)
+and the timeline (her height, what she mined) are where a wrong "done" shows.
+
+**Measure:** give the same outcome; does the plan keep the user's method as an intention with its end; does a
+"dig down" step take her down (height) until the open space changes; does "no skill for: …" appear when an
+intention needs a move she lacks, and does her learner pick it up.
+
+**Later (the user's idea, not started):** perception from the screen (a vision model such as YOLO) instead of
+Mineflayer, so it generalises past Minecraft. The open-space and height lines are measurements of what's
+around her, not Mineflayer's own terms, so a vision source could fill the same lines.
 
 ### Stage 3: trials per cause, results recorded as supported / not supported / unknown
 
@@ -229,7 +331,7 @@ Each stage gets a short report from a real session before the next.
 
 | Question | Decision |
 |---|---|
-| Stuck thresholds | Configurable defaults per source; active time counted separately from paused time |
+| Stuck thresholds | ~~Configurable defaults per source~~ Revised 2026-11-04: none. Whether she's stuck is her mind's judgment from the record; code only picks when she looks back (a step ending) |
 | Say it aloud? | The evidence is available to cognition; she decides. No automatic announcement |
 | Where does effort live? | Working memory, under a stable effort id; a compact live summary in the mind's state |
 | User corrections | Recorded immediately; cognition decides whether they change outcome, approach, action or a constraint |
