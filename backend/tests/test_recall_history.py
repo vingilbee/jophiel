@@ -368,7 +368,7 @@ def test_her_own_earlier_words_never_settle_a_value(db, alice):
                       "cites": [{"passage": "p99", "quote": "then 7 pm"}]}
     account = recall_history.finish(run, reader=_scripted(raw)).account
     assert next(s for s in account.steps if s.after == "4 pm").support == "her_words_only"
-    assert account.current.state == "unsettled" and "Columbina" in account.current.note
+    assert account.current.state == "unsettled" and "Jophiel" in account.current.note
     assert "ONLY in your own earlier words" in history.render(account, run.expansion, zone="UTC")
 
 
