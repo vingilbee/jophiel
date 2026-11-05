@@ -106,6 +106,16 @@ class ThoughtConcluded(_Payload):
     assessment: dict[str, str] | None = None
 
 
+class CaptureLink(_Payload):
+    """Where the detail of a game event is kept (docs/learning-system/POST-AUDIT-01-implementation.md): the
+    learning capture's decision and the pack's run id for an outcome; the pack's notice seq and its own time for
+    a notice (her trajectory holds that moment while raw retention lasts). Ids only, no content."""
+    attempt_id: str | None = Field(default=None, max_length=40)
+    run_id: str | None = Field(default=None, max_length=40)
+    pack_seq: int | None = None
+    pack_at: str | None = Field(default=None, max_length=40)
+
+
 class SkillOutcome(_Payload):
     experience_id: int
     skill: str = Field(max_length=80)
@@ -114,6 +124,7 @@ class SkillOutcome(_Payload):
     seconds: float | None = None
     step_id: str | None = Field(default=None, max_length=80)
     params: dict[str, Any] = Field(default_factory=dict)
+    detail: CaptureLink | None = None
 
 
 class GameNotice(_Payload):
@@ -123,6 +134,7 @@ class GameNotice(_Payload):
     text: str = Field(default="", max_length=300)
     # Items the game said she carried when she died (name -> count), only for "died".
     dropped: dict[str, int] = Field(default_factory=dict)
+    detail: CaptureLink | None = None
 
 
 class SourceAvailability(_Payload):

@@ -52,8 +52,10 @@ def test_outcomes_and_notices_are_recorded_with_their_step_but_waits_are_not():
     outcomes = [p for kind, p in h.experiences if kind == "skill_outcome"]
     assert [(o["skill"], o["status"], o["step_id"]) for o in outcomes] == [("mine", "done", "s1")]
     assert outcomes[0]["data"] == {"collected": 3}
-    assert ("notice", {"kind": "village", "urgency": "heads_up", "text": "a village, 80 m north", "data": {}}) \
-        in h.experiences
+    notices = [p for kind, p in h.experiences if kind == "notice"]
+    assert [{k: v for k, v in p.items() if k not in ("seq", "pack_at")} for p in notices] == [
+        {"kind": "village", "urgency": "heads_up", "text": "a village, 80 m north", "data": {}}]
+    assert isinstance(notices[0]["seq"], int)  # the link to the same notice in her trajectory
 
 
 def test_lessons_go_into_the_system_prompt_trial_ones_marked_tentative():

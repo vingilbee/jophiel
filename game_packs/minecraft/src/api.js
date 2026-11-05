@@ -20,8 +20,13 @@
 //   GET  /programs/<id>?wait=<s>      -> the program: status, reason, value, calls, log
 //   GET  /blocks?x=&y=&z=&r=          -> { center, radius, counts: {block: n}, unloaded }: blocks
 //                                        within r (at most 16) of a spot, air left out
+//   GET  /trajectory?stream=&seq=     -> her trajectory's chunks after (stream, seq), oldest first, gzip
+//                                        base64 (src/trajectory.js): { run, chunks, dropped, streams, more };
+//                                        works when she isn't in the world (what's buffered is kept)
+//   GET  /trajectory/stats            -> counts, buffer, coverage
+// Every POST is also recorded in her trajectory as a command: what was asked and what was answered.
 import { createServer } from 'node:http'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { ParamError } from './skills/contract.js'
 import { BusyError, UnknownSkillError } from './skills/runner.js'
@@ -37,8 +42,26 @@ function tokenMatches (header, token) {
 }
 
 function send (res, status, body) {
+  res.onSend?.(status, body)
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
+}
+
+// A command as her trajectory keeps it: the request body (a program's code by hash: the code itself is in the
+// program's own start event) and the answer's gist.
+function commandBody (path, body) {
+  if (!body || typeof body !== 'object') return body ?? null
+  if (path === '/programs' && typeof body.code === 'string') {
+    return { ...body, code: undefined, code_sha: createHash('sha256').update(body.code).digest('hex'), code_chars: body.code.length }
+  }
+  return body
+}
+
+function answerGist (body) {
+  if (!body || typeof body !== 'object') return body ?? null
+  if (body.error) return { error: String(body.error).slice(0, 300) }
+  const { id, status, skill, params, source } = body
+  return { id, status, skill, params, source, ...(body.guard !== undefined ? { modes: body } : {}) }
 }
 
 function readJson (req) {
@@ -59,7 +82,8 @@ function readJson (req) {
     })
     req.on('end', () => {
       try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {})
+        req.parsedBody = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+        resolve(req.parsedBody)
       } catch {
         reject(new ParamError('body is not valid JSON'))
       }
@@ -87,6 +111,19 @@ export function startApi ({ host, port, token, pack }) {
     }
 
     if (key === 'GET /health') return send(res, 200, pack.status())
+    if (key === 'GET /trajectory') {
+      const trajectory = pack.trajectory?.()
+      if (!trajectory) return send(res, 404, { error: 'no trajectory' })
+      const stream = url.searchParams.get('stream')
+      const seq = Number(url.searchParams.get('seq'))
+      const limit = Math.min(Math.max(Math.round(Number(url.searchParams.get('limit') ?? 40)) || 40, 1), 500)
+      return send(res, 200, trajectory.since(stream ? { stream, seq: Number.isFinite(seq) ? seq : -1 } : null,
+        { maxChunks: limit }))
+    }
+    if (key === 'GET /trajectory/stats') {
+      const trajectory = pack.trajectory?.()
+      return trajectory ? send(res, 200, trajectory.stats()) : send(res, 404, { error: 'no trajectory' })
+    }
     if (key === 'GET /state') return needsWorld() || send(res, 200, pack.state())
     if (key === 'GET /skills') return send(res, 200, pack.manifest())
     if (key === 'GET /skills/current') return send(res, 200, runner?.current ?? null)
@@ -160,6 +197,14 @@ export function startApi ({ host, port, token, pack }) {
     // A browser page can't reach us through DNS rebinding: the Host header must be ours.
     if (!allowedHosts.has(req.headers.host)) return send(res, 421, { error: 'wrong host' })
     if (!tokenMatches(req.headers.authorization, token)) return send(res, 401, { error: 'unauthorized' })
+    if (req.method === 'POST') {
+      const path = new URL(req.url, 'http://local').pathname
+      res.onSend = (status, body) => {
+        try {
+          pack.trajectory?.()?.command(`POST ${path}`, commandBody(path, req.parsedBody), status, answerGist(body))
+        } catch {} // recording never changes an answer
+      }
+    }
     route(req, res).catch((err) => {
       if (err instanceof ParamError || err instanceof UnknownSkillError) return send(res, 400, { error: err.message })
       if (err instanceof BusyError) return send(res, 409, { error: err.message })

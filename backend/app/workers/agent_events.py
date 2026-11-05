@@ -22,14 +22,15 @@ def run_once() -> bool:
         job = agent_events.claim(db)
         if job is None:
             return False
-        job_id, source, user_id = job.id, job.source, job.user_id
+        job_id, source, user_id, try_number = job.id, job.source, job.user_id, job.attempts
         reasons, payload = agent_events.reasons_of(job), dict(job.payload)
     try:
         if source == "desktop":
             asyncio.run(game_events.run(user_id, uuid.UUID(payload["session_id"]), reasons,
                                         plan_revision=payload.get("plan_revision")))
         elif source == game_planning.SOURCE:
-            outcome = game_planning.run(user_id, uuid.UUID(payload["session_id"]), reasons, payload)
+            outcome = game_planning.run(user_id, uuid.UUID(payload["session_id"]), reasons, payload,
+                                        job_id=job_id, try_number=try_number)
             log.info("planning for session %s (%s): %s", payload["session_id"], ", ".join(reasons), outcome)
         else:
             log.warning("agent event job %s has unknown source %r; dropping it", job_id, source)

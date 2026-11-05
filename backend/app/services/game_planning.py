@@ -19,6 +19,11 @@ changed meanwhile, or while a newer goal from the user waits, is dropped: the ne
 plans again.
 
 Only for her own Minecraft player (game packs), in desktop mode.
+
+Captured for learning (docs/learning-system/POST-AUDIT-01-implementation.md): each call is a ``planner`` attempt
+(the exact input and system text, frozen before the call, and the raw and parsed answer), and what code did with
+it is a ``plan_apply`` execution: the plan revision it made, the steps and rules as applied next to the ones
+proposed, and where each carried rule came from. A proposal and what was applied stay separate records.
 """
 from __future__ import annotations
 
@@ -212,12 +217,15 @@ def _needs(target: str | None) -> str | None:
         return f"What it takes to get {target}: couldn't be worked out just now ({exc})."
 
 
-def _talk(db: Session, user_id: uuid.UUID) -> list[str]:
+def _talk(db: Session, user_id: uuid.UUID, read: dict | None = None) -> list[str]:
+    """The last few turns of her latest conversation. ``read``: gets the conversation's id, for the capture."""
     from app.services import chat as chat_service
 
     conversations = chat_service.list_conversations(db, user_id=user_id)
     if not conversations:
         return []
+    if read is not None:
+        read["conversation_id"] = conversations[0].id
     history = chat_service.get_history(db, conversation=conversations[0])[-TALK_MESSAGES:]
     return [f"  {'the user' if turn['role'] == 'user' else 'you'}: {' '.join(str(turn['content']).split())[:300]}"
             for turn in history]
@@ -239,9 +247,11 @@ def _coverage() -> tuple[str, ...]:
         return ()
 
 
-def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: dict | None) -> str:
+def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: dict | None,
+                read: dict | None = None) -> str:
     """The planning input, most important first: why now, the goal, the plan, what it takes,
-    what is happening, what she can do, what she learned, who is who, the talk."""
+    what is happening, what she can do, what she learned, who is who, the talk. ``read``: filled with what it
+    was built from (the conversation, the goal item, the lessons supplied), for the capture."""
     from app.services import desktop_game
     from app.services.game_events import describe_reason
 
@@ -285,7 +295,10 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
         sections.append(("What she learned playing", facts["learned"]))
     if facts["who"]:
         sections.append(("Who is who", facts["who"]))
-    talk = _talk(db, session.owner_user_id)
+    talk = _talk(db, session.owner_user_id, read)
+    if read is not None:
+        read["goal_item_id"] = getattr(memory_manager.open_goal_of_session(db, session.id), "id", None)
+        read["lessons"] = _lessons_supplied(db, session) if facts["learned"] else []
     if talk:
         sections.append(("Recent talk (oldest first)", talk))
     return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
@@ -340,9 +353,50 @@ def _users_rules(db: Session, session: DesktopSession) -> list[str]:
             if entry.kind == "constraint" and entry.closed_at is None]
 
 
-def apply(db: Session, session: DesktopSession, decision, *, read_revision: int, goal: dict | None) -> str:
+def _rule_origins(applied: list[str], *, proposed=None, user_memory=None, previous_plan=None,
+                  user_goal=None) -> dict:
+    """The rules as applied, each with where it came from (the planner's proposal, the user's rules in memory, the
+    plan before, the user's words for this goal), and the ones the limit left out. Code's carrying of rules is
+    shown, never hidden (the old-rules problem of the audit)."""
+    def key(rule) -> str:
+        return " ".join(str(rule).split())[:120].lower()
+
+    groups = {"proposed": proposed or [], "user_memory": user_memory or [], "previous_plan": previous_plan or [],
+              "user_goal": user_goal or []}
+    applied_keys = {key(r) for r in applied}
+    every = {key(r): r for g in groups.values() for r in g}
+    return {
+        "applied": [{"rule": r, "from": [name for name, g in groups.items() if key(r) in {key(x) for x in g}]}
+                    for r in applied],
+        "proposed": list(groups["proposed"]),
+        "carried_by_code": [r for r in applied if key(r) not in {key(x) for x in groups["proposed"]}],
+        "left_out_by_limit": [r for k, r in every.items() if k not in applied_keys],
+    }
+
+
+def _lessons_supplied(db: Session, session: DesktopSession) -> list[dict]:
+    """The game lessons the planning input showed (desktop_game._learned_lines reads the same ones), by id,
+    status and revision."""
+    from app.services import game_learning
+
+    game = game_learning.game_for_profile(session.profile_id)
+    if game is None:
+        return []
+    try:
+        lessons = [*game_learning.plan_lessons(db, session.owner_user_id, game),
+                   *game_learning.skill_lessons(db, session.owner_user_id, game)]
+    except Exception:  # noqa: BLE001 - what was read is recorded when it can be; never a failed plan
+        return [{"ref": "game_lessons", "note": "could not be listed"}]
+    return [{"ref": f"game_lesson:{lesson.id}", "status": lesson.status, "revision": lesson.revision}
+            for lesson in lessons]
+
+
+def apply(db: Session, session: DesktopSession, decision, *, read_revision: int, goal: dict | None,
+          report: dict | None = None) -> str:
     """Apply one decision to the session (owner-scoped through desktop_game). Returns what
-    happened, for the log."""
+    happened, for the log. ``report``: filled with what code applied next to what was proposed (the steps,
+    the rules and where each came from), for the capture; it never changes what is applied."""
+    report = report if report is not None else {}
     from app.services import desktop_game
     from app.services.desktop_sessions import DesktopError
 
@@ -358,7 +412,17 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
         if decision.decision == "keep":
             return "kept" + desktop_game.unpause_after_planning(db, user_id, "columbina_mind")
         if decision.decision == "revise":
-            steps = merged_steps(plan.get("steps", []), decision.steps, decision.drop)[:max_steps]
+            merged = merged_steps(plan.get("steps", []), decision.steps, decision.drop)
+            steps = merged[:max_steps]
+            constraints = _rules(held, plan.get("constraints"), (goal or {}).get("rules"), decision.rules)
+            listed = {entry.keep for entry in decision.steps if entry.keep}
+            report.update(steps={
+                "applied": steps, "cut_by_limit": merged[max_steps:],
+                "kept_unlisted": [step["id"] for step in plan.get("steps", [])
+                                  if step["state"] in ("pending", "active") and step["id"] not in listed
+                                  and step["id"] not in decision.drop]},
+                rules=_rule_origins(constraints, proposed=decision.rules, user_memory=held,
+                                    previous_plan=plan.get("constraints"), user_goal=(goal or {}).get("rules")))
             if not steps:
                 return "nothing to do: a revision with no steps"
             if _same_steps(plan.get("steps", []), steps) and (decision.goal or plan.get("goal")) == plan.get("goal"):
@@ -368,17 +432,21 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
             # outlived ~40 revisions that each said to stop following, because only a new goal could replace it).
             return desktop_game.replace_from_planner(
                 db, user_id, read_revision=read_revision, goal=decision.goal or plan.get("goal") or "",
-                steps=steps, constraints=_rules(held, plan.get("constraints"), (goal or {}).get("rules"), decision.rules),
+                steps=steps, constraints=constraints,
                 target=decision.target or plan.get("target"), source="columbina_mind", new_goal=False)
         if decision.decision == "new_goal":
-            steps = [{"do": s.do[:120], "done_when": (s.done_when or f"{s.do} is done")[:120]}
-                     for s in decision.steps if s.do][:max_steps]
+            proposed = [{"do": s.do[:120], "done_when": (s.done_when or f"{s.do} is done")[:120]}
+                        for s in decision.steps if s.do]
+            steps = proposed[:max_steps]
             text = decision.goal or (goal or {}).get("text")
+            constraints = _rules((goal or {}).get("rules"), decision.rules)  # a new outcome: its own rules
+            report.update(steps={"applied": steps, "cut_by_limit": proposed[max_steps:], "kept_unlisted": []},
+                          rules=_rule_origins(constraints, proposed=decision.rules, user_goal=(goal or {}).get("rules")))
             if not text or not steps:
                 return "nothing to do: a new goal needs a goal and steps"
             return desktop_game.replace_from_planner(
                 db, user_id, read_revision=read_revision, goal=text, steps=steps,
-                constraints=_rules((goal or {}).get("rules"), decision.rules),  # a new outcome: its own rules
+                constraints=constraints,
                 target=decision.target or (goal or {}).get("target"),
                 # The user's own goal counts as them taking part (it resets her own-goal limit).
                 source="columbina_user_turn" if goal else "columbina_planning_turn", new_goal=True)
@@ -407,18 +475,26 @@ def _get_planner():
     return _planner
 
 
-def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: dict, *, planner=None) -> str:
+def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: dict, *, planner=None,
+        job_id: uuid.UUID | None = None, try_number: int | None = None) -> str:
     """One planning job (the agent-events worker). Raises when the call fails, so the job is
-    retried; returns what happened otherwise."""
+    retried; returns what happened otherwise. ``job_id``/``try_number``: the job and its attempt, so a retried
+    job's call is a new attempt linked to the one before."""
+    from datetime import datetime, timezone
+
     from app.services import autonomous_speech, mind, mind_minecraft
 
     goal = payload.get("goal")
+    attempt_id = _attempt_id(job_id, try_number)
+    started_at = datetime.now(timezone.utc)
+    read: dict = {}
     with SessionLocal() as db:
         session = db.get(DesktopSession, session_id)
         if session is None or session.owner_user_id != user_id or session.state in DESKTOP_TERMINAL_STATES:
             return "skipped: no live session"
-        text = build_input(db, session, reasons, goal)
+        text = build_input(db, session, reasons, goal, read)
         read_revision = session.plan_revision
+        plan_before = _frozen(session.plan)
         user = db.get(User, user_id)
         name = user.name if user and user.name else "the user"
         commentary_mode = session.commentary_mode
@@ -426,16 +502,24 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
     topic = (f"planning: {goal['text']}" if goal else "planning: " + "; ".join(reasons))[:GOAL_CHARS]
     decision = (planner or _get_planner()).plan(
         text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
+    _capture_attempt(attempt_id, user_id=user_id, session_id=session_id, job_id=job_id, try_number=try_number,
+                     text=text, reasons=reasons, goal=goal, read=read, read_revision=read_revision,
+                     plan_before=plan_before, decision=decision, started_at=started_at)
     if decision.decision is None:
         mind.log_decision({"ts": time.time(), "session": str(session_id), "plan": "error", "reasons": reasons,
                   "error": decision.error, "ms": decision.latency_ms})
         raise RuntimeError(f"planning failed: {decision.error}")
     said = None
+    applied_at = datetime.now(timezone.utc)
+    report: dict = {}
     with SessionLocal() as db:
         session = db.get(DesktopSession, session_id)
         if session is None or session.state in DESKTOP_TERMINAL_STATES:
+            _capture_apply(attempt_id, user_id=user_id, session_id=session_id, decision=decision,
+                           outcome="skipped: the session ended while planning", read_revision=read_revision,
+                           session=None, report=report, started_at=applied_at)
             return "skipped: the session ended while planning"
-        outcome = apply(db, session, decision, read_revision=read_revision, goal=goal)
+        outcome = apply(db, session, decision, read_revision=read_revision, goal=goal, report=report)
         db.commit()
         applied = not outcome.startswith(("dropped", "refused", "nothing"))
         if applied and not outcome.startswith("kept"):
@@ -451,13 +535,17 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
                 question=bool(decision.ask))
             said = line if result.startswith("Said") else None
         remembered = remember(db, session, decision)
+        thought = None
         if decision.why:
-            mind.save_thought(db, user_id=user_id, session_id=session_id, level="hard", kind="plan",
-                              text=decision.why, said=said, status="done" if applied else "stale", topic=topic,
-                              follows=decision.follows,
-                              assessment={"progress": decision.progress} if decision.progress else None)
+            thought = mind.save_thought(db, user_id=user_id, session_id=session_id, level="hard", kind="plan",
+                                        text=decision.why, said=said, status="done" if applied else "stale",
+                                        topic=topic, follows=decision.follows,
+                                        assessment={"progress": decision.progress} if decision.progress else None)
         else:
             db.commit()
+        _capture_apply(attempt_id, user_id=user_id, session_id=session_id, decision=decision, outcome=outcome,
+                       read_revision=read_revision, session=session, report=report, started_at=applied_at,
+                       said=said, remembered=remembered, thought_id=getattr(thought, "id", None))
     mind.log_decision({"ts": time.time(), "session": str(session_id), "plan": decision.decision, "outcome": outcome,
               "reasons": reasons, "goal": goal, "why": decision.why, "steps": [vars(s) for s in decision.steps],
               "drop": decision.drop, "rules": decision.rules, "target": decision.target, "ask": decision.ask,
@@ -465,6 +553,117 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
               "sees": decision.sees, "cannot_see": decision.cannot_see, "progress": decision.progress,
               "ms": decision.latency_ms, "input_tokens": decision.input_tokens})
     return outcome
+
+
+# --------------------------------------------------------------------------- #
+# Learning capture (docs/learning-system/POST-AUDIT-01-implementation.md)
+# --------------------------------------------------------------------------- #
+
+def _attempt_id(job_id: uuid.UUID | None, try_number: int | None) -> uuid.UUID:
+    from app.services import learning_capture
+
+    return learning_capture.attempt_id_for(job_id, "planner", try_number)
+
+
+def _frozen(value):
+    import copy
+
+    return copy.deepcopy(value)
+
+
+def _decision_out(decision) -> dict:
+    keep = ("decision", "why", "sees", "cannot_see", "progress", "goal", "target", "drop", "rules", "ask", "say",
+            "follows", "user_rules", "lift_rules", "places")
+    return {"steps": [vars(step) for step in decision.steps], **{k: getattr(decision, k) for k in keep}}
+
+
+def _capture_attempt(attempt_id: uuid.UUID, *, user_id, session_id, job_id, try_number, text, reasons, goal, read,
+                     read_revision, plan_before, decision, started_at) -> None:
+    """The planner's call as asked (frozen before it) and as answered. Never raises: capture never stops a plan."""
+    import json
+    from datetime import datetime, timezone
+
+    from app.ai.mind.plan import SCHEMA
+    from app.services import learning_capture
+
+    try:
+        refs = [f"session:{session_id}"]
+        if read.get("goal_item_id"):
+            refs.append(f"item:{read['goal_item_id']}")
+        ctx = learning_capture.Ctx(
+            user_id=user_id, attempt_id=attempt_id, trigger="plan_job", game_session_id=session_id,
+            conversation_id=read.get("conversation_id"),
+            prior_attempt_id=learning_capture.prior_for(job_id, "planner", try_number),
+            input_refs=tuple(read.get("lessons") or ()),
+            sources=tuple(refs))
+        answered = decision.raw is not None
+        status = "ok" if decision.decision is not None else "invalid" if answered else "unavailable"
+        learning_capture.attempt(
+            ctx, learner="planner", provider="openai", model=decision.model,
+            input={"system": None, "schema": None, "text": text, "reasons": list(reasons), "goal": goal,
+                   "plan": {"revision": read_revision, "before": plan_before},
+                   "job": {"id": str(job_id) if job_id else None, "try": try_number},
+                   "goal_item_id": str(read["goal_item_id"]) if read.get("goal_item_id") else None},
+            blobs={"system": decision.system or "", "schema": json.dumps(SCHEMA, sort_keys=True)},
+            output={"raw": decision.raw, "parsed": _decision_out(decision) if decision.decision else None,
+                    "usage": {"latency_ms": decision.latency_ms, "input_tokens": decision.input_tokens,
+                              "output_tokens": decision.output_tokens}} if answered else None,
+            status=status, error=decision.error, started_at=started_at,
+            produced_at=datetime.now(timezone.utc) if answered else None,
+            settings=dict(decision.settings or {}),
+            versions={"schema": "plan_decision", "code": learning_capture.code_version()})
+    except Exception:  # noqa: BLE001
+        log.exception("planning: the planner's attempt was not captured")
+
+
+_APPLY_RESULT = (("dropped", "not_executed"), ("skipped", "not_executed"), ("nothing", "not_executed"),
+                 ("refused", "failed"))
+
+
+def _capture_apply(attempt_id: uuid.UUID, *, user_id, session_id, decision, outcome: str, read_revision: int,
+                   session, report: dict, started_at, said=None, remembered=None, thought_id=None) -> None:
+    """What code did with the decision: the plan revision it made, the steps and rules applied next to the ones
+    proposed. ``deviated`` when code applied something the planner didn't propose (rules carried from the plan
+    before or from memory, unlisted steps kept, steps over the limit cut). Never raises."""
+    from datetime import datetime, timezone
+
+    from app.services import learning_capture
+
+    try:
+        result = next((r for prefix, r in _APPLY_RESULT if outcome.startswith(prefix)), "succeeded")
+        plan_after = _frozen(session.plan) if session is not None else None
+        revision_after = session.plan_revision if session is not None else None
+        rules = report.get("rules") or {}
+        steps = report.get("steps") or {}
+        deviation = []
+        if result == "succeeded":
+            if rules.get("carried_by_code"):
+                deviation.append("rules applied that the planner didn't propose: "
+                                 + "; ".join(f"{r['rule']} (from {', '.join(r['from']) or 'unknown'})"
+                                             for r in rules.get("applied", []) if r["rule"] in rules["carried_by_code"]))
+            if rules.get("left_out_by_limit"):
+                deviation.append("rules left out by the limit: " + "; ".join(rules["left_out_by_limit"]))
+            if steps.get("kept_unlisted"):
+                deviation.append("open steps the planner didn't list kept at the end: "
+                                 + ", ".join(steps["kept_unlisted"]))
+            if steps.get("cut_by_limit"):
+                deviation.append(f"{len(steps['cut_by_limit'])} steps cut by the plan's step limit")
+            if deviation:
+                result = "deviated"
+        else:
+            deviation.append(outcome)
+        learning_capture.execution(
+            user_id=user_id, kind="plan_apply", executor="game_planning.apply", result=result, attempt_id=attempt_id,
+            game_session_id=session_id,
+            intended={"decision": decision.decision, "goal": decision.goal, "target": decision.target,
+                      "steps": [vars(step) for step in decision.steps], "drop": decision.drop,
+                      "rules": decision.rules, "read_revision": read_revision},
+            executed={"outcome": outcome, "plan_revision_before": read_revision, "plan_revision_after": revision_after,
+                      "plan_after": plan_after, "steps": steps or None, "rules": rules or None, "said": said,
+                      "remembered": remembered, "thought_id": str(thought_id) if thought_id else None},
+            deviation="; ".join(deviation)[:1000] or None, started_at=started_at, ended_at=datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001
+        log.exception("planning: what was applied was not captured")
 
 
 def _said_by_user(db: Session, user_id: uuid.UUID, words: str, since) -> uuid.UUID | None:

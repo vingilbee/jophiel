@@ -153,6 +153,13 @@ class PlanDecision:
     latency_ms: float = 0.0
     input_tokens: int | None = None
     error: str | None = None
+    # As asked and answered, for the learning capture (services/game_planning.py): the exact system text, the
+    # model and its settings, and the raw answer (None: no answer came back).
+    system: str | None = None
+    model: str | None = None
+    settings: dict = field(default_factory=dict)
+    raw: str | None = None
+    output_tokens: int | None = None
 
 
 SCHEMA = {
@@ -251,10 +258,13 @@ class Planner:
         kwargs = {}
         if self.reasoning_effort and self.model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4")):
             kwargs["reasoning_effort"] = self.reasoning_effort
+        system = self.instructions(user, situation, max_steps)
+        asked = {"system": system, "model": self.model,
+                 "settings": {**kwargs, "max_completion_tokens": 6000, "schema": "plan_decision (strict)"}}
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": self.instructions(user, situation, max_steps)},
+                messages=[{"role": "system", "content": system},
                           {"role": "user", "content": text}],
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "plan_decision", "strict": True, "schema": SCHEMA}},
@@ -262,11 +272,18 @@ class Planner:
                 store=False,
                 **kwargs,
             )
-            decision = parse(json.loads(response.choices[0].message.content or "{}"))
         except Exception as exc:  # noqa: BLE001 - the caller retries; a plan is never half applied
-            return PlanDecision(None, latency_ms=_ms(started), error=f"{type(exc).__name__}: {exc}"[:300])
+            return PlanDecision(None, latency_ms=_ms(started), error=f"{type(exc).__name__}: {exc}"[:300], **asked)
+        raw = response.choices[0].message.content
+        try:
+            decision = parse(json.loads(raw or "{}"))
+        except Exception as exc:  # noqa: BLE001 - an answer that isn't a decision is no decision (the caller retries)
+            decision = PlanDecision(None, error=f"{type(exc).__name__}: {exc}"[:300])
         decision.latency_ms = _ms(started)
         decision.input_tokens = getattr(response.usage, "prompt_tokens", None)
+        decision.output_tokens = getattr(response.usage, "completion_tokens", None)
+        decision.system, decision.model, decision.settings = asked["system"], asked["model"], asked["settings"]
+        decision.raw = raw if raw is not None else ""
         return decision
 
 

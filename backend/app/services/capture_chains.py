@@ -10,7 +10,7 @@ the attempt started. Read only, and only one user's records.
 from __future__ import annotations
 
 import uuid
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -177,8 +177,143 @@ def attempt(db: Session, user_id: uuid.UUID, attempt_id: uuid.UUID, *, blobs: bo
         return None
     if row.turn_id is not None:
         return turn(db, user_id, row.turn_id, blobs=blobs)
-    expect = ("skill_run",) if row.learner == "hands" and row.status == "ok" else ()
+    expect: tuple[str, ...] = ()
+    if row.status == "ok":
+        if row.learner == "hands" and (row.output or {}).get("action"):
+            expect = ("skill_run",)
+        elif row.learner == "planner":
+            expect = ("plan_apply",)
+        elif row.learner == "hard_thought" and ((row.output or {}).get("parsed") or {}).get("kind"):
+            expect = ("thought_route",)
     return _chain(db, user_id, [row], [], blobs=blobs, expect=expect)
+
+
+# --------------------------------------------------------------------------- #
+# A game session (docs/learning-system/POST-AUDIT-01-implementation.md, "Reconstruction")
+# --------------------------------------------------------------------------- #
+
+SESSION_WINDOW = timedelta(hours=1)
+SESSION_LIMIT = 2000
+
+
+def _hands_reports(attempt: DecisionAttempt, runs: list[DecisionExecution]) -> dict[str, Any]:
+    """One decision of her hands, three reports kept apart: what her hands said (their status for the step and
+    note), what the action reported (the pack's result for the skill it started), what code observed (her state
+    before and after, with when). Never folded into one success label."""
+    output = (attempt.output or {}).get("output") or {}
+    run = next((r for r in runs if r.kind == "skill_run"), None)
+    executed = (run.executed or {}) if run is not None else {}
+    observed = executed.get("observed")
+    return {
+        "claim": {"status": output.get("status"), "note": output.get("note"), "step_id": output.get("step_id"),
+                  "by": "her hands (the decision's own words)"} if output else None,
+        "action": {"result": run.result, "status": executed.get("status"), "reason": executed.get("reason"),
+                   "data": executed.get("data"), "run_id": executed.get("run_id"), "deviation": run.deviation,
+                   "by": "the game pack's report of the skill"} if run is not None else None,
+        "observed": ({**observed, "by": "her state, read by code"} if observed else None),
+    }
+
+
+def session(db: Session, user_id: uuid.UUID, session_id: uuid.UUID, *, since: datetime | None = None,
+            until: datetime | None = None, blobs: bool = False, limit: int = SESSION_LIMIT) -> dict[str, Any] | None:
+    """A game session's experience in a window (default: the last hour): her planner's decisions and what code
+    applied, her hard thoughts and where they went, her hands' decisions and what each run did, code's step
+    checks, and her trajectory's streams, in time order, with every link that is known and what is missing.
+    Activity without a goal is valid (her hands' plan may have none); nothing is invented to fill a link."""
+    from app.db.models import DesktopSession
+    from app.services import trajectory
+
+    owned = db.scalar(select(DesktopSession.id).where(DesktopSession.id == session_id,
+                                                      DesktopSession.owner_user_id == user_id))
+    if owned is None:
+        return None
+    until = until or datetime.now(timezone.utc)
+    since = since or until - SESSION_WINDOW
+    attempts = list(db.scalars(select(DecisionAttempt).where(
+        DecisionAttempt.user_id == user_id, DecisionAttempt.game_session_id == session_id,
+        DecisionAttempt.started_at >= since, DecisionAttempt.started_at <= until)
+        .order_by(DecisionAttempt.started_at).limit(limit)))
+    ids = {a.id for a in attempts}
+    executions = list(db.scalars(select(DecisionExecution).where(
+        DecisionExecution.user_id == user_id, DecisionExecution.game_session_id == session_id,
+        ((DecisionExecution.attempt_id.in_(ids or {uuid.uuid4()}))
+         | ((DecisionExecution.attempt_id.is_(None)) & (DecisionExecution.ended_at >= since)
+            & (DecisionExecution.ended_at <= until))))))
+    by_attempt: dict[uuid.UUID, list[DecisionExecution]] = {}
+    for e in executions:
+        if e.attempt_id is not None:
+            by_attempt.setdefault(e.attempt_id, []).append(e)
+    missing: list[dict[str, Any]] = []
+    # Which planner attempt made each plan revision (its plan_apply says the revision after).
+    made_by = {(e.executed or {}).get("plan_revision_after"): str(e.attempt_id) for e in executions
+               if e.kind == "plan_apply" and (e.executed or {}).get("plan_revision_after") is not None
+               and e.result in ("succeeded", "deviated")}
+    decisions = []
+    for a in attempts:
+        runs = by_attempt.get(a.id, [])
+        item: dict[str, Any] = {"id": str(a.id), "learner": a.learner, "trigger": a.trigger, "status": a.status,
+                                "error": a.error, "started_at": _iso(a.started_at), "produced_at": _iso(a.produced_at),
+                                "executions": [str(e.id) for e in runs]}
+        if a.learner == "hands":
+            plan = (a.input or {}).get("plan") or {}
+            item["plan"] = {"revision": plan.get("revision"), "step_id": plan.get("step_id"),
+                            "goal": plan.get("goal"), "made_by_planner_attempt": made_by.get(plan.get("revision"))}
+            item["reports"] = _hands_reports(a, runs)
+            action = ((a.output or {}).get("action"))
+            if a.status == "ok" and action and not runs:
+                missing.append({"what": "skill run", "attempt": str(a.id), "note": "no record of what it did"})
+            if plan.get("revision") is not None and plan.get("revision") not in made_by:
+                item["plan"]["made_by"] = ("unknown here: no planner record made this revision in the window "
+                                           "(set by the user, before the window, or not captured)")
+        elif a.learner == "planner":
+            apply = next((e for e in runs if e.kind == "plan_apply"), None)
+            parsed = (a.output or {}).get("parsed") or {}
+            item["proposal"] = {"decision": parsed.get("decision"), "why": parsed.get("why"),
+                                "rules": parsed.get("rules"), "follows": parsed.get("follows")}
+            item["applied"] = ({"result": apply.result, "deviation": apply.deviation,
+                                "revision_after": (apply.executed or {}).get("plan_revision_after"),
+                                "rules": (apply.executed or {}).get("rules")} if apply is not None else None)
+            if a.status == "ok" and apply is None:
+                missing.append({"what": "plan_apply", "attempt": str(a.id), "note": "no record of what code applied"})
+        elif a.learner == "hard_thought":
+            route = next((e for e in runs if e.kind == "thought_route"), None)
+            parsed = (a.output or {}).get("parsed") or {}
+            item["conclusion"] = {"kind": parsed.get("kind"), "conclusion": parsed.get("conclusion"),
+                                  "follows": parsed.get("follows"), "assessment": parsed.get("assessment")}
+            item["went"] = ({"result": route.result, "status": (route.executed or {}).get("status"),
+                             "routed": (route.executed or {}).get("routed")} if route is not None else None)
+            if a.status == "ok" and parsed.get("kind") and route is None:
+                missing.append({"what": "thought_route", "attempt": str(a.id), "note": "no record of where it went"})
+        if a.prior_attempt_id and a.prior_attempt_id not in ids:
+            if db.scalar(select(DecisionAttempt.id).where(DecisionAttempt.id == a.prior_attempt_id)) is None:
+                missing.append({"what": "earlier try", "id": str(a.prior_attempt_id), "note": "never saved"})
+        decisions.append(item)
+    step_checks = [{"id": str(e.id), "at": _iso(e.ended_at), "step": (e.intended or {}).get("step_id"),
+                    "counted": (e.executed or {}).get("counted"), "observed": (e.executed or {}).get("observed")}
+                   for e in executions if e.kind == "step_check"]
+    record_ids = ids | {e.id for e in executions}
+    gaps = list(db.scalars(select(CaptureGap).where(CaptureGap.user_id == user_id, (
+        CaptureGap.record_id.in_(record_ids or {uuid.uuid4()}))
+        | ((CaptureGap.label.in_(("planner", "hard_thought", "hands", "plan_apply", "thought_route", "skill_run",
+                                  "step_check", "trajectory")))
+           & (CaptureGap.detected_at >= since) & (CaptureGap.detected_at <= until)))))
+    streams = trajectory.streams(db, user_id, session_id=session_id, since=since, until=until)
+    for st in streams:
+        for hole in st["missing"]:
+            missing.append({"what": "trajectory chunks", "stream": st["id"], **hole})
+        if not st["end_seen"]:
+            missing.append({"what": "trajectory stream end", "stream": st["id"],
+                            "note": "never seen: still connected, or the pack stopped without saying"})
+    attempts_out = [attempt_out(db, a, blobs=blobs) for a in attempts]
+    executions.sort(key=lambda e: (_aware(e.ended_at or e.started_at or e.captured_at), e.kind))
+    return {
+        "session_id": str(session_id), "since": _iso(since), "until": _iso(until), "truncated": len(attempts) >= limit,
+        "decisions": decisions, "step_checks": step_checks, "trajectory": streams,
+        "attempts": attempts_out, "executions": [execution_out(e) for e in executions],
+        "missing": missing, "gaps": [gap_out(g) for g in gaps],
+        "leaks": {str(a.id): v for a in attempts if (v := leaks(db, a))},
+        "complete": not missing and not gaps,
+    }
 
 
 def overview(db: Session, user_id: uuid.UUID, *, limit: int = 20) -> dict[str, Any]:
@@ -194,12 +329,15 @@ def overview(db: Session, user_id: uuid.UUID, *, limit: int = 20) -> dict[str, A
                            .order_by(CaptureGap.detected_at.desc()).limit(limit)))
     recent = list(db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id)
                              .order_by(DecisionAttempt.captured_at.desc()).limit(limit)))
+    from app.services import trajectory
+
     return {"process": learning_capture.service().stats(),
             "attempts": by_learner, "executions": by_result,
+            "trajectory": trajectory.measure(db, user_id),
             "training_examples": {"eligible": examples.get(True, 0), "ineligible": examples.get(False, 0)},
             "gaps": [gap_out(g) for g in gaps],
             "recent": [{"id": str(a.id), "learner": a.learner, "status": a.status, "turn_id": _s(a.turn_id),
                         "game_session_id": _s(a.game_session_id), "started_at": _iso(a.started_at)} for a in recent]}
 
 
-__all__ = ["turn", "attempt", "overview", "leaks"]
+__all__ = ["turn", "attempt", "session", "overview", "leaks"]

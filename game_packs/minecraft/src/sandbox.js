@@ -17,7 +17,8 @@
 // waits on it. One program at a time, and while one runs nobody else can start a skill (her
 // breathing reflex still can).
 import { createRequire } from 'node:module'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 
 import { BusyError, UnknownSkillError } from './skills/runner.js'
 import { ParamError } from './skills/contract.js'
@@ -287,6 +288,9 @@ export function assertFree (runner) {
 
 const PROGRAMS_KEPT = 10
 const programs = [] // newest last: { id, status, ..., result fields once finished }
+// Her programs as they start (with their code) and end (with what they did), for her trajectory
+// (src/trajectory.js): 'start' { id, code, code_sha, seconds, limits }, 'finish' { id, ...result }.
+export const programEvents = new EventEmitter()
 
 // For the API: starts a program and returns its record at once ({ id, status: 'running' }); the
 // record fills in with runProgram's result when it ends. Throws BusyError like runProgram.
@@ -295,9 +299,12 @@ export function startProgram (runner, code, options = {}) {
   const record = { id: randomUUID(), status: 'running', started_at: new Date().toISOString() }
   programs.push(record)
   if (programs.length > PROGRAMS_KEPT) programs.splice(0, programs.length - PROGRAMS_KEPT)
+  programEvents.emit('start', { id: record.id, code, code_sha: createHash('sha256').update(code).digest('hex'),
+    seconds: options.seconds ?? null, limits: options.limits ?? null })
   runProgram(runner, code, options)
     .then((result) => Object.assign(record, result))
     .catch((err) => Object.assign(record, { status: 'error', reason: err.message }))
+    .then(() => programEvents.emit('finish', { ...record }))
   return { ...record }
 }
 

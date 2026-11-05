@@ -15,6 +15,10 @@ Learning capture (docs/learning-system/01-implementation.md), the user's own rec
     GET    /api/learning/capture                       counts, recent attempts, gaps, this process's writer
     GET    /api/learning/capture/turns/{turn_id}       one conversation turn's chain, with what's missing
     GET    /api/learning/capture/attempts/{id}         one attempt's chain (her hands: the skill run it chose)
+    GET    /api/learning/capture/sessions/{id}         a game session's experience in a window: planner, hard
+                                                       thoughts, hands, what each did, trajectory, what's missing
+    GET    /api/learning/capture/trajectory            her trajectory's streams and what it costs
+    GET    /api/learning/capture/trajectory/{stream}   a stretch of one stream: every tick, its events, holes
     GET    /api/learning/training-examples             derived examples (?learner=, ?eligible=)
     PATCH  /api/learning/training-examples/{id}        review (accepted / rejected / unreviewed)
     DELETE /api/learning/training-examples/{id}        delete from future training (and the export files)
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -163,6 +168,46 @@ def capture_attempt(attempt_id: uuid.UUID, user: User = Depends(get_current_user
     if chain is None:
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such attempt."})
     return chain
+
+
+@router.get("/capture/sessions/{session_id}")
+def capture_session(session_id: uuid.UUID, since: datetime | None = Query(default=None),
+                    until: datetime | None = Query(default=None), blobs: bool = Query(default=False),
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A game session's experience in a window (default the last hour): planner, hard thoughts, hands, what each
+    did, her trajectory's streams, what's missing (docs/learning-system/POST-AUDIT-01-implementation.md)."""
+    chain = capture_chains.session(db, user.id, session_id, since=since, until=until, blobs=blobs)
+    if chain is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such session."})
+    return chain
+
+
+@router.get("/capture/trajectory")
+def capture_trajectory_streams(session_id: uuid.UUID | None = Query(default=None),
+                               since: datetime | None = Query(default=None), until: datetime | None = Query(default=None),
+                               user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services import trajectory
+
+    return {"streams": trajectory.streams(db, user.id, session_id=session_id, since=since, until=until),
+            "measured": trajectory.measure(db, user.id, since=since)}
+
+
+@router.get("/capture/trajectory/{stream_id}")
+def capture_trajectory(stream_id: uuid.UUID, from_tick: int | None = Query(default=None, ge=0),
+                       to_tick: int | None = Query(default=None, ge=0), since: datetime | None = Query(default=None),
+                       until: datetime | None = Query(default=None), ticks: bool = Query(default=True),
+                       readable: bool = Query(default=False), user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """A stretch of one stream: every tick held (at most five minutes per read), its events, what's missing."""
+    from app.services import trajectory
+
+    found = trajectory.read(db, user.id, stream_id, from_tick=from_tick, to_tick=to_tick, since=since, until=until,
+                            ticks=ticks)
+    if found is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such stream."})
+    if readable and found["ticks"]:
+        found["ticks"] = [{**t, "state": trajectory.readable(t["state"])} for t in found["ticks"]]
+    return found
 
 
 @router.get("/training-examples", response_model=list[TrainingExampleOut])

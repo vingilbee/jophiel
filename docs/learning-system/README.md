@@ -5,6 +5,7 @@ Status: planning, 2026-10-31. Step 1 was built on request on 2026-11-01 ([implem
 Architecture: [original design](../COLUMBINA_LEARNING_SYSTEM_DESIGN.md). This index organizes that design into smaller plans. Step 1 records capture decisions accepted 2026-11-01 and supersedes earlier conflicting capture and retention proposals.
 
 Audit 2026-11-04: [can she learn from experience? Gap map for steps 2–4](AUDIT-2026-11-04-learning-from-experience.md) (not authorized to build).
+Post-audit 1, fill missing experience capture: [design](POST-AUDIT-01-fill-missing-experience-capture.md), [implementation](POST-AUDIT-01-implementation.md) (built 2026-11-04).
 
 ## Decisions already made
 

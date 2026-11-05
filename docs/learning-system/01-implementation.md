@@ -85,7 +85,7 @@ This changes two points of the 01 decisions:
 ## Not covered
 
 - **The live teacher JSONL.** `COGNITION_TEACHER_DATA_PATH` is kept as it was, outside raw retention. It is treated as an export, scrubbed on explicit deletion only.
-- **The planner, the mouth's wording, hard thoughts and the VM key-pressing driver.** None of them are captured as learners yet. The mouth's words are reachable through the reply's message id.
+- **The mouth's wording and the VM key-pressing driver.** Not captured as learners yet. (The planner and hard thoughts are, since post-audit 1: [POST-AUDIT-01-implementation.md](POST-AUDIT-01-implementation.md).) The mouth's words are reachable through the reply's message id.
 - **Worded autonomous speech.** `say` and `deliver_worded` have no decision attempt behind them yet.
 - **Gaps on file.** Gap lines written to the file are not loaded back into the database.
 - **Restart recovery of a queue.** The queue is in memory by design (the accepted decision). Records lost in a crash show up only as missing links.

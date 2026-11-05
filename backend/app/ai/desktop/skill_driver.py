@@ -28,6 +28,12 @@ While she teaches herself a move (stage H1, ``practice``) her hands hold: they
 decide nothing and start nothing until it's over (the learner stops a skill of
 theirs that is still running), so her body does one thing at a time.
 
+Captured for learning (services/learning_capture.py; docs/learning-system/POST-AUDIT-01-implementation.md): each
+decision as asked and answered, each skill run with three reports kept apart: what her hands said (the decision's
+status and note), what the pack reported for the skill, and what her state showed before and after it (read by
+code, with when). Code counting a step done is its own record (``step_check``). A run's later consequences are in
+her trajectory, linked by the pack's run id.
+
 Notices from the pack become Jophiel's game events (urgent ones as danger,
 discoveries like a village and warnings like the sun setting unless she's been
 told to be quiet, the rest only in commentary mode). Like the
@@ -341,6 +347,16 @@ def inventory_change(before: dict[str, int], after: dict[str, int]) -> str:
     return "; ".join(changes) if changes else "none yet"
 
 
+def observed(state: dict | None) -> dict | None:
+    """What her state showed at one moment, as code read it from the pack (for the capture): where she was, her
+    health and food, what she held and wore and carried. Covers what the state lists, nothing about the goal."""
+    if not state:
+        return None
+    return {"read_at": state.get("at"), "position": state.get("position"), "dimension": state.get("dimension"),
+            "health": state.get("health"), "food": state.get("food"), "held": state.get("held"),
+            "armor": state.get("armor"), "inventory": inventory_counts(state), "kills": state.get("kills")}
+
+
 # --------------------------------------------------------------------------- #
 # The loop
 # --------------------------------------------------------------------------- #
@@ -417,6 +433,7 @@ class SkillDriverRun:
     _schema: dict | None = None
     _system: str | None = None
     _lesson_refs: list[dict] = field(default_factory=list)
+    _last_state: dict | None = None  # the last state read for counting (a run's end), for the capture
 
     def step(self) -> bool:
         deps = self.deps
@@ -479,6 +496,7 @@ class SkillDriverRun:
             self.step_start = step_check.baseline(state)
         why = step_check.met(current.get("check"), state, self.step_start)
         if why:  # counted true already: no decision needed
+            self._step_counted(view, current, why, state)
             self.note = f"done, counted: {why}"
             deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
                           status="step_done", note=self.note)
@@ -499,7 +517,8 @@ class SkillDriverRun:
                 raise ValueError(f"bad status {status!r}")
         except (DriverModelError, ValueError) as exc:
             self._capture_attempt(attempt_id, view, current, text, reply, asked_at,
-                                  status="unavailable" if reply is None else "invalid", error=str(exc)[:300])
+                                  status="unavailable" if reply is None else "invalid", error=str(exc)[:300],
+                                  messages=messages)
             self.errors += 1
             deps.metric({"session": str(self.session_id), "event": "skill_model_error", "error": str(exc)[:200]})
             if self.errors >= MAX_MODEL_ERRORS:
@@ -508,7 +527,8 @@ class SkillDriverRun:
                 return False
             return True
         self.errors = 0
-        self._capture_attempt(attempt_id, view, current, text, reply, asked_at, status="ok", action=action)
+        self._capture_attempt(attempt_id, view, current, text, reply, asked_at, status="ok", action=action,
+                              messages=messages)
 
         # The world may have moved on while the model thought.
         after = deps.view(self.session_id)
@@ -567,7 +587,7 @@ class SkillDriverRun:
                 self._stop_running("the plan changed")
         if action is not None:
             self.run_before = step_check.baseline(state)
-            self._start(view, current, *action, attempt_id=attempt_id)
+            self._start(view, current, *action, attempt_id=attempt_id, before=observed(state))
         if self.decisions >= self.max_decisions:
             deps.pause(self.session_id, "budget")
             self._save()
@@ -586,7 +606,7 @@ class SkillDriverRun:
     # -- running a skill --------------------------------------------------------
 
     def _start(self, view: DriverView, current: dict, skill: str, params: dict,
-               attempt_id: uuid.UUID | None = None) -> None:
+               attempt_id: uuid.UUID | None = None, before: dict | None = None) -> None:
         deps = self.deps
         if skill == WAIT_SKILL:
             seconds = max(1.0, min(MAX_WAIT_SECONDS, float(params.get("seconds", 5))))
@@ -596,7 +616,7 @@ class SkillDriverRun:
             return
         try:
             if game_skills.is_learned(skill):
-                return self._start_learned(view, current, skill, params, attempt_id=attempt_id)
+                return self._start_learned(view, current, skill, params, attempt_id=attempt_id, before=before)
             record = deps.pack.run(skill, params, source="driver")
         except PackError as exc:
             if exc.status == 409:
@@ -616,12 +636,14 @@ class SkillDriverRun:
         self.refused = 0
         self.running = {"id": record["id"], "skill": skill, "params": record.get("params", params),
                         "plan_revision": view.plan_revision, "generation": view.execution_generation,
-                        "started": deps.now(), "step_id": current["id"], "attempt_id": attempt_id}
+                        "started": deps.now(), "step_id": current["id"], "attempt_id": attempt_id,
+                        "observed_before": before}
         self._execution(attempt_id, (skill, params), "unknown", executed={"run_id": record["id"],
-                        "params": record.get("params", params)}, started=self.running["started"], settle=True)
+                        "params": record.get("params", params), "observed": {"before": before}},
+                        started=self.running["started"], settle=True)
 
     def _start_learned(self, view: DriverView, current: dict, skill: str, params: dict,
-                       attempt_id: uuid.UUID | None = None) -> None:
+                       attempt_id: uuid.UUID | None = None, before: dict | None = None) -> None:
         """A move she taught herself: its program, ``times`` times, in the pack's sandbox."""
         move = self.learned.get(skill)
         if move is None:
@@ -634,9 +656,10 @@ class SkillDriverRun:
         self.refused = 0
         self.running = {"id": record["id"], "skill": skill, "params": params, "program": True,
                         "plan_revision": view.plan_revision, "generation": view.execution_generation,
-                        "started": self.deps.now(), "step_id": current["id"], "attempt_id": attempt_id}
-        self._execution(attempt_id, (skill, params), "unknown", executed={"program_id": record["id"]},
-                        started=self.running["started"], settle=True)
+                        "started": self.deps.now(), "step_id": current["id"], "attempt_id": attempt_id,
+                        "observed_before": before}
+        self._execution(attempt_id, (skill, params), "unknown", executed={"program_id": record["id"],
+                        "observed": {"before": before}}, started=self.running["started"], settle=True)
 
     def _watch_running(self, view: DriverView) -> bool | None:
         """True/False as ``step`` returns; None: the plan changed, so decide under the new one
@@ -659,6 +682,7 @@ class SkillDriverRun:
                 return self._pack_down(exc)
             why = step_check.met(current["check"], state, self.step_start)
             if why:  # the step is done, whatever the skill thinks (seen live: 11 blocks past the pillar's top)
+                self._step_counted(view, current, why, state)
                 self._stop_running(f"its step is done (counted: {why})")
                 self.note = f"done, counted: {why}"
                 deps.progress(self.session_id, plan_revision=view.plan_revision, step_id=current["id"],
@@ -691,7 +715,8 @@ class SkillDriverRun:
                 record = {**record, "reason": f"{record.get('reason') or record['status']} ({changed})"}
                 self.manifest = None
         self._outcome(record, step_id=running.get("step_id"), attempt_id=running.get("attempt_id"),
-                      started=running.get("started"))
+                      started=running.get("started"), observed_states={
+                          "before": running.get("observed_before"), "after": observed(self._last_state)})
         if self.deps.notice and record.get("status") == "done" and running["skill"] == "fight" \
                 and (record.get("data") or {}).get("killed"):
             self.deps.notice(self.session_id, "notable", f"killed {record['data']['killed']} "
@@ -705,11 +730,14 @@ class SkillDriverRun:
             return None
 
     def _counted(self, before: dict | None) -> str | None:
-        """What the game counted since ``before`` (items, kills), or None."""
+        """What the game counted since ``before`` (items, kills), or None. The state read is kept for the capture
+        (``_last_state``; None when it wasn't read)."""
+        self._last_state = None
         if before is None:
             return None
         try:
-            return step_check.change(before, self.deps.pack.state())
+            self._last_state = self.deps.pack.state()
+            return step_check.change(before, self._last_state)
         except PackError:
             return None
 
@@ -754,14 +782,16 @@ class SkillDriverRun:
         self.running = None
 
     def _outcome(self, record: dict, step_id: str | None = None, attempt_id: uuid.UUID | None = None,
-                 started: float | None = None) -> None:
+                 started: float | None = None, observed_states: dict | None = None) -> None:
         if attempt_id is not None:
             status = record.get("status")
             result = ("succeeded" if status == "done" else "cancelled" if status == "stopped"
                       else "failed" if status in FAILED or status == "error" else "unknown")
+            # The result is the pack's report of the skill; what her state showed is beside it, never folded in.
             self._execution(attempt_id, (record.get("skill"), record.get("params") or {}), result, executed={
                 "status": status, "reason": record.get("reason"), "data": record.get("data") or {},
-                "seconds": record.get("seconds"), "run_id": record.get("id")},
+                "seconds": record.get("seconds"), "run_id": record.get("id"), "result_from": "the pack's report",
+                "observed": observed_states or {"before": None, "after": None, "note": "her state wasn't read here"}},
                 deviation=None if result == "succeeded" else f"{status}: {record.get('reason') or ''}".strip()[:300],
                 started=started, ended=self.deps.now(), settle=True)
         self.outcomes = (self.outcomes + [{
@@ -777,6 +807,7 @@ class SkillDriverRun:
                 "skill": outcome["skill"], "params": outcome["params"], "status": outcome["status"],
                 "reason": outcome["reason"], "data": outcome["data"], "seconds": outcome["seconds"],
                 "step_id": step_id, **({"attempt_id": str(attempt_id)} if attempt_id else {}),
+                **({"run_id": str(record["id"])} if record.get("id") else {}),
             })
             self._count_try(outcome, step_id)
 
@@ -815,8 +846,11 @@ class SkillDriverRun:
             self.modes_did = (self.modes_did + did)[-MODES_KEPT:]
             self._save()  # a follow runs for minutes between decisions: her summary shouldn't wait
         for n in fresh:
+            # seq and the pack's time: the link to the same notice in her trajectory.
             self._experience("notice", {"kind": n.get("kind"), "urgency": n.get("urgency"),
-                                        "text": n.get("text", ""), "data": n.get("data") or {}})
+                                        "text": n.get("text", ""), "data": n.get("data") or {},
+                                        **({"seq": n["seq"]} if n.get("seq") is not None else {}),
+                                        **({"pack_at": n["at"]} if n.get("at") else {})})
         if deps.notice is None:
             return
         for n in fresh:
@@ -920,14 +954,17 @@ class SkillDriverRun:
             self.deps.metric({"session": str(self.session_id), "event": "capture_error", "error": str(exc)[:200]})
 
     def _capture_attempt(self, attempt_id: uuid.UUID, view: DriverView, current: dict, text: str, reply,
-                         asked_at: float, *, status: str, error: str | None = None, action=None) -> None:
-        """Her hands' decision as asked (system prompt, the step's text, the schema) and as answered."""
+                         asked_at: float, *, status: str, error: str | None = None, action=None,
+                         messages: list[dict] | None = None) -> None:
+        """Her hands' decision as asked (system prompt, the step's text, the schema, the messages she was given)
+        and as answered (her status for the step is her own claim; the run's result is recorded apart)."""
         model = self.deps.model
         self._capture(
             "attempt", attempt_id=attempt_id, model=getattr(model, "model", None) or type(model).__name__,
             input={"system": None, "schema": None, "text": text, "images": 0,
                    "plan": {"revision": view.plan_revision, "generation": view.execution_generation,
-                            "step_id": current.get("id")}},
+                            "step_id": current.get("id"), "step": dict(current), "goal": (view.plan or {}).get("goal")},
+                   "messages": [{"id": str(m.get("id")), "text": m.get("text")} for m in messages or []]},
             blobs={"system": self._system or "", "schema": json.dumps(self._schema or {}, sort_keys=True)},
             output=None if reply is None else {"output": reply.output, "action": list(action) if action else None},
             status=status, error=error, asked_at=asked_at, answered_at=self.deps.now() if reply else None,
@@ -938,7 +975,8 @@ class SkillDriverRun:
                                               "output_tokens": reply.output_tokens,
                                               "cached_tokens": reply.cached_tokens},
             input_refs=[{"ref": f"learned_skill:{name}", "id": str(m.get("id")) if m.get("id") else None}
-                        for name, m in self.learned.items()] + list(self._lesson_refs))
+                        for name, m in self.learned.items()] + list(self._lesson_refs)
+            + [{"ref": f"hands_message:{m.get('id')}"} for m in messages or []])
 
     def _execution(self, attempt_id: uuid.UUID | None, action, result: str, *, executed: dict | None = None,
                    deviation: str | None = None, started: float | None = None, ended: float | None = None,
@@ -954,6 +992,15 @@ class SkillDriverRun:
 
     def _not_executed(self, attempt_id: uuid.UUID, action, why: str) -> None:
         self._execution(attempt_id, action, "not_executed", deviation=why)
+
+    def _step_counted(self, view: DriverView, current: dict, why: str, state: dict | None) -> None:
+        """Code counted the step done (step_check): its own record, apart from any claim of her hands."""
+        self._capture("execution", execution_kind="step_check", executor="step_check", attempt_id=None,
+                      key=f"{self.session_id}:{view.plan_revision}:{current.get('id')}", result="succeeded",
+                      intended={"step_id": current.get("id"), "do": current.get("do"),
+                                "done_when": current.get("done_when"), "check": current.get("check"),
+                                "plan_revision": view.plan_revision},
+                      executed={"counted": why, "observed": observed(state)}, ended=self.deps.now())
 
     # -- game learning ----------------------------------------------------------
 

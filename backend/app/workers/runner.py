@@ -115,6 +115,9 @@ def run(stop: threading.Event | None = None) -> None:
             # Bounded game trials (docs/learning-system/04-implementation.md): investigation, cognition's choice,
             # preparation, execution's bounds, assessment. Model calls, so its own thread.
             worker_specs.append(("learning-trials", learning.trials_once, "macrovision:learning-trials:wakeups", 2.0))
+            # Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md): every game tick, pulled from the
+            # pack in chunks and saved by the capture writer. Its own thread: a slow save never delays play or a reply.
+            worker_specs.append(("trajectory", learning.trajectory_once, "macrovision:trajectory:wakeups", 2.0))
         # Embedding memory events for recall: background, batched; recall works before it catches up.
         worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                              "macrovision:recall-embeddings:wakeups", 5.0))

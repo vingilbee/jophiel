@@ -116,12 +116,17 @@ def _hands_capture(session_id: uuid.UUID):
                 ctx, learner="hands", provider="openai", model=r.get("model"),
                 input=r["input"], output=None if r.get("output") is None else {**r["output"], "usage": r.get("usage")},
                 status=r["status"], error=r.get("error"), started_at=at(r["asked_at"]),
-                produced_at=at(r.get("answered_at")), versions=r.get("versions"), settings=r.get("settings"),
+                produced_at=at(r.get("answered_at")),
+                versions={**(r.get("versions") or {}), "code": learning_capture.code_version()}, settings=r.get("settings"),
                 blobs=r.get("blobs"))
         else:
+            kind = r.get("execution_kind", "skill_run")
+            # A record with no decision behind it (code counting a step done) is keyed by what it is about.
+            eid = (learning_capture.execution_id_for(None, kind, r["key"]) if r.get("attempt_id") is None and r.get("key")
+                   else None)
             learning_capture.execution(
-                user_id=owner, kind="skill_run", executor="minecraft_pack", result=r["result"],
-                attempt_id=r["attempt_id"], game_session_id=session_id, intended=r.get("intended"),
+                user_id=owner, kind=kind, executor=r.get("executor", "minecraft_pack"), result=r["result"],
+                attempt_id=r["attempt_id"], execution_id=eid, game_session_id=session_id, intended=r.get("intended"),
                 executed=r.get("executed"), deviation=r.get("deviation"), started_at=at(r.get("started")),
                 ended_at=at(r.get("ended")), settle=r.get("settle", False))
 
