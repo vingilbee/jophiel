@@ -2,6 +2,8 @@
 
     GET /api/system/status          every part's state, from its workers' heartbeats
     GET /api/system/parts/{part}    one part's recent activity (the owner's own)
+    GET /api/system/watch           the watch log: what she thought, what memory captured, her hands' goal
+    GET /api/system/errors          what went wrong lately, across her parts
     GET /api/system/signals         the newest hand-offs between her parts (the owner's own), oldest first
     GET /api/system/signals/stream  the same, live (server-sent events; resumes after Last-Event-ID)
 """
@@ -29,6 +31,16 @@ router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depends(requ
 @router.get("/status")
 def get_status() -> dict[str, Any]:
     return system_status.status()
+
+
+@router.get("/watch")
+def get_watch(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return system_parts.highlights(db, user.id)
+
+
+@router.get("/errors")
+def get_errors(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return system_parts.errors(db, user.id, system_status.status())
 
 
 @router.get("/parts/{part}")

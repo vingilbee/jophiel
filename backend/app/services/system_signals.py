@@ -30,8 +30,8 @@ BACKOFF_SECONDS = 10.0
 WIRES = frozenset({
     ("memory", "cognition"), ("cognition", "mouth"), ("cognition", "mind"), ("mind", "mouth"), ("mind", "memory"),
     ("mind", "hands"), ("mouth", "memory"), ("mouth", "observation"), ("hands", "observation"),
-    ("observation", "memory"), ("observation", "learning"), ("hands", "learning"), ("learning", "cognition"),
-    ("learning", "hands"),
+    ("observation", "memory"), ("observation", "learning"), ("hands", "learning"), ("learning", "memory"),
+    ("memory", "hands"), ("memory", "mind"),
 })
 
 _local = threading.local()

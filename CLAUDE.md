@@ -38,8 +38,10 @@ Columbina is a general conversational agent with a persistent identity, personal
   /src
     /components       # reusable UI: Logo, Button, ProtectedRoute, AppHeader, ProviderIcon, VoiceOrb, SenseStrip,
                        #   DesktopSessionPanel, ThoughtStream, MoodStrip (her inner state, debug),
-                       #   Avatar (her glyph mark + user initial), system/ (the System page's field: FieldMap, PartPanel,
-                       #   anatomy, shapes, icons, LearningDetails = what the Learning page was)
+                       #   Avatar (her glyph mark + user initial), system/ (the System page's field: FieldMap, PartPage,
+                       #   LogDrawer (watch log / signals / errors), TraceView (a turn or decision through every part),
+                       #   GoalCard (her hands' goal + plan), log.tsx + format.ts (timeline pieces), anatomy, shapes,
+                       #   icons, LearningDetails = what the Learning page was)
     /pages             # route-level pages: LandingPage, LoginPage, DashboardPage (voice), ChatPage, PredictPage, IntegrationsPage,
                        #   SystemPage (owner only: her parts as a live field; replaced LearningPage, /learning redirects)
     /audio             # mic capture worklet client, PCM playback, VAD, wake word
@@ -72,6 +74,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   /api/learning/adaptation
         system.py       # her parts as one system: GET /api/system/status (worker heartbeats per part),
                         #   GET /api/system/parts/{part} (a part's recent activity, the owner's own),
+                        #   GET /api/system/watch (thoughts, memory captured, hands' goal as one log),
+                        #   GET /api/system/errors (what went wrong across parts),
                         #   GET /api/system/signals[/stream] (hand-offs between parts, SSE live); owner only
         auth.py
       deps.py           # shared deps (get_current_user, get_current_user_optional)

@@ -50,11 +50,12 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'mind', label: 'Mind', fluor: 'mCherry', color: '#FF5C8A', x: 440, y: 285, r: 54, labelSide: 'left',
-    role: 'Thinks on her own: quick and hard thoughts, her game planner, and her mood.',
+    role: 'Thinks on her own: quick and hard thoughts, her game planner and its look backs on her effort, and her mood.',
     subs: [
       { id: 'quick', label: 'Quick thoughts' },
       { id: 'hard', label: 'Hard thoughts' },
       { id: 'planner', label: 'Planner' },
+      { id: 'look-backs', label: 'Look backs' },
       { id: 'mood', label: 'Mood' },
     ],
   },
@@ -69,18 +70,20 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'memory', label: 'Memory', fluor: 'mOrange', color: '#FF9A3C', x: 770, y: 835, r: 56, labelSide: 'below',
-    role: 'Keeps what lasts: facts, episodes, what’s open between you, corrections, and what she was asked to forget.',
+    role: 'Keeps what lasts: facts, episodes, what’s open between you, the lessons she learned, corrections, and what she was asked to forget.',
     subs: [
       { id: 'facts', label: 'Facts' },
       { id: 'episodes', label: 'Episodes' },
       { id: 'working', label: 'Working items' },
+      { id: 'lessons', label: 'Lessons' },
       { id: 'recall', label: 'Recall' },
     ],
   },
   {
     id: 'hands', label: 'Hands', fluor: 'YFP', color: '#F5D23A', x: 1215, y: 805, r: 46, labelSide: 'right',
-    role: 'Her body in a game: picks one skill at a time and runs it.',
+    role: 'Her body in a game: works toward the goal one plan step at a time, picking one skill and running it.',
     subs: [
+      { id: 'goal', label: 'Goal and plan' },
       { id: 'skills', label: 'Skill driver' },
       { id: 'pack', label: 'Game pack' },
       { id: 'moves', label: 'Learned moves' },
@@ -88,11 +91,12 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'learning', label: 'Learning', fluor: 'Venus-V', color: '#B77DFF', x: 380, y: 745, r: 50, labelSide: 'left',
-    role: 'Looks back on what happened and carries lessons forward; runs small experiments in games.',
+    role: 'Captures what happened, looks back on it and writes lessons into memory; runs small experiments in games.',
     subs: [
       { id: 'assessments', label: 'Assessments' },
       { id: 'lessons', label: 'Lessons' },
       { id: 'trials', label: 'Trials' },
+      { id: 'capture', label: 'Capture' },
     ],
   },
 ]
@@ -129,7 +133,7 @@ export function layoutFor(portrait: boolean): Layout {
 
 /** Who hands work to whom (the direction a signal travels). Every wire is a real hand-off in the backend. */
 export const WIRES: { from: PartId; to: PartId }[] = [
-  { from: 'memory', to: 'cognition' }, // the memory check before every reply
+  { from: 'memory', to: 'cognition' }, // the memory check before every reply, and lessons Student 2 weighs
   { from: 'cognition', to: 'mouth' }, // Student 2's decision, worded by the mouth
   { from: 'cognition', to: 'mind' }, // thinking asked for, run by the coordinator
   { from: 'mind', to: 'mouth' }, // something she wants to say on her own
@@ -140,9 +144,10 @@ export const WIRES: { from: PartId; to: PartId }[] = [
   { from: 'hands', to: 'observation' }, // skill outcomes reported
   { from: 'observation', to: 'memory' }, // reports reaching working memory
   { from: 'observation', to: 'learning' }, // corrections and failures that trigger assessment
-  { from: 'hands', to: 'learning' }, // game experience reflected on
-  { from: 'learning', to: 'cognition' }, // lessons Student 2 weighs
-  { from: 'learning', to: 'hands' }, // game lessons and learned moves
+  { from: 'hands', to: 'learning' }, // a stretch of play to assess, and her trajectory captured
+  { from: 'learning', to: 'memory' }, // a lesson written or revised (memory owns lessons)
+  { from: 'memory', to: 'hands' }, // lessons supplied to her hands' decisions
+  { from: 'memory', to: 'mind' }, // lessons supplied to her planner and her game mind
 ]
 
 /** Zoom (as magnification over the fitted view) at which sub-parts begin to resolve. */

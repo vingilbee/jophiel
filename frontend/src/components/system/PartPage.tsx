@@ -3,36 +3,31 @@ import type { ReactNode } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { systemApi } from '../../api/system'
 import type {
-  CognitionFeed, HandsFeed, MemoryFeed, MindFeed, MouthFeed, ObservationFeed, PartFeeds, PartId, PartStatus, Signal,
-  WorkerStatus,
+  CognitionFeed, HandsFeed, LearningFeed, LessonUse, MemoryFeed, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
+  PartId, PartStatus, Signal, Thought, WorkerStatus,
 } from '../../types/system'
 import { PART_BY_ID } from './anatomy'
 import type { PartAnatomy } from './anatomy'
+import { GoalCard } from './GoalCard'
 import { LearningDetails } from './LearningDetails'
+import { Entry, Facts, LinkButton, Timeline } from './log'
+import { ago, join, words } from './format'
 import { NodeGlyph } from './NodeGlyph'
 import { STATE_WORD } from './nodeStates'
+import { useTrace } from './trace'
+import type { TraceTarget } from './trace'
 
 const REFRESH_MS = 10_000
-
-function ago(at: string | number | null | undefined): string {
-  if (at === null || at === undefined || at === '') return ''
-  const ms = typeof at === 'number' ? at * 1000 : new Date(at).getTime()
-  const s = Math.max(0, (Date.now() - ms) / 1000)
-  if (s < 60) return `${Math.round(s)} s`
-  if (s < 3600) return `${Math.round(s / 60)} min`
-  if (s < 86400) return `${Math.round(s / 3600)} h`
-  return `${Math.round(s / 86400)} d`
-}
 
 /** Which sub-parts have a section on their part's page (the rest are named, not linked: no record of their own yet). */
 const LINKED: Record<PartId, string[]> = {
   mouth: ['text'],
   cognition: ['memory-check', 'student-1', 'student-2', 'coordinator'],
-  mind: ['quick', 'hard', 'planner', 'mood'],
-  hands: ['skills', 'pack'],
-  memory: ['working'],
+  mind: ['quick', 'hard', 'planner', 'look-backs', 'mood'],
+  hands: ['goal', 'skills', 'pack'],
+  memory: ['facts', 'working', 'lessons'],
   observation: ['conversation', 'game', 'deliveries'],
-  learning: [],
+  learning: ['capture'],
 }
 
 const WORKER_WORD: Record<WorkerStatus['state'], string> = { alive: 'alive', busy: 'working', down: 'down', failing: 'failing' }
@@ -42,14 +37,17 @@ interface Section {
   id: string
   title: string
   sub?: string
+  hint?: string
   body: ReactNode
 }
 
 /** One part of her, as its own page: the live node and its sub-parts in a rail, its record as a timeline. */
-export function PartPage({ part, status, signals, onClose }: {
+export function PartPage({ part, status, signals, anchor, onClose }: {
   part: PartAnatomy
   status: PartStatus | undefined
   signals: Signal[]
+  /** A section to scroll to once the page has read its records (from the log, or the address's #hash). */
+  anchor?: string | null
   onClose: () => void
 }) {
   const main = useRef<HTMLElement>(null)
@@ -82,11 +80,8 @@ export function PartPage({ part, status, signals, onClose }: {
               </p>
             )}
           >
-            {part.id === 'learning' ? (
-              <div className="mt-12 lg:mt-0 lg:pt-16"><LearningDetails /></div>
-            ) : (
-              <Feed part={part.id} />
-            )}
+            <Feed part={part.id} anchor={anchor} />
+            {part.id === 'learning' && <LearningDetails />}
           </ErrorBoundary>
         </main>
       </div>
@@ -251,16 +246,25 @@ function useFeed<P extends keyof PartFeeds>(part: P) {
   return { data, error }
 }
 
-function Feed({ part }: { part: keyof PartFeeds }) {
+function Feed({ part, anchor }: { part: keyof PartFeeds; anchor?: string | null }) {
   const { data, error } = useFeed(part)
+  const trace = useTrace()
+  const scrolled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!data || !anchor || scrolled.current === anchor) return
+    scrolled.current = anchor
+    const el = document.getElementById(anchor) ?? document.querySelector(`[data-section="${anchor}"]`)
+    el?.scrollIntoView({ block: 'start' })
+  }, [data, anchor])
   if (error) return <p className="pt-2 text-[14px] text-[#FF8A80] lg:pt-16">{error}</p>
   if (!data) return <p className="pt-2 text-[14px] text-[#8C97A3] lg:pt-16">Reading…</p>
-  const sections = sectionsFor(part, data)
+  const sections = sectionsFor(part, data, trace)
   return (
     <div className="mt-12 lg:mt-0 lg:pt-14">
       {sections.map((s) => (
-        <section key={s.id} id={s.sub ?? s.id} className="scroll-mt-8 pb-12">
+        <section key={s.id} id={s.sub ?? s.id} data-section={s.id} className="scroll-mt-8 pb-12">
           <h2 className="mb-1 text-[19px] font-semibold tracking-[-0.015em] text-[#EEF1F3]">{s.title}</h2>
+          {s.hint && <p className="max-w-[68ch] text-[13px] text-[#8C97A3]">{s.hint}</p>}
           {s.body}
         </section>
       ))}
@@ -268,31 +272,26 @@ function Feed({ part }: { part: keyof PartFeeds }) {
   )
 }
 
-/** The timeline: when on the left, what happened on the right. */
-function Timeline({ empty, children }: { empty: string; children: ReactNode[] }) {
-  if (children.length === 0) return <p className="mt-3 text-[14px] text-[#8C97A3]">{empty}</p>
-  return <ol className="mt-3">{children}</ol>
-}
-
-function Entry({ at, meta, children, tone }: { at?: string | null; meta: ReactNode; children?: ReactNode; tone?: 'error' | 'muted' }) {
+/** A lesson memory gave a decision: what the decision said it did with it, or why it never got there. */
+function lessonUse(u: LessonUse) {
   return (
-    <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-4 border-t border-[#12171B] py-4 first:border-t-0 sm:grid-cols-[72px_minmax(0,1fr)]">
-      <time className="pt-px text-[12px] text-[#7D8790] tabular-nums" dateTime={at ?? undefined}>{at ? ago(at) : ''}</time>
-      <div className="min-w-0">
-        <p className={`text-[12.5px] ${tone === 'error' ? 'text-[#FF8A80]' : 'text-[color:var(--part)]'}`}>{meta}</p>
-        {children && (
-          <div className={`mt-1.5 max-w-[68ch] text-[15px] leading-relaxed break-words ${tone === 'muted' ? 'text-[#8C97A3]' : 'text-[#DDE3E8]'}`}>
-            {children}
-          </div>
-        )}
-      </div>
-    </li>
+    <Entry
+      key={u.id}
+      at={u.at}
+      tone={u.received ? undefined : 'muted'}
+      meta={join(words(u.consumer), `rev ${u.revision}`, u.lesson_status, u.received ? (u.reported ? `said: ${words(u.reported)}` : 'no account given') : 'not given')}
+    >
+      {u.lesson}
+      {u.why && <p className="mt-1 text-[14px] text-[#AEB7BF]">{u.why}</p>}
+      {!u.received && u.reason && <p className="mt-1 text-[13.5px] text-[#8C97A3]">{u.reason}</p>}
+    </Entry>
   )
 }
 
-const join = (...bits: (string | null | undefined | false)[]) => bits.filter(Boolean).join(' · ')
+const traceButton = (trace: (t: TraceTarget) => void, target: TraceTarget | null) =>
+  target && <LinkButton onClick={() => trace(target)}>Trace</LinkButton>
 
-function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): Section[] {
+function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], trace: (t: TraceTarget) => void): Section[] {
   switch (part) {
     case 'mouth': {
       const f = data as MouthFeed
@@ -313,12 +312,18 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
       const f = data as CognitionFeed
       const by = (learner: string) => f.decisions.filter((d) => d.learner === learner)
       const decision = (d: CognitionFeed['decisions'][number]) => (
-        <Entry key={d.id} at={d.at} tone={d.status === 'ok' ? undefined : 'error'} meta={join(d.trigger.replaceAll('_', ' '), d.seconds !== null && `${d.seconds.toFixed(1)} s`, d.status !== 'ok' && d.status)}>
+        <Entry
+          key={d.id}
+          at={d.at}
+          tone={d.status === 'ok' ? undefined : 'error'}
+          meta={join(words(d.trigger), d.seconds !== null && `${d.seconds.toFixed(1)} s`, d.model, d.status !== 'ok' && d.status)}
+          action={traceButton(trace, d.turn_id ? { turn: d.turn_id } : { attempt: d.id })}
+        >
           {d.decided ?? d.error ?? <span className="text-[#8C97A3]">No output recorded.</span>}
         </Entry>
       )
       return [
-        { id: 'student-2', sub: 'student-2', title: 'Student 2 decided', body: <Timeline empty="No captured decisions yet.">{by('student_2').map(decision)}</Timeline> },
+        { id: 'student-2', sub: 'student-2', title: 'Student 2 decided', hint: 'Trace follows the turn through every part: memory check, Student 1, Student 2, the mouth, and any thinking it asked for.', body: <Timeline empty="No captured decisions yet.">{by('student_2').map(decision)}</Timeline> },
         { id: 'student-1', sub: 'student-1', title: 'Student 1 read it', body: <Timeline empty="No captured readings yet.">{by('student_1').map(decision)}</Timeline> },
         {
           id: 'coordinator', sub: 'coordinator', title: 'Background work',
@@ -330,35 +335,82 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
         },
         {
           id: 'memory-check', sub: 'memory-check', title: 'Memory check',
-          body: <p className="mt-3 max-w-[68ch] text-[14px] leading-relaxed text-[#8C97A3]">Every message starts with a memory check. Each one shows on the map as a signal from Memory; what it found is on the Memory page.</p>,
+          body: <p className="mt-3 max-w-[68ch] text-[14px] leading-relaxed text-[#8C97A3]">Every message starts with a memory check. Each one shows on the map as a signal from Memory, and so do the lessons memory gives Student 2. What it found is on the Memory page.</p>,
         },
       ]
     }
     case 'mind': {
       const f = data as MindFeed
-      const thought = (t: MindFeed['thoughts'][number]) => (
-        <Entry key={t.id} at={t.at} tone={t.status === 'dropped' || t.status === 'stale' ? 'muted' : undefined} meta={join(t.conclusion ?? t.kind, t.trigger, t.source, t.status !== 'done' && t.status)}>
+      const thought = (t: Thought) => (
+        <Entry
+          key={t.id}
+          at={t.at}
+          tone={t.status === 'dropped' || t.status === 'stale' ? 'muted' : undefined}
+          meta={join(t.conclusion ?? t.kind, words(t.trigger), t.source, t.topic, t.status !== 'done' && t.status, t.said && 'she said it')}
+          more={t.thinking ? <p className="whitespace-pre-wrap">{t.thinking}</p> : undefined}
+          moreLabel="Her reasoning"
+        >
           {t.text}
+          {t.judged && <p className="mt-1.5 text-[14px] text-[#AEB7BF]">Her look back: {t.judged}</p>}
           {t.question && <p className="mt-1.5 text-[#AEB7BF]">She'd ask: {t.question}</p>}
+          {t.for_hands && <p className="mt-1.5 text-[14px] text-[#AEB7BF]">For her hands: {t.for_hands}</p>}
+          {t.follows && <p className="mt-1 text-[12.5px] text-[#7D8790]">carries out {t.follows}</p>}
           {t.dropped && <p className="mt-1.5 text-[#8C97A3]">Dropped: {t.dropped}</p>}
-          {t.thinking && (
-            <details className="mt-2.5 text-[14px]">
-              <summary className="cursor-pointer text-[#AEB7BF] hover:text-white">Her reasoning</summary>
-              <p className="mt-2 border-l border-[color:var(--part)]/40 pl-4 whitespace-pre-wrap text-[#AEB7BF]">{t.thinking}</p>
-            </details>
-          )}
         </Entry>
       )
       const hard = f.thoughts.filter((t) => t.level === 'hard' && t.kind !== 'plan')
-      const plans = f.thoughts.filter((t) => t.kind === 'plan')
       const quick = f.thoughts.filter((t) => t.level !== 'hard' && t.kind !== 'plan')
-      const words = f.mood?.words
+      const lookBacks = f.thoughts.filter((t) => t.judged)
+      const words_ = f.mood?.words
       return [
+        { id: 'hard', sub: 'hard', title: 'Hard thoughts', body: <Timeline empty="No hard thoughts lately.">{hard.map(thought)}</Timeline> },
+        { id: 'quick', sub: 'quick', title: 'Quick thoughts', body: <Timeline empty="No quick thoughts lately (they come while she plays).">{quick.map(thought)}</Timeline> },
+        {
+          id: 'planner', sub: 'planner', title: 'Planner',
+          hint: 'Each call: what she saw, what she decided and why, and what code then applied (rules it carried over say where they came from).',
+          body: (
+            <Timeline empty="No plans lately (the planner writes her game plans).">
+              {f.plans.map((p) => (
+                <Entry
+                  key={p.id}
+                  at={p.at}
+                  tone={p.status !== 'ok' || p.applied?.result === 'failed' ? 'error' : undefined}
+                  meta={join(p.decision ?? p.status, p.progress && `getting anywhere: ${p.progress}`, p.seconds !== null && `${p.seconds.toFixed(1)} s`,
+                    p.applied && `applied: ${words(p.applied.result)}`, p.reasons?.length && `asked for: ${p.reasons.map(words).join(', ')}`)}
+                  action={traceButton(trace, { attempt: p.id })}
+                  more={
+                    <div className="space-y-2.5">
+                      <Facts rows={{ 'saw': p.sees, "couldn't see": p.cannot_see, 'goal': p.goal, 'steps': p.steps.length ? <ol className="list-decimal pl-4">{p.steps.map((st, i) => <li key={i}>{st}</li>)}</ol> : null, 'said': p.say, 'asked': p.ask, 'outcome': p.applied?.outcome }} />
+                      {p.applied && p.applied.rules.length > 0 && (
+                        <div>
+                          <p className="text-[12.5px] text-[#7D8790]">Rules applied</p>
+                          <ul className="mt-1 space-y-0.5">
+                            {p.applied.rules.map((r, i) => <li key={i}>{r.rule} <span className="text-[#7D8790]">(from {r.from.join(', ') || 'unknown'})</span></li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  }
+                  moreLabel="What it saw and what was applied"
+                >
+                  {p.why ?? p.error ?? <span className="text-[#8C97A3]">No answer recorded.</span>}
+                  {p.applied?.deviation && <p className="mt-1.5 text-[14px] text-[#FFB27A]">{p.applied.deviation}</p>}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
+          id: 'look-backs', sub: 'look-backs', title: 'Look backs',
+          hint: 'When a plan step ends she looks back at her effort and judges it herself: is she getting anywhere, and if not, why.',
+          body: <Timeline empty="No look backs yet.">{lookBacks.map(thought)}</Timeline>,
+        },
+        { id: 'mind-lessons', title: 'Lessons she was given', hint: 'What memory gave her planner and her game mind, and what each said it did with them.', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
         {
           id: 'mood', sub: 'mood', title: 'Mood',
-          body: words ? (
+          body: words_ ? (
             <dl className="mt-3 grid max-w-xl grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
-              {Object.entries(words).map(([k, w]) => (
+              {Object.entries(words_).map(([k, w]) => (
                 <div key={k}>
                   <dt className="text-[12.5px] text-[#8C97A3]">{k}</dt>
                   <dd className="text-[15px] text-[#DDE3E8]">{w}</dd>
@@ -367,27 +419,63 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
             </dl>
           ) : <p className="mt-3 text-[14px] text-[#8C97A3]">No mood read yet.</p>,
         },
-        { id: 'hard', sub: 'hard', title: 'Hard thoughts', body: <Timeline empty="No hard thoughts lately.">{hard.map(thought)}</Timeline> },
-        { id: 'quick', sub: 'quick', title: 'Quick thoughts', body: <Timeline empty="No quick thoughts lately (they come while she plays).">{quick.map(thought)}</Timeline> },
-        { id: 'planner', sub: 'planner', title: 'Planner', body: <Timeline empty="No plans lately (the planner writes her game plans).">{plans.map(thought)}</Timeline> },
       ]
     }
     case 'hands': {
       const f = data as HandsFeed
       return [
         {
-          id: 'outcomes', sub: 'pack', title: 'What happened in the game',
+          id: 'goal', sub: 'goal', title: 'Goal and plan',
+          body: <div className="mt-3 max-w-[68ch]"><GoalCard goal={f.goal} /></div>,
+        },
+        {
+          id: 'decisions', sub: 'skills', title: 'What her hands did',
+          hint: 'Three reports, kept apart: what her hands said, what the game pack reported for the skill, and her state as code read it before and after.',
           body: (
-            <Timeline empty="Nothing played yet.">
-              {f.outcomes.map((o) => <Entry key={o.id} at={o.at} meta={join(o.game, o.kind.replaceAll('_', ' '), o.seconds ? `${o.seconds} s` : null)}>{o.text}</Entry>)}
+            <Timeline empty="No captured decisions yet.">
+              {f.decisions.map((d) => {
+                const r = d.run
+                const failed = d.status !== 'ok' || r?.result === 'failed'
+                return (
+                  <Entry
+                    key={d.id}
+                    at={d.at}
+                    tone={failed ? 'error' : undefined}
+                    meta={join(d.action ?? (d.status === 'ok' ? 'no action' : d.status), r && words(r.result), r?.seconds && `${r.seconds} s`, d.claim && `she says: ${words(d.claim)}`)}
+                    action={traceButton(trace, { attempt: d.id })}
+                    more={
+                      <Facts rows={{ 'step': d.step, 'pack says': r && join(r.pack_status, r.reason), 'deviation': r?.deviation, 'before': r?.before, 'after': r?.after, 'inventory': r?.inventory, 'observed': r?.observed_note, 'lessons': d.weighed.length ? <ul>{d.weighed.map((w, i) => <li key={i}>{w.lesson}: {words(w.use)}{w.why ? ` — ${w.why}` : ''}</li>)}</ul> : null, 'thinking took': d.seconds !== null && `${d.seconds.toFixed(1)} s`, 'error': d.error }} />
+                    }
+                    moreLabel="The three reports"
+                  >
+                    {d.note ?? (d.error ? <span className="text-[#FF8A80]">{d.error}</span> : <span className="text-[#8C97A3]">No note.</span>)}
+                    {r?.inventory && r.inventory !== 'no change' && <p className="mt-1 text-[13.5px] text-[#AEB7BF] tabular-nums">Inventory: {r.inventory}</p>}
+                  </Entry>
+                )
+              })}
             </Timeline>
           ),
         },
         {
-          id: 'picks', sub: 'skills', title: 'Skills she picked',
+          id: 'checks', title: 'Steps counted done',
+          hint: 'Code counting a plan step done, from what it observed; apart from what her hands claimed.',
           body: (
-            <Timeline empty="No captured skill choices yet.">
-              {f.picks.map((p) => <Entry key={p.id} at={p.at} tone={p.status === 'ok' ? undefined : 'error'} meta={p.status}>{p.picked}</Entry>)}
+            <Timeline empty="No steps counted done yet.">
+              {f.checks.map((c) => (
+                <Entry key={c.id} at={c.at} meta={join('counted done', c.done_when && `when ${c.done_when}`)}>
+                  {c.do}
+                  {c.counted && <p className="mt-1 text-[14px] text-[#AEB7BF]">{c.counted}</p>}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        { id: 'hands-lessons', title: 'Lessons she was given', hint: 'What memory gave her hands, and what they said they did with each (their own account, not proof).', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
+        {
+          id: 'outcomes', sub: 'pack', title: 'What happened in the game',
+          body: (
+            <Timeline empty="Nothing played yet.">
+              {f.outcomes.map((o) => <Entry key={o.id} at={o.at} tone={o.failed ? 'error' : undefined} meta={join(o.game, words(o.kind), o.seconds ? `${o.seconds} s` : null)}>{o.text}</Entry>)}
             </Timeline>
           ),
         },
@@ -396,6 +484,26 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
     case 'memory': {
       const f = data as MemoryFeed
       return [
+        {
+          id: 'facts', sub: 'facts', title: 'Facts she keeps',
+          body: (
+            <Timeline empty="No facts yet.">
+              {f.facts.map((x) => (
+                <Entry key={x.id} at={x.at} tone={x.status === 'active' ? undefined : 'muted'} meta={join(words(x.kind), x.status !== 'active' && x.status, x.revision > 1 && `rev ${x.revision}`, x.confidence < 1 && `confidence ${x.confidence}`)}>
+                  {x.text}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
+          id: 'events', title: 'What she noted',
+          body: (
+            <Timeline empty="No memory events yet.">
+              {f.events.map((e) => <Entry key={e.id} at={e.at} meta={join(words(e.kind), e.epistemic)}>{e.text}</Entry>)}
+            </Timeline>
+          ),
+        },
         {
           id: 'working', sub: 'working', title: 'Open between you',
           body: (
@@ -410,10 +518,22 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
           ),
         },
         {
-          id: 'events', title: 'What she noted',
+          id: 'lessons', sub: 'lessons', title: 'Lessons',
+          hint: 'Learning writes lessons here; memory owns them and gives them to Student 2, her hands, her planner and her game mind. Tentative ones are given labelled as such.',
           body: (
-            <Timeline empty="No memory events yet.">
-              {f.events.map((e) => <Entry key={e.id} at={e.at} meta={join(e.kind.replaceAll('_', ' '), e.epistemic)}>{e.text}</Entry>)}
+            <Timeline empty="No lessons yet.">
+              {f.lessons.map((l) => (
+                <Entry
+                  key={l.id}
+                  at={l.at}
+                  tone={l.status === 'withdrawn' ? 'muted' : undefined}
+                  meta={join(l.status, words(l.kind), words(l.scope), `rev ${l.revision}`, l.used > 0 && `given ${l.used}×`, l.origin)}
+                  more={<Facts rows={{ 'applies when': l.applies_when, 'status': l.reason }} />}
+                  moreLabel="When it applies"
+                >
+                  {l.statement}
+                </Entry>
+              ))}
             </Timeline>
           ),
         },
@@ -425,7 +545,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
         id: sub, sub, title,
         body: (
           <Timeline empty={empty}>
-            {f.reports.filter(keep).map((r) => <Entry key={r.id} at={r.at} meta={join(r.source, r.kind.replaceAll('_', ' '), r.salience !== 'routine' && r.salience)}>{r.text}</Entry>)}
+            {f.reports.filter(keep).map((r) => <Entry key={r.id} at={r.at} meta={join(r.source, words(r.kind), r.salience !== 'routine' && r.salience)}>{r.text}</Entry>)}
           </Timeline>
         ),
       })
@@ -447,6 +567,22 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds]): S
           ),
         },
       ]
+    }
+    case 'learning': {
+      const f = data as LearningFeed
+      return [{
+        id: 'capture', sub: 'capture', title: 'Capture',
+        hint: 'What each learner was given and produced is captured for learning to look back on. These are records that could not be saved whole.',
+        body: (
+          <Timeline empty="Nothing missing from the capture.">
+            {f.gaps.map((g) => (
+              <Entry key={g.id} at={g.at} tone="error" meta={join(words(g.label), words(g.reason), g.kind, g.tries > 1 && `${g.tries} tries`)}>
+                {g.detail}
+              </Entry>
+            ))}
+          </Timeline>
+        ),
+      }]
     }
   }
 }

@@ -281,6 +281,15 @@ Round glass instruments, quiet until touched.
 - **Timeline:** headline sections, each a list of rule-divided entries (Entry Rule): time column on the left, a part-color meta line, then the text. Dropped or stale entries go Ink Muted; failed ones put their meta in Error Text. Reasoning, where a record has it, folds into a "Her reasoning" disclosure with a part-color left rule. Empty sections say so plainly in Ink Muted.
 - **Focus:** the timeline takes focus on open; Escape closes; focus rings inside use the part color. A drawing failure shows a plain Error Text line and leaves Esc working.
 
+- **Records that open:** an entry can carry the rest of its record behind a disclosure ("Whole record", "The three reports", "What it saw and what was applied"): label/value lines in Ink Muted / Ink Body, raw records as indented text on a near-black well, scrolled when long. A "Trace" pill (hairline ring, 12px) sits at the end of an entry's meta line when the record can be followed through her parts.
+- **Hands:** the page opens on "Goal and plan": the goal in 16px Ink Strong, the plan's steps with a filled amber dot for done, a lit amber ring for the active one and a hollow ring for the rest, then the user's rules and what code counted. Her hands' decisions keep three reports apart: her claim, the pack's report, her state before and after.
+
+### Log drawer
+A 400px panel on the right of the field (full width below 1024px), Surface Night at 92% with a backdrop blur and a hairline left rule; on a wide screen the field refits to the space left. Three tabs as quiet pills: **Watch** (her hands' goal pinned on top in a hairline card, then one log of what she thought, what memory captured and what her hands ran, each row with its part's dot and colour, filterable by Thinking / Memory / Hands), **Signals** (every hand-off, newest first, filterable by part, with a Trace pill where the signal names a turn or decision) and **Errors** (worker errors, invalid decisions, failed executions, capture gaps; the tab shows the count of the last ten minutes in Error Text). Clicking a row's part opens that part's page at the row's section. Closed, it is one "Log" pill top right with the last signal's colour dot. Opening state and tab are remembered per browser.
+
+### Trace
+A sheet sliding in from the right over any page (max 760px), one vertical line of steps, each a part-colour dot and meta line (part, trigger, clock time, seconds, model), the step's title ("Student 2 decided", "The skill ran"), its answer in a line, and "What it was given" / "What it answered" disclosures. What was never saved is listed under "Missing from the record" in amber, never drawn as a step. Esc closes the trace only.
+
 ### Magnification ruler
 Readout "×1.0" (13px, 500, tabular) beside a 112–160px line with ticks at ×1, ×2, ×4 and ×6 on a log scale; a bright fill and a 9px cursor mark the current magnification; a hint says "zoom in to see inside each part" until sub-cores resolve, then "inside view".
 

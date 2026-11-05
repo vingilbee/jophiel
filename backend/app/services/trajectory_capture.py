@@ -150,6 +150,9 @@ def run_once(client=None) -> bool:
                 _cursor.update(stream=str(last["stream"]), seq=int(last["seq"]))
         if not body.get("more"):
             break
+    if worked:
+        from app.services import system_signals
+        system_signals.emit(user_id, "hands", "learning", "trajectory", session.id if session else None)
     return worked
 
 

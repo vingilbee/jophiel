@@ -57,3 +57,5 @@ def _schedule(db: Session, session: DesktopSession, to_state: str) -> None:
                      "until": (LA._aware(end.occurred_at) + timedelta(seconds=5)).isoformat()},
             evidence=[(f"experience:{e.id}", "part of this stretch", {}) for e in segment])
         after = end.id
+    from app.services import system_signals
+    system_signals.emit(session.owner_user_id, "hands", "learning", "stretch", session.id)

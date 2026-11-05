@@ -231,6 +231,9 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
         for other in c.conflicts_with:
             _conflict(db, user_id, row, other)
     db.flush()
+    if out.changed:
+        from app.services import system_signals
+        system_signals.emit(user_id, "learning", "memory", "lesson", out.changed[0]["lesson"])
     _log({"op": "apply", "user": str(user_id), "occasion": source.occasion, "changed": len(out.changed),
           "skipped": len(out.skipped)})
     return out
@@ -515,6 +518,10 @@ def offered(user_id: uuid.UUID, query: str) -> Supply:
 # --------------------------------------------------------------------------- #
 
 
+# Which part a lesson consumer is, for the System page's signals (Student 2's supply is signalled where it's read).
+_SIGNAL_TO = {"hands": "hands", "planner": "mind", "mind": "mind"}
+
+
 def record_uses(user_id: uuid.UUID, attempt_id: uuid.UUID | str, supply: Supply, *, consumer: str,
                 received: bool, reason: str | None = None, weighed: list[dict] | None = None,
                 decision_status: str | None = None) -> int:
@@ -543,6 +550,9 @@ def record_uses(user_id: uuid.UUID, attempt_id: uuid.UUID | str, supply: Supply,
             db.execute(insert(MemoryLessonUse).values(rows).on_conflict_do_nothing(
                 constraint="uq_memory_lesson_uses"))
             db.commit()
+        if supply.views and _SIGNAL_TO.get(consumer):
+            from app.services import system_signals
+            system_signals.emit(user_id, "memory", _SIGNAL_TO[consumer], f"lessons_{consumer}", attempt_id)
         return len(rows)
     except Exception:  # noqa: BLE001 - a lost use record is logged, never fails the decision
         log.exception("memory_lessons: recording lesson uses failed")

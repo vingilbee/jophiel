@@ -5,11 +5,15 @@ feed is one user's (the owner's own activity) and newest first. Entries carry wh
 parts that reason show their reasoning (hard thoughts), parts that only decide show the decision, and nothing is
 filled in where a record has none.
 
-Learning has no feed here: the page reads the learning API, which already serves it whole.
+Learning's feed here is only what the learning API doesn't serve (capture gaps); the page reads the rest there.
+
+``highlights`` is the page's watch log: what she thought, what memory captured and what her hands are after,
+newest first. ``errors`` gathers what went wrong across the parts.
 """
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -18,13 +22,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    ChatMessage, Conversation, CoordinatorWork, DecisionAttempt, GameExperience, MemoryEvent,
-    MemoryJob, MindThought, Observation, ObservationSource, WorkingItem,
+    CaptureGap, ChatMessage, Conversation, CoordinatorWork, DecisionAttempt, DecisionExecution, DesktopSession,
+    GameExperience, MemoryEvent, MemoryJob, MemoryLesson, MemoryLessonUse, MindThought, Observation,
+    ObservationSource, SemanticMemory, WorkingItem,
 )
 from app.services.heard import heard_text
 
 LIMIT = 15
-PARTS = ("mouth", "cognition", "mind", "hands", "memory", "observation")
+PARTS = ("mouth", "cognition", "mind", "hands", "memory", "observation", "learning")
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -106,29 +111,157 @@ def _cognition(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
+def _thought_out(t: MindThought) -> dict[str, Any]:
+    from app.services.effort import judged
+
+    return {"id": str(t.id), "at": _iso(t.created_at), "level": t.level, "kind": t.kind, "trigger": t.trigger,
+            "conclusion": t.conclusion_kind, "status": t.status, "source": t.source, "topic": _clip(t.topic, 120),
+            "text": _clip(t.text, 600), "thinking": _clip(t.thinking, 1500), "question": _clip(t.question, 300),
+            "for_hands": _clip(t.for_hands, 300), "follows": t.follows,
+            "judged": (judged(t.assessment).strip(" []") or None), "said": bool(t.said),
+            "dropped": _clip(t.dropped_reason, 200)}
+
+
+def _lesson_uses(db: Session, user_id: uuid.UUID, consumers: tuple[str, ...], limit: int = 10) -> list[dict[str, Any]]:
+    """The lessons memory gave a decision maker lately, and what it said it did with each (its own account)."""
+    rows = db.execute(
+        select(MemoryLessonUse, MemoryLesson.statement, MemoryLesson.status)
+        .join(MemoryLesson, MemoryLesson.id == MemoryLessonUse.lesson_id)
+        .where(MemoryLessonUse.user_id == user_id, MemoryLessonUse.consumer.in_(consumers))
+        .order_by(MemoryLessonUse.created_at.desc()).limit(limit)).all()
+    return [{"id": u.id, "at": _iso(u.created_at), "consumer": u.consumer, "lesson": _clip(statement, 300),
+             "lesson_status": status, "revision": u.revision, "received": u.received,
+             "reason": _clip(u.reason, 200), "reported": u.reported, "why": _clip(u.reported_why, 300)}
+            for u, statement, status in rows]
+
+
+def _plan_out(a: DecisionAttempt, applied: DecisionExecution | None) -> dict[str, Any]:
+    parsed = (a.output or {}).get("parsed") or {}
+    steps = parsed.get("steps") or []
+    executed = (applied.executed or {}) if applied else {}
+    return {"id": str(a.id), "at": _iso(a.started_at or a.captured_at), "status": a.status, "error": _clip(a.error, 200),
+            "seconds": _seconds(a.started_at, a.produced_at), "reasons": (a.input or {}).get("reasons"),
+            "decision": parsed.get("decision"), "why": _clip(parsed.get("why"), 500),
+            "progress": parsed.get("progress"), "sees": _clip(parsed.get("sees"), 400),
+            "cannot_see": _clip(parsed.get("cannot_see"), 300), "goal": _clip(parsed.get("goal"), 300),
+            "steps": [_clip(st.get("do"), 160) for st in steps][:8], "say": _clip(parsed.get("say"), 300),
+            "ask": _clip(parsed.get("ask"), 300),
+            "applied": None if applied is None else {
+                "result": applied.result, "deviation": _clip(applied.deviation, 500),
+                "outcome": _clip(executed.get("outcome"), 200),
+                "rules": [{"rule": _clip(r.get("rule"), 200), "from": r.get("from") or []}
+                          for r in ((executed.get("rules") or {}).get("applied") or [])][:8],
+            }}
+
+
 def _mind(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     from app.services import inner_state_live
 
     thoughts = db.scalars(select(MindThought).where(MindThought.user_id == user_id)
-                          .order_by(MindThought.created_at.desc()).limit(LIMIT)).all()
+                          .order_by(MindThought.created_at.desc()).limit(LIMIT * 2)).all()
     try:
         mood = inner_state_live.view(user_id)
         mood = {"words": mood.get("words"), "updated_at": mood.get("updated_at")}
     except Exception:
         mood = None
+    planner = db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
+                                                       DecisionAttempt.learner == "planner")
+                         .order_by(DecisionAttempt.captured_at.desc()).limit(10)).all()
+    applied = {e.attempt_id: e for e in db.scalars(select(DecisionExecution).where(
+        DecisionExecution.user_id == user_id, DecisionExecution.kind == "plan_apply",
+        DecisionExecution.attempt_id.in_([a.id for a in planner] or [uuid.uuid4()])))}
     return {
         "mood": mood,
-        "thoughts": [{"id": t.id, "at": _iso(t.created_at), "level": t.level, "kind": t.kind, "trigger": t.trigger,
-                      "conclusion": t.conclusion_kind, "status": t.status, "source": t.source, "text": _clip(t.text, 600),
-                      "thinking": _clip(t.thinking, 1500), "question": _clip(t.question, 300),
-                      "said": t.said, "dropped": _clip(t.dropped_reason, 200)} for t in thoughts],
+        "thoughts": [_thought_out(t) for t in thoughts],
+        "plans": [_plan_out(a, applied.get(a.id)) for a in planner],
+        "lessons": _lesson_uses(db, user_id, ("planner", "mind")),
     }
+
+
+def _counts_change(before: dict | None, after: dict | None) -> str | None:
+    """Her inventory before and after a run, as code counted it: "coal +3, torch -1"."""
+    a, b = (before or {}).get("inventory"), (after or {}).get("inventory")
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return None
+    diff = [(k, (b.get(k) or 0) - (a.get(k) or 0)) for k in sorted(set(a) | set(b))]
+    bits = [f"{k} {'+' if d > 0 else ''}{d}" for k, d in diff if d]
+    return ", ".join(bits[:8]) or "no change"
+
+
+def _state_line(state: dict | None) -> str | None:
+    if not state:
+        return None
+    pos = state.get("position")
+    where = (f"at {', '.join(str(round(v)) for v in (pos.get(k) for k in ('x', 'y', 'z')) if v is not None)}"
+             if isinstance(pos, dict) else None)
+    bits = [where, state.get("health") is not None and f"health {state['health']}",
+            state.get("food") is not None and f"food {state['food']}",
+            state.get("held") and f"holding {state['held'] if isinstance(state['held'], str) else _compact(state['held'], 40)}"]
+    return " · ".join(b for b in bits if b) or None
+
+
+def _run_out(e: DecisionExecution) -> dict[str, Any]:
+    x = e.executed or {}
+    observed = x.get("observed") or {}
+    before, after = observed.get("before"), observed.get("after")
+    return {"result": e.result, "pack_status": x.get("status"), "reason": _clip(x.get("reason"), 300),
+            "seconds": x.get("seconds"), "deviation": _clip(e.deviation, 300),
+            "before": _state_line(before), "after": _state_line(after), "inventory": _counts_change(before, after),
+            "observed_note": observed.get("note")}
+
+
+def _skill_line(intended: dict | None) -> str | None:
+    if not intended or not intended.get("skill"):
+        return None
+    params = {k: v for k, v in (intended.get("params") or {}).items() if k != "time_limit"}
+    return intended["skill"] + (f" {_compact(params, 160)}" if params else "")
+
+
+def _game_goal(db: Session, user_id: uuid.UUID) -> dict[str, Any] | None:
+    """Her latest game session: the goal it plays for, the plan and its steps, and her effort counted by code."""
+    from app.services import effort as effort_service
+
+    session = db.scalar(select(DesktopSession).where(DesktopSession.owner_user_id == user_id)
+                        .order_by(DesktopSession.started_at.desc()).limit(1))
+    if session is None:
+        return None
+    goal = db.get(WorkingItem, session.goal_item_id) if session.goal_item_id else None
+    plan = session.plan or {}
+    out: dict[str, Any] = {
+        "session_id": str(session.id), "state": session.state, "driver": session.driver_status,
+        "started_at": _iso(session.started_at), "ended_at": _iso(session.ended_at),
+        "goal": None if goal is None else {"text": _clip(goal.text, 400), "status": goal.status,
+                                           "reason": _clip(goal.status_reason, 200), "owner": goal.owner},
+        "plan": {"goal": _clip(plan.get("goal"), 300), "target": _clip(_compact(plan.get("target"), 200), 200),
+                 "revision": session.plan_revision,
+                 "steps": [{"id": st.get("id"), "do": _clip(st.get("do"), 200), "done_when": _clip(st.get("done_when"), 200),
+                            "state": st.get("state")} for st in plan.get("steps") or []][:16]} if plan else None,
+        "effort": None,
+    }
+    try:
+        with db.begin_nested():
+            e = effort_service.for_session(db, session)
+        if e is not None:
+            out["effort"] = {"active_s": round(e.active_s), "paused_s": round(e.paused_s),
+                             "approach_changes": e.approach_changes, "status_note": e.status_note,
+                             "rules": [{"ref": r, "rule": _clip(rule, 200), "words": _clip(w, 200)} for r, rule, w in e.rules],
+                             "places": [{"name": n, "where": w} for n, w in e.places][:8],
+                             "counted": list(e.counted)[:8], "spots": _clip(e.spots, 300)}
+    except Exception:  # noqa: BLE001 - the goal still shows without the effort
+        pass
+    return out
 
 
 def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     picks = db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
                                                      DecisionAttempt.learner == "hands")
-                       .order_by(DecisionAttempt.captured_at.desc()).limit(8)).all()
+                       .order_by(DecisionAttempt.captured_at.desc()).limit(LIMIT)).all()
+    runs = {e.attempt_id: e for e in db.scalars(select(DecisionExecution).where(
+        DecisionExecution.user_id == user_id, DecisionExecution.kind == "skill_run",
+        DecisionExecution.attempt_id.in_([a.id for a in picks] or [uuid.uuid4()])))}
+    checks = db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
+                                                        DecisionExecution.kind == "step_check")
+                        .order_by(DecisionExecution.captured_at.desc()).limit(10)).all()
     outcomes = db.scalars(select(GameExperience).where(GameExperience.user_id == user_id)
                           .order_by(GameExperience.id.desc()).limit(LIMIT)).all()
     events = []
@@ -139,10 +272,33 @@ def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         else:
             line = p.get("text") or p.get("kind") or e.kind
         events.append({"id": e.id, "at": _iso(e.occurred_at), "kind": e.kind, "game": e.game,
-                       "text": _clip(line, 300), "seconds": p.get("seconds")})
-    return {"picks": [{"id": str(a.id), "at": _iso(a.started_at or a.captured_at), "status": a.status,
-                       "picked": _compact((a.output or {}).get("action") or a.output, 300)} for a in picks],
-            "outcomes": events}
+                       "text": _clip(line, 300), "seconds": p.get("seconds"),
+                       "failed": p.get("status") not in (None, "done", "stopped") if e.kind == "skill_outcome" else False})
+    decisions = []
+    for a in picks:
+        answer = (a.output or {}).get("output") or {}
+        action = (a.output or {}).get("action")
+        step = ((a.input or {}).get("plan") or {}).get("step") or {}
+        run = runs.get(a.id)
+        decisions.append({
+            "id": str(a.id), "at": _iso(a.started_at or a.captured_at), "status": a.status, "error": _clip(a.error, 200),
+            "seconds": _seconds(a.started_at, a.produced_at), "step": _clip(step.get("do"), 200),
+            "claim": answer.get("status"), "note": _clip(answer.get("note"), 500),
+            "action": _skill_line({"skill": action[0], "params": action[1] if len(action) > 1 else {}})
+            if isinstance(action, list) and action else None,
+            "weighed": [{"lesson": w.get("lesson"), "use": w.get("use"), "why": _clip(w.get("why"), 200)}
+                        for w in answer.get("lessons_weighed") or [] if isinstance(w, dict)][:6],
+            "run": _run_out(run) if run is not None else None,
+        })
+    return {
+        "goal": _game_goal(db, user_id),
+        "decisions": decisions,
+        "checks": [{"id": str(c.id), "at": _iso(c.ended_at or c.captured_at), "do": _clip((c.intended or {}).get("do"), 200),
+                    "done_when": _clip((c.intended or {}).get("done_when"), 200),
+                    "counted": _clip((c.executed or {}).get("counted"), 300)} for c in checks],
+        "lessons": _lesson_uses(db, user_id, ("hands",)),
+        "outcomes": events,
+    }
 
 
 def _memory(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
@@ -150,6 +306,14 @@ def _memory(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                        .order_by(WorkingItem.updated_at.desc()).limit(LIMIT)).all()
     events = db.scalars(select(MemoryEvent).where(MemoryEvent.user_id == user_id)
                         .order_by(MemoryEvent.recorded_at.desc()).limit(LIMIT)).all()
+    facts = db.scalars(select(SemanticMemory).where(SemanticMemory.user_id == user_id)
+                       .order_by(SemanticMemory.created_at.desc()).limit(LIMIT)).all()
+    lessons = db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id)
+                         .order_by(MemoryLesson.updated_at.desc()).limit(LIMIT)).all()
+    uses = dict(db.execute(select(MemoryLessonUse.lesson_id, func.count()).where(
+        MemoryLessonUse.user_id == user_id, MemoryLessonUse.received.is_(True),
+        MemoryLessonUse.lesson_id.in_([r.id for r in lessons] or [uuid.uuid4()]))
+        .group_by(MemoryLessonUse.lesson_id)).all())
     pending = db.scalar(select(func.count()).select_from(MemoryJob).where(
         MemoryJob.user_id == user_id, MemoryJob.status.in_(("pending", "processing", "retry"))))
     return {
@@ -158,7 +322,21 @@ def _memory(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                   "at": _iso(i.updated_at)} for i in items],
         "events": [{"id": e.id, "kind": e.kind, "epistemic": e.epistemic, "text": _clip(e.text, 300),
                     "at": _iso(e.recorded_at)} for e in events],
+        "facts": [{"id": str(f.id), "kind": f.kind, "status": f.status, "text": _clip(f.content, 300),
+                   "confidence": round(f.confidence, 2), "revision": f.revision, "at": _iso(f.created_at)}
+                  for f in facts],
+        "lessons": [{"id": str(r.id), "kind": r.kind, "scope": r.scope, "status": r.status, "origin": r.origin,
+                     "statement": _clip(r.statement, 400), "applies_when": _clip(r.applies_when, 300),
+                     "reason": _clip(r.status_reason, 200), "revision": r.revision, "used": uses.get(r.id, 0),
+                     "at": _iso(r.updated_at)} for r in lessons],
     }
+
+
+def _learning(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
+    gaps = db.scalars(select(CaptureGap).where(CaptureGap.user_id == user_id)
+                      .order_by(CaptureGap.detected_at.desc()).limit(LIMIT)).all()
+    return {"gaps": [{"id": g.id, "at": _iso(g.detected_at), "kind": g.record_kind, "label": g.label,
+                      "reason": g.reason, "tries": g.tries, "detail": _clip(g.detail, 300)} for g in gaps]}
 
 
 def _observation(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
@@ -175,7 +353,7 @@ def _observation(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
 
 
 _FEEDS = {"mouth": _mouth, "cognition": _cognition, "mind": _mind, "hands": _hands, "memory": _memory,
-          "observation": _observation}
+          "observation": _observation, "learning": _learning}
 
 
 def feed(db: Session, user_id: uuid.UUID, part: str) -> dict[str, Any] | None:
@@ -184,4 +362,119 @@ def feed(db: Session, user_id: uuid.UUID, part: str) -> dict[str, Any] | None:
     return None if build is None else build(db, user_id)
 
 
-__all__ = ["PARTS", "feed"]
+# --------------------------------------------------------------------------- #
+# The watch log and the errors
+# --------------------------------------------------------------------------- #
+
+WATCH_LIMIT = 60
+
+
+def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
+    """What the owner watches most, as one log, newest first: what she thought (mind), what memory captured
+    (events, facts, lessons) and her hands' goal (plan changes, steps counted done, skill runs). Real records only;
+    each item says which part it came from, and its anchor on that part's page."""
+    items: list[dict[str, Any]] = []
+
+    def add(part: str, kind: str, at: str | None, title: str, text: str | None, *, anchor: str, ref: str,
+            tone: str | None = None, detail: str | None = None) -> None:
+        if at:
+            items.append({"id": f"{part}:{kind}:{ref}", "part": part, "kind": kind, "at": at, "title": title,
+                          "text": text, "detail": detail, "anchor": anchor, "tone": tone})
+
+    for t in db.scalars(select(MindThought).where(MindThought.user_id == user_id)
+                        .order_by(MindThought.created_at.desc()).limit(25)):
+        o = _thought_out(t)
+        what = "plan" if t.kind == "plan" else f"{t.level} thought"
+        add("mind", "thought", o["at"], " · ".join(b for b in (what, o["conclusion"], o["judged"]) if b), o["text"],
+            anchor="planner" if t.kind == "plan" else ("hard" if t.level == "hard" else "quick"), ref=o["id"],
+            tone="muted" if t.status in ("dropped", "stale") else None,
+            detail=o["thinking"])
+    for e in db.scalars(select(MemoryEvent).where(MemoryEvent.user_id == user_id)
+                        .order_by(MemoryEvent.recorded_at.desc()).limit(20)):
+        add("memory", "event", _iso(e.recorded_at), f"noted · {e.kind.replace('_', ' ')} · {e.epistemic}",
+            _clip(e.text, 300), anchor="events", ref=str(e.id))
+    for f in db.scalars(select(SemanticMemory).where(SemanticMemory.user_id == user_id)
+                        .order_by(SemanticMemory.created_at.desc()).limit(15)):
+        add("memory", "fact", _iso(f.created_at), f"fact · {f.kind}", _clip(f.content, 300), anchor="facts",
+            ref=str(f.id), tone="muted" if f.status != "active" else None)
+    for r in db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id)
+                        .order_by(MemoryLesson.updated_at.desc()).limit(10)):
+        add("memory", "lesson", _iso(r.updated_at), f"lesson · {r.status} · rev {r.revision}", _clip(r.statement, 300),
+            anchor="lessons", ref=f"{r.id}:{r.revision}", tone="muted" if r.status == "withdrawn" else None)
+    for x in db.scalars(select(DecisionExecution).where(
+            DecisionExecution.user_id == user_id,
+            DecisionExecution.kind.in_(("skill_run", "step_check", "plan_apply")))
+            .order_by(DecisionExecution.captured_at.desc()).limit(30)):
+        at = _iso(x.ended_at or x.captured_at)
+        if x.kind == "skill_run":
+            run = _run_out(x)
+            add("hands", "run", at, f"ran · {x.result}" + (f" · {run['seconds']} s" if run["seconds"] else ""),
+                _skill_line(x.intended) or "a skill",
+                anchor="decisions", ref=str(x.id), tone="error" if x.result == "failed" else None,
+                detail=" · ".join(b for b in (run["reason"], run["inventory"] and f"inventory: {run['inventory']}") if b) or None)
+        elif x.kind == "step_check":
+            add("hands", "step", at, "step counted done", _clip((x.intended or {}).get("do"), 300), anchor="checks",
+                ref=str(x.id), detail=_clip((x.executed or {}).get("counted"), 300))
+        else:
+            plan = ((x.executed or {}).get("plan_after") or {})
+            add("hands", "plan", at, f"plan applied · {x.result}", _clip(plan.get("goal") or (x.intended or {}).get("goal"), 300),
+                anchor="goal", ref=str(x.id), tone="error" if x.result == "failed" else None,
+                detail=_clip(x.deviation, 300))
+    items.sort(key=lambda i: i["at"], reverse=True)
+    return {"goal": _game_goal(db, user_id), "items": items[:WATCH_LIMIT]}
+
+
+def errors(db: Session, user_id: uuid.UUID, status: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """What went wrong lately across her parts, newest first: worker errors (heartbeats), decisions that produced
+    nothing valid, executions that failed (not game skills: those are play, on the Hands page), background work
+    errors, memory jobs that failed, capture gaps and sources reporting errors."""
+    now = datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+    for part in (status or {}).get("parts", []):
+        for w in part.get("workers", []):
+            if w.get("error"):
+                at = (datetime.fromtimestamp(time.time() - (w.get("seen_ago") or 0), timezone.utc)).isoformat()
+                out.append({"id": f"worker:{w['name']}", "part": part["id"], "at": at, "what": f"worker {w['name']}",
+                            "text": _clip(w["error"], 400)})
+    learner_part = {"student_1": "cognition", "student_2": "cognition", "hands": "hands", "planner": "mind",
+                    "hard_thought": "mind"}
+    for a in db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
+                                                      DecisionAttempt.status != "ok")
+                        .order_by(DecisionAttempt.captured_at.desc()).limit(20)):
+        out.append({"id": f"attempt:{a.id}", "part": learner_part.get(a.learner, "learning"),
+                    "at": _iso(a.captured_at), "what": f"{a.learner.replace('_', ' ')} · {a.status}",
+                    "text": _clip(a.error, 400) or "no valid answer", "turn_id": str(a.turn_id) if a.turn_id else None,
+                    "attempt_id": str(a.id)})
+    exec_part = {"reply": "mouth", "heard": "mouth", "channel_delivery": "mouth", "plan_apply": "mind",
+                 "thought_route": "mind", "effect": "cognition", "step_check": "hands"}
+    for x in db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
+                                                        DecisionExecution.result == "failed",
+                                                        DecisionExecution.kind != "skill_run")
+                        .order_by(DecisionExecution.captured_at.desc()).limit(20)):
+        out.append({"id": f"execution:{x.id}", "part": exec_part.get(x.kind, "cognition"),
+                    "at": _iso(x.captured_at), "what": f"{x.kind.replace('_', ' ')} failed",
+                    "text": _clip(x.deviation, 400), "turn_id": str(x.turn_id) if x.turn_id else None})
+    for w in db.scalars(select(CoordinatorWork).where(CoordinatorWork.user_id == user_id,
+                                                      CoordinatorWork.error_code.is_not(None))
+                        .order_by(CoordinatorWork.created_at.desc()).limit(10)):
+        out.append({"id": f"work:{w.id}", "part": "cognition", "at": _iso(w.updated_at or w.created_at),
+                    "what": f"background {w.kind} · {w.status}", "text": w.error_code})
+    for j in db.scalars(select(MemoryJob).where(MemoryJob.user_id == user_id, MemoryJob.last_error.is_not(None))
+                        .order_by(MemoryJob.created_at.desc()).limit(10)):
+        out.append({"id": f"memory-job:{j.id}", "part": "memory", "at": _iso(j.processed_at or j.created_at),
+                    "what": f"memory job · {j.status} · try {j.attempts}", "text": _clip(j.last_error, 400)})
+    for g in db.scalars(select(CaptureGap).where(CaptureGap.user_id == user_id)
+                        .order_by(CaptureGap.detected_at.desc()).limit(10)):
+        out.append({"id": f"gap:{g.id}", "part": "learning", "at": _iso(g.detected_at),
+                    "what": f"capture gap · {g.label} · {g.reason.replace('_', ' ')}", "text": _clip(g.detail, 400),
+                    "turn_id": str(g.turn_id) if g.turn_id else None})
+    for src in db.scalars(select(ObservationSource).where(ObservationSource.user_id == user_id,
+                                                          ObservationSource.last_error.is_not(None))):
+        out.append({"id": f"source:{src.source}:{src.source_instance}", "part": "observation",
+                    "at": _iso(src.last_received_at) or now.isoformat(), "what": f"source {src.source}",
+                    "text": _clip(src.last_error, 400)})
+    out.sort(key=lambda e: e["at"] or "", reverse=True)
+    return out[:60]
+
+
+__all__ = ["PARTS", "feed", "highlights", "errors"]
