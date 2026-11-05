@@ -1139,7 +1139,7 @@ class MindThought(Base):
     source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     activity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     # The earlier conclusion it says it carries out (a short id from her effort timeline), as the model said
-    # it; code never infers it (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+    # it; code never infers it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
     follows: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Her judgment of the effort when she had one to judge: progress (yes/no/unclear), and when it isn't, the
     # cause she favours, a check, what it would support and what it would leave unknown (stage 2).
@@ -1435,7 +1435,7 @@ MEMORY_CONTEXT_KINDS = ("general", "activity", "project", "world")
 MEMORY_CONTEXT_STATUSES = ("active", "paused", "closed")
 WORKING_ITEM_KINDS = ("goal", "intention", "commitment", "question", "hypothesis", "decision", "plan", "constraint")
 # What may point at the goal it serves (parent_id): a sub-goal, and her own items and the user's rules for it
-# (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md: an outcome gathers the approaches taken for it).
+# (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md: an outcome gathers the approaches taken for it).
 WORKING_ITEM_SERVES = ("goal", "decision", "intention", "hypothesis", "question", "constraint")
 # Per kind: (open statuses, closed statuses).
 WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {

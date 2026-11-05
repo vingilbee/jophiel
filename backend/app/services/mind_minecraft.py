@@ -126,7 +126,7 @@ def _active(session: DesktopSession, plan: dict | None, driver: dict) -> dict | 
 
 def step_ended(st: Triggers, session: DesktopSession, plan: dict | None, driver: dict) -> Problem | None:
     """A step of her plan ended: a moment to look back over the whole effort (stage 2 of
-    docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md). Whether it's getting anywhere is her mind's to judge from the
+    docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md). Whether it's getting anywhere is her mind's to judge from the
     record; code only notices that a part of it ended. No time limit or count of tries is involved.
 
     Ended means: her hands finished it; her hands gave up on it (stuck); or the plan moved on while it was
@@ -463,7 +463,7 @@ class MinecraftSource:
         goal = plan.get("goal") and (plan["goal"] + (f'; current step: {active["do"]}' if active else ""))
         from app.services import effort
 
-        # Her effort: the outcome from memory and the story of it (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+        # Her effort: the outcome from memory and the story of it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
         # The plan's own goal is only her current approach, shown inside it.
         story = effort.lines_for_session(db, session, user=base.user, senses=SENSES, coverage=coverage(state))
         now = _brief(state)

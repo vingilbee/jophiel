@@ -133,7 +133,7 @@ def test_one_hard_thought_at_a_time_with_a_gap(brain):
 
 
 def test_a_step_that_ends_is_a_moment_to_look_back_with_no_count_of_tries(brain):
-    """Stage 2 (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md): no number decides she's stuck; a step ending makes her
+    """Stage 2 (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md): no number decides she's stuck; a step ending makes her
     look back over the whole effort, and her mind judges it. Many failed tries alone raise nothing."""
     steps = [{"id": "s1", "state": "active", "do": "find iron ore"}, {"id": "s2", "state": "pending", "do": "mine it"}]
     brain.session.plan = {"goal": "iron armor", "steps": steps}

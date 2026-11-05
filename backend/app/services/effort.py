@@ -1,4 +1,4 @@
-"""Her effort in a game session, built from what was recorded (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+"""Her effort in a game session, built from what was recorded (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
 
 The outcome is the goal the session plays for (working memory); everything else is read from the records
 that already exist, so nothing here can drift from what happened:

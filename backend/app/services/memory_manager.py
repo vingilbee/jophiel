@@ -734,7 +734,7 @@ def goal_line(db: Session, session: DesktopSession) -> str | None:
 
 
 # --------------------------------------------------------------------------- #
-# An effort: an outcome and what serves it (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md)
+# An effort: an outcome and what serves it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md)
 # --------------------------------------------------------------------------- #
 
 

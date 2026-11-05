@@ -1,4 +1,4 @@
-"""The effort record (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md, stage 1).
+"""The effort record (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md, stage 1).
 
 - ``constraint``: a new working-item kind, a rule the user gave for an outcome, in their words
   (``user_words`` required), ``active`` until ``lifted``.

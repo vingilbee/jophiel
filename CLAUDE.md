@@ -110,7 +110,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   to think: Jev / OpenAI Decisions / chat / Strands), think.py (quick thoughts),
                         #   plan.py (her planner: the one author of her game plan),
                         #   effort.py (her effort, pure: outcome / approach / actions / the user's rules as a
-                        #   timeline she and her planner read; docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md),
+                        #   timeline she and her planner read; docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md),
                         #   mood_layers.py (her inner state: reaction -> incident -> mood, frozen config in
                         #   Cognitive/simple/character/columbina.inner_state.json), inner_state.py (the flat model it replaced,
                         #   kept for comparison)

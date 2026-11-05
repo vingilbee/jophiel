@@ -1,4 +1,4 @@
-"""Her effort: the story of what she is working toward (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md, stage 1).
+"""Her effort: the story of what she is working toward (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md, stage 1).
 
 A snapshot of the moment says where she is; it can't say how long she has been at something, what she
 already tried, whether she carried out what she concluded, or that the plan she follows is only one way to

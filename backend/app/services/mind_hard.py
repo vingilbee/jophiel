@@ -128,7 +128,7 @@ def reset() -> None:
 # --------------------------------------------------------------------------- #
 
 # Problems about how her effort is going: while one waits, small ones of the same activity are added up into
-# it instead of each taking a thought (stage 2 of docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md: live 2026-11-04,
+# it instead of each taking a thought (stage 2 of docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md: live 2026-11-04,
 # 25 of 35 hard thoughts were "you got cobblestone x1"). A look back is never pushed out by a surprise.
 GROUPED = ("surprise", "review")
 MEANWHILE_KEPT = 8

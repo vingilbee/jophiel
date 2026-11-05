@@ -486,7 +486,7 @@ def _said_by_user(db: Session, user_id: uuid.UUID, words: str, since) -> uuid.UU
 
 
 def remember(db: Session, session: DesktopSession, decision) -> list[str]:
-    """The user's rules and places the planner named, kept under the outcome (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md).
+    """The user's rules and places the planner named, kept under the outcome (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
     Which layer a correction changes is the planner's call; code only checks the user really said it."""
     from app.services import memory_manager
 

@@ -1,4 +1,4 @@
-"""Her effort (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md, stage 1): the story of what she works toward.
+"""Her effort (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md, stage 1): the story of what she works toward.
 
 The record's shape, collapsing, time and rendering need nothing. Memory's side (her items under the goal
 they serve, the user's rules, places), the builder and the planner keeping rules need real PostgreSQL

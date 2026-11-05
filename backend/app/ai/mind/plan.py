@@ -49,7 +49,7 @@ it changed. When {user} cancels an action ("don't follow me"), that approach goe
 outcome stays, with what they showed her.
 
 Look first, like a person does before deciding what to do next (stage 2 of \
-docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md):
+docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md):
 - sees: what she perceives right now that bears on the goal, in a few plain sentences: where she is (outdoors, \
 underground, in an open space and how big, which way it goes on), what's in view that matters, how her height \
 has changed. Only from what's below.

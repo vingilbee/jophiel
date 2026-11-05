@@ -34,7 +34,7 @@ TRIGGER_LINES = {
     "review": "one part of what she's working on just ended, a good moment to look back over the whole effort",
 }
 # Is the effort getting anywhere? Hers to judge from the record, never code's (stage 2 of
-# docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md): no time limit or count decides she's stuck.
+# docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md): no time limit or count decides she's stuck.
 PROGRESS = ("yes", "no", "unclear")
 # When it isn't, why: the four causes she weighs.
 CAUSES = {

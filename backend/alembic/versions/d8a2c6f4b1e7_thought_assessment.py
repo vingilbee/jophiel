@@ -1,4 +1,4 @@
-"""Her judgment of an effort on her hard thoughts (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md, stage 2).
+"""Her judgment of an effort on her hard thoughts (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md, stage 2).
 
 - ``mind_thoughts.assessment``: when she had an effort to judge, whether it's getting anywhere (yes / no /
   unclear) and, when it isn't, the cause she favours (ability / perception / situation / understanding), a

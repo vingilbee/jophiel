@@ -230,7 +230,7 @@ def _apply(db: Session, observation: Observation, payload: registry.ThoughtConcl
                                source=thought)
     text = payload.question if kind == "question" and payload.question else payload.conclusion
     # In a game, what she concluded serves the outcome the session plays for: it joins that effort
-    # (docs/COLUMBINA_EFFORT_AND_STUCK_PLAN.md), so the outcome gathers the approaches she took for it.
+    # (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md), so the outcome gathers the approaches she took for it.
     goal = memory_manager.open_goal_of_session(db, observation.session_id)
     serves = goal.id if goal is not None and goal.context_id == observation.context_id else None
     entry = memory_manager.add_item(db, user_id, kind=kind, text_=text, owner="columbina", epistemic="inferred",
