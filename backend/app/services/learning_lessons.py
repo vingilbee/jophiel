@@ -6,7 +6,9 @@ speaks or acts, and an assessment doesn't become a lesson because it ran.
 
 1. **Queuing** (``on_revision``, in the assessment revision's transaction): a revision is read for lessons when it
    has something a lesson can rest on (a stated preference or meaning, a cause supported on its component's own
-   record) or when a lesson already rests on this assessment. One job per (assessment, revision).
+   record, a supported dimension, a finding that is supported or contradicted or bears on an existing lesson) or
+   when a lesson already rests on this assessment. A stretch the reviewer left is never read for lessons unless a
+   lesson rests on an earlier revision of it. One job per (assessment, revision).
 2. **Reading** (``process``): the revision's checked conclusions, the conversation it read (as heard, forgotten
    parts withheld, the user's notes on it), and the lessons memory holds for the user. One structured call
    (``app/ai/learning/lessons.py``) proposes changes; code checks them (``lessons.check``).
@@ -61,8 +63,14 @@ def _aware(at: datetime | None) -> datetime | None:
 
 
 def worth_reading(result: dict, *, game: bool = False) -> bool:
-    """A revision a lesson could rest on: the user's own stated meaning or preference, or a cause supported on its
-    component's own record (code-checked in step 2)."""
+    """A revision a lesson could rest on: the user's own stated meaning or preference, a cause supported on its
+    component's own record (code-checked in step 2), a supported cost/progress/knowledge dimension, or a finding
+    that is supported or contradicted, or bears on an existing lesson (post-audit 3). Never a left stretch."""
+    if (result.get("review") or {}).get("decision") == "leave":
+        return False
+    if any(f.get("status") in ("supported", "contradicted") or f.get("relates_to")
+           for f in result.get("findings") or []):
+        return True
     return bool(result.get("user_stated")) or any(
         c.get("status") == "supported" and c.get("component") != "unclear" for c in result.get("causes") or []) or any(
         d.get("status") == "supported" and d.get("value") != "unknown"
@@ -108,15 +116,14 @@ def bundle_for(db: Session, row: LearningAssessment, revision: LearningAssessmen
     from app.services import learning_assessment as LA
     from app.services import memory_lessons
 
-    s = get_settings()
     result = revision.result or {}
-    plan_dict = (revision.rounds or [{}])[-1].get("plan") or {}
-    plan = LA.Plan(**{k: plan_dict[k] for k in ("earlier", "later", "inputs", "game") if k in plan_dict})
+    plan = LA.Plan.from_dict((revision.rounds or [{}])[-1].get("plan"))
     plan.inputs = False  # learner inputs aren't evidence for a lesson
+    plan.requests = ()  # nor are memory's answers: the conclusions carry what they supported
     ev = LA.gather(db, row, plan).ev
     b = L.Bundle(assessment_id=str(row.id), assessment_revision=revision.revision, occasion=row.trigger_key,
                  occasion_at=_aware(row.anchor_at), trigger=ev.trigger or row.trigger_kind,
-                 explanation=revision.explanation or "", min_occasions=s.lessons_min_occasions)
+                 explanation=revision.explanation or "")
     for item in ev.items.values():
         if item.kind in ("user", "her"):
             b.lines[item.ref] = L.Line(item.ref, "user" if item.kind == "user" else "columbina", item.text,
@@ -157,8 +164,18 @@ def bundle_for(db: Session, row: LearningAssessment, revision: LearningAssessmen
         if e.get("choice") != "unclear":
             add("choice", "supported", f"her choice in {where(e['target'])} was {e['choice']} given what she had; "
                 f"outcome {e['outcome']}" + (f" ({e['note']})" if e.get("note") else ""), e)
+    for e in result.get("findings") or []:
+        relates = "; ".join(f"{r['relation']} an existing lesson (id {r['id']}, revision {r['revision']})"
+                            for r in e.get("relates_to") or [])
+        add("finding", e["status"], f"finding ({e.get('form') or 'understanding'}): {e['statement']}"
+            + (f"; applies: {e['applies_when']}" if e.get("applies_when") else "")
+            + (f"; other explanations: {'; '.join(e['alternatives'])}" if e.get("alternatives") else "")
+            + (f"; {relates}" if relates else ""), e)
+    roots = sorted({root for key in ("targets", "causes", "user_stated", "dimensions", "findings")
+                    for e in result.get(key) or [] for root in e.get("roots") or []})
+    query = " ".join([revision.explanation or ""] + [e.get("statement", "") for e in result.get("findings") or []])
     b.lessons, b.withdrawn = memory_lessons.shown_for(db, row.user_id, assessment_id=row.id,
-                                                      assessment_revision=revision.revision)
+                                                      assessment_revision=revision.revision, roots=roots, query=query)
     return b
 
 

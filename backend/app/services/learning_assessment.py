@@ -3,21 +3,26 @@
 
 Learning reads what happened and what the evidence supports. It never speaks, never acts and never writes memory.
 
-1. **Triggers** (code only). The ``learning`` consumer of observations: a user message Student 1 read as
-   correcting her (``correction``) or complaining (``complaint``); otherwise a deterministic sample of ordinary
-   messages (``sample``); an interrupted spoken reply, a failed delivery, a failed skill run (``execution``). A
-   sweep adds what isn't an observation: a failed or cut-off reply, a failed effect, a memory correction that
-   read a message as correcting an earlier statement (attached to that message's assessment). One assessment
-   per trigger key, so reprocessing never duplicates one; evidence is attached once per ref.
+1. **Triggers** (code only; post-audit 3, ``services/learning_review.py``). The ``learning`` consumer of
+   observations: every completed exchange extends the conversation's ``review`` stretch, an opportunity the
+   reviewer judges (examine, wait or leave), never a verdict. Student 1 reading a message as a correction or a
+   complaint, and memory reading it as correcting an earlier statement, are signals shown on the stretch, not
+   reasons of their own. An interrupted spoken reply, a failed delivery, a failed skill run and a critical game
+   notice stay ``execution`` facts with their own assessment. A sweep adds what isn't an observation: a failed
+   or cut-off reply, a failed effect, her last reply in a conversation gone quiet, ongoing game play. One
+   assessment per trigger key, so reprocessing never duplicates one; evidence is attached once per ref.
 2. **Investigation.** Code gathers the conversation around the trigger (heard text, forgotten parts withheld),
    the turns before it as targets with their captured records (Student 1's reading, Student 2's decision, the
    reply's delivery, what was heard, the effect), facts checked by code (each says what it establishes and what
    it doesn't), quotes of her words, memory corrections, game outcomes and her hands' decisions, the user's
    notes, and other open assessments in the conversation. One evaluator call per round
    (``app/ai/learning/assessment.py``); code checks every ref, quote and component claim. The evaluator may ask
-   to look further (earlier messages, later ones, the exact learner inputs, more game outcomes). There is no
-   round budget: it stops when it concludes, when what it needs is missing, or when it is stuck (what it asked
-   for adds nothing new, or is more than can be read at once).
+   to look further (earlier messages, later ones, the exact learner inputs, more game outcomes) and ask memory,
+   her other conversations, other game experience and her existing lessons (``requests``). There is no round
+   budget: it stops when it concludes, leaves it, waits for more, when what it needs is missing, or when it is
+   stuck (what it asked for adds nothing new, or is more than can be read at once). Every stop but a conclusion
+   parks a resumable inquiry (``inquiry``: question, provisional reading, alternatives, unknowns, what would
+   resume it); a wake whose evidence is unchanged reads nothing again and calls no model.
 3. **Revisions.** Each evaluation that read different evidence is a new revision; the one before is superseded
    and kept. Reading the same evidence again is not a revision (repetition is not evidence). New evidence
    (a capture that arrives late, a correction, a later message another assessment found relevant, the user's
@@ -39,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from sqlalchemy import String, cast, delete, exists, false, func, literal, or_, select
+from sqlalchemy import Integer, String, cast, delete, exists, false, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -47,7 +52,7 @@ from app.ai.learning import assessment as A
 from app.ai.observe import registry
 from app.core.config import get_settings
 from app.db.models import (
-    CaptureGap, ChatMessage, DecisionAttempt, DecisionExecution, DesktopSession, GameExperience, LearningAssessment,
+    CaptureGap, ChatMessage, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, GameExperience, LearningAssessment,
     LearningAssessmentEvidence, LearningAssessmentLink, LearningAssessmentRevision, LearningAssessmentUse,
     MemoryCorrection, Observation, ObservationProcessing, TrainingExample,
 )
@@ -56,7 +61,7 @@ from app.services.learning_capture import execution_id_for
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 CONSUMER = "learning"
-TRIAGE_VERSION = "learning-triage-v2"
+TRIAGE_VERSION = "learning-triage-v3"
 ADAPTER = "learning_assessment"  # observation_adapters row: when assessment began (nothing older is swept)
 LEASE = timedelta(minutes=10)
 TRIAGE_RETRY = timedelta(seconds=15)
@@ -68,7 +73,9 @@ GAME_MORE = 12
 INPUT_CHARS = 4000
 QUOTE_MIN = 12
 OPEN_SHOWN = 5
-PRIORITY = {"sample": 0, "execution": 1, "complaint": 2, "correction": 3}
+OPEN_ELSEWHERE = 5  # the user's parked inquiries in other conversations or sessions, most recent first
+REQUEST_RESULTS = 6  # results shown per request (an answer is a page; asking again more precisely gets others)
+PRIORITY = {"review": 0, "sample": 0, "execution": 1, "complaint": 2, "correction": 3}
 FORGOTTEN = "[forgotten: not shown]"
 
 _log_lock = threading.Lock()
@@ -92,12 +99,6 @@ def _uuid(value: Any) -> uuid.UUID | None:
 
 def assessment_id(user_id: uuid.UUID, key: str) -> uuid.UUID:
     return uuid.uuid5(user_id, f"assessment:{key}")
-
-
-def sampled(message_id: uuid.UUID, rate: float | None = None) -> bool:
-    """Whether an ordinary message is sampled: by its id, so a retry decides the same."""
-    rate = get_settings().learning_assessment_sample_rate if rate is None else rate
-    return int(hashlib.sha256(str(message_id).encode()).hexdigest()[:8], 16) / 2 ** 32 < rate
 
 
 # --------------------------------------------------------------------------- #
@@ -261,6 +262,10 @@ def _triage_one(db: Session, observation: Observation | None, now: datetime) -> 
 
 
 def _triage_message(db: Session, observation: Observation, p: dict, now: datetime) -> tuple[str, str]:
+    """A completed exchange: an opportunity on the conversation's review stretch. Whether it says anything is the
+    reviewer's to judge; Student 1's reading of it is read as a signal when the stretch is gathered."""
+    from app.services import learning_review
+
     message = db.get(ChatMessage, _uuid(p.get("message_id")))
     if message is None or message.role != "user":
         return "skipped", "the message is gone"
@@ -269,30 +274,8 @@ def _triage_message(db: Session, observation: Observation, p: dict, now: datetim
         ChatMessage.conversation_sequence < message.conversation_sequence).limit(1))
     if before is None:
         return "skipped", "nothing of hers before it"
-    reading = db.scalar(select(DecisionAttempt).where(
-        DecisionAttempt.user_id == observation.user_id, DecisionAttempt.learner == "student_1",
-        DecisionAttempt.source_message_id == message.id).order_by(DecisionAttempt.started_at.desc()).limit(1))
-    waited = (now - _aware(message.created_at)).total_seconds()
-    if reading is None and waited < get_settings().learning_assessment_triage_wait_seconds:
-        return "wait", "waiting for Student 1's capture of the message"
-    acts = {}
-    if reading is not None and reading.status == "ok":
-        acts = ((reading.output or {}).get("understand") or {}).get("acts") or {}
-    note = "" if reading is not None else " (Student 1's reading wasn't captured)"
-    if acts.get("correcting_her"):
-        kind, why = "correction", "Student 1 read it as correcting her"
-    elif acts.get("complaining"):
-        kind, why = "complaint", "Student 1 read it as a complaint"
-    elif sampled(message.id):
-        kind, why = "sample", "an ordinary exchange, sampled"
-    else:
-        return "skipped", f"an ordinary message, not sampled{note}"
-    open_assessment(db, user_id=observation.user_id, kind=kind, key=f"message:{message.id}",
-                    anchor_at=message.created_at, conversation_id=message.conversation_id,
-                    anchor_message_id=message.id, trigger={
-                        "why": why + note, "observation": observation.id,
-                        "student_1": str(reading.id) if reading is not None else None})
-    return "applied", why + note
+    learning_review.conversation(db, observation.user_id, message, why="a completed exchange")
+    return "applied", "a completed exchange: a review opportunity"
 
 
 # --------------------------------------------------------------------------- #
@@ -310,7 +293,7 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
     """Failed or cut-off replies, failed effects, memory corrections and captures that arrived late. Commits."""
     now = now or _now()
     horizon = max(started_at(db), now - timedelta(days=get_settings().learning_capture_retention_days))
-    done = {"replies": 0, "effects": 0, "corrections": 0, "arrived": 0}
+    done = {"replies": 0, "effects": 0, "corrections": 0, "arrived": 0, "pauses": 0, "games": 0}
 
     from app.db.models import LearningReset
 
@@ -355,17 +338,18 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
         ~exists().where(LearningAssessmentEvidence.user_id == MemoryCorrection.user_id,
                         LearningAssessmentEvidence.ref == literal("correction:") + cast(MemoryCorrection.id, String)),
     ).order_by(MemoryCorrection.created_at).limit(limit))
+    from app.services import learning_review
     for row in list(corrections):
         message = db.get(ChatMessage, row.source_message_id)
         from app.services.memory_reset import learning_cutoff
         if message is None or _aware(message.created_at) < learning_cutoff(db, row.user_id):
             continue
-        open_assessment(db, user_id=row.user_id, kind="correction", key=f"message:{message.id}",
-                        anchor_at=message.created_at, conversation_id=message.conversation_id,
-                        anchor_message_id=message.id,
-                        trigger={"why": "memory read it as correcting an earlier statement"},
-                        evidence=[(f"correction:{row.id}", "memory read this message as a correction", {})])
+        # A signal on the stretch the message is in, never a reason of its own.
+        learning_review.conversation(db, row.user_id, message, why="memory read it as correcting an earlier statement",
+                                     evidence=[(f"correction:{row.id}", "memory read this message as a correction", {})])
         done["corrections"] += 1
+    done["pauses"] = learning_review.sweep_pauses(db, now, horizon, limit=limit)
+    done["games"] = learning_review.sweep_games(db, now)
     waiting = db.scalars(select(LearningAssessment).where(
         LearningAssessment.state == "done", func.jsonb_array_length(LearningAssessment.awaiting) > 0,
         LearningAssessment.updated_at >= now - timedelta(days=get_settings().learning_capture_retention_days),
@@ -407,14 +391,31 @@ class Plan:
     later: bool = False
     inputs: bool = False
     game: int = 0
+    # What it asked memory and the other owners for, in order: ((source, query), ...). Kept across readings.
+    requests: tuple[tuple[str, str], ...] = ()
 
-    def expand(self, looks: Iterable[str]) -> "Plan":
+    def expand(self, looks: Iterable[str], requests: Iterable[dict] = ()) -> "Plan":
         looks = set(looks)
+        known = {(src, A._norm(q)) for src, q in self.requests}
+        asked = list(self.requests)
+        for r in requests:
+            if (r["source"], A._norm(r["query"])) not in known:
+                known.add((r["source"], A._norm(r["query"])))
+                asked.append((r["source"], r["query"]))
         return Plan(earlier=self.earlier + ("earlier" in looks), later=self.later or "later" in looks,
-                    inputs=self.inputs or "inputs" in looks, game=self.game + ("game" in looks))
+                    inputs=self.inputs or "inputs" in looks, game=self.game + ("game" in looks),
+                    requests=tuple(asked))
 
     def to_dict(self) -> dict:
-        return {"earlier": self.earlier, "later": self.later, "inputs": self.inputs, "game": self.game}
+        return {"earlier": self.earlier, "later": self.later, "inputs": self.inputs, "game": self.game,
+                "requests": [list(r) for r in self.requests]}
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "Plan":
+        data = data or {}
+        return cls(earlier=int(data.get("earlier") or 0), later=bool(data.get("later")),
+                   inputs=bool(data.get("inputs")), game=int(data.get("game") or 0),
+                   requests=tuple((str(a), str(b)) for a, b in (data.get("requests") or []) if a in A.SOURCES))
 
 
 @dataclass
@@ -445,13 +446,18 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
     # The conversation: the window before the anchor, later lines when asked for or attached.
     anchor = db.get(ChatMessage, row.anchor_message_id) if row.anchor_message_id else None
     messages: list[ChatMessage] = []
+    stretch = row.trigger_kind == "review" and row.game_session_id is None and "up_to_seq" in (row.trigger or {})
     if row.conversation_id is not None:
-        if anchor is not None:
+        if stretch:
+            upto = int(row.trigger["up_to_seq"])
+        elif anchor is not None:
             upto = anchor.conversation_sequence
         else:
             upto = db.scalar(select(func.max(ChatMessage.conversation_sequence)).where(
                 ChatMessage.conversation_id == row.conversation_id, ChatMessage.created_at <= row.anchor_at)) or 0
         window = s.learning_assessment_window_messages * 2 ** plan.earlier
+        if stretch:  # the whole stretch, and the window before it
+            window += max(0, upto - int(row.trigger.get("from_seq") or upto) + 1)
         messages = list(reversed(list(db.scalars(select(ChatMessage).where(
             ChatMessage.conversation_id == row.conversation_id, ChatMessage.conversation_sequence <= upto,
         ).order_by(ChatMessage.conversation_sequence.desc()).limit(window)))))
@@ -489,6 +495,8 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
             notes.append(f"heard {m.heard_chars} of {len(m.content or '')} characters")
         if m.id == row.anchor_message_id:
             notes.append("this started it")
+        if stretch and m.conversation_sequence == int(row.trigger.get("from_seq") or -1) and m.id != row.anchor_message_id:
+            notes.append("this stretch begins here")
         label = f"{ref} [{'columbina, ' + turn if turn else ('columbina' if her else 'user')}, {_hm(m.created_at)}]"
         ev.add(A.Item(ref=ref, kind="her" if her else "user",
                       event=f"turn:{m.turn_id}" if her and m.turn_id else f"message:{m.id}",
@@ -539,19 +547,41 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
         words = str((e.detail or {}).get("text") or "")
         ev.add(A.Item(ref=f"n{k}", kind="note", event=e.ref, roots=(e.ref,), text=words, words=words))
 
-    # Other open assessments here (not evidence; for reopening).
-    others = select(LearningAssessment).where(
+    # Evidence another assessment found bearing on this one, from another conversation or game session.
+    _elsewhere(db, row, ev, attached)
+
+    # Signals: labels other parts gave, shown as such (post-audit 3). Never evidence, never the reason to assess.
+    ev.signals = _signals(db, row, messages, lines, evidence_rows)
+
+    # What it asked memory and the other owners for (read only; each answer says its coverage).
+    _requests(db, row, ev, plan, {m.id for m in messages})
+
+    # Open inquiries and unresolved assessments, here first, then the user's parked inquiries elsewhere (not
+    # evidence; for reopening: later evidence in another session can resume one with its state).
+    here = select(LearningAssessment).where(
         LearningAssessment.user_id == row.user_id, LearningAssessment.id != row.id,
         LearningAssessment.state == "done", LearningAssessment.outcome == "unresolved")
     if row.conversation_id is not None:
-        others = others.where(LearningAssessment.conversation_id == row.conversation_id)
+        here = here.where(LearningAssessment.conversation_id == row.conversation_id)
     elif row.game_session_id is not None:
-        others = others.where(LearningAssessment.game_session_id == row.game_session_id)
+        here = here.where(LearningAssessment.game_session_id == row.game_session_id)
     else:
-        others = others.where(false())
-    for k, other in enumerate(db.scalars(others.order_by(LearningAssessment.updated_at.desc()).limit(OPEN_SHOWN)), 1):
-        ev.open[f"p{k}"] = A.OpenAssessment(f"p{k}", str(other.id), f"{other.trigger_kind} at {_hm(other.anchor_at)}: "
-                                                                    f"{(other.explanation or '')[:300]}")
+        here = here.where(false())
+    shown = list(db.scalars(here.order_by(LearningAssessment.updated_at.desc()).limit(OPEN_SHOWN)))
+    elsewhere = select(LearningAssessment).where(
+        LearningAssessment.user_id == row.user_id, LearningAssessment.id != row.id,
+        LearningAssessment.id.not_in([o.id for o in shown] or [uuid.uuid4()]),
+        LearningAssessment.state == "done", LearningAssessment.inquiry["question"].astext != "")
+    shown += list(db.scalars(elsewhere.order_by(LearningAssessment.updated_at.desc()).limit(OPEN_ELSEWHERE)))
+    for k, other in enumerate(shown, 1):
+        question = (other.inquiry or {}).get("question")
+        where = ("this conversation" if other.conversation_id and other.conversation_id == row.conversation_id
+                 else "this game session" if other.game_session_id and other.game_session_id == row.game_session_id
+                 else "elsewhere")
+        ev.open[f"p{k}"] = A.OpenAssessment(
+            f"p{k}", str(other.id), f"{other.trigger_kind} at {_hm(other.anchor_at)} ({where}): "
+            + (f"open question: {question[:300]}; waiting for: {(other.inquiry or {}).get('resume_when') or '-'}"
+               if question else (other.explanation or "")[:300]))
 
     if plan.inputs is False and any(i.kind == "record" and i.captured for i in ev.items.values()):
         ev.can_look["inputs"] = "the exact inputs each captured learner was given"
@@ -857,6 +887,168 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
                           text="Pack clock and coverage (not the backend clock): " + json.dumps(detail, default=str)))
 
 
+def _elsewhere(db: Session, row: LearningAssessment, ev: A.Evidence, attached: set[str]) -> None:
+    """Attached messages and game experiences that aren't part of this assessment's own conversation or session
+    (another assessment reopened this one with them). Shown so a parked inquiry resumes on them."""
+    from app.services import memory_forget
+
+    shown = ev.evidence_roots()
+    extra = sorted(r for r in attached if r.startswith(("message:", "experience:")) and r not in shown)
+    if not extra:
+        return
+    ids = [i for i in (_uuid(r.split(":", 1)[1]) for r in extra if r.startswith("message:")) if i]
+    messages = list(db.scalars(select(ChatMessage).join(Conversation, Conversation.id == ChatMessage.conversation_id)
+                               .where(ChatMessage.id.in_(ids or [uuid.uuid4()]), Conversation.user_id == row.user_id)
+                               .order_by(ChatMessage.created_at)))
+    cuts = memory_forget.memory_cuts(db, row.user_id, [m.id for m in messages])
+    n = 0
+    for m in messages:
+        text = memory_forget.memory_view(m.content, m.heard_chars, m.role, cuts.get(m.id, False))
+        n += 1
+        who = "columbina" if m.role == "assistant" else "user"
+        ev.add(A.Item(ref=f"e{n}", kind="said", event=f"message:{m.id}", roots=(f"message:{m.id}",),
+                      words=text, group="elsewhere",
+                      text=f'[{who}, another conversation, {_hm(m.created_at)}] "{FORGOTTEN if text is None else text}"'))
+    numbers = [int(r.split(":", 1)[1]) for r in extra if r.startswith("experience:") and r.split(":", 1)[1].isdigit()]
+    for e in db.scalars(select(GameExperience).where(GameExperience.user_id == row.user_id,
+                                                     GameExperience.id.in_(numbers or [-1])).order_by(GameExperience.id)):
+        n += 1
+        ev.add(A.Item(ref=f"e{n}", kind="game", fact_kind="skill" if e.kind == "skill_outcome" else "notice",
+                      event=f"experience:{e.id}", roots=(f"experience:{e.id}",), group="elsewhere",
+                      text=f"[{_hm(e.occurred_at)}, session {str(e.session_id)[:8]}] {e.kind}: "
+                           f"{_game_excerpt(e.payload, 900)}. A recorded report from another session."))
+
+
+_ACT_SIGNALS = {"correcting_her": "as correcting her", "complaining": "as complaining"}
+
+
+def _signals(db: Session, row: LearningAssessment, messages: list[ChatMessage], lines: dict,
+             evidence_rows: list[LearningAssessmentEvidence]) -> list[str]:
+    """Labels other parts gave the activity shown: Student 1's reading of a user line as a correction or complaint,
+    and her mind pointing at something. Said as labels; whether they matter is the reviewer's."""
+    out = []
+    users = {m.id: lines[m.id] for m in messages if m.role == "user" and m.id in lines}
+    if users:
+        readings = db.scalars(select(DecisionAttempt).where(
+            DecisionAttempt.user_id == row.user_id, DecisionAttempt.learner == "student_1",
+            DecisionAttempt.status == "ok", DecisionAttempt.source_message_id.in_(list(users)))
+            .order_by(DecisionAttempt.started_at))
+        latest = {r.source_message_id: r for r in readings}
+        for message_id, reading in latest.items():
+            acts = ((reading.output or {}).get("understand") or {}).get("acts") or {}
+            for act, words in _ACT_SIGNALS.items():
+                if acts.get(act):
+                    out.append(f"Student 1 read {users[message_id]} {words} (its label; it can misread jokes, "
+                               "quotes and remarks aimed at someone else)")
+    for e in evidence_rows:
+        if e.ref.startswith("nomination:"):
+            out.append(f'her mind pointed at this: "{(e.detail or {}).get("text", "")}" (her own thought: not '
+                       "evidence; check it against the records)")
+    return out
+
+
+def _requests(db: Session, row: LearningAssessment, ev: A.Evidence, plan: Plan, shown: set[uuid.UUID]) -> None:
+    """Answer each request from its owner, read only, in order. Results already shown are named, not repeated."""
+    n = 0
+    shown_roots = ev.evidence_roots()
+    lessons_seen: set[str] = set()
+    for k, (source, query) in enumerate(plan.requests, 1):
+        qref = f"q{k}"
+        try:
+            with db.begin_nested():
+                status, coverage, found = _ask(db, row, source, query, shown)
+        except Exception as exc:  # noqa: BLE001 - an owner failing is a gap, said as such
+            log.exception("learning assessment %s: request %s failed", row.id, qref)
+            status, coverage, found = "failed", f"the request failed ({type(exc).__name__}); nothing is known "                                                 "from it either way", []
+        new = 0
+        for item in found:
+            if isinstance(item, A.PriorLesson):
+                if item.id in lessons_seen:
+                    continue
+                lessons_seen.add(item.id)
+                ref = f"L{len(ev.lessons) + 1}"
+                ev.lessons[ref] = A.PriorLesson(ref, item.id, item.revision, item.text)
+                new += 1
+                continue
+            if set(item.roots) <= shown_roots:
+                continue  # already shown here
+            n += 1
+            ev.add(A.Item(ref=f"r{n}", kind=item.kind, event=item.event, roots=item.roots, text=item.text,
+                          words=item.words, fact_kind=item.fact_kind, group=qref))
+            shown_roots |= set(item.roots)
+            new += 1
+        ev.requests.append(A.Request(qref, source, query, status, coverage, new))
+
+
+def _ask(db: Session, row: LearningAssessment, source: str, query: str,
+         shown: set[uuid.UUID]) -> tuple[str, str, list]:
+    """One request to one owner: (status, coverage in words, items or prior lessons)."""
+    now = _now()
+    if source == "memory":
+        from app.ai.recall.contracts import RecallRequest
+        from app.services import recall
+
+        result = recall.search(db, RecallRequest(user_id=row.user_id, query=query[:2000], purpose="explicit_search",
+                                                 now=now, kinds=("fact", "episode", "event", "item"),
+                                                 limit=REQUEST_RESULTS))
+        items = []
+        for record in result.records:
+            roots = [str(record.ref)]
+            based = []
+            for e in record.evidence or ():
+                if e.source in ("message", "experience", "observation", "session_event"):
+                    roots.append(f"{e.source}:{e.source_id}")
+                elif e.source == "thought":
+                    based.append("her own thought")
+            when = _hm(record.occurred_at or record.recorded_at)
+            items.append(A.Item(ref="", kind="memory", event=f"memory:{record.ref}", roots=tuple(dict.fromkeys(roots)),
+                                fact_kind=record.ref.kind,
+                                text=f"[memory {record.ref.kind}, {record.epistemic}, {record.status}, {when}] "
+                                     f"{record.content[:400]}" + (f" (rests on {', '.join(based)})" if based else "")
+                                     + ". Memory's record, not proof of what it says."))
+        coverage = f"searched {', '.join(result.searched_kinds) or 'nothing'}" + (
+            f"; errors: {', '.join(result.errors)}" if result.errors else "")
+        return result.status, coverage, items
+    if source == "conversations":
+        from app.services import transcript_search
+
+        result = transcript_search.search(db, row.user_id, query, now=now, exclude=tuple(shown),
+                                          limit=REQUEST_RESULTS)
+        items = []
+        for record in result.records:
+            message_id = record.ref.id
+            words = FORGOTTEN if record.forgotten else record.content[:500]
+            who = "columbina" if record.subkind == "columbina" else "user"
+            items.append(A.Item(ref="", kind="said", event=f"message:{message_id}", roots=(f"message:{message_id}",),
+                                words=None if record.forgotten else words,
+                                text=f'[{who}, another conversation, {_hm(record.occurred_at or record.recorded_at)}] '
+                                     f'"{words}"'))
+        return result.status, "what was said in her other conversations, as far as it was heard", items
+    if source == "experiences":
+        from app.services.memory_reset import learning_cutoff
+
+        words = [w for w in re.findall(r"[a-z0-9_]{3,}", query.lower())][:6]
+        if not words:
+            return "no_match", "no searchable words in the query", []
+        rows = list(db.scalars(select(GameExperience).where(
+            GameExperience.user_id == row.user_id, GameExperience.occurred_at >= learning_cutoff(db, row.user_id),
+            or_(*[cast(GameExperience.payload, String).ilike(f"%{w}%") for w in words]),
+            *([GameExperience.session_id != row.game_session_id] if row.game_session_id else []),
+        ).order_by(GameExperience.id.desc()).limit(REQUEST_RESULTS)))
+        items = [A.Item(ref="", kind="game", fact_kind="skill" if e.kind == "skill_outcome" else "notice",
+                        event=f"experience:{e.id}", roots=(f"experience:{e.id}",),
+                        text=f"[{_hm(e.occurred_at)}, session {str(e.session_id)[:8]}] {e.kind}: {_game_excerpt(e.payload, 900)}. "
+                             "A recorded report from another stretch.") for e in rows]
+        return ("matched" if items else "no_match"), (
+            f"game experience outside this stretch's session matching any of: {', '.join(words)}"), items
+    if source == "lessons":
+        from app.services import memory_lessons
+
+        found = memory_lessons.for_learning(db, row.user_id, query, limit=REQUEST_RESULTS)
+        return ("matched" if found else "no_match"), "her lessons for this user, any status but withdrawn", found
+    return "not_available", f"{source} can't be asked", []
+
+
 def _quotes(text: str) -> list[str]:
     found = re.findall(r'"([^"]+)"|“([^”]+)”|(?<!\w)\'([^\']+)\'(?!\w)', text or "")
     return [q.strip() for groups in found for q in groups if q and len(q.strip()) >= QUOTE_MIN]
@@ -872,6 +1064,14 @@ def _trigger_text(row: LearningAssessment, ev: A.Evidence, lines: dict, anchor: 
     if row.trigger_kind == "sample":
         return (f"An ordinary exchange, sampled ({why}): assess how her turn(s) before {where} went, with the user's "
                 f"message {where} as their response. There may be no feedback in it at all.", refs)
+    if row.trigger_kind == "review" and row.game_session_id is None:
+        return (f"A review opportunity over a stretch of the conversation ({why}), up to m{row.trigger.get('up_to_seq')}. "
+                "Nothing is assumed to have happened: decide whether there is anything worth examining.", refs)
+    if row.trigger_kind == "review":
+        game = [ref for ref in ev.targets if ref.startswith("h")]
+        return (f"A review opportunity over a stretch of play ({why}). Nothing is assumed to have happened: decide "
+                "whether there is anything worth examining." + (f" Targets: {', '.join(game)}." if game else ""),
+                refs + tuple(game))
     game = [ref for ref in ev.targets if ref.startswith("h")]
     return (f"Recorded experience: {why}" + (f" ({where})." if where else ".")
             + (f" Targets: {', '.join(game)}." if game else ""), refs + tuple(game))
@@ -948,6 +1148,8 @@ def assess(db: Session, claimed: Claim, *, evaluator: Callable[[str], A.Answer] 
         return _fail(db, claimed, f"{type(exc).__name__}: {exc}"[:500])
     if found is None:
         return "gone"
+    if found is UNCHANGED:
+        return _settle_unchanged(db, claimed)
     return _write(db, claimed, found, name)
 
 
@@ -960,22 +1162,34 @@ class _Found:
     stop: str
     stop_why: str
     usage: dict
+    plan: Plan = field(default_factory=Plan)
 
 
-def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer]) -> _Found | None:
+UNCHANGED = object()  # a wake whose evidence is what the current revision already read: no model call
+
+
+def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer]) -> _Found | object | None:
     s = get_settings()
     row = db.get(LearningAssessment, claimed.id)
     if row is None:
         return None
-    prior = None
+    prior, plan, read_digest = None, Plan(game=0), None
     if row.revision:
-        prior = db.scalar(select(LearningAssessmentRevision.result).where(
+        current = db.scalar(select(LearningAssessmentRevision).where(
             LearningAssessmentRevision.assessment_id == row.id, LearningAssessmentRevision.revision == row.revision))
-    plan = Plan(game=0)
+        if current is not None:
+            prior = current.result
+            # Continue from where the last reading got to (its looks and requests), not from scratch: the last
+            # round the model actually read (one skipped as too large to read is not where it got to).
+            read_rounds = [r for r in current.rounds or [] if "fingerprint" in r]
+            plan = Plan.from_dict(read_rounds[-1].get("plan") if read_rounds else None)
+            if current.prompt_version == A.PROMPT_VERSION:
+                read_digest = current.input_digest
     rounds: list[dict] = []
     usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
     last: tuple[Gathered, A.Checked, str] | None = None
-    previous_digest = None
+    previous_digest = previous_held = None
+    barren = 0  # expansions in a row that brought no new evidence (a request answered with nothing new)
     stop, why = "concluded", ""
     while True:
         gathered = gather(db, row, plan, prior=prior)
@@ -984,6 +1198,17 @@ def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer
         if row is None:
             return None
         current = A.digest(gathered.ev)
+        held = _held(gathered.ev)
+        barren = barren + 1 if previous_held is not None and held == previous_held else 0
+        previous_held = held
+        if barren >= 2:
+            # It was shown that its last request added nothing, and asked again with the same result: no useful
+            # progress is possible now. Parked, resumable; never a verdict on the question.
+            stop, why = "stuck", "its requests brought no new evidence"
+            break
+        if not rounds and read_digest is not None and current == read_digest:
+            _log({"op": "unchanged_wake", "assessment": str(row.id), "revision": row.revision})
+            return UNCHANGED
         if previous_digest is not None and current == previous_digest:
             stop, why = "stuck", "what it asked to look at added nothing new"
             break
@@ -1008,22 +1233,51 @@ def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer
         fp = A.fingerprint(checked.result)
         nxt = checked.result["next"]
         rounds.append({"plan": plan.to_dict(), "digest": current, "chars": len(text), "fingerprint": fp,
-                       "next": nxt, "dropped": len(checked.dropped), "latency_ms": answer.latency_ms,
-                       "summary": A.summarize(checked.result)})
+                       "next": nxt, "requests": checked.result["requests"], "dropped": len(checked.dropped),
+                       "latency_ms": answer.latency_ms, "summary": A.summarize(checked.result)})
         last = (gathered, checked, fp)
+        if checked.result["review"]["decision"] == "leave":
+            stop, why = "left", checked.result["review"]["why"] or "nothing worth examining"
+            break
         if nxt["step"] == "conclude":
             stop, why = "concluded", nxt["why"]
+            break
+        if nxt["step"] == "wait":
+            stop, why = "waiting", nxt["why"] or checked.result["review"]["why"] or "waiting for more"
             break
         if nxt["step"] == "need_missing":
             stop, why = "missing_evidence", nxt["why"]
             break
-        if not nxt["look"]:
-            stop, why = "stuck", "asked to look further, at nothing that's available"
+        expanded = plan.expand(nxt["look"], checked.result["requests"])
+        if not nxt["look"] and expanded.requests == plan.requests:
+            stop, why = "stuck", "asked to look further, at nothing new that's available"
             break
         previous_digest = current
-        plan = plan.expand(nxt["look"])
+        plan = expanded
     gathered, checked, fp = last
-    return _Found(gathered, checked, fp, rounds, stop, why, usage)
+    return _Found(gathered, checked, fp, rounds, stop, why, usage, plan)
+
+
+def _held(ev: A.Evidence) -> str:
+    """What the evidence is, apart from how requests were answered: the citable items and lessons shown."""
+    parts = sorted((i.ref, i.roots, i.text) for i in ev.items.values())
+    parts += sorted(("lesson", v.id, v.revision) for v in ev.lessons.values())
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:32]
+
+
+def _settle_unchanged(db: Session, claimed: Claim) -> str:
+    """Nothing new to read: the assessment goes back to what it was (parked or done), with no new revision."""
+    row = db.scalar(select(LearningAssessment).where(LearningAssessment.id == claimed.id).with_for_update())
+    if row is None or row.state != "running" or row.attempts != claimed.attempts:
+        db.rollback()
+        return "gone"
+    row.lease_expires_at, row.last_error = None, None
+    if row.epoch != claimed.epoch:
+        row.state, row.next_attempt_at = "pending", _now()
+    else:
+        row.state = "done"
+    db.commit()
+    return "unchanged"
 
 
 def _write(db: Session, claimed: Claim, found: _Found, evaluator: str) -> str:
@@ -1066,6 +1320,10 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
         reason = (f"new evidence: {', '.join(added)}" if added else "the evidence available changed")
         current.superseded_at, current.superseded_by = now, n
     stop = found.stop
+    if result["follow_up"]["propose"] and stop != "left":
+        # A proposal for cognition, kept by memory as an open item of hers; learning never asks or acts.
+        from app.services import learning_review
+        result["follow_up"]["item"] = learning_review.propose(db, row, n, result["follow_up"], result["inquiry"])
     stored = _store_result(result, gathered)
     db.add(LearningAssessmentRevision(
         assessment_id=row.id, user_id=row.user_id, revision=n, evaluator=evaluator[:120],
@@ -1080,6 +1338,7 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
     row.target_status, row.cause_status, row.stop_reason = summary["target_status"], summary["cause_status"], stop
     row.explanation = result["explanation"] or found.stop_why
     row.awaiting = sorted(set(gathered.awaiting))
+    row.inquiry = _inquiry(result, found, digest, n, now)
     _owners(db, row, n, result, gathered, changed=current is None or current.fingerprint != found.fingerprint)
     # Lessons (docs/learning-system/03-implementation.md): learning reads this revision for what should persist.
     from app.services import learning_lessons
@@ -1093,12 +1352,32 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
             continue
         added = attach(db, other, [(root, f"assessment {row.id} found this bears on it", {})
                                    for root in entry["roots"] if root.startswith(("message:", "experience:", "execution:", "attempt:"))])
+        if added and other.inquiry:
+            other.inquiry = {**other.inquiry, "resumed_by": str(row.id)}
         if added:
             _reopen(other, now, f"new evidence: {', '.join(added)}")
     _log({"op": "revision", "assessment": str(row.id), "revision": n, "outcome": summary["outcome"],
           "target": summary["target_status"], "cause": summary["cause_status"], "stop": stop,
           "rounds": len(found.rounds), "dropped": len(found.checked.dropped), **found.usage})
     return "revised"
+
+
+PARKED = ("waiting", "stuck", "missing_evidence")
+
+
+def _inquiry(result: dict, found: _Found, digest: str, n: int, now: datetime) -> dict:
+    """The inquiry kept between readings: the reviewer's own (question, provisional reading, alternatives,
+    unknowns, what would resume it) with what was examined. A parked stop always keeps one, so it can resume with
+    its state; a stretch left alone, or concluded with nothing open, keeps none."""
+    own = result.get("inquiry") or {}
+    if found.stop == "left" or (found.stop not in PARKED and not own.get("question")):
+        return {}
+    return {**own,
+            "question": own.get("question") or (result.get("explanation") or found.stop_why)[:400],
+            "resume_when": own.get("resume_when") or "new or revised evidence about it, here or in an activity "
+                                                     "found to bear on it",
+            "stop": found.stop, "stop_why": found.stop_why[:300], "revision": n, "digest": digest,
+            "requests": [list(r) for r in found.plan.requests], "at": now.isoformat()}
 
 
 def _store_result(result: dict, gathered: Gathered) -> dict:
@@ -1127,7 +1406,7 @@ def _links(db: Session, row: LearningAssessment, n: int, result: dict, gathered:
         own = gathered.attempts.get(c["target"], {}).get(c["component"])
         for root in [f"attempt:{own}"] if own else gathered.target_roots.get(c["target"], [])[:1]:
             link("cause", root, c["status"], c["component"])
-    for key in ("targets", "causes", "user_stated", "dimensions", "choice_vs_outcome", "reopens"):
+    for key in ("targets", "causes", "user_stated", "dimensions", "choice_vs_outcome", "findings", "reopens"):
         for entry in result[key]:
             for root in entry.get("roots", []):
                 link("cited", root)
@@ -1265,11 +1544,17 @@ def drop_for(db: Session, user_id: uuid.UUID, refs: Iterable[str]) -> int:
         LearningAssessmentEvidence.user_id == user_id, LearningAssessmentEvidence.ref.in_(refs))))
     ids |= set(db.scalars(select(LearningAssessment.id).where(LearningAssessment.user_id == user_id,
                                                               LearningAssessment.anchor_message_id.in_(messages))))
-    for conversation_id, at in db.execute(select(ChatMessage.conversation_id, ChatMessage.created_at)
-                                          .where(ChatMessage.id.in_(messages))):
+    for conversation_id, at, seq in db.execute(select(ChatMessage.conversation_id, ChatMessage.created_at,
+                                                      ChatMessage.conversation_sequence)
+                                               .where(ChatMessage.id.in_(messages))):
         ids |= set(db.scalars(select(LearningAssessment.id).where(
             LearningAssessment.user_id == user_id, LearningAssessment.conversation_id == conversation_id,
             LearningAssessment.anchor_at >= _aware(at))))
+        # A review stretch that began earlier but reaches the message showed it (post-audit 3).
+        ids |= set(db.scalars(select(LearningAssessment.id).where(
+            LearningAssessment.user_id == user_id, LearningAssessment.conversation_id == conversation_id,
+            LearningAssessment.trigger_kind == "review",
+            cast(LearningAssessment.trigger["up_to_seq"].astext, Integer) >= seq)))
         looked_later = select(LearningAssessmentRevision.assessment_id).where(
             LearningAssessmentRevision.user_id == user_id,
             LearningAssessmentRevision.rounds.contains([{"plan": {"later": True}}]))
@@ -1286,6 +1571,7 @@ def _summary(row: LearningAssessment) -> dict:
     return {"id": str(row.id), "trigger_kind": row.trigger_kind, "trigger": row.trigger, "state": row.state,
             "outcome": row.outcome, "target_status": row.target_status, "cause_status": row.cause_status,
             "stop_reason": row.stop_reason, "explanation": row.explanation, "revision": row.revision,
+            "inquiry": row.inquiry or {},
             "attempts": row.attempts, "last_error": row.last_error, "awaiting": row.awaiting,
             "conversation_id": str(row.conversation_id) if row.conversation_id else None,
             "game_session_id": str(row.game_session_id) if row.game_session_id else None,
@@ -1357,4 +1643,4 @@ def _log(record: dict) -> None:
 
 
 __all__ = ["triage", "sweep", "claim", "assess", "run_once", "gather", "open_assessment", "attach", "add_note",
-           "drop_for", "listing", "detail", "for_ref", "note_use", "sampled", "Plan", "Claim", "RECONSIDER"]
+           "drop_for", "listing", "detail", "for_ref", "note_use", "Plan", "Claim", "RECONSIDER", "UNCHANGED"]

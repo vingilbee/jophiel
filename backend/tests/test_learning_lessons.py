@@ -43,8 +43,8 @@ def soon(**delta) -> datetime:
 # --------------------------------------------------------------------------- #
 
 
-def bundle(*, lessons=(), withdrawn=(), occasion="message:new", at=None, min_occasions=2) -> L.Bundle:
-    b = L.Bundle("a-1", 1, occasion, at or NOW, "a correction", "they wanted listening", min_occasions=min_occasions)
+def bundle(*, lessons=(), withdrawn=(), occasion="message:new", at=None) -> L.Bundle:
+    b = L.Bundle("a-1", 1, occasion, at or NOW, "a correction", "they wanted listening")
     b.lines["m1"] = L.Line("m1", "user", 'm1 [user] "my boss yelled at me again"', "my boss yelled at me again",
                            ("message:u1",))
     b.lines["m2"] = L.Line("m2", "columbina", 'm2 [columbina] "Here are five fixes."', "Here are five fixes.",
@@ -100,10 +100,12 @@ def test_a_preference_rests_on_the_users_exact_words_and_an_inference_on_support
     reasons = " | ".join(d["why"] for d in checked.dropped)
     assert "exact words" in reasons and "supported conclusion" in reasons and "where it applies" in reasons
     assert any("zz9" in d["what"] for d in checked.dropped)
-    # One occasion: the stated preference is accepted, the inference is a hypothesis.
-    assert L.status_for("preference", "situation", 1, 2) == "accepted"
-    assert L.status_for("strategy", "situation", 1, 2) == "hypothesis"
-    assert L.status_for("strategy", "situation", 2, 2) == "accepted"
+    # The stated preference is accepted; an inference is tentative unless the builder judged it established
+    # (post-audit 3: its judgment, never a count of occasions).
+    assert strat.certainty == "tentative" and pref.certainty is None
+    assert L.status_for("preference", "situation", "tentative") == "accepted"
+    assert L.status_for("strategy", "situation", "tentative") == "hypothesis"
+    assert L.status_for("understanding", "situation", "established") == "accepted"
 
 
 def test_a_cited_stated_conclusion_vouches_only_for_the_users_own_line_it_rests_on():
@@ -127,7 +129,7 @@ def test_an_episode_correction_does_not_become_a_standing_preference():
     checked = L.check({"changes": [change(scope="episode", user_quote="yesterday I only wanted you to listen",
                                           conclusion_cites=["m4"])]}, b)
     assert checked.changes[0].scope == "episode"
-    assert L.status_for("preference", "episode", 1, 2) == "episode_only"
+    assert L.status_for("preference", "episode", "established") == "episode_only"
     # Widening it needs their explicit words about the future or further occasions.
     episode = shown(scope="episode", status="episode_only", user_words=("yesterday I only wanted you to listen",))
     b = bundle(lessons=[episode])
@@ -140,15 +142,18 @@ def test_an_episode_correction_does_not_become_a_standing_preference():
     assert kept[0].user_words == ["yesterday I only wanted you to listen", "from now on, when I vent, please just listen"]
 
 
-def test_withdrawal_needs_the_users_words_or_repeated_counterevidence():
+def test_withdrawal_needs_the_users_words_or_a_supported_conclusion_against_it():
     pref = shown()
     strat = shown("L2", kind="strategy", user_words=(), support_from=("message:a", "message:b"))
     b = bundle(lessons=[pref, strat])
+    # A preference is theirs: only their words withdraw it. An inference with only an unsupported reading against
+    # it is a counterexample to reason about, not an erase.
     out = L.check({"changes": [change(op="withdraw", lesson="L1", conclusion_cites=["a2"]),
-                               change(op="withdraw", lesson="L2", conclusion_cites=["a2"])]}, b)
+                               change(op="withdraw", lesson="L2", conclusion_cites=["m1"])]}, b)
     assert [(c.lesson_ref, c.op) for c in out.changes] == [("L1", "counter"), ("L2", "counter")]
     assert sum("recorded as a counterexample" in d["why"] for d in out.dropped) == 2
-    b = bundle(lessons=[pref, shown("L2", kind="strategy", user_words=(), counter_from=("message:other",))])
+    # Their words withdraw the preference; a supported conclusion against the inference withdraws it at once
+    # (strong contradictory evidence doesn't wait for a number of repetitions).
     out = L.check({"changes": [change(op="withdraw", lesson="L1", user_quote="please just listen",
                                       conclusion_cites=["m3"]),
                                change(op="withdraw", lesson="L2", conclusion_cites=["a2"])]}, b)
@@ -289,8 +294,7 @@ def test_a_local_model_without_lessons_in_its_rendering_is_recorded_as_not_recei
 def env(db_env, monkeypatch, tmp_path):
     settings = LA.get_settings().model_copy(update={
         "learning_assessment_settle_seconds": 0, "learning_assessment_log_path": str(tmp_path / "assess.jsonl"),
-        "learning_assessment_sample_rate": 0.0, "learning_lessons_log_path": str(tmp_path / "lessons.jsonl"),
-        "lessons_min_occasions": 2, "lessons_supplied_max": 5})
+        "learning_lessons_log_path": str(tmp_path / "lessons.jsonl"), "lessons_supplied_max": 5})
     holder = {"s": settings}
     for module in (LA, LL, ML):
         monkeypatch.setattr(module, "get_settings", lambda: holder["s"])
@@ -374,7 +378,7 @@ def assessed(env, user, conversation, *, venting="my boss yelled at me again",
            "causes": [{"target": t, "component": "user_side", "status": "supported", "cites": [m],
                        "why": "what they wanted"}] if cause else [],
            "user_stated": [{"kind": "preference", "quote": correction.split(".")[0], "cites": [m]}] if stated else [],
-           "dimensions": [], "choice_vs_outcome": [], "missing": [], "clarification": {"propose": False, "question": ""},
+           "dimensions": [], "choice_vs_outcome": [], "missing": [],
            "reopens": [], "next": {"step": "conclude", "look": [], "why": "enough"}, "explanation": "they wanted listening"}
     with env.db() as db:
         claimed = LA.claim(db, soon(hours=1))
@@ -422,7 +426,7 @@ def test_a_correction_informs_the_next_choice_now_and_a_fresh_conversation_later
         # Immediately, before any lesson exists: the next decision in that conversation has the correction in view.
         live = svc.gather(db, user_id=user.id, conversation_id=first.id, trigger_message_id=None,
                           message="and now he wants me to work Saturday", zone="UTC")
-    assert live.lessons == () and live.lessons_note == "no accepted lessons"
+    assert live.lessons == () and live.lessons_note == "no lessons with live support"
     prompts = []
 
     def ask(model, text):
@@ -470,7 +474,7 @@ def test_a_correction_informs_the_next_choice_now_and_a_fresh_conversation_later
         assert case == "applied" and "not proof of influence" in sentence
 
 
-def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_not_a_second(env):
+def test_an_inference_is_as_certain_as_the_builder_judged_and_rereading_one_is_not_new_support(env):
     user, conversation = setup(env)
 
     def strategy(text, n):
@@ -478,16 +482,22 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
         lesson = next((line.split()[0] for line in text.splitlines() if line.startswith("L1 ")), None)
         if lesson is None:
             return {"changes": [change(kind="strategy", statement="Ask before offering fixes",
-                                       conclusion_cites=[stated], applicability_cites=[stated])],
+                                       conclusion_cites=[stated], applicability_cites=[stated], certainty="tentative")],
                     "explanation": "a pattern, maybe"}
-        return {"changes": [change(op="support", lesson=lesson, conclusion_cites=[stated])], "explanation": "again"}
+        # Every later reading judges it established: code lets that count only from new support.
+        return {"changes": [change(op="support", lesson=lesson, conclusion_cites=[stated], certainty="established")],
+                "explanation": "again"}
 
     first, _ = assessed(env, user, conversation, correction="I just wanted to vent. Not a list of fixes.")
     run_lessons(env, Builder(strategy))
     with env.db() as db:
         lesson = db.scalar(select(MemoryLesson).where(MemoryLesson.user_id == user.id))
-        assert (lesson.origin, lesson.status) == ("inferred", "hypothesis") and "accepted from 2" in lesson.status_reason
-        assert ML.for_decision(db, user.id, "anything").views == ()  # a hypothesis is never supplied
+        assert (lesson.origin, lesson.status) == ("inferred", "hypothesis") and "a guess" in lesson.status_reason
+        assert ML.for_decision(db, user.id, "anything").views == ()  # accepted-only retrieval leaves the guess out
+        # Retrieval that asks for tentative lessons (every consumer since post-audit 3) has it, labelled a guess.
+        tentative = ML.for_decision(db, user.id, "anything", include_tentative=True)
+        assert [v.status for v in tentative.views] == ["hypothesis"]
+        assert "her inference, a guess" in L.decision_lines(tentative.views)[1]
     # The same exchange read again (a new revision of its assessment) is not a second occasion.
     with env.db() as db:
         LA.add_note(db, user.id, first, "yes, that's right")
@@ -498,7 +508,7 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
         row = db.get(LearningAssessment, first)
         rev = db.scalar(select(M.LearningAssessmentRevision).where(M.LearningAssessmentRevision.assessment_id == first))
         raw = {k: rev.result[k] for k in ("feedback", "targets", "causes", "user_stated", "dimensions",
-                                          "choice_vs_outcome", "missing", "clarification", "reopens", "next",
+                                          "choice_vs_outcome", "missing", "follow_up", "reopens", "next",
                                           "explanation")}
     with env.db() as db:
         LA.assess(db, claimed, evaluator=Evaluator(raw))
@@ -506,9 +516,10 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
     with env.db() as db:
         lesson = db.get(MemoryLesson, lesson.id)
         assert lesson.status == "hypothesis" and lesson.revision == 1
-        assert db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == first,
-                                                         LearningLessonJob.assessment_revision == 2)).outcome == "changed"
-    # A second, different exchange: accepted, as a new revision.
+        job = db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == first,
+                                                        LearningLessonJob.assessment_revision == 2))
+        assert job.outcome == "changed" and any("already counted" in d["why"] for d in job.result["dropped"])
+    # A second, different exchange, judged established: accepted, as a new revision.
     assessed(env, user, conversation, correction="Again, I wanted to vent. Not fixes.")
     run_lessons(env, Builder(strategy))
     with env.db() as db:
@@ -562,7 +573,7 @@ def test_a_disclaimed_preference_is_withdrawn_and_stale_work_cannot_restore_it(e
         claimed = LA.claim(db, soon(hours=1))
         rev = db.scalar(select(M.LearningAssessmentRevision).where(M.LearningAssessmentRevision.assessment_id == old_aid))
         raw = {k: rev.result[k] for k in ("feedback", "targets", "causes", "user_stated", "dimensions",
-                                          "choice_vs_outcome", "missing", "clarification", "reopens", "next",
+                                          "choice_vs_outcome", "missing", "follow_up", "reopens", "next",
                                           "explanation")}
     with env.db() as db:
         LA.assess(db, claimed, evaluator=Evaluator(raw))
@@ -646,11 +657,10 @@ def test_counterevidence_narrows_a_lesson_and_one_bad_result_does_not_erase_it(e
 
 def test_a_revised_assessment_stops_counting_until_read_again(env):
     user, conversation = setup(env)
-    env.configure_learning(lessons_min_occasions=1)
 
     def strategy(text, n):
         stated = ref_of(text, "the user stated")
-        return {"changes": [change(kind="strategy", statement="Ask before offering fixes",
+        return {"changes": [change(kind="strategy", statement="Ask before offering fixes", certainty="established",
                                    conclusion_cites=[stated], applicability_cites=[stated])], "explanation": "x"}
 
     aid, _ = assessed(env, user, conversation, correction="I just wanted to vent. Not a list of fixes.")
@@ -664,11 +674,13 @@ def test_a_revised_assessment_stops_counting_until_read_again(env):
     with env.db() as db:  # the revision no longer supports anything: its conclusions changed
         LA.assess(db, claimed, evaluator=Evaluator({
             "feedback": "unclear", "targets": [], "causes": [], "user_stated": [], "dimensions": [],
-            "choice_vs_outcome": [], "missing": [], "clarification": {"propose": False, "question": ""},
+            "choice_vs_outcome": [], "missing": [],
             "reopens": [], "next": {"step": "conclude", "look": [], "why": "x"}, "explanation": "changed"}))
     with env.db() as db:
         lesson = db.get(MemoryLesson, lesson.id)
-        assert lesson.status == "hypothesis" and lesson.revision == 2
+        # The judgment stays the builder's; with no live support it is not supplied until read again.
+        assert lesson.status == "accepted" and lesson.status_reason == ML.UNSUPPORTED and lesson.revision == 2
+        assert ML.for_decision(db, user.id, "fixes", include_tentative=True).views == ()
         assert db.scalar(select(MemoryLessonRevision.op).where(MemoryLessonRevision.lesson_id == lesson.id,
                                                                MemoryLessonRevision.revision == 2)) == "reconsider"
         use = db.scalar(select(LearningAssessmentUse).where(LearningAssessmentUse.assessment_id == aid))
@@ -700,8 +712,13 @@ def test_retrieval_is_bounded_whole_and_keeps_conflicts_together(env):
             rows.append(row)
         db.flush()
         rows[1].conflicts_with, rows[2].conflicts_with = [str(rows[2].id)], [str(rows[1].id)]
-        db.add(MemoryLesson(user_id=user.id, kind="strategy", origin="inferred", scope="situation",
-                            status="hypothesis", statement="Coding bug guess", applies_when="coding bug"))
+        guess = MemoryLesson(user_id=user.id, kind="strategy", origin="inferred", scope="situation",
+                             status="hypothesis", statement="Coding bug guess", applies_when="coding bug")
+        db.add(guess)
+        db.flush()
+        for i, row in enumerate([*rows, guess]):  # an inference is supplied only with live support
+            db.add(MemoryLessonEvidence(lesson_id=row.id, user_id=user.id, role="support", occasion=f"test:{i}",
+                                        occasion_at=NOW, refs=[f"message:{uuid.uuid4()}"], added_revision=1))
         db.commit()
         supply = ML.for_decision(db, user.id, "I have a coding bug about whales")
     shown_now = [v.statement for v in supply.views]

@@ -429,6 +429,8 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
         if not source.shadow:
             _log_hard(scope, problem, system, render(inp), thought)
             _capture_attempt(attempt_id, source, scope, problem, inp, thought, started_at=started_at)
+            if thought.learn and not thought.error:
+                _nominate(scope, attempt_id, thought.learn)
         if thought.error or thought.kind is None:
             if source.shadow:
                 _log_shadow(scope, problem, system, render(inp), thought, status="nothing", why=None)
@@ -465,6 +467,20 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             mind._set_thinking(scope.key, None)
         if _event_work(att):
             schedule(att, time.time())  # no tick comes back for event-source work
+
+
+def _nominate(scope: Scope, attempt_id: uuid.UUID, text: str) -> None:
+    """She pointed her learning at something in this activity (post-audit 3). Learning's reviewer decides whether
+    the records bear it out; her thought is never evidence. Never raises."""
+    from app.services import learning_review
+
+    try:
+        with SessionLocal() as db:
+            if learning_review.nominate(db, scope.user_id, source=scope.source, activity=scope.activity,
+                                        thought_id=attempt_id, text=text):
+                db.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("mind: a nomination for learning was not kept")
 
 
 def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, problem: Problem, inp: HardInput,

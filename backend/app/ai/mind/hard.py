@@ -66,9 +66,9 @@ SCHEMA = {
                    "progress": {"type": "string", "enum": [*PROGRESS, ""]},
                    "cause": {"type": "string", "enum": [*CAUSES, ""]},
                    "check": {"type": "string"}, "if_supported": {"type": "string"},
-                   "leaves_unknown": {"type": "string"}},
+                   "leaves_unknown": {"type": "string"}, "learn": {"type": "string"}},
     "required": ["thinking", "kind", "conclusion", "for_hands", "question", "follows", "progress", "cause", "check",
-                 "if_supported", "leaves_unknown"],
+                 "if_supported", "leaves_unknown", "learn"],
     "additionalProperties": False,
 }
 
@@ -114,6 +114,9 @@ outcome should change, make it a question for {user}. Changing the approach is h
 {for_hands}
 - "question": for a question, the exact words she'd say to {user}, short, in her voice. Otherwise empty.
 {effort_rules}
+- "learn": when something here seems worth learning from for later (something that worked, a pattern across \
+what happened, a surprise, how {user} tends to mean things), name it in a few words so her learning can look at \
+the records; otherwise empty. It points; it concludes nothing, and her learning checks it against what happened.
 - If nothing here is worth concluding, leave "kind" empty."""
 # Only when she has an effort to judge (her effort is in what she reads).
 EFFORT_RULES = """- "progress": is her effort getting anywhere toward the outcome? "yes", "no" or "unclear", judged by her \
@@ -171,6 +174,8 @@ class HardThought:
     for_hands: str | None = None
     question: str | None = None
     follows: str | None = None  # the earlier conclusion it says it carries out (a timeline id)
+    # What she pointed her learning at (post-audit 3: a nomination, not a conclusion and never evidence).
+    learn: str | None = None
     # Her judgment of the effort, when there is one: progress, cause, check, if_supported, leaves_unknown.
     assessment: dict | None = None
     latency_ms: float = 0.0
@@ -272,10 +277,12 @@ def parse(out: dict, **extra) -> HardThought:
     where its kind allows one."""
     kind = out.get("kind") or None
     conclusion = _clean(out.get("conclusion"))
+    learn = _clean(out.get("learn"))
     if kind not in CONCLUSIONS or not conclusion:
-        return HardThought(None, None, thinking=_clean(out.get("thinking")), assessment=assessment(out), **extra)
+        return HardThought(None, None, thinking=_clean(out.get("thinking")), assessment=assessment(out), learn=learn,
+                           **extra)
     return HardThought(
-        kind, conclusion, thinking=_clean(out.get("thinking")),
+        kind, conclusion, thinking=_clean(out.get("thinking")), learn=learn,
         for_hands=_clean(out.get("for_hands")) if kind in ("decision", "guess", "intention") else None,
         question=(_clean(out.get("question")) or conclusion) if kind == "question" else None,
         follows=follows_id(out.get("follows")),

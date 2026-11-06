@@ -10,15 +10,19 @@ only what the evidence shown can carry:
 
 - A **preference** is the user's own words: kept only with a quote found exactly in a user line it cites. It says
   what they want within the scope they gave; it never makes the wanted behaviour a rule for her.
-- A **strategy** is her inference: it needs a *supported* conclusion of the assessment (a stated preference or
-  meaning, a cause established on its own record, or a supported game cost/progress finding) and evidence for where it applies. One occasion makes it a
-  ``hypothesis``; it is ``accepted`` only with support from ``min_occasions`` distinct occasions (assessed
-  exchanges). Reflecting again on the same exchange is never a second occasion.
+- A **strategy** (what tends to work) and an **understanding** (post-audit 3: how things are — an expectation, a
+  relationship, an explanation, her own capability, an open question — not advice) are her inferences: each needs a
+  *supported* conclusion of the assessment (a stated preference or meaning, a cause established on its own record,
+  a supported finding or game cost/progress) and evidence for where it applies. Whether it is ``established``
+  (``accepted``) or ``tentative`` (``hypothesis``) is the builder's judgment on the evidence, with competing
+  explanations kept beside it; no count of occasions promotes it. Code keeps integrity: reading the same experience
+  again (the same occasion, or one sharing its evidence) is never new support, so it can't raise certainty or widen
+  scope.
 - A correction of **one episode** (``scope="episode"``) is kept as ``episode_only``, never supplied as standing.
-  Widening a lesson's scope needs the user's explicit words or further occasions.
-- **Withdrawal** of a preference needs the user's words (they disclaimed it). A strategy is withdrawn only on the
-  user's words or counterevidence from ``min_occasions`` occasions; otherwise the counterexample is recorded and
-  reasoned about (narrow, revise, keep), never an automatic erase.
+  Widening a lesson's scope needs the user's explicit words or evidence from a new occasion.
+- **Withdrawal** of a preference needs the user's words (they disclaimed it). An inference is withdrawn on the
+  user's words or a supported conclusion against it, which strong evidence can give at once; a weaker
+  counterexample is recorded and reasoned about (narrow, revise, keep alternatives), never an automatic erase.
 - Nothing is cut to fit: a lesson whose text, applicability or exceptions are over the limits is dropped, since a
   shortened exception could change what it means.
 
@@ -36,11 +40,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-PROMPT_VERSION = "lessons-v1"
-INTERFACE_VERSION = "lessons-input-v2"  # what a decision model is shown (decision_lines + GUIDE + weighed field)
+PROMPT_VERSION = "lessons-v2"
+INTERFACE_VERSION = "lessons-input-v3"  # what a decision model is shown (decision_lines + GUIDE + weighed field)
 RENDERING = "lessons-v1"  # memory-v1 plus LESSONS after MEMORY, and the lessons_weighed field
 
-KINDS = ("preference", "strategy")
+KINDS = ("preference", "strategy", "understanding")
+INFERRED = ("strategy", "understanding")
+CERTAINTY = ("tentative", "established")
 SCOPES = ("standing", "situation", "episode")
 SCOPE_RANK = {"episode": 0, "situation": 1, "standing": 2}
 STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
@@ -53,6 +59,9 @@ EXCEPTION_CHARS = 200
 MAX_EXCEPTIONS = 4
 QUOTE_CHARS = 300
 WHY_CHARS = 400
+FORM_CHARS = 80
+ALTERNATIVE_CHARS = 200
+MAX_ALTERNATIVES = 4
 
 
 def _norm(text: str) -> str:
@@ -64,13 +73,18 @@ def _cut(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
-def status_for(kind: str, scope: str, support_occasions: int, min_occasions: int) -> str:
-    """A lesson's status from what it is and what it rests on (never ``withdrawn``: that is an act)."""
+def status_for(kind: str, scope: str, certainty: str) -> str:
+    """A lesson's status from what it is and how certain the builder judged it (never ``withdrawn``: that is an
+    act). A stated preference is the user's own; an inference is established or tentative."""
     if scope == "episode":
         return "episode_only"
     if kind == "preference":
         return "accepted"
-    return "accepted" if support_occasions >= min_occasions else "hypothesis"
+    return "accepted" if certainty == "established" else "hypothesis"
+
+
+def certainty_of(status: str) -> str:
+    return "established" if status == "accepted" else "tentative"
 
 
 # --------------------------------------------------------------------------- #
@@ -118,6 +132,9 @@ class Shown:
     rests_on_revised: int | None = None  # this assessment's earlier revision it rested on, now revised
     withdrawn_occasion_at: datetime | None = None
     status_reason: str | None = None
+    form: str | None = None
+    alternatives: tuple[str, ...] = ()
+    shares_evidence: bool = False  # this experience shares evidence already counted for it
 
     @property
     def support(self) -> int:
@@ -140,7 +157,6 @@ class Bundle:
     conclusions: dict[str, Conclusion] = field(default_factory=dict)
     lessons: dict[str, Shown] = field(default_factory=dict)  # L refs (not withdrawn)
     withdrawn: dict[str, Shown] = field(default_factory=dict)  # W refs
-    min_occasions: int = 2
 
     def item(self, ref: str) -> Line | Conclusion | None:
         return self.lines.get(ref) or self.conclusions.get(ref)
@@ -163,14 +179,17 @@ def render(b: Bundle) -> str:
     if not b.lessons:
         out.append("(none)")
     for s in b.lessons.values():
-        out.append(f"{s.ref} ({s.status}, {s.kind}, {s.scope}; revision {s.revision}): {s.statement}")
+        what = f"{s.kind}" + (f": {s.form}" if s.form else "")
+        out.append(f"{s.ref} ({s.status}, {what}, {s.scope}; revision {s.revision}): {s.statement}")
         out.append(f"    applies: {s.applies_when}" + (f"; except: {'; '.join(s.exceptions)}" if s.exceptions else ""))
+        if s.alternatives:
+            out.append("    other explanations kept: " + "; ".join(s.alternatives))
         if s.user_words:
             out.append("    their words: " + " / ".join(f'"{w}"' for w in s.user_words))
-        out.append(f"    rests on {s.support} occasion(s); found against on {s.counter}"
+        out.append(f"    rests on {s.support} independent occasion(s); found against on {s.counter}"
                    + (f"; {s.status_reason}" if s.status_reason else ""))
-        if b.occasion in s.occasions:
-            out.append("    this same exchange is already counted for it (reading it again is not a new occasion)")
+        if b.occasion in s.occasions or s.shares_evidence:
+            out.append("    this experience is already counted for it (reading it again is not new support)")
         if s.rests_on_revised is not None:
             out.append(f"    it rested on revision {s.rests_on_revised} of this same assessment, which has been revised: "
                        "read the conclusions above again for it")
@@ -200,15 +219,25 @@ establishing why it happened. Do not turn a limitation into a hardcoded prohibit
 A lesson is experience she will weigh later alongside the situation, her character and her values. It is never a
 command she must obey, and an assessment doesn't have to produce one: "no change" is often right.
 
-Two kinds:
+Three kinds:
 - preference: what the user has said they want from her, within the scope they gave ("when I'm venting, just
   listen"). It rests on their exact words (user_quote, copied exactly from a user line you cite, or from the line a
   supported "the user stated" conclusion you cite rests on). It says what they want, not that doing it is always
   good, and not that their claims about the world are true.
-- strategy: what she has found tends to work in a kind of situation, including game techniques and observed limitations, inferred from evidence. It
-  needs a supported conclusion of the assessment, including an observed game cost or progress without a known cause (conclusion_cites with an a-ref marked supported) and evidence for
-  where it applies (applicability_cites). One exchange is not enough to make it a standing lesson: code keeps it as
-  a hypothesis until other occasions support it. Write it as her own finding, never as the user's wish.
+- strategy: what she has found tends to work in a kind of situation, including game techniques and observed
+  limitations, inferred from evidence.
+- understanding: what she has come to understand about how things are, not what to do: an expectation (what tends
+  to happen when), a relationship (between conditions, actions and outcomes; how this person tends to mean
+  things), an explanation, what she can or can't do, an open question. "form" names which, in a few words of
+  your own. An observation-only finding is enough: it needs no action of hers. Keep it about the person and the
+  situations shown: never a global label for someone.
+Strategies and understandings are her inferences. Each needs a supported conclusion of the assessment
+(conclusion_cites with an a-ref marked supported: a finding, a cause, a stated meaning, an observed game cost or
+progress) and evidence for where it applies (applicability_cites). Write it as her own finding, never as the
+user's wish. certainty is your judgment of the evidence: "established" only when what's shown makes it reliable
+enough to act on within its scope; "tentative" for a guess worth weighing (the usual case for one occasion). A
+tentative inference still reaches her decisions, labelled as a guess. Keep competing explanations in
+"alternatives" rather than picking one; when evidence supports two readings, say both.
 
 scope: "standing" (from now on, in general), "situation" (in a kind of situation: say which in applies_when), or
 "episode" (it only corrects what happened that time: "yesterday I wanted you to listen" corrects that episode; it
@@ -216,13 +245,17 @@ does not establish "always listen"). Choose the narrowest scope the evidence sup
 applies_when: where it applies, plainly. exceptions: where it doesn't, as the evidence shows them ("unless they
 ask for advice"). Keep both short and complete: nothing will be cut to fit.
 
-Changes to existing lessons (name the L-ref):
-- support / counter: this exchange is further evidence for or against it.
+Compare with the lessons she already holds before creating one: when an existing lesson covers it, support,
+narrow or revise that lesson instead of creating a near-duplicate. A combination keeps each lesson's exceptions,
+alternatives and lineage. Changes to existing lessons (name the L-ref):
+- support / counter: this exchange is further evidence for or against it (you may re-judge its certainty; an
+  experience already counted for it is never new support and can't raise it).
 - narrow: add exceptions (the ones it has stay) or narrow where it applies, after a counterexample.
 - revise: change what it says (a changed preference, a better reading); exceptions given replace its list.
-- withdraw: the user said they no longer want it (their exact words as user_quote), or the evidence shows the
-  strategy was mistaken. A counterexample alone is usually a reason to narrow or revise, or to keep it with the
-  counterevidence noted, not to withdraw it.
+- withdraw: the user said they no longer want it (their exact words as user_quote), or a supported conclusion
+  shows the inference was mistaken (strong contradictory evidence doesn't have to wait for repetitions). A
+  counterexample that may be an exception, noise or changed conditions is a reason to narrow or revise, add an
+  alternative, or keep it with the counterevidence noted, not to withdraw it.
 When the user stops wanting a preference, withdraw that preference; if something independent still supports a
 strategy, keep that strategy separately, worded as her finding, never as their wish.
 Compatible lessons at different scopes coexist ("keep answers short" and "explain coding problems thoroughly"): do
@@ -233,7 +266,7 @@ A preference that asks for something against her values (honesty, care, not harm
 as what they want; she decides later whether to follow it.
 
 Cite refs exactly as shown (m12, a3, L1). explanation: 1-4 plain sentences on what you carried forward and why,
-and what you left as it was."""
+and what you left as it was. "No change" is often right: an ordinary stretch, or the same evidence in other words."""
 
 _REFS = {"type": "array", "items": {"type": "string"}}
 
@@ -257,6 +290,9 @@ SCHEMA = _obj(
         conflicts_with=_REFS,
         same_as_withdrawn={"type": "string"},
         why={"type": "string"},
+        certainty={"type": "string", "enum": list(CERTAINTY)},
+        form={"type": "string"},
+        alternatives={"type": "array", "items": {"type": "string"}},
     )},
     explanation={"type": "string"},
 )
@@ -286,6 +322,9 @@ class Change:
     why: str
     conflicts_with: list[str] = field(default_factory=list)  # lesson ids
     widens: bool = False
+    certainty: str | None = None  # the builder's judgment (None: unchanged)
+    form: str | None = None
+    alternatives: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return dict(self.__dict__)
@@ -335,10 +374,12 @@ def check(raw: dict, b: Bundle) -> Checked:
         why = _cut(entry.get("why"), WHY_CHARS)
         text = _texts(entry)
         if text is None:
-            drop(name, "its text, where it applies or its exceptions are over the limits; nothing is cut to fit, "
-                       "since a shortened exception could change its meaning")
+            drop(name, "its text, where it applies, its exceptions or its alternatives are over the limits; nothing "
+                       "is cut to fit, since a shortened exception could change its meaning")
             continue
-        statement, applies, exceptions = text
+        statement, applies, exceptions, alternatives = text
+        certainty = entry.get("certainty") if entry.get("certainty") in CERTAINTY else None
+        form = _cut(entry.get("form"), FORM_CHARS) or None
 
         if op == "create":
             kind, scope = entry.get("kind"), entry.get("scope")
@@ -351,10 +392,10 @@ def check(raw: dict, b: Bundle) -> Checked:
             if kind == "preference" and not quoted:
                 drop(name, "a preference needs the user's exact words, found in a user line it cites")
                 continue
-            if kind == "strategy" and not supported:
+            if kind in INFERRED and not supported:
                 drop(name, "an inferred lesson needs a supported conclusion of the assessment")
                 continue
-            if kind == "strategy" and not applicability:
+            if kind in INFERRED and not applicability:
                 drop(name, "an inferred lesson needs evidence for where it applies")
                 continue
             same = str(entry.get("same_as_withdrawn") or "").strip()
@@ -363,10 +404,13 @@ def check(raw: dict, b: Bundle) -> Checked:
                 if gone.withdrawn_occasion_at is not None and b.occasion_at <= gone.withdrawn_occasion_at:
                     drop(name, f"says what withdrawn {same} said, from evidence no newer than its withdrawal")
                     continue
+            inferred = kind in INFERRED
             changes.append(Change("create", None, None, None, kind, scope, statement, applies, exceptions,
                                   [quote] if kind == "preference" else [], roots,
                                   quote if quoted else None, why,
-                                  conflicts_with=_conflicts(entry, b, drop, name)))
+                                  conflicts_with=_conflicts(entry, b, drop, name),
+                                  certainty=(certainty or "tentative") if inferred else None,
+                                  form=form if inferred else None, alternatives=alternatives if inferred else []))
             continue
 
         ref = str(entry.get("lesson") or "").strip()
@@ -388,10 +432,21 @@ def check(raw: dict, b: Bundle) -> Checked:
             continue
         base = Change(op, ref, shown.id, shown.revision, shown.kind, shown.scope, shown.statement,
                       shown.applies_when, list(shown.exceptions), list(shown.user_words), roots,
-                      quote if quoted else None, why)
+                      quote if quoted else None, why, form=shown.form, alternatives=list(shown.alternatives))
+        inferred = shown.kind in INFERRED
+        # Reading an experience already counted for it again is never new support (same occasion, or one sharing
+        # its evidence): it can't raise certainty or widen scope.
+        already = b.occasion in shown.occasions or shown.shares_evidence
+        if not inferred:
+            certainty = None
+        elif certainty == "established" and shown.status != "accepted" and already:
+            drop(f"{name}: established", "this experience is already counted for it; reading it again is not new "
+                                         "support, so it stays tentative")
+            certainty = None
 
         if op in ("support", "counter"):
             touched.add(ref)
+            base.certainty = certainty
             changes.append(base)
             continue
 
@@ -412,10 +467,9 @@ def check(raw: dict, b: Bundle) -> Checked:
                 drop(name, "narrowing a preference needs the user's words or a supported conclusion")
                 continue
             widens = SCOPE_RANK[scope] > SCOPE_RANK[shown.scope]
-            occasions = shown.support + (b.occasion not in shown.support_from)
-            if widens and not quoted and occasions < b.min_occasions:
-                drop(name, "widening a lesson's scope needs the user's explicit words or support from further "
-                           "occasions")
+            if widens and not quoted and already:
+                drop(name, "widening a lesson's scope needs the user's explicit words or evidence from a new "
+                           "occasion")
                 continue
             new_statement = statement if op == "revise" and statement else shown.statement
             new_applies = applies or shown.applies_when
@@ -427,8 +481,20 @@ def check(raw: dict, b: Bundle) -> Checked:
             if len(new_exceptions) > MAX_EXCEPTIONS:
                 drop(name, f"more than {MAX_EXCEPTIONS} exceptions; nothing is cut to fit")
                 continue
-            if (new_statement, new_applies, new_exceptions, scope) == (
-                    shown.statement, shown.applies_when, list(shown.exceptions), shown.scope):
+            if op == "narrow":  # alternatives to add; the ones it has stay
+                known = {_norm(a) for a in shown.alternatives}
+                new_alternatives = list(shown.alternatives) + [a for a in alternatives if _norm(a) not in known]
+            else:
+                new_alternatives = alternatives or list(shown.alternatives)
+            if len(new_alternatives) > MAX_ALTERNATIVES:
+                drop(name, f"more than {MAX_ALTERNATIVES} alternatives; nothing is cut to fit")
+                continue
+            new_form = (form if op == "revise" and form else shown.form) if inferred else None
+            new_alternatives = new_alternatives if inferred else []
+            same_status = certainty is None or certainty == ("established" if shown.status == "accepted" else "tentative")
+            if (new_statement, new_applies, new_exceptions, scope, new_alternatives, new_form) == (
+                    shown.statement, shown.applies_when, list(shown.exceptions), shown.scope,
+                    list(shown.alternatives) if inferred else [], shown.form if inferred else None) and same_status:
                 drop(name, "changes nothing it says; recorded as support instead" if op == "revise" else
                      "changes nothing it says; recorded as a counterexample instead")
                 base.op = "support" if op == "revise" else "counter"
@@ -441,7 +507,8 @@ def check(raw: dict, b: Bundle) -> Checked:
             touched.add(ref)
             changes.append(Change(op, ref, shown.id, shown.revision, shown.kind, scope, new_statement, new_applies,
                                   new_exceptions, words, roots, quote if quoted else None, why,
-                                  conflicts_with=_conflicts(entry, b, drop, name), widens=widens))
+                                  conflicts_with=_conflicts(entry, b, drop, name), widens=widens,
+                                  certainty=certainty, form=new_form, alternatives=new_alternatives))
             continue
 
         # withdraw
@@ -449,24 +516,27 @@ def check(raw: dict, b: Bundle) -> Checked:
             drop(name, "withdrawing a preference needs the user's own words saying so; recorded as a "
                        "counterexample instead")
             base.op = "counter"
-        elif shown.kind == "strategy" and not quoted and \
-                shown.counter + (b.occasion not in shown.counter_from) < b.min_occasions:
-            drop(name, "one counterexample doesn't withdraw a strategy; recorded as a counterexample instead")
+        elif inferred and not quoted and not supported:
+            drop(name, "withdrawing an inference needs the user's words or a supported conclusion against it; "
+                       "recorded as a counterexample instead")
             base.op = "counter"
         touched.add(ref)
         changes.append(base)
     return Checked(changes, dropped, _cut(raw.get("explanation"), 1500))
 
 
-def _texts(entry: dict) -> tuple[str, str, list[str]] | None:
+def _texts(entry: dict) -> tuple[str, str, list[str], list[str]] | None:
     statement = " ".join(str(entry.get("statement") or "").split())
     applies = " ".join(str(entry.get("applies_when") or "").split())
     exceptions = [" ".join(str(e).split()) for e in entry.get("exceptions") or [] if str(e).strip()]
     exceptions = list(dict.fromkeys(exceptions))
+    alternatives = [" ".join(str(a).split()) for a in entry.get("alternatives") or [] if str(a).strip()]
+    alternatives = list(dict.fromkeys(alternatives))
     if len(statement) > STATEMENT_CHARS or len(applies) > APPLIES_CHARS or len(exceptions) > MAX_EXCEPTIONS \
-            or any(len(e) > EXCEPTION_CHARS for e in exceptions):
+            or any(len(e) > EXCEPTION_CHARS for e in exceptions) or len(alternatives) > MAX_ALTERNATIVES \
+            or any(len(a) > ALTERNATIVE_CHARS for a in alternatives):
         return None
-    return statement, applies, exceptions
+    return statement, applies, exceptions, alternatives
 
 
 def _conflicts(entry: dict, b: Bundle, drop, name: str) -> list[str]:
@@ -556,21 +626,28 @@ class LessonView:
     status: str = "accepted"
     status_reason: str | None = None
     source_refs: tuple[str, ...] = ()
+    form: str | None = None
+    alternatives: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         return {"ref": self.ref, "id": self.id, "revision": self.revision, "kind": self.kind, "scope": self.scope,
                 "statement": self.statement, "applies_when": self.applies_when,
                 "exceptions": list(self.exceptions), "user_words": list(self.user_words),
                 "occasions": self.occasions, "conflicts": list(self.conflicts), "status": self.status,
-                "status_reason": self.status_reason, "source_refs": list(self.source_refs)}
+                "status_reason": self.status_reason, "source_refs": list(self.source_refs), "form": self.form,
+                "alternatives": list(self.alternatives)}
 
 
 GUIDE = """LESSONS are what she has learned with this user before, from earlier experience. Each says whose it is:
 "they have said they want" is the user's stated preference, within the scope they gave (their words are quoted);
-"she has found" is her own inference from experience, which can be wrong. They are experience to weigh with the
-situation, her character and her values, never commands, and a lesson is not a reason to stop judging:
-- A hypothesis is tentative, scoped experience, usable for cautious judgment immediately. Its cause may
-  remain unknown. Never turn a conjecture into fact, widen its scope or treat it as a restriction on action.
+"she has found" (what tends to work) and "she has come to understand" (how things are: an expectation, a
+relationship, an explanation) are her own inferences from experience, which can be wrong. They are experience to
+weigh with the situation, her character and her values, never commands, and a lesson is not a reason to stop
+judging:
+- A hypothesis is a guess: tentative, scoped experience, usable for cautious judgment and for what to notice or
+  consider now. Its cause may remain unknown. Never say it as a fact, never present it to the user as something
+  they said or want, never widen its scope or treat it as a restriction on action. When other explanations are
+  listed, keep them in mind; when the difference matters, look for what tells them apart (or ask).
 - A lesson applies only where its "applies" and "except" say. When it is unclear whether it applies here, use it
   narrowly, and ask when the difference matters to what she does.
 - What the user asks now carries strong weight: an explicit request (for advice, for detail, to stop doing
@@ -594,14 +671,20 @@ def decision_lines(lessons: list[LessonView] | tuple[LessonView, ...], *, cut: i
         return []
     out = ["LESSONS (what she has learned with this user in earlier experience; experience to weigh, not commands):"]
     for v in lessons:
+        occasions = f"from {v.occasions} occasion{'s' if v.occasions != 1 else ''}"
+        guess = "her inference, a guess" if v.status == "hypothesis" else "her inference"
         if v.kind == "preference":
             words = " / ".join(f'"{w}"' for w in v.user_words)
             head = f"they have said they want ({'their words: ' + words if words else 'in their words'})"
+        elif v.kind == "understanding":
+            head = f"she has come to understand{' (' + v.form + ')' if v.form else ''}, {occasions} ({guess})"
         else:
-            head = f"she has found, from {v.occasions} occasion{'s' if v.occasions != 1 else ''} (her inference)"
+            head = f"she has found, {occasions} ({guess})"
         line = f"[{v.ref}] {head}: {v.statement.rstrip('.')}. Applies: {v.applies_when.rstrip('.')}."
         if v.exceptions:
             line += " Except: " + "; ".join(e.rstrip(".") for e in v.exceptions) + "."
+        if v.alternatives:
+            line += " Other explanations: " + "; ".join(a.rstrip(".") for a in v.alternatives) + "."
         line += f" Status: {v.status}."
         if v.status_reason:
             line += f" {v.status_reason}."
@@ -659,6 +742,6 @@ def parse_weighed(output: str, refs: list[str] | tuple[str, ...]) -> tuple[list[
 
 
 __all__ = ["Bundle", "Line", "Conclusion", "Shown", "Change", "Checked", "LessonView", "render", "digest", "check",
-           "status_for", "Builder", "Answer", "decision_lines", "weighed_schema", "parse_weighed", "GUIDE",
+           "status_for", "certainty_of", "INFERRED", "CERTAINTY", "Builder", "Answer", "decision_lines", "weighed_schema", "parse_weighed", "GUIDE",
            "INSTRUCTIONS", "SCHEMA", "PROMPT_VERSION", "INTERFACE_VERSION", "RENDERING", "KINDS", "SCOPES",
            "STATUSES", "OPS", "REPORTED"]

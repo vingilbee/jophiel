@@ -115,7 +115,9 @@ def _lessons(db: Session, user_id: uuid.UUID, query: str) -> dict[str, Any]:
         return {"lessons_note": "lesson supply is switched off (baseline)"}
     try:
         with db.begin_nested():
-            supply = memory_lessons.for_decision(db, user_id, query)
+            # Tentative inferences too, labelled as guesses (post-audit 3): they can inform how she reads and
+            # answers now; they are never asserted.
+            supply = memory_lessons.for_decision(db, user_id, query, include_tentative=True)
     except Exception as exc:  # noqa: BLE001 - this decision goes without lessons
         logger.exception("student_two: reading lessons failed")
         return {"lessons_note": f"reading lessons failed: {type(exc).__name__}"}
@@ -123,7 +125,7 @@ def _lessons(db: Session, user_id: uuid.UUID, query: str) -> dict[str, Any]:
         from app.services import system_signals
         system_signals.emit(user_id, "memory", "cognition", "lessons")
     return {"lessons": supply.views, "lessons_left_out": supply.left_out,
-            "lessons_note": None if supply.views or supply.left_out else "no accepted lessons"}
+            "lessons_note": None if supply.views or supply.left_out else "no lessons with live support"}
 
 
 def _aware(at: datetime) -> datetime:
@@ -530,7 +532,7 @@ def decide(live: S.Live, ask=None, *, capture=None) -> Outcome:
             _record_attempt(outcome, live, capture, exact, started_at)
         except Exception:  # noqa: BLE001 - capture never changes the decision
             logger.exception("student_two: capturing the attempt failed")
-        _record_lessons(outcome, live, capture.user_id)
+        _record_lessons(outcome, live, capture.user_id, upstream=capture.upstream)
     return outcome
 
 
@@ -549,13 +551,23 @@ def _settle_lessons(outcome: Outcome, live: S.Live) -> None:
         outcome.lessons_reason = "this decision model's input has no lessons (its rendering doesn't show them)"
 
 
-def _record_lessons(outcome: Outcome, live: S.Live, user_id: uuid.UUID) -> None:
+STUDENT_1_GAP = ("Student 1's trained input has no place for lessons (a delivery gap, post-audit 3): the message was "
+                 "interpreted without them; Student 2 read them with its reading")
+
+
+def _record_lessons(outcome: Outcome, live: S.Live, user_id: uuid.UUID, *, upstream: dict | None = None) -> None:
     from app.services import memory_lessons
 
     supply = memory_lessons.Supply(tuple(live.lessons), tuple(live.lessons_left_out))
     memory_lessons.record_uses(user_id, outcome.decision_id, supply, consumer="student_2",
                                received=outcome.lessons_received, reason=outcome.lessons_reason,
                                weighed=outcome.lessons_weighed, decision_status=outcome.status)
+    # Interpretation (Student 1) had the same lessons available and couldn't receive them: recorded as such, so a
+    # missing delivery is never counted as interpretation having them.
+    reading = (upstream or {}).get("student_1")
+    if reading and (upstream or {}).get("student_1_status") != "not_run":
+        memory_lessons.record_uses(user_id, reading, supply, consumer="student_1", received=False,
+                                   reason=STUDENT_1_GAP)
 
 
 def _local_decide(live: S.Live, started: float, *, ask=None, exact: dict[str, Any]) -> Outcome:

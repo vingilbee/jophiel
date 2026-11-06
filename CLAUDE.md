@@ -190,7 +190,9 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
                        #   writer, gaps; planner and hard thoughts too); trajectory_capture.py + trajectory.py: her
                        #   trajectory, every game tick pulled from the pack in chunks, read back (docs/learning-system/POST-AUDIT-01-implementation.md); capture_chains.py: reading chains back; training_examples.py: derivatives;
-                       #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions);
+                       #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions,
+                       #   iterative requests, parked inquiries); learning_review.py: review opportunities (every
+                       #   exchange, pauses, ongoing play, her mind's nominations) and follow-ups handed to memory;
                        #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences);
                        #   learning_trials.py: bounded game trials (investigation, cognition's choice, preparation,
                        #   execution bounds, recovery, assessment, what persists);

@@ -44,7 +44,7 @@ export interface LearnedSkill {
 
 /** Learning's retrospective assessments (docs/learning-system/02-implementation.md). */
 export type AssessmentStatus = 'supported' | 'plausible' | 'unresolved' | 'contradicted'
-export type AssessmentOutcome = 'concluded' | 'unresolved' | 'no_feedback'
+export type AssessmentOutcome = 'concluded' | 'unresolved' | 'no_feedback' | 'left'
 
 export interface AssessmentConclusion {
   status: AssessmentStatus
@@ -74,7 +74,20 @@ export interface AssessmentResult {
   dimensions: (AssessmentConclusion & { dimension: string; target: string; value: string })[]
   choice_vs_outcome: { target: string; choice: string; outcome: string; note: string; cites: string[] }[]
   missing: { what: string; needed_for: string }[]
-  clarification: { propose: boolean; question: string }
+  /** Revisions before post-audit 3 only. */
+  clarification?: { propose: boolean; question: string }
+  /** Post-audit 3 (docs/learning-system/POST-AUDIT-03-implementation.md): absent on older revisions. */
+  review?: { decision: 'examine' | 'wait' | 'leave'; why: string }
+  findings?: (AssessmentConclusion & {
+    statement: string
+    form: string
+    applies_when: string
+    alternatives: string[]
+    relates_to: { lesson: string; id: string; revision: number; relation: string }[]
+  })[]
+  follow_up?: { propose: boolean; kind: 'question' | 'observation' | 'practice'; text: string; resolves: string; item?: string | null }
+  inquiry?: AssessmentInquiry
+  requests?: { source: string; query: string }[]
   explanation: string
   target_labels: Record<string, string>
   trigger: string
@@ -87,7 +100,7 @@ export interface AssessmentRevision {
   outcome: AssessmentOutcome
   target_status: string
   cause_status: string
-  stop_reason: 'concluded' | 'missing_evidence' | 'stuck'
+  stop_reason: 'concluded' | 'missing_evidence' | 'stuck' | 'waiting' | 'left'
   independent: number
   explanation: string
   result: AssessmentResult
@@ -97,10 +110,21 @@ export interface AssessmentRevision {
   created_at: string
 }
 
+export interface AssessmentInquiry {
+  question?: string
+  provisional?: string
+  alternatives?: string[]
+  unknown?: string
+  resume_when?: string
+  stop?: string
+  revision?: number
+}
+
 export interface AssessmentSummary {
   id: string
-  trigger_kind: 'correction' | 'complaint' | 'execution' | 'sample'
+  trigger_kind: 'correction' | 'complaint' | 'execution' | 'sample' | 'review'
   trigger: { why?: string }
+  inquiry?: AssessmentInquiry
   state: 'pending' | 'running' | 'done' | 'failed'
   outcome: AssessmentOutcome | null
   target_status: string | null
@@ -148,13 +172,15 @@ export interface LessonUse {
 
 export interface AdaptationLesson {
   id: string
-  kind: 'preference' | 'strategy'
+  kind: 'preference' | 'strategy' | 'understanding'
   origin: 'stated' | 'inferred'
   scope: 'standing' | 'situation' | 'episode'
   status: AdaptationLessonStatus
   statement: string
   applies_when: string
   exceptions: string[]
+  form?: string | null
+  alternatives?: string[]
   user_words: string[]
   revision: number
   status_reason: string | null

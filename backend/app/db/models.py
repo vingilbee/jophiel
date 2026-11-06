@@ -3073,10 +3073,15 @@ class TrainingExampleDeletion(Base):
 # until their conversation, game session, trigger message or user goes, or a forget removes them.
 # --------------------------------------------------------------------------- #
 
-ASSESSMENT_TRIGGERS = ("correction", "complaint", "execution", "sample")
+# review: a scheduled opportunity over a stretch of activity (post-audit 3); correction / complaint / sample are
+# kept for rows opened before semantic review replaced them as admission routes.
+ASSESSMENT_TRIGGERS = ("correction", "complaint", "execution", "sample", "review")
 ASSESSMENT_STATES = ("pending", "running", "done", "failed")
-ASSESSMENT_OUTCOMES = ("concluded", "unresolved", "no_feedback")
-ASSESSMENT_STOPS = ("concluded", "missing_evidence", "stuck")
+# left: the reviewer judged there was nothing worth examining (no substantive assessment, no product).
+ASSESSMENT_OUTCOMES = ("concluded", "unresolved", "no_feedback", "left")
+# Every stop but concluded/left is a parked, resumable inquiry: waiting (it asked to wait for more), stuck (looking
+# further added nothing new), missing_evidence (what would settle it is not available).
+ASSESSMENT_STOPS = ("concluded", "missing_evidence", "stuck", "waiting", "left")
 ASSESSMENT_LINK_ROLES = ("target", "cause", "cited")
 ASSESSMENT_USE_STATES = ("current", "reconsider")
 
@@ -3115,6 +3120,9 @@ class LearningAssessment(Base):
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Records whose arrival would add evidence (an attempt still missing from capture): ``attempt:<id>``.
     awaiting: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    # The open inquiry as it stands (post-audit 3): its question, provisional reading, alternatives, what remains
+    # unknown, what would resume it, the evidence revision last examined and the requests it made. Empty: none.
+    inquiry: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now(), nullable=False)
@@ -3250,11 +3258,14 @@ class LearningAssessmentUse(Base):
 # it applies. Every change is a revision; a withdrawn lesson stays withdrawn. Evidence and uses are opaque refs.
 # --------------------------------------------------------------------------- #
 
-LESSON_KINDS = ("preference", "strategy")
+# understanding (post-audit 3): her inference about how things are (an expectation, a relationship, an explanation,
+# her own capability, an open question), not advice about what to do.
+LESSON_KINDS = ("preference", "strategy", "understanding")
 LESSON_ORIGINS = ("stated", "inferred")
 LESSON_SCOPES = ("standing", "situation", "episode")
-# accepted: supplied to cognition; hypothesis: an inference without enough independent support yet (kept, not
-# supplied); episode_only: about one past episode, never a standing rule (kept, not supplied); withdrawn: final.
+# accepted: an inference the builder judged established, or a stated preference; hypothesis: a tentative inference
+# (supplied labelled as a guess while it has live support); episode_only: about one past episode, never a standing
+# rule (kept, not supplied); withdrawn: final.
 LESSON_STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
 LESSON_EVIDENCE_ROLES = ("support", "counter")
 LESSON_OPS = ("create", "support", "counter", "narrow", "revise", "withdraw", "reconsider")
@@ -3283,6 +3294,11 @@ class MemoryLesson(Base):
     conflicts_with: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
                                                  server_default=text("'[]'::jsonb"))
     status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What form of understanding it is, in the builder's words ("an expectation about how they joke"): descriptive,
+    # never a category code acts on. And the competing explanations kept beside it (post-audit 3).
+    form: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alternatives: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                               server_default=text("'[]'::jsonb"))
     # When it was withdrawn, and when the evidence that withdrew it happened: older work can't bring it back.
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     withdrawn_occasion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -3324,6 +3340,9 @@ class MemoryLessonRevision(Base):
     applies_when: Mapped[str] = mapped_column(Text, nullable=False)
     exceptions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     user_words: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    form: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alternatives: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                               server_default=text("'[]'::jsonb"))
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
     assessment_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)

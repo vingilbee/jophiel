@@ -65,6 +65,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
 }
 
 
+FOLLOW_UP_MARK = "learning follow-up (assessment "  # services/learning_review.propose
+
+
 def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
           scopes: Iterable[str] = tuple(SCOPES)) -> dict[str, int]:
     """Delete the chosen scopes for these users (all users when ``None``).
@@ -100,6 +103,16 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
         if ids is not None:
             pending = pending.where(LearningTrialTrigger.user_id.in_(ids))
         db.execute(pending)
+        # Learning's open follow-up proposals (post-audit 3) go with the assessments that made them: closed, so
+        # cognition never takes one up across test attempts.
+        counts["learning_follow_ups"] = 0
+        for kind, status in (("question", "dropped"), ("hypothesis", "unresolved")):
+            closing = update(WorkingItem).where(WorkingItem.kind == kind, WorkingItem.closed_at.is_(None),
+                                                WorkingItem.reason.like(FOLLOW_UP_MARK + "%"))
+            if ids is not None:
+                closing = closing.where(WorkingItem.user_id.in_(ids))
+            counts["learning_follow_ups"] += db.execute(closing.values(
+                status=status, status_reason="test learning reset", closed_at=cutoff)).rowcount or 0
     for scope in chosen:
         if scope == "working":
             unlink = update(DesktopSession).where(DesktopSession.goal_item_id.is_not(None)).values(goal_item_id=None)
@@ -156,6 +169,11 @@ def preview(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
             receipts = receipts.where(ObservationProcessing.user_id.in_(ids))
         counts["game_episodes"] = db.scalar(query) or 0
         counts["pending_learning_receipts"] = db.scalar(receipts) or 0
+        follow_ups = select(func.count()).select_from(WorkingItem).where(
+            WorkingItem.closed_at.is_(None), WorkingItem.reason.like(FOLLOW_UP_MARK + "%"))
+        if ids is not None:
+            follow_ups = follow_ups.where(WorkingItem.user_id.in_(ids))
+        counts["learning_follow_ups"] = db.scalar(follow_ups) or 0
     return counts
 
 

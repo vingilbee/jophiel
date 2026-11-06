@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from app.ai.mind.contracts import Moment, Rhythm, Scope
 from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
+from app.core.config import get_settings
 from app.db.models import (
     ChatMessage, Conversation, CoordinatorWork, MemoryConflict, MemoryEvidence, User, WorkingItem,
 )
@@ -211,6 +212,27 @@ def right_now(db: Session, user_id: uuid.UUID, conversation_id: uuid.UUID, now: 
     return "\n".join(lines)
 
 
+def _lessons(db: Session, user_id: uuid.UUID, problem) -> tuple[object | None, tuple[str, ...]]:
+    """What she learned with this user before, for a hard thought about the conversation (post-audit 3): the same
+    retrieval Student 2 uses, tentative inferences labelled as guesses. Its exact supply is kept beside the input
+    (``mind_hard`` records which revisions the thought had). A failure is no lessons, never a failed thought."""
+    from app.ai.learning import lessons as L
+    from app.services import memory_lessons
+
+    if not get_settings().lessons_supply_enabled:
+        return None, ()
+    try:
+        with db.begin_nested():
+            supply = memory_lessons.for_decision(db, user_id, problem.text, include_tentative=True)
+    except Exception:  # noqa: BLE001
+        log.exception("mind: reading lessons for a conversation thought failed")
+        return None, ()
+    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
+    if lines:
+        lines.append(L.GUIDE.split("lessons_weighed:")[0].strip())
+    return supply, tuple(lines)
+
+
 def _focused_goal(db: Session, user_id: uuid.UUID) -> str | None:
     from app.services import memory_manager
 
@@ -309,10 +331,11 @@ class ConversationSource:
         refs = list(base.memory_refs)
         found = memories(db, base.memories, user_id=scope.user_id, conversation_id=scope.activity,
                          user_name=base.user, refs=refs)
+        supply, learned = _lessons(db, scope.user_id, problem)
         return replace(
             base, conversation=mind_hard.conversation(db, scope.user_id, now, scope.activity),
             now=right_now(db, scope.user_id, scope.activity, now), goal=_focused_goal(db, scope.user_id),
-            memories=found, memory_refs=tuple(dict.fromkeys(refs)),
+            memories=found, memory_refs=tuple(dict.fromkeys(refs)), learned=learned, lesson_supply=supply,
         ), conversation.last_message_sequence
 
     def dropped(self, db: Session, scope: Scope, problem: Problem, cancelled: str | None) -> str | None:

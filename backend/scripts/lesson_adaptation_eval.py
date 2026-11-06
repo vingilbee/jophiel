@@ -142,7 +142,7 @@ class BuildCase:
 
 def _bundle(lines: list[tuple[str, str]], conclusions: list[tuple[str, str, str]], lessons=()) -> L.Bundle:
     b = L.Bundle(str(uuid.uuid4()), 1, f"message:{uuid.uuid4()}", NOW, "a correction from the user",
-                 "see the conclusions", min_occasions=2)
+                 "see the conclusions")
     for i, (speaker, words) in enumerate(lines, 1):
         b.lines[f"m{i}"] = L.Line(f"m{i}", speaker, f'm{i} [{speaker}] "{words}"', words, (f"message:m{i}",))
     for i, (kind, status, text) in enumerate(conclusions, 1):
@@ -181,15 +181,15 @@ def build_cases() -> list[BuildCase]:
                                                    'listen"')]),
                   lambda c: [("no standing preference", all(not (o[0] == "create" and o[1] == "preference" and
                                                                  o[2] == "standing") for o in ops(c)))]),
-        BuildCase("build_inference_one_exchange", "an inference from one exchange is at most a hypothesis",
+        BuildCase("build_inference_one_exchange", "the builder judges an inference from one exchange tentative",
                   _bundle([("user", "I failed my driving test"), ("columbina", "Here's how to pass next time: ..."),
                            ("user", "ok")],
                           [("cause", "supported", "cause: Student 2's choice: advice when they were upset"),
                            ("dimension", "supported", "Relationship: poor")]),
                   lambda c: [("no accepted preference invented", all(x.kind != "preference" for x in c.changes)),
-                             ("any strategy stays a hypothesis",
-                              all(L.status_for(x.kind, x.scope, 1, 2) != "accepted"
-                                  for x in c.changes if x.op == "create" and x.kind == "strategy"))]),
+                             ("any inference is judged tentative",
+                              all(L.status_for(x.kind, x.scope, x.certainty or "tentative") != "accepted"
+                                  for x in c.changes if x.op == "create" and x.kind in L.INFERRED))]),
         BuildCase("build_disclaimed", "a preference the user disclaims is withdrawn",
                   _bundle([("user", "my sister's moving away"), ("columbina", "That must be hard."),
                            ("user", "You know what, you can give me advice when I vent now. I don't need you to "

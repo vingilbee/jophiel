@@ -42,8 +42,11 @@ def soon(**delta) -> datetime:
 
 def answer(**kw) -> dict:
     base = {"feedback": "yes", "targets": [], "causes": [], "user_stated": [], "dimensions": [],
-            "choice_vs_outcome": [], "missing": [], "clarification": {"propose": False, "question": ""},
-            "reopens": [], "next": {"step": "conclude", "look": [], "why": "enough"}, "explanation": "scripted"}
+            "choice_vs_outcome": [], "missing": [], "reopens": [], "next": {"step": "conclude", "look": [], "why": "enough"},
+            "explanation": "scripted", "review": {"decision": "examine", "why": "scripted"}, "findings": [],
+            "requests": [], "inquiry": {"question": "", "provisional": "", "alternatives": [], "unknown": "",
+                                        "resume_when": ""},
+            "follow_up": {"propose": False, "kind": "question", "text": "", "resolves": ""}}
     base.update(kw)
     return base
 
@@ -189,8 +192,7 @@ def test_a_supported_target_must_cite_something_of_the_target():
 @pytest.fixture
 def env(db_env, monkeypatch, tmp_path):
     settings = LA.get_settings().model_copy(update={
-        "learning_assessment_settle_seconds": 0, "learning_assessment_triage_wait_seconds": 120,
-        "learning_assessment_log_path": str(tmp_path / "assess.jsonl"), "learning_assessment_sample_rate": 0.0})
+        "learning_assessment_settle_seconds": 0, "learning_assessment_log_path": str(tmp_path / "assess.jsonl")})
     holder = {"s": settings}
     monkeypatch.setattr(LA, "get_settings", lambda: holder["s"])
 
@@ -445,12 +447,19 @@ def test_ambiguous_targets_stay_ambiguous_and_lucky_success_is_kept_apart_from_c
                             "note": "it worked out by luck"}],
         next={"step": "need_missing", "look": [], "why": "which remark they mean"},
         missing=[{"what": "which remark they meant", "needed_for": "the target"}],
-        clarification={"propose": True, "question": "Which thing I said felt weird?"})))
+        follow_up={"propose": True, "kind": "question", "text": "Which thing I said felt weird?",
+                   "resolves": "which remark they meant"})))
     row, rev = latest(env, aid)
     assert row.outcome == "unresolved" and row.target_status == "plausible" and row.stop_reason == "missing_evidence"
     assert rev.result["causes"][0]["status"] == "unresolved"  # "unclear" is never a supported cause
     assert rev.result["choice_vs_outcome"][0] | {"choice": "poor", "outcome": "good"} == rev.result["choice_vs_outcome"][0]
-    assert rev.result["clarification"]["question"] == "Which thing I said felt weird?"
+    # The question is a proposal kept by memory as an open item of hers: cognition decides whether to ask it.
+    from app.db.models import WorkingItem
+    with env.db() as db:
+        items = list(db.scalars(select(WorkingItem).where(WorkingItem.user_id == user.id, WorkingItem.kind == "question")))
+    assert len(items) == 1 and items[0].owner == "columbina" and items[0].epistemic == "inferred"
+    assert items[0].text == "Which thing I said felt weird?" and f"assessment {aid}" in items[0].reason
+    assert rev.result["follow_up"]["item"] == f"item:{items[0].id}"
 
 
 def test_incomplete_capture_withholds_attribution_until_the_capture_arrives(env):
@@ -608,7 +617,7 @@ def _student_1(db, user, msg, acts):
     db.commit()
 
 
-def test_triage_assesses_corrections_and_complaints_waits_for_the_reading_and_samples_the_rest(env):
+def test_every_completed_exchange_is_a_review_opportunity_and_labels_are_only_signals(env):
     user, conversation = setup(env)
     with env.db() as db:
         exchange(db, user, conversation, "hello", "Hi!")
@@ -622,37 +631,95 @@ def test_triage_assesses_corrections_and_complaints_waits_for_the_reading_and_sa
         for m in (corrected, complaint, ordinary, unread):
             _observe(db, user, m)
         assert LA.triage(db, soon(seconds=1)) == 4
-        kinds = {r.trigger_key: r.trigger_kind for r in db.scalars(select(LearningAssessment))}
-        receipts = {r.observation_id: r for r in db.scalars(select(ObservationProcessing).where(
-            ObservationProcessing.consumer == "learning"))}
-    assert kinds == {f"message:{corrected.id}": "correction", f"message:{complaint.id}": "complaint"}
-    statuses = sorted((r.status, r.attempts) for r in receipts.values())
-    # The message Student 1 hasn't been captured for yet waits (not a failure); the ordinary one isn't sampled.
-    assert statuses == [("applied", 0), ("applied", 0), ("retry", 0), ("skipped", 0)]
-    env.configure_learning(learning_assessment_sample_rate=1.0, learning_assessment_triage_wait_seconds=0)
+        rows = list(db.scalars(select(LearningAssessment)))
+        receipts = list(db.scalars(select(ObservationProcessing).where(ObservationProcessing.consumer == "learning")))
+        # No code verdict and no sampling: one open stretch takes every exchange, nothing waits for Student 1.
+        assert [(r.trigger_kind, r.trigger["from_seq"], r.trigger["up_to_seq"]) for r in rows] == [
+            ("review", corrected.conversation_sequence, unread.conversation_sequence)]
+        assert sorted(r.status for r in receipts) == ["applied"] * 4
+        assert LA.triage(db, soon(seconds=2)) == 0  # settled receipts are never triaged again
+    script = Script(answer(review={"decision": "leave", "why": "small talk and a passing gripe"}, feedback="no",
+                           targets=[target(f"t{corrected.conversation_sequence - 1}", cites=[f"m{corrected.conversation_sequence}"])]))
+    run(env, script)
+    text = script.texts[0]
+    # Labels other parts gave are shown as signals, not as the reason to assess.
+    assert "# Signals other parts gave" in text
+    assert f"Student 1 read m{corrected.conversation_sequence} as correcting her" in text
+    assert f"Student 1 read m{complaint.conversation_sequence} as complaining" in text
+    assert "review opportunity over a stretch of the conversation" in text and '"fine"' in text
+    row, rev = latest(env, rows[0].id)
+    # Left alone: a record that it was looked at, with nothing concluded and nothing queued for lessons.
+    assert (row.outcome, row.stop_reason, row.inquiry) == ("left", "left", {})
+    assert rev.result["targets"] == [] and any("chose to leave it" in d["why"] for d in rev.dropped)
     with env.db() as db:
-        LA.triage(db, soon(minutes=5))
-        row = db.scalar(select(LearningAssessment).where(LearningAssessment.trigger_key == f"message:{unread.id}"))
-    assert row.trigger_kind == "sample" and "wasn't captured" in row.trigger["why"]
+        from app.db.models import LearningLessonJob
+        assert db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == row.id)) is None
 
 
-def test_a_memory_correction_joins_the_messages_assessment(env):
+def test_a_left_stretch_takes_the_next_exchange_and_a_concluded_one_starts_the_next(env):
+    user, conversation = setup(env)
+    with env.db() as db:
+        exchange(db, user, conversation, "hi", "Hello!")
+        first = say(db, conversation, "user", "lol you're funny")
+        _observe(db, user, first)
+        LA.triage(db, soon(seconds=1))
+        aid = db.scalar(select(LearningAssessment.id))
+    run(env, Script(answer(review={"decision": "leave", "why": "nothing yet"})))
+    with env.db() as db:
+        exchange(db, user, conversation, "ok but seriously, the deadline", "Let's look at it.")
+        second = say(db, conversation, "user", "thanks, that helps")
+        _observe(db, user, second)
+        LA.triage(db, soon(seconds=2))
+        rows = list(db.scalars(select(LearningAssessment)))
+    assert [r.id for r in rows] == [aid] and rows[0].state == "pending"
+    assert rows[0].trigger["up_to_seq"] == second.conversation_sequence
+    script = Script(answer(findings=[{"statement": "they joke first and get serious with 'seriously'",
+                                      "form": "how they mean things", "status": "plausible",
+                                      "cites": [f"m{first.conversation_sequence}"], "applies_when": "chat",
+                                      "alternatives": ["it was one joke"], "relates_to": []}],
+                           review={"decision": "examine", "why": "a possible pattern"}))
+    run(env, script)
+    assert "lol you're funny" in script.texts[0] and "thanks, that helps" in script.texts[0]
+    with env.db() as db:
+        row = db.get(LearningAssessment, aid)
+        row.outcome = "concluded"  # as if this reading had concluded
+        db.commit()
+        third = say(db, conversation, "user", "anyway")
+        _observe(db, user, third)
+        LA.triage(db, soon(seconds=3))
+        rows = list(db.scalars(select(LearningAssessment).order_by(LearningAssessment.created_at)))
+    assert len(rows) == 2 and rows[1].trigger["from_seq"] == second.conversation_sequence + 1
+
+
+def test_a_reply_the_user_never_answered_gets_its_opportunity_after_a_pause(env):
+    user, conversation = setup(env)
+    env.configure_learning(learning_review_pause_seconds=60)
+    with env.db() as db:
+        _, her, _, _ = exchange(db, user, conversation, "tell me about tides", "The moon pulls the oceans.")
+        assert LA.sweep(db, soon(seconds=1))["pauses"] == 0  # not quiet long enough yet
+        assert LA.sweep(db, soon(minutes=5))["pauses"] == 1
+        assert LA.sweep(db, soon(minutes=6))["pauses"] == 0  # covered now
+        row = db.scalar(select(LearningAssessment))
+    assert row.trigger_kind == "review" and row.anchor_message_id == her.id
+    assert row.trigger["up_to_seq"] == her.conversation_sequence
+
+
+def test_a_memory_correction_is_a_signal_on_the_stretch(env):
     user, conversation = setup(env)
     with env.db() as db:
         exchange(db, user, conversation, "my sister lives in Porto", "Porto, lovely.")
         msg = say(db, conversation, "user", "sorry, I said Porto but she lives in Lisbon")
-        row, _ = LA.open_assessment(db, user_id=user.id, kind="sample", key=f"message:{msg.id}",
-                                    anchor_at=msg.created_at, conversation_id=conversation.id, anchor_message_id=msg.id,
-                                    trigger={"why": "sampled"})
-        db.commit()
+        _observe(db, user, msg)
+        LA.triage(db, soon(seconds=1))
+        row = db.scalar(select(LearningAssessment))
         db.add(MemoryCorrection(user_id=user.id, source_message_id=msg.id, subject="sister's city",
                                 previous_value="Porto", new_value="Lisbon", kind="mistaken",
                                 user_words="she lives in Lisbon", said_at=msg.created_at, fingerprint="f" * 32))
         db.commit()
         assert LA.sweep(db, soon(seconds=1))["corrections"] == 1
         assert LA.sweep(db, soon(seconds=2))["corrections"] == 0
-        row = db.get(LearningAssessment, row.id)
-    assert row.trigger_kind == "correction" and row.trigger["was"] == "sample"
+        rows = list(db.scalars(select(LearningAssessment)))
+    assert [r.id for r in rows] == [row.id] and rows[0].trigger_kind == "review"
     script = Script(answer(feedback="no"))
     run(env, script)
     assert 'memory correction: memory read' in script.texts[0] and "Does not establish: whose mistake" in script.texts[0]

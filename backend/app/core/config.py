@@ -279,17 +279,21 @@ class Settings(BaseSettings):
     # time. Off: nothing new is derived (existing examples stay, and stay deletable).
     learning_derive_examples: bool = True
     # Retrospective assessment (docs/learning-system/02-implementation.md; services/learning_assessment.py): what
-    # feedback or an outcome says about what she did. Corrections, complaints and execution failures are assessed
-    # automatically; ordinary exchanges are sampled at this rate (by message id, so a retry samples the same).
-    # An assessment waits SETTLE seconds after its trigger (a burst of failures, the reply to a correction) and up to
-    # TRIAGE_WAIT for Student 1's capture of the message. WINDOW: conversation lines shown before the trigger at
-    # first (an investigation can look further back, doubling it). MAX_CHARS: the most evidence read at once.
+    # experience says about what she did and what she understands. Post-audit 3 (services/learning_review.py): every
+    # completed exchange, a pause after her reply, and ongoing or ended game play give the reviewer an opportunity;
+    # the reviewer (the model) judges whether to examine, wait or leave it. Code only schedules: SETTLE seconds after
+    # new activity before a review runs (a burst arrives together); PAUSE: the user quiet this long after her reply
+    # reviews that reply; GAME: play this long with new experience gets a review before the session ends. STRETCH:
+    # the most messages one conversation review carries (a transport page, not an experience boundary: the reviewer
+    # can look earlier). WINDOW: lines shown before a stretch at first (doubling when it looks further back).
+    # MAX_CHARS: the most evidence read at once. None of these bound what can be learned, or how often.
     learning_assessment_model: str = "gpt-6-luna"
     learning_assessment_reasoning_effort: str | None = "low"
     learning_assessment_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    learning_assessment_sample_rate: float = Field(default=0.1, ge=0.0, le=1.0)
     learning_assessment_settle_seconds: float = Field(default=60.0, ge=0)
-    learning_assessment_triage_wait_seconds: float = Field(default=120.0, ge=0)
+    learning_review_pause_seconds: float = Field(default=300.0, ge=0)
+    learning_review_game_seconds: float = Field(default=300.0, ge=0)
+    learning_review_stretch_messages: int = Field(default=40, ge=2, le=400)
     learning_assessment_window_messages: int = Field(default=12, ge=2, le=200)
     learning_assessment_max_chars: int = Field(default=60000, ge=4000)
     learning_assessment_max_attempts: int = Field(default=4, ge=1)
@@ -297,12 +301,10 @@ class Settings(BaseSettings):
     # Lessons (docs/learning-system/03-implementation.md; services/learning_lessons.py builds them from supported
     # assessments, services/memory_lessons.py owns them). LEARNING_LESSONS_ENABLED off: no new lessons or changes to
     # them (what exists stays). LESSONS_SUPPLY_ENABLED off: the baseline, lessons are kept but given to no decision.
-    # MIN_OCCASIONS: distinct assessed exchanges an inferred lesson needs before it is supplied (a stated preference
-    # needs the user's words only); also what withdrawing a strategy on counterevidence alone needs. SUPPLIED_MAX:
-    # the most lessons one decision is given (past it, the most relevant, whole).
+    # Whether an inference is established or tentative is the builder's judgment on the evidence (post-audit 3), not a
+    # count of occasions. SUPPLIED_MAX: the most lessons one decision is given (past it, the most relevant, whole).
     learning_lessons_enabled: bool = True
     lessons_supply_enabled: bool = True
-    lessons_min_occasions: int = Field(default=2, ge=1, le=20)
     lessons_supplied_max: int = Field(default=5, ge=1, le=20)
     learning_lessons_model: str = "gpt-6-luna"
     learning_lessons_reasoning_effort: str | None = "low"
@@ -406,9 +408,6 @@ class Settings(BaseSettings):
     minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
     # Spending bound for skill decisions per session (each is one model call).
     minecraft_pack_max_decisions: int = Field(default=400, ge=1, le=10_000)
-    # Bounded game stretches enter the shared assessment lifecycle, including successful play.
-    learning_game_min_outcomes: int = Field(default=5, ge=1, le=1000)
-    learning_game_pause_outcomes: int = Field(default=15, ge=1, le=1000)
     # Teaching herself a move (stage H1, services/game_practice.py): she writes a
     # program over her skills, the pack's sandbox runs it, a critic checks the
     # counted result, and she fixes it, up to MAX_TRIES times. Started only from a

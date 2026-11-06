@@ -65,6 +65,7 @@ const TRIGGER_LABELS: Record<AssessmentSummary['trigger_kind'], string> = {
   complaint: 'a complaint',
   execution: 'recorded activity or an outcome',
   sample: 'an ordinary exchange (sampled)',
+  review: 'a stretch of activity (a review opportunity)',
 }
 
 const PART_LABELS: Record<string, string> = {
@@ -85,7 +86,9 @@ const PART_LABELS: Record<string, string> = {
 const STOP_LABELS: Record<string, string> = {
   concluded: 'the evidence was enough',
   missing_evidence: 'needs evidence that is missing',
-  stuck: 'stopped: nothing new to look at',
+  stuck: 'parked: nothing new to look at',
+  waiting: 'parked: waiting for more',
+  left: 'left: nothing worth examining',
 }
 
 const CHALLENGE_LABELS: Record<Challenge['status'], string> = {
@@ -282,6 +285,7 @@ function AssessmentCard({
   }
 
   const status = a.state === 'done' ? (a.outcome === 'no_feedback' ? 'no feedback' : a.outcome ?? 'pending') : a.state
+  const inquiry = a.inquiry?.question ? a.inquiry : null
   const current = detail?.revisions[0]
   return (
     <article className="rounded-2xl border border-[#1C2228] bg-[#0D1115] px-4 py-3 sm:px-5">
@@ -297,6 +301,14 @@ function AssessmentCard({
         {a.stop_reason && ` · ${STOP_LABELS[a.stop_reason] ?? a.stop_reason}`}
       </p>
       {a.explanation && <p className="mt-2 text-xs text-[#C5CDD5]">{a.explanation}</p>}
+      {inquiry && (
+        <p className="mt-1 text-xs text-[#B9A2F0]">
+          Open question: {inquiry.question}
+          {inquiry.provisional && ` · for now: ${inquiry.provisional}`}
+          {inquiry.alternatives && inquiry.alternatives.length > 0 && ` · or: ${inquiry.alternatives.join('; ')}`}
+          {inquiry.resume_when && ` · resumes on: ${inquiry.resume_when}`}
+        </p>
+      )}
       {a.state === 'failed' && a.last_error && <p className="mt-2 text-xs text-[#F08AB0]">Couldn't assess it: {a.last_error}</p>}
       <details className="mt-2" onToggle={(e) => void open((e.target as HTMLDetailsElement).open)}>
         <summary className="cursor-pointer text-xs text-[#8C97A3]">Evidence and history</summary>
@@ -336,8 +348,25 @@ function AssessmentCard({
             {current.result.missing.length > 0 && (
               <p className="text-[#B9A2F0]">Missing: {current.result.missing.map((m) => m.what).join('; ')}</p>
             )}
-            {current.result.clarification.propose && (
+            {(current.result.findings ?? []).map((f, i) => (
+              <p key={`f-${i}`}>
+                <Chip label={f.status} /> {f.form || 'finding'}: {f.statement}
+                {f.applies_when && ` (applies: ${f.applies_when})`}
+                {f.alternatives.length > 0 && <span className="text-[#8C97A3]"> · or: {f.alternatives.join('; ')}</span>}
+                {f.relates_to.length > 0 && (
+                  <span className="text-[#8C97A3]"> · {f.relates_to.map((r) => `${r.relation} a lesson`).join(', ')}</span>
+                )}
+                <span className="text-[#8C97A3]"> · cites {f.cites.join(', ') || 'nothing'} · {f.independent} independent</span>
+              </p>
+            ))}
+            {current.result.clarification?.propose && (
               <p className="text-[#8C97A3]">A question that would settle it (not asked): {current.result.clarification.question}</p>
+            )}
+            {current.result.follow_up?.propose && (
+              <p className="text-[#8C97A3]">
+                Proposed to her ({current.result.follow_up.kind}, hers to take up or not): {current.result.follow_up.text}
+                {current.result.follow_up.resolves && ` · would settle: ${current.result.follow_up.resolves}`}
+              </p>
             )}
             {current.dropped.length > 0 && (
               <details>
@@ -399,7 +428,7 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">{l.statement}</h3>
         <span className="text-[11px] text-[#8C97A3]">
-          {l.kind === 'preference' ? 'what you said you want' : 'her own finding'} · {l.scope} · revision {l.revision}
+          {l.kind === 'preference' ? 'what you said you want' : l.kind === 'understanding' ? `what she understands${l.form ? ` (${l.form})` : ''}` : 'her own finding'} · {l.scope} · revision {l.revision}
         </span>
         <Chip label={LESSON_STATUS_LABELS[l.status]} />
       </div>

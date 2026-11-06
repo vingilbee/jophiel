@@ -4,18 +4,21 @@ proposes checked changes and this module applies them by its own rules.
 
 - **Lifecycle.** ``apply`` creates lessons, adds support or counterevidence (once per occasion and role), narrows,
   revises and withdraws. Every change to what a lesson says or how it's used is a new revision, kept whole in
-  ``memory_lesson_revisions``. Status follows from the evidence (``lessons.status_for``): a stated preference is
-  accepted at once, an inference only with support from ``LESSONS_MIN_OCCASIONS`` distinct occasions, a correction of
-  one episode is ``episode_only``. Withdrawn is final.
+  ``memory_lesson_revisions``. Status (``lessons.status_for``): a stated preference is accepted at once; an
+  inference (strategy or understanding) is ``accepted`` or ``hypothesis`` as the builder judged its certainty on the
+  evidence (post-audit 3: no count of occasions promotes it); a correction of one episode is ``episode_only``.
+  Withdrawn is final. Independent support is counted with dependencies kept: evidence sharing a message, a turn, a
+  run or an experience with other evidence is one occasion, whichever assessment read it.
 - **Asynchronous work can't undo it.** Each change names the lesson revision it was made from; under the user's
   lesson lock and the row lock a different revision means the reading is stale (``Stale``: the caller reads again).
   A withdrawn lesson accepts nothing, and a new lesson saying what a withdrawn one said needs evidence newer than the
   withdrawal (checked in ``lessons.check``). When an assessment is revised, the evidence it gave stops counting until
   its new revision is read (``reconsider``), so a lesson resting only on it stops being supplied.
-- **Retrieval.** ``for_decision`` supplies bounded, whole accepted lessons. ``for_game`` explicitly requests
-  situation hypotheses with current support as well, labelled tentative with applicability and source refs.
-  Episode-only, unsupported and withdrawn inferences stay out; conversational retrieval retains its prior policy.
-  Relevant conflicts are supplied together within the same budget.
+- **Retrieval.** ``for_decision`` supplies bounded, whole lessons; with ``include_tentative`` (games, and since
+  post-audit 3 conversation, interpretation and her mind) hypotheses too, labelled as guesses with applicability,
+  alternatives and source refs. An inference is supplied only while it has live support. Episode-only and withdrawn
+  lessons stay out. Relevant conflicts are supplied together within the same budget. ``for_learning`` is the
+  reviewer's read of her lessons (every status but withdrawn), to compare new experience with.
 - **Uses.** ``record_uses``: which revision each decision had, whether it reached the consumer and why not (cut by the
   budget, a consumer whose input has no lessons, supply switched off), and what the consumer said about it.
   ``explain`` names which of the three cases a lesson not followed is: never reached, reached but not accounted for
@@ -50,7 +53,7 @@ log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 SHOWN_MAX = 40  # lessons the construction call sees (most recently changed first)
 WITHDRAWN_SHOWN = 10
-CONSUMERS = ("student_2", "hands", "planner", "mind")
+CONSUMERS = ("student_1", "student_2", "hands", "planner", "mind")
 _log_lock = threading.Lock()
 
 
@@ -66,42 +69,50 @@ def _aware(at: datetime | None) -> datetime | None:
     return at if at is None or at.tzinfo else at.replace(tzinfo=timezone.utc)
 
 
-def _min() -> int:
-    return get_settings().lessons_min_occasions
-
-
 # --------------------------------------------------------------------------- #
 # What the construction call sees
 # --------------------------------------------------------------------------- #
 
 
-def _independent(db, evidence) -> set[str]:
-    """Overlapping game source roots are one occasion even across distinct assessments.
+SHARED_ROOTS = ("experience:", "attempt:", "execution:", "trajectory:", "message:", "turn:")
 
-    Conversation occasions retain their existing identity. This prevents a failure assessment
-    and a later stretch reading of the same run from manufacturing independent support.
-    """
+
+def _canonical(db, user_id: uuid.UUID, refs) -> set[str]:
+    """The occurrences evidence refs come from, so the same event read twice is recognised: a run and its
+    experiences are one attempt (a trial is one trial), an execution is its attempt; messages and turns are
+    themselves."""
+    from app.db.models import DecisionExecution, GameExperience
+
+    canonical = set()
+    for ref in {r for r in refs or [] if str(r).startswith(SHARED_ROOTS)}:
+        prefix, value = ref.split(":", 1)
+        if prefix == "experience" and value.isdigit():
+            experience = db.get(GameExperience, int(value))
+            if experience is not None and experience.user_id == user_id:
+                p = experience.payload or {}
+                trial = (p.get("data") or {}).get("trial_id")
+                canonical.add(f"trial:{trial}" if trial else f"attempt:{p['attempt_id']}"
+                              if p.get("attempt_id") else ref)
+                continue
+        if prefix == "execution":
+            try:
+                execution = db.get(DecisionExecution, uuid.UUID(value))
+            except ValueError:
+                execution = None
+            if execution is not None and execution.user_id == user_id and execution.attempt_id is not None:
+                canonical.add(f"attempt:{execution.attempt_id}")
+                continue
+        canonical.add(ref)
+    return canonical
+
+
+def _independent(db, evidence) -> set[str]:
+    """Evidence sharing an occurrence is one occasion even across distinct assessments: a failure assessment and a
+    later stretch reading of the same run, or two reviews of a conversation that both rest on the same message,
+    never manufacture independent support (post-audit 3 extends this from game sources to messages and turns)."""
     groups = []
     for e in evidence:
-        roots = {r for r in e.refs or [] if r.startswith(("experience:", "attempt:", "execution:", "trajectory:"))}
-        from app.db.models import GameExperience, DecisionExecution
-        canonical = set()
-        for ref in roots:
-            prefix, value = ref.split(":", 1)
-            if prefix == "experience" and value.isdigit():
-                experience = db.get(GameExperience, int(value))
-                if experience is not None and experience.user_id == e.user_id:
-                    p = experience.payload or {}
-                    trial = (p.get("data") or {}).get("trial_id")
-                    canonical.add(f"trial:{trial}" if trial else f"attempt:{p['attempt_id']}"
-                                  if p.get("attempt_id") else ref)
-                    continue
-            if prefix == "execution":
-                execution = db.get(DecisionExecution, uuid.UUID(value))
-                if execution is not None and execution.user_id == e.user_id and execution.attempt_id is not None:
-                    canonical.add(f"attempt:{execution.attempt_id}")
-                    continue
-            canonical.add(ref)
+        canonical = _canonical(db, e.user_id, e.refs)
         keys = canonical or {"occasion:" + e.occasion}
         touching = [g for g in groups if g[0] & keys]
         merged = set(keys)
@@ -134,27 +145,59 @@ def _counts(db: Session, lesson_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[st
     return out
 
 
-def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID,
-              assessment_revision: int) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
-    """The lessons (L refs) and recently withdrawn ones (W refs) the construction call reads."""
+RECENT_SHOWN = 10  # past SHOWN_MAX: the most recently changed, the rest by relevance to what is being read
+
+
+def _relevant(rows: list[MemoryLesson], query: str, keep: int, *, embed=None) -> list[MemoryLesson]:
+    """``keep`` rows, the most relevant to ``query`` (meaning when embeddings exist, else shared words)."""
+    if len(rows) <= keep:
+        return rows
+    q_words = _words(query)
+    vector = (embed or _embed)(query[:2000]) if query.strip() and any(r.embedding for r in rows) else None
+
+    def score(r: MemoryLesson) -> float:
+        words = _words(_text(r))
+        return _cosine(vector, r.embedding) + (len(q_words & words) / len(words) if words else 0.0)
+
+    return sorted(rows, key=lambda r: (-score(r), r.created_at))[:keep]
+
+
+def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, assessment_revision: int,
+              roots=(), query: str = "", embed=None) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
+    """The lessons (L refs) and recently withdrawn ones (W refs) the construction call reads: all of them while they
+    fit, past SHOWN_MAX the most recently changed and the most relevant to ``query``. ``roots``: the evidence this
+    reading rests on, to say which lessons already count it."""
     live = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
                                                       MemoryLesson.status != "withdrawn")
-                           .order_by(MemoryLesson.updated_at.desc()).limit(SHOWN_MAX)))
+                           .order_by(MemoryLesson.updated_at.desc())))
+    if len(live) > SHOWN_MAX:
+        recent = live[:RECENT_SHOWN]
+        live = recent + _relevant(live[RECENT_SHOWN:], query, SHOWN_MAX - RECENT_SHOWN, embed=embed)
     gone = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
                                                       MemoryLesson.status == "withdrawn")
                            .order_by(MemoryLesson.withdrawn_at.desc()).limit(WITHDRAWN_SHOWN)))
     counts = _counts(db, [r.id for r in live + gone])
+    mine = _canonical(db, user_id, roots)
+    held: dict[uuid.UUID, set[str]] = {}
+    if mine:
+        for e in db.scalars(select(MemoryLessonEvidence).where(
+                MemoryLessonEvidence.lesson_id.in_([r.id for r in live] or [uuid.uuid4()]),
+                MemoryLessonEvidence.current.is_(True), MemoryLessonEvidence.assessment_id != assessment_id)):
+            held.setdefault(e.lesson_id, set()).update(e.refs or [])
 
     def shown(ref: str, r: MemoryLesson) -> L.Shown:
         c = counts[r.id]
         earlier = c["assessments"].get(assessment_id)
+        shares = bool(mine and held.get(r.id) and mine & _canonical(db, user_id, held[r.id]))
         return L.Shown(ref, str(r.id), r.revision, r.kind, r.scope, r.status, r.statement, r.applies_when,
                        tuple(r.exceptions or ()), tuple(r.user_words or ()), tuple(sorted(c["support"])),
                        tuple(sorted(c["counter"])), tuple(sorted(c["occasions"])),
                        earlier if earlier is not None and earlier < assessment_revision else None,
-                       _aware(r.withdrawn_occasion_at), r.status_reason)
+                       _aware(r.withdrawn_occasion_at), r.status_reason, r.form, tuple(r.alternatives or ()),
+                       shares)
 
-    lessons = {f"L{i}": shown(f"L{i}", r) for i, r in enumerate(reversed(live), 1)}
+    live = sorted(live, key=lambda r: r.updated_at)
+    lessons = {f"L{i}": shown(f"L{i}", r) for i, r in enumerate(live, 1)}
     withdrawn = {f"W{i}": shown(f"W{i}", r) for i, r in enumerate(gone, 1)}
     return lessons, withdrawn
 
@@ -240,11 +283,13 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
 
 
 def _create(db: Session, user_id: uuid.UUID, c: L.Change, source: Source, embed) -> MemoryLesson:
-    status = L.status_for(c.kind, c.scope, 1, _min())
+    status = L.status_for(c.kind, c.scope, c.certainty or "tentative")
     row = MemoryLesson(id=uuid.uuid4(), user_id=user_id, kind=c.kind,
                        origin="stated" if c.kind == "preference" else "inferred", scope=c.scope, status=status,
                        statement=c.statement, applies_when=c.applies_when, exceptions=list(c.exceptions),
                        user_words=list(c.user_words), revision=1, conflicts_with=[],
+                       form=c.form if c.kind in L.INFERRED else None,
+                       alternatives=list(c.alternatives) if c.kind in L.INFERRED else [],
                        status_reason=_status_reason(c.kind, status, 1), embedding=embed(_text(c)))
     db.add(row)
     db.flush()
@@ -255,17 +300,25 @@ def _create(db: Session, user_id: uuid.UUID, c: L.Change, source: Source, embed)
 
 def _change(db: Session, row: MemoryLesson, c: L.Change, source: Source, embed) -> str:
     if c.op in ("support", "counter"):
+        before = _occasions(db, row.id, "support")
         added = _evidence(db, row, c.op, c, source)
-        moved = _restatus(db, row, c.op, c.why, source)
+        certainty = c.certainty if added else None
+        if certainty == "established" and row.status != "accepted" and _occasions(db, row.id, "support") <= before:
+            # Raising it needs independent support: evidence sharing an occurrence with what it already rests on
+            # (the same run, message or turn, under another assessment) is never a new occasion.
+            certainty = None
+        moved = _restatus(db, row, c.op, c.why, source, certainty=certainty)
         return ("status now " + row.status if moved else "evidence added") if added else \
             "this occasion was already counted"
     if c.op in ("narrow", "revise"):
         _evidence(db, row, "counter" if c.op == "narrow" else "support", c, source)
         row.scope, row.statement, row.applies_when = c.scope, c.statement, c.applies_when
         row.exceptions, row.user_words = list(c.exceptions), list(c.user_words)
+        if row.kind in L.INFERRED:
+            row.form, row.alternatives = c.form, list(c.alternatives)
         row.embedding = embed(_text(c))
         support = _occasions(db, row.id, "support")
-        row.status = L.status_for(row.kind, row.scope, support, _min())
+        row.status = L.status_for(row.kind, row.scope, c.certainty or L.certainty_of(row.status))
         row.status_reason = _status_reason(row.kind, row.status, support)
         row.revision += 1
         _revision(db, row, c.op, c.why or c.op, source)
@@ -274,7 +327,7 @@ def _change(db: Session, row: MemoryLesson, c: L.Change, source: Source, embed) 
     _evidence(db, row, "counter", c, source)
     row.status, row.withdrawn_at, row.withdrawn_occasion_at = "withdrawn", _now(), source.occasion_at
     row.status_reason = (f'the user said: "{c.quote}"' if c.quote else
-                         "counterevidence from several occasions") + (f" ({c.why})" if c.why else "")
+                         "a supported conclusion against it") + (f" ({c.why})" if c.why else "")
     row.status_reason = row.status_reason[:500]
     row.revision += 1
     _revision(db, row, "withdraw", c.why or "withdrawn", source)
@@ -309,13 +362,28 @@ def _occasions(db: Session, lesson_id: uuid.UUID, role: str) -> int:
         MemoryLessonEvidence.current.is_(True)))))
 
 
-def _restatus(db: Session, row: MemoryLesson, op: str, why: str, source: Source | None) -> bool:
-    """A strategy's status follows its current support; a change of status is a revision (it changes whether the
-    lesson is supplied)."""
+UNSUPPORTED = "not supplied while the assessment it rested on is read again"
+
+
+def _supplied(kind: str, status: str, support: int) -> bool:
+    """Whether memory gives it to decisions at all: never an episode correction or a withdrawn lesson, and an
+    inference only while it has live support (an assessment it rested on may be being read again)."""
+    if status in ("episode_only", "withdrawn"):
+        return False
+    return kind not in L.INFERRED or support > 0
+
+
+def _restatus(db: Session, row: MemoryLesson, op: str, why: str, source: Source | None, *,
+              certainty: str | None = None) -> bool:
+    """A change in the builder's judgment of an inference's certainty, or in whether it has live support, changes
+    whether and how it is supplied: that is a revision. Returns whether one was made."""
     support = _occasions(db, row.id, "support")
-    status = L.status_for(row.kind, row.scope, support, _min())
+    status = row.status
+    if certainty is not None and row.kind in L.INFERRED and row.status != "withdrawn":
+        status = L.status_for(row.kind, row.scope, certainty)
     reason = _status_reason(row.kind, status, support)
-    if status == row.status:
+    before = _supplied(row.kind, row.status, 0 if row.status_reason == UNSUPPORTED else 1)
+    if status == row.status and before == _supplied(row.kind, status, support):
         row.status_reason = reason
         return False
     row.status, row.status_reason = status, reason
@@ -325,10 +393,12 @@ def _restatus(db: Session, row: MemoryLesson, op: str, why: str, source: Source 
 
 
 def _status_reason(kind: str, status: str, support: int) -> str | None:
-    if status == "hypothesis":
-        return f"an inference resting on {support} occasion(s); accepted from {_min()}"
     if status == "episode_only":
         return "about one past episode, not a standing preference"
+    if kind in L.INFERRED and support == 0 and status != "withdrawn":
+        return UNSUPPORTED
+    if status == "hypothesis":
+        return f"tentative: a guess resting on {support} independent occasion(s)"
     return None
 
 
@@ -336,7 +406,8 @@ def _revision(db: Session, row: MemoryLesson, op: str, reason: str, source: Sour
     db.add(MemoryLessonRevision(
         lesson_id=row.id, user_id=row.user_id, revision=row.revision, op=op, kind=row.kind, scope=row.scope,
         status=row.status, statement=row.statement, applies_when=row.applies_when,
-        exceptions=list(row.exceptions or []), user_words=list(row.user_words or []), reason=reason[:1000],
+        exceptions=list(row.exceptions or []), user_words=list(row.user_words or []), form=row.form,
+        alternatives=list(row.alternatives or []), reason=reason[:1000],
         assessment_id=source.assessment_id if source else None,
         assessment_revision=source.assessment_revision if source else None,
         job_id=source.job_id if source else None))
@@ -437,10 +508,9 @@ def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | N
     if not rows:
         return Supply()
     counts = _counts(db, [r.id for r in rows])
-    # A tentative strategy is usable only within a situation and with live support. A revised
-    # assessment may leave a hypothesis with zero current evidence; that is never supplied.
-    rows = [r for r in rows if r.status == "accepted" or
-            (r.scope == "situation" and counts[r.id]["support"])]
+    # An inference is supplied only with live support: a revised assessment may leave one with no current
+    # evidence while it is read again, and that is never supplied, accepted or not.
+    rows = [r for r in rows if _supplied(r.kind, r.status, len(counts[r.id]["support"]))]
     ranked_by = "all_fit"
     chosen = rows
     left: list[tuple[MemoryLesson, str]] = []
@@ -486,8 +556,30 @@ def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | N
                                   len(counts[r.id]["support"]), conflicts, r.status, r.status_reason,
                                   tuple(sorted({ref for e in db.scalars(select(MemoryLessonEvidence).where(
                                       MemoryLessonEvidence.lesson_id == r.id, MemoryLessonEvidence.current.is_(True)))
-                                                for ref in e.refs or []}))))
+                                                for ref in e.refs or []})), r.form, tuple(r.alternatives or ())))
     return Supply(tuple(views), tuple((str(r.id), r.revision, why) for r, why in left), sum(r.status == "accepted" for r in rows), ranked_by)
+
+
+def for_learning(db: Session, user_id: uuid.UUID, query: str, *, limit: int = 6, embed=None) -> list:
+    """Her lessons for this user (every status but withdrawn), the most relevant to ``query``: what learning's
+    reviewer compares new experience with. Read only. Earlier understanding, never evidence."""
+    from app.ai.learning import assessment as A
+
+    rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
+                                                      MemoryLesson.status != "withdrawn")
+                           .order_by(MemoryLesson.created_at)))
+    rows = _relevant(rows, query, limit, embed=embed)
+    counts = _counts(db, [r.id for r in rows])
+    out = []
+    for r in rows:
+        what = r.kind + (f": {r.form}" if r.form else "")
+        text = (f"({r.status}, {what}, {r.scope}) {r.statement} Applies: {r.applies_when}."
+                + "".join(f" Except: {e}." for e in r.exceptions or [])
+                + (f" Other explanations: {'; '.join(r.alternatives)}." if r.alternatives else "")
+                + f" Rests on {len(counts[r.id]['support'])} independent occasion(s), found against on "
+                  f"{len(counts[r.id]['counter'])}.")
+        out.append(A.PriorLesson("", str(r.id), r.revision, text))
+    return out
 
 
 def for_game(db: Session, user_id: uuid.UUID, game: str | None, *, query: str = "") -> Supply:
@@ -498,14 +590,15 @@ def for_game(db: Session, user_id: uuid.UUID, game: str | None, *, query: str = 
 
 
 def offered(user_id: uuid.UUID, query: str) -> Supply:
-    """``for_decision`` in its own session, never raising (a failure is an empty supply that says so)."""
+    """``for_decision`` (tentative ones labelled) in its own session, never raising (a failure is an empty supply
+    that says so)."""
     from app.db.session import SessionLocal
 
     if not get_settings().lessons_supply_enabled:
         return Supply(ranked_by="supply_off")
     try:
         with SessionLocal() as db:
-            supply = for_decision(db, user_id, query)
+            supply = for_decision(db, user_id, query, include_tentative=True)
             db.rollback()
             return supply
     except Exception as exc:  # noqa: BLE001 - no lessons this decision, said as such
@@ -624,6 +717,7 @@ def _summary(r: MemoryLesson, counts: dict[str, Any]) -> dict:
     return {"id": str(r.id), "kind": r.kind, "origin": r.origin, "scope": r.scope, "status": r.status,
             "statement": r.statement, "applies_when": r.applies_when, "exceptions": list(r.exceptions or []),
             "user_words": list(r.user_words or []), "revision": r.revision, "status_reason": r.status_reason,
+            "form": r.form, "alternatives": list(r.alternatives or []),
             "conflicts_with": list(r.conflicts_with or []), "support": len(counts["support"]),
             "counter": len(counts["counter"]),
             "withdrawn_at": _aware(r.withdrawn_at).isoformat() if r.withdrawn_at else None,
@@ -654,7 +748,8 @@ def detail(db: Session, user_id: uuid.UUID, lesson_id: uuid.UUID, *, uses: int =
     return {**_summary(row, _counts(db, [row.id])[row.id]),
             "revisions": [{"revision": v.revision, "op": v.op, "status": v.status, "scope": v.scope,
                            "statement": v.statement, "applies_when": v.applies_when, "exceptions": v.exceptions,
-                           "user_words": v.user_words, "reason": v.reason,
+                           "user_words": v.user_words, "form": v.form, "alternatives": v.alternatives,
+                           "reason": v.reason,
                            "assessment_id": str(v.assessment_id) if v.assessment_id else None,
                            "assessment_revision": v.assessment_revision,
                            "at": _aware(v.created_at).isoformat()} for v in revisions],
@@ -706,5 +801,6 @@ def _log(record: dict) -> None:
         log.warning("memory_lessons: could not write %s", path)
 
 
-__all__ = ["Stale", "Source", "Applied", "Supply", "apply", "shown_for", "reconsider", "for_decision", "offered",
+__all__ = ["Stale", "Source", "Applied", "Supply", "apply", "shown_for", "reconsider", "for_decision", "for_learning",
+           "offered",
            "record_uses", "explain", "uses_for_attempt", "listing", "detail", "drop_for", "lock"]

@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 
 from app.ai.learning import assessment as A, lessons as L
 from app.db import models as M
-from app.services import game_assessment, game_experience, learning_assessment as LA
+from app.services import game_assessment, game_experience, learning_assessment as LA, learning_review
 from app.services import learning_lessons as LL, memory_lessons as ML, memory_reset, long_term_memory
 from db_support import database, create_user  # noqa: F401
 
@@ -17,12 +17,11 @@ from db_support import database, create_user  # noqa: F401
 @pytest.fixture
 def env(database, monkeypatch, tmp_path):
     settings = LA.get_settings().model_copy(update={
-        "learning_assessment_settle_seconds": 0, "learning_game_min_outcomes": 1,
-        "learning_game_pause_outcomes": 2, "lessons_supply_enabled": True,
+        "learning_assessment_settle_seconds": 0, "lessons_supply_enabled": True,
         "learning_assessment_log_path": str(tmp_path / "assessment.jsonl"),
         "learning_lessons_log_path": str(tmp_path / "lessons.jsonl"),
         "lessons_log_path": str(tmp_path / "memory-lessons.jsonl")})
-    for mod in (LA, LL, ML, game_assessment):
+    for mod in (LA, LL, ML, learning_review):
         monkeypatch.setattr(mod, "get_settings", lambda: settings)
     monkeypatch.setattr(long_term_memory, "_embedding", lambda _: None)
     monkeypatch.setattr(ML, "_embed", lambda _: None)
@@ -75,8 +74,19 @@ def test_successful_and_ordinary_stretches_reach_shared_assessment_with_retry_sa
         assert db.scalar(select(func.count()).select_from(M.GameReflectionJob)) == 0
         assert db.scalar(select(func.count()).select_from(M.GameLesson)) == 0
         assert gathered.ev.targets["s1"].kind == "stretch"
-        # A second distinct stretch in this same session is retained.
+        # More play before the stretch is read joins it (one opportunity, nothing lost)...
         e2 = experience(db, session, reason="crafted planks")
+        game_assessment.schedule(db, session, "ended")
+        db.commit()
+        assert db.scalar(select(func.count()).select_from(M.LearningAssessment)) == 1
+        refs = set(db.scalars(select(M.LearningAssessmentEvidence.ref).where(
+            M.LearningAssessmentEvidence.assessment_id == rows[0].id)))
+        assert {f"experience:{e.id}", f"experience:{e2.id}"} <= refs
+        # ...and once a stretch is concluded, later play is a distinct stretch, retained.
+        row = db.get(M.LearningAssessment, rows[0].id)
+        row.state, row.outcome = "done", "concluded"
+        db.commit()
+        experience(db, session, reason="crafted sticks")
         game_assessment.schedule(db, session, "ended")
         db.commit()
         assert db.scalar(select(func.count()).select_from(M.LearningAssessment)) == 2
@@ -156,18 +166,23 @@ def test_overlapping_game_sources_do_not_manufacture_independent_support(env):
     factory, user, session = env
     with factory() as db:
         c = L.Change("create", None, None, None, "strategy", "situation", "Check the shaft", "minecraft shafts",
-                     [], [], ["experience:17"], None, "first")
+                     [], [], ["experience:17"], None, "first", certainty="tentative")
         source = ML.Source("skill:one", datetime.now(timezone.utc), None, None)
         ML.apply(db, user.id, [c], source, embed=lambda _: None)
         lesson = db.scalar(select(M.MemoryLesson))
-        again = replace(c, op="support", lesson_id=str(lesson.id), expected_revision=1)
+        # The same run read under another assessment, judged established: not independent, so it stays a guess.
+        again = replace(c, op="support", lesson_id=str(lesson.id), expected_revision=1, certainty="established")
         ML.apply(db, user.id, [again], replace(source, occasion="stretch:one"), embed=lambda _: None)
         assert lesson.status == "hypothesis"
-        other = replace(again, roots=["experience:18"])
+        # Distinct evidence is a second occasion, but no count promotes it: the builder's judgment does.
+        other = replace(again, roots=["experience:18"], certainty=None)
         ML.apply(db, user.id, [other], replace(source, occasion="stretch:two"), embed=lambda _: None)
+        assert lesson.status == "hypothesis"
+        third = replace(again, roots=["experience:19"], expected_revision=lesson.revision)
+        ML.apply(db, user.id, [third], replace(source, occasion="stretch:three"), embed=lambda _: None)
         assert lesson.status == "accepted"  # same session is allowed, distinct evidence required
         db.commit()
-        assert ML.for_game(db, user.id, "minecraft").views[0].occasions == 2
+        assert ML.for_game(db, user.id, "minecraft").views[0].occasions == 3
 
 
 def test_consolidation_reset_preserves_evidence_and_programs_and_fences_old_intake(env):
