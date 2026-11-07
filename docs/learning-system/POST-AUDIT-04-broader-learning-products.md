@@ -2,6 +2,8 @@
 
 Status: design agreed through discussion on 2026-11-05. Document creation authorized; implementation is not authorized by this document. This is post-audit order 4, not historical step 4 (predictions and game trials).
 
+Implementation guidance (reviewed 2026-11-05): read the [behavioral test readiness review](REVIEW-2026-11-05-behavioral-test-readiness.md) before tuning or claiming acceptance. It records current evaluator defects, missing process coverage, and concrete family/fixture requirements. It preserves the step 3/4 boundary and does not change the numerical pass rule or retroactively validate existing results.
+
 ## Purpose
 
 Complete and validate what experience leaves in Columbina's understanding: beliefs, expectations, hypotheses, relationships, explanations, and conditional strategies, rather than only fault attribution or advice about what to do. These are examples of useful forms, not a closed list of situations she can learn from.

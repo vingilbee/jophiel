@@ -4,6 +4,8 @@ Status: proposed acceptance specification, 2026-11-05. The user requested concre
 
 Parent: [broaden experience understanding](POST-AUDIT-03-broaden-experience-understanding.md). This evaluates memory-mediated learning, not model training or promotion.
 
+Implementation guidance (reviewed 2026-11-05): read the [behavioral test readiness review](REVIEW-2026-11-05-behavioral-test-readiness.md) before tuning or claiming acceptance. It records current evaluator defects, missing process coverage, and concrete family/fixture requirements. It preserves the step 3/4 boundary and does not change the numerical pass rule or retroactively validate existing results.
+
 ## Evaluation protocol
 
 Before coding, agree on the pass rule and freeze the behavioral rubric. Keep development examples separate from reserved evaluation fixtures. The public examples below explain the test families; they are not themselves secret held-out fixtures. Reserve variants with different wording, entities, action names, layouts, and outcome sequences. Do not use reserved variants for prompts, implementation branches, tuning, or training. Keep related episodes and their derivatives in the same split.

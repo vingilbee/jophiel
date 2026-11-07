@@ -3267,10 +3267,27 @@ LESSON_SCOPES = ("standing", "situation", "episode")
 # (supplied labelled as a guess while it has live support); episode_only: about one past episode, never a standing
 # rule (kept, not supplied); withdrawn: final.
 LESSON_STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
-LESSON_EVIDENCE_ROLES = ("support", "counter")
-LESSON_OPS = ("create", "support", "counter", "narrow", "revise", "withdraw", "reconsider")
+# noted (post-audit 4): an occasion that bore on a lesson without supporting or countering it (its conditions didn't
+# hold there, or it covered only part of it). Counted for nothing; it shows what has been checked.
+LESSON_EVIDENCE_ROLES = ("support", "counter", "noted")
+# note: an occasion noted; keep: a reassessment that found it still holds (post-audit 4).
+LESSON_OPS = ("create", "support", "counter", "narrow", "revise", "withdraw", "reconsider", "note", "keep")
 LESSON_REPORTED = ("applied", "not_relevant", "outweighed", "conflict", "unclear")
 LESSON_JOB_STATES = ("pending", "running", "done", "failed")
+# assessment: read one assessment revision for lessons; reconsider (post-audit 4): reassess one lesson on the
+# evidence it already rests on, after a premise of it changed or her mind questioned its reasoning.
+LESSON_JOB_KINDS = ("assessment", "reconsider")
+# What a revision was prompted by when no new evidence came: a critique of its reasoning, a changed premise.
+LESSON_PROMPTS = ("critique", "premise")
+# How a lesson relates to another memory (post-audit 4), the builder's account, never proof:
+# depends_on: it holds only while that holds (a premise); builds_on: it combines that with new experience (an
+# ingredient of a derived possibility); same_as: the same understanding held there too; distinct: alike in words,
+# different in meaning; supports / challenges: that memory bears on it; related: context only (a premise a
+# reassessment found it doesn't rest on after all). Only depends_on and builds_on are its basis:
+# when their target changes, the lesson is unsettled until reassessed. No link is ever support.
+LESSON_LINK_RELATIONS = ("depends_on", "builds_on", "same_as", "distinct", "supports", "challenges", "related")
+LESSON_BASIS_RELATIONS = ("depends_on", "builds_on")
+LESSON_LINK_TARGETS = ("lesson", "fact", "item")
 
 
 class MemoryLesson(Base):
@@ -3299,6 +3316,10 @@ class MemoryLesson(Base):
     form: Mapped[str | None] = mapped_column(Text, nullable=True)
     alternatives: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
                                                server_default=text("'[]'::jsonb"))
+    # Post-audit 4, all optional free text in the builder's words: what part of it is untested (a possibility she
+    # has not seen work), whether she has tried it ("untried" / "tried"), what it needs (prerequisites,
+    # capabilities, including ones she lacks), and what later observation would support or challenge it.
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     # When it was withdrawn, and when the evidence that withdrew it happened: older work can't bring it back.
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     withdrawn_occasion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -3343,7 +3364,11 @@ class MemoryLessonRevision(Base):
     form: Mapped[str | None] = mapped_column(Text, nullable=True)
     alternatives: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
                                                server_default=text("'[]'::jsonb"))
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # A revision made without new evidence (post-audit 4): "critique" (her mind questioned its reasoning and it was
+    # read again on the same evidence) or "premise" (something it rests on changed). Never new support.
+    prompted_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
     assessment_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # opaque
@@ -3352,6 +3377,8 @@ class MemoryLessonRevision(Base):
     __table_args__ = (
         CheckConstraint(_in("op", LESSON_OPS), name="ck_memory_lesson_revisions_op"),
         CheckConstraint(_in("status", LESSON_STATUSES), name="ck_memory_lesson_revisions_status"),
+        CheckConstraint(f"prompted_by IS NULL OR {_in('prompted_by', LESSON_PROMPTS)}",
+                        name="ck_memory_lesson_revisions_prompted"),
         UniqueConstraint("lesson_id", "revision", name="uq_memory_lesson_revisions"),
     )
 
@@ -3384,6 +3411,42 @@ class MemoryLessonEvidence(Base):
         UniqueConstraint("lesson_id", "role", "occasion", name="uq_memory_lesson_evidence"),
         Index("ix_memory_lesson_evidence_assessment", "user_id", "assessment_id"),
         Index("ix_memory_lesson_evidence_refs", "refs", postgresql_using="gin"),
+    )
+
+
+class MemoryLessonLink(Base):
+    """How a lesson relates to another memory of the same user: another lesson, a fact, or one of her working items
+    (post-audit 4). The builder's account of the relationship, never support and never proof. ``target_revision``
+    and ``target_status`` are the target as it was when the link was made or last reassessed: when the target's
+    current revision or status differs (or it is gone), a basis link (``depends_on`` / ``builds_on``) makes the
+    lesson unsettled until a reassessment reads it again. ``target_text``: the target's words then."""
+
+    __tablename__ = "memory_lesson_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("memory_lessons.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    relation: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False)  # a uuid (lesson, fact, item)
+    target_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    why: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # The lesson revision that made or last reassessed it, and what that reassessment said.
+    lesson_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    settled_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(_in("relation", LESSON_LINK_RELATIONS), name="ck_memory_lesson_links_relation"),
+        CheckConstraint(_in("target_kind", LESSON_LINK_TARGETS), name="ck_memory_lesson_links_target"),
+        ForeignKeyConstraint(["lesson_id", "user_id"], ["memory_lessons.id", "memory_lessons.user_id"],
+                             ondelete="CASCADE", name="fk_memory_lesson_links_lesson_user"),
+        UniqueConstraint("lesson_id", "target_kind", "target_id", name="uq_memory_lesson_links"),
+        Index("ix_memory_lesson_links_target", "user_id", "target_kind", "target_id"),
     )
 
 
@@ -3421,15 +3484,22 @@ class MemoryLessonUse(Base):
 class LearningLessonJob(Base):
     """Learning's work of reading one assessment revision for lessons: once per (assessment, revision), leased,
     retried with backoff. A job whose assessment was revised meanwhile ends as ``superseded`` (the newer
-    revision has its own job)."""
+    revision has its own job). Post-audit 4: a ``reconsider`` job reassesses one lesson on the evidence it already
+    rests on (a premise changed, or her mind questioned its reasoning), once per ``job_key``; ``input`` keeps what
+    prompted it."""
 
     __tablename__ = "learning_lesson_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    assessment_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=False)
-    assessment_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="CASCADE"), nullable=True)
+    assessment_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(12), nullable=False, default="assessment", server_default="assessment")
+    lesson_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memory_lessons.id", ondelete="CASCADE"),
+                                                        nullable=True)
+    job_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    input: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     reason: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
     state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending", server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -3445,7 +3515,13 @@ class LearningLessonJob(Base):
 
     __table_args__ = (
         CheckConstraint(_in("state", LESSON_JOB_STATES), name="ck_learning_lesson_jobs_state"),
+        CheckConstraint(_in("kind", LESSON_JOB_KINDS), name="ck_learning_lesson_jobs_kind"),
+        CheckConstraint("(kind = 'assessment') = (assessment_id IS NOT NULL AND assessment_revision IS NOT NULL)",
+                        name="ck_learning_lesson_jobs_assessment"),
+        CheckConstraint("(kind = 'reconsider') = (lesson_id IS NOT NULL AND job_key IS NOT NULL)",
+                        name="ck_learning_lesson_jobs_reconsider"),
         UniqueConstraint("assessment_id", "assessment_revision", name="uq_learning_lesson_jobs"),
+        UniqueConstraint("job_key", name="uq_learning_lesson_jobs_key"),
         Index("ix_learning_lesson_jobs_due", "next_attempt_at",
               postgresql_where=text("state IN ('pending', 'running')")),
     )

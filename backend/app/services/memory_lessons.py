@@ -47,7 +47,9 @@ from sqlalchemy.orm import Session
 
 from app.ai.learning import lessons as L
 from app.core.config import get_settings
-from app.db.models import MemoryLesson, MemoryLessonEvidence, MemoryLessonRevision, MemoryLessonUse
+from app.db.models import (
+    LESSON_BASIS_RELATIONS, MemoryLesson, MemoryLessonEvidence, MemoryLessonLink, MemoryLessonRevision, MemoryLessonUse,
+)
 
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -126,8 +128,8 @@ def _independent(db, evidence) -> set[str]:
 
 
 def _counts(db: Session, lesson_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, Any]]:
-    out: dict[uuid.UUID, dict[str, Any]] = {i: {"support": set(), "counter": set(), "occasions": set(),
-                                                "assessments": {}} for i in lesson_ids}
+    out: dict[uuid.UUID, dict[str, Any]] = {i: {"support": set(), "counter": set(), "noted": set(),
+                                                "occasions": set(), "assessments": {}} for i in lesson_ids}
     if not lesson_ids:
         return out
     evidence = list(db.scalars(select(MemoryLessonEvidence).where(MemoryLessonEvidence.lesson_id.in_(lesson_ids))))
@@ -177,6 +179,7 @@ def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, asse
                                                       MemoryLesson.status == "withdrawn")
                            .order_by(MemoryLesson.withdrawn_at.desc()).limit(WITHDRAWN_SHOWN)))
     counts = _counts(db, [r.id for r in live + gone])
+    states = premises(db, user_id, [r.id for r in live])
     mine = _canonical(db, user_id, roots)
     held: dict[uuid.UUID, set[str]] = {}
     if mine:
@@ -189,12 +192,14 @@ def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, asse
         c = counts[r.id]
         earlier = c["assessments"].get(assessment_id)
         shares = bool(mine and held.get(r.id) and mine & _canonical(db, user_id, held[r.id]))
+        linked = states.get(r.id, [])
         return L.Shown(ref, str(r.id), r.revision, r.kind, r.scope, r.status, r.statement, r.applies_when,
                        tuple(r.exceptions or ()), tuple(r.user_words or ()), tuple(sorted(c["support"])),
                        tuple(sorted(c["counter"])), tuple(sorted(c["occasions"])),
                        earlier if earlier is not None and earlier < assessment_revision else None,
                        _aware(r.withdrawn_occasion_at), r.status_reason, r.form, tuple(r.alternatives or ()),
-                       shares)
+                       shares, details=dict(r.details or {}), links=tuple(link_lines(linked)),
+                       unsettled=tuple(unsettled_lines(db, user_id, linked)), noted=tuple(sorted(c["noted"])))
 
     live = sorted(live, key=lambda r: r.updated_at)
     lessons = {f"L{i}": shown(f"L{i}", r) for i, r in enumerate(live, 1)}
@@ -254,6 +259,7 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
                         f"{c.expected_revision}")
         locked[c.lesson_id] = row
     embed = embed or _embed
+    related: list[tuple[MemoryLesson, L.Change]] = []  # links are made once every change of this reading is in
     for c in changes:
         if c.op == "create":
             row = _create(db, user_id, c, source, embed)
@@ -261,6 +267,7 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
                                 "note": c.why})
             for other in c.conflicts_with:
                 _conflict(db, user_id, row, other)
+            related.append((row, c))
             continue
         row = locked.get(c.lesson_id or "")
         if row is None:
@@ -273,6 +280,13 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
                             "note": note})
         for other in c.conflicts_with:
             _conflict(db, user_id, row, other)
+        if row.status != "withdrawn":
+            related.append((row, c))
+    db.flush()
+    # After every change of this reading, so a link to a lesson this same reading revised records it as revised
+    # (never as a premise that changed since).
+    for row, c in related:
+        _relate(db, row, c, out)
     db.flush()
     if out.changed:
         from app.services import system_signals
@@ -290,6 +304,7 @@ def _create(db: Session, user_id: uuid.UUID, c: L.Change, source: Source, embed)
                        user_words=list(c.user_words), revision=1, conflicts_with=[],
                        form=c.form if c.kind in L.INFERRED else None,
                        alternatives=list(c.alternatives) if c.kind in L.INFERRED else [],
+                       details=dict(c.details) if c.kind in L.INFERRED else {},
                        status_reason=_status_reason(c.kind, status, 1), embedding=embed(_text(c)))
     db.add(row)
     db.flush()
@@ -299,6 +314,11 @@ def _create(db: Session, user_id: uuid.UUID, c: L.Change, source: Source, embed)
 
 
 def _change(db: Session, row: MemoryLesson, c: L.Change, source: Source, embed) -> str:
+    if c.op == "note":
+        # It bore on the lesson without support or counter (its conditions didn't hold there, or partly covered):
+        # recorded for coverage, counted for nothing, never a revision.
+        added = _evidence(db, row, "noted", c, source)
+        return "noted" if added else "this occasion was already noted"
     if c.op in ("support", "counter"):
         before = _occasions(db, row.id, "support")
         added = _evidence(db, row, c.op, c, source)
@@ -315,7 +335,7 @@ def _change(db: Session, row: MemoryLesson, c: L.Change, source: Source, embed) 
         row.scope, row.statement, row.applies_when = c.scope, c.statement, c.applies_when
         row.exceptions, row.user_words = list(c.exceptions), list(c.user_words)
         if row.kind in L.INFERRED:
-            row.form, row.alternatives = c.form, list(c.alternatives)
+            row.form, row.alternatives, row.details = c.form, list(c.alternatives), dict(c.details)
         row.embedding = embed(_text(c))
         support = _occasions(db, row.id, "support")
         row.status = L.status_for(row.kind, row.scope, c.certainty or L.certainty_of(row.status))
@@ -327,7 +347,7 @@ def _change(db: Session, row: MemoryLesson, c: L.Change, source: Source, embed) 
     _evidence(db, row, "counter", c, source)
     row.status, row.withdrawn_at, row.withdrawn_occasion_at = "withdrawn", _now(), source.occasion_at
     row.status_reason = (f'the user said: "{c.quote}"' if c.quote else
-                         "a supported conclusion against it") + (f" ({c.why})" if c.why else "")
+                         "the builder judged against it on cited records") + (f" ({c.why})" if c.why else "")
     row.status_reason = row.status_reason[:500]
     row.revision += 1
     _revision(db, row, "withdraw", c.why or "withdrawn", source)
@@ -402,15 +422,16 @@ def _status_reason(kind: str, status: str, support: int) -> str | None:
     return None
 
 
-def _revision(db: Session, row: MemoryLesson, op: str, reason: str, source: Source | None) -> None:
+def _revision(db: Session, row: MemoryLesson, op: str, reason: str, source: Source | None, *,
+              prompted_by: str | None = None, job_id: uuid.UUID | None = None) -> None:
     db.add(MemoryLessonRevision(
         lesson_id=row.id, user_id=row.user_id, revision=row.revision, op=op, kind=row.kind, scope=row.scope,
         status=row.status, statement=row.statement, applies_when=row.applies_when,
         exceptions=list(row.exceptions or []), user_words=list(row.user_words or []), form=row.form,
-        alternatives=list(row.alternatives or []), reason=reason[:1000],
+        alternatives=list(row.alternatives or []), details=dict(row.details or {}), reason=reason[:1000],
         assessment_id=source.assessment_id if source else None,
         assessment_revision=source.assessment_revision if source else None,
-        job_id=source.job_id if source else None))
+        job_id=source.job_id if source else job_id, prompted_by=prompted_by))
     db.flush()
 
 
@@ -421,6 +442,234 @@ def _conflict(db: Session, user_id: uuid.UUID, row: MemoryLesson, other_id: str)
         return
     row.conflicts_with = sorted(set(row.conflicts_with or []) | {str(other.id)})
     other.conflicts_with = sorted(set(other.conflicts_with or []) | {str(row.id)})
+
+
+# --------------------------------------------------------------------------- #
+# Links to other memories, premises (post-audit 4)
+# --------------------------------------------------------------------------- #
+
+TARGET_WORDS = {"lesson": "another lesson of hers", "fact": "a fact memory holds about the user",
+                "item": "one of her working items"}
+DEPTH = 3  # how far an unsettled premise is followed up a chain of lessons
+
+
+def _target_now(db: Session, user_id: uuid.UUID, kind: str, target_id: str) -> tuple[int, str, str, str] | None:
+    """(revision, status, words, what it is) of a link's target as it is now; None when it is gone."""
+    from app.db.models import SemanticMemory, WorkingItem
+
+    try:
+        key = uuid.UUID(str(target_id))
+    except ValueError:
+        return None
+    if kind == "lesson":
+        r = db.get(MemoryLesson, key)
+        if r is None or r.user_id != user_id:
+            return None
+        return r.revision, r.status, r.statement, TARGET_WORDS["lesson"]
+    if kind == "fact":
+        r = db.get(SemanticMemory, key)
+        if r is None or r.user_id != user_id or r.status == "deleted":
+            return None
+        return r.revision, r.status, r.content, TARGET_WORDS["fact"]
+    if kind == "item":
+        r = db.get(WorkingItem, key)
+        if r is None or r.user_id != user_id:
+            return None
+        whose = "her" if r.owner == "columbina" else "the user's" if r.owner == "user" else "a shared"
+        return r.revision, r.status, r.text, f"{whose} {r.kind}"
+    return None
+
+
+def _rests_on(db: Session, lesson_id: uuid.UUID) -> set[uuid.UUID]:
+    """Every lesson this one rests on or builds on, through any chain (a cycle guard)."""
+    seen: set[uuid.UUID] = set()
+    frontier = {lesson_id}
+    while frontier:
+        rows = db.scalars(select(MemoryLessonLink.target_id).where(
+            MemoryLessonLink.lesson_id.in_(list(frontier)), MemoryLessonLink.target_kind == "lesson",
+            MemoryLessonLink.relation.in_(LESSON_BASIS_RELATIONS)))
+        nxt = set()
+        for t in rows:
+            try:
+                key = uuid.UUID(t)
+            except ValueError:
+                continue
+            if key not in seen:
+                seen.add(key)
+                nxt.add(key)
+        frontier = nxt
+    return seen
+
+
+def _relate(db: Session, row: MemoryLesson, c: L.Change, out: "Applied") -> None:
+    """The change's links (made or remade as their targets are now) and the hypotheses of hers it carries forward
+    (memory closes them, pointing here). Never support."""
+    for link in c.links:
+        now = _target_now(db, row.user_id, link["target_kind"], link["target_id"])
+        if now is None:
+            out.skipped.append({"lesson": str(row.id), "op": "link", "why": "the memory it names is gone"})
+            continue
+        if link["relation"] in LESSON_BASIS_RELATIONS and link["target_kind"] == "lesson" and (
+                uuid.UUID(link["target_id"]) == row.id or row.id in _rests_on(db, uuid.UUID(link["target_id"]))):
+            out.skipped.append({"lesson": str(row.id), "op": "link",
+                                "why": "it would make the lesson rest on itself"})
+            continue
+        _link(db, row, link["relation"], link["target_kind"], link["target_id"], now, link.get("why") or "")
+    for item_id in c.carries:
+        _carry(db, row, item_id, out)
+
+
+def _link(db: Session, row: MemoryLesson, relation: str, kind: str, target_id: str,
+          now: tuple[int, str, str, str], why: str) -> None:
+    revision, status, words, _ = now
+    values = {"lesson_id": row.id, "user_id": row.user_id, "relation": relation, "target_kind": kind,
+              "target_id": str(target_id), "target_revision": revision, "target_status": status,
+              "target_text": (words or "")[:600], "why": (why or "")[:400], "lesson_revision": row.revision}
+    db.execute(insert(MemoryLessonLink).values(**values).on_conflict_do_update(
+        constraint="uq_memory_lesson_links", set_={k: values[k] for k in (
+            "relation", "target_revision", "target_status", "target_text", "why", "lesson_revision")}
+        | {"settled_note": None, "updated_at": func.now()}))
+
+
+def _carry(db: Session, row: MemoryLesson, item_id: str, out: "Applied") -> None:
+    """One of her open hypotheses that this lesson now carries forward: closed by memory's own rule, pointing here,
+    and linked as the same understanding (its closing by this lesson is not a changed premise). Lock order: the
+    user's lesson lock, then memory's (nothing takes them the other way)."""
+    from app.services import memory_manager
+
+    try:
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"memory:{row.user_id}"))))
+        with db.begin_nested():
+            entry = memory_manager.item(db, row.user_id, uuid.UUID(item_id), lock=True)
+            if entry.kind != "hypothesis" or entry.owner != "columbina" or entry.closed_at is not None:
+                out.skipped.append({"lesson": str(row.id), "op": "carry", "why": "not an open hypothesis of hers"})
+                return
+            memory_manager.resolve(db, row.user_id, entry.id, status="unresolved",
+                                   reason=f"carried forward as her lesson {row.id} (revision {row.revision})",
+                                   expected_revision=entry.revision)
+            _link(db, row, "same_as", "item", item_id, _target_now(db, row.user_id, "item", item_id),
+                  "carried forward by this lesson")
+    except Exception as exc:  # noqa: BLE001 - an item memory won't close stays open, said
+        out.skipped.append({"lesson": str(row.id), "op": "carry", "why": f"{type(exc).__name__}: {exc}"[:200]})
+
+
+@dataclass(frozen=True)
+class PremiseState:
+    """One link of a lesson, with its target as it was then and as it is now."""
+
+    link_id: int
+    relation: str
+    target_kind: str
+    target_id: str
+    what: str
+    then_text: str
+    then_revision: int | None
+    then_status: str | None
+    now: tuple[int, str, str, str] | None
+    note: str | None
+
+    @property
+    def basis(self) -> bool:
+        return self.relation in LESSON_BASIS_RELATIONS
+
+    @property
+    def changed(self) -> bool:
+        return self.now is None or (self.now[0], self.now[1]) != (self.then_revision, self.then_status)
+
+    def change_words(self) -> str:
+        if self.now is None:
+            return "is gone (forgotten or deleted)"
+        revision, status, words, _ = self.now
+        if status != self.then_status:
+            said = f'; it now says "{words}"' if words != self.then_text else ""
+            return f"is now {STATUS_WORDS.get(status, status)}{said}"
+        return f'was revised: it now says "{words}"'
+
+    def to_dict(self) -> dict:
+        return {"relation": self.relation, "target_kind": self.target_kind, "target_id": self.target_id,
+                "what": self.what, "then_text": self.then_text, "then_revision": self.then_revision,
+                "then_status": self.then_status, "now_revision": self.now[0] if self.now else None,
+                "now_status": self.now[1] if self.now else None, "now_text": self.now[2] if self.now else None,
+                "changed": self.changed, "note": self.note}
+
+
+STATUS_WORDS = {"withdrawn": "withdrawn", "hypothesis": "only a guess", "accepted": "established",
+                "superseded": "superseded (memory replaced it)", "disproved": "closed as disproved",
+                "supported": "closed as supported", "unresolved": "closed unresolved", "answered": "answered",
+                "dropped": "dropped"}
+
+
+def premises(db: Session, user_id: uuid.UUID, lesson_ids) -> dict[uuid.UUID, list[PremiseState]]:
+    """Every link of these lessons, with its target now. Read only."""
+    ids = list(lesson_ids)
+    out: dict[uuid.UUID, list[PremiseState]] = {i: [] for i in ids}
+    if not ids:
+        return out
+    for link in db.scalars(select(MemoryLessonLink).where(MemoryLessonLink.user_id == user_id,
+                                                          MemoryLessonLink.lesson_id.in_(ids))
+                           .order_by(MemoryLessonLink.id)):
+        now = _target_now(db, user_id, link.target_kind, link.target_id)
+        what = now[3] if now else TARGET_WORDS.get(link.target_kind, link.target_kind)
+        out[link.lesson_id].append(PremiseState(link.id, link.relation, link.target_kind, link.target_id, what,
+                                                link.target_text, link.target_revision, link.target_status, now,
+                                                link.settled_note))
+    return out
+
+
+def unsettled_lines(db: Session, user_id: uuid.UUID, states: list[PremiseState], *, depth: int = DEPTH,
+                    seen: frozenset = frozenset()) -> list[str]:
+    """What a consumer is told about changed premises (said the moment the change commits, before any
+    reassessment): which one, what it said, what became of it. A premise lesson that is itself unsettled makes
+    this one unsettled too, said as such."""
+    out = []
+    for p in states:
+        if not p.basis:
+            continue
+        verb = "rests on" if p.relation == "depends_on" else "builds on"
+        if p.changed:
+            out.append(f'it {verb} {p.what} that said "{p.then_text}", which {p.change_words()} since it was last '
+                       "assessed; it is being reassessed")
+        elif p.target_kind == "lesson" and depth > 0 and p.target_id not in seen:
+            inner = premises(db, user_id, [uuid.UUID(p.target_id)]).get(uuid.UUID(p.target_id), [])
+            if unsettled_lines(db, user_id, inner, depth=depth - 1, seen=seen | {p.target_id}):
+                out.append(f'it {verb} {p.what} that says "{p.then_text}", which is itself unsettled (something it '
+                           "rests on changed)")
+    return out
+
+
+def basis_lines(states: list[PremiseState]) -> list[str]:
+    """What a consumer is told a lesson rests on or builds on (unchanged ones; changed ones are unsettled lines)."""
+    out = []
+    for p in states:
+        if p.basis and not p.changed:
+            note = f" (reassessed: {p.note})" if p.note else ""
+            if p.then_status in ENDED:
+                verb = "Rested on" if p.relation == "depends_on" else "Built on"
+                out.append(f'{verb} {p.what}: "{p.then_text}", since {STATUS_WORDS.get(p.then_status, p.then_status)}'
+                           f"{note}")
+                continue
+            verb = "Rests on" if p.relation == "depends_on" else "Builds on"
+            out.append(f'{verb} {p.what}: "{p.then_text}"{note}')
+    return out
+
+
+# A target in one of these states no longer holds as it did: a lesson that rests on it says so in the past.
+ENDED = ("withdrawn", "superseded", "deleted", "disproved", "dropped", "unresolved", "cancelled", "lifted", "abandoned",
+         "lapsed")
+
+
+def link_lines(states: list[PremiseState]) -> list[str]:
+    """Every link, for learning's readers (the reviewer and the builder): never evidence."""
+    out = []
+    for p in states:
+        state = f"CHANGED: {p.change_words()}" if p.changed else "unchanged"
+        out.append(f'{p.relation.replace("_", " ")} {p.what}: "{p.then_text}" ({state})'
+                   + (f"; reassessed: {p.note}" if p.note else ""))
+    return out
+
+
+def _details_tuple(details: dict | None) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((str(k), str(v)) for k, v in (details or {}).items() if v))
 
 
 def _text(c: L.Change | MemoryLesson) -> str:
@@ -454,6 +703,87 @@ def reconsider(db: Session, user_id: uuid.UUID, assessment_id: uuid.UUID, revisi
             _restatus(db, row, "reconsider", f"assessment {assessment_id} was revised (revision {revision}); "
                                              "its earlier reading no longer counts until read again", None)
     return [str(t) for t in touched]
+
+
+def reconsidered(db: Session, user_id: uuid.UUID, c: L.Change, *, job_id: uuid.UUID | None,
+                 premises_read: dict[str, PremiseState], embed=None) -> dict:
+    """Apply a reconsideration (post-audit 4): the lesson read again on the evidence it already rests on, after a
+    critique of its reasoning or a changed premise. In the caller's transaction; raises ``Stale`` when the lesson
+    moved since it was read. No evidence is ever added and nothing is counted: a reconsideration is not an
+    occasion. ``keep`` changes nothing it says (no revision) and settles the premises it read; ``narrow`` /
+    ``revise`` / ``withdraw`` make a revision marked with what prompted it. ``premises_read``: the links as the
+    reconsideration saw them, by their ref there (``P1``); each is settled at what it showed, so a premise that
+    changed again meanwhile stays unsettled."""
+    lock(db, user_id)
+    row = db.scalar(select(MemoryLesson).where(MemoryLesson.id == uuid.UUID(c.lesson_id),
+                                               MemoryLesson.user_id == user_id)
+                    .with_for_update().execution_options(populate_existing=True))
+    if row is None:
+        return {"lesson": c.lesson_id, "op": c.op, "applied": False, "why": "the lesson is gone"}
+    if row.revision != c.expected_revision:
+        raise Stale(f"lesson {row.id} is at revision {row.revision}, it was reconsidered at {c.expected_revision}")
+    if row.status == "withdrawn":
+        return {"lesson": str(row.id), "op": c.op, "applied": False, "why": "withdrawn lessons stay withdrawn"}
+    reason = f"reconsidered on the same evidence ({c.prompted_by}): {c.why}"
+    if c.op in ("narrow", "revise"):
+        row.scope, row.statement, row.applies_when = c.scope, c.statement, c.applies_when
+        row.exceptions = list(c.exceptions)
+        if row.kind in L.INFERRED:
+            row.form, row.alternatives, row.details = c.form, list(c.alternatives), dict(c.details)
+        row.status = L.status_for(row.kind, row.scope, c.certainty or L.certainty_of(row.status))
+        row.status_reason = _status_reason(row.kind, row.status, _occasions(db, row.id, "support"))
+        row.embedding = (embed or _embed)(_text(row))
+        row.revision += 1
+        _revision(db, row, c.op, reason, None, prompted_by=c.prompted_by, job_id=job_id)
+    elif c.op == "withdraw":
+        # Older work can't bring it back: the evidence it was read on is no newer than this.
+        latest = db.scalar(select(func.max(MemoryLessonEvidence.occasion_at)).where(
+            MemoryLessonEvidence.lesson_id == row.id))
+        row.status, row.withdrawn_at, row.withdrawn_occasion_at = "withdrawn", _now(), latest or _now()
+        row.status_reason = f"withdrawn when reconsidered ({c.prompted_by}): {c.why}"[:500]
+        row.revision += 1
+        _revision(db, row, "withdraw", reason, None, prompted_by=c.prompted_by, job_id=job_id)
+    for ref, p in premises_read.items():
+        link = db.get(MemoryLessonLink, p.link_id)
+        if link is None or link.lesson_id != row.id:
+            continue
+        if p.now is None:
+            # Gone: nothing left to rest on. The link stays as lineage, recorded as gone, no longer a basis.
+            link.relation, link.target_status = "related", "gone"
+            link.settled_note = f"gone; reassessed: {c.why}"[:400]
+            continue
+        link.target_revision, link.target_status, link.target_text = p.now[0], p.now[1], (p.now[2] or "")[:600]
+        if p.changed:
+            link.settled_note = c.why[:400]
+        if ref in c.unlink and p.basis:
+            link.relation = "related"
+            link.settled_note = f"not a premise after all: {c.why}"[:400]
+        link.lesson_revision = row.revision
+    db.flush()
+    if c.op != "keep":
+        from app.services import system_signals
+        system_signals.emit(user_id, "learning", "memory", "lesson", str(row.id))
+    _log({"op": "reconsidered", "user": str(user_id), "lesson": str(row.id), "decision": c.op,
+          "prompted_by": c.prompted_by})
+    return {"lesson": str(row.id), "op": c.op, "applied": True, "revision": row.revision, "status": row.status}
+
+
+def changed_lessons(db: Session, *, limit: int = 50) -> list[tuple[MemoryLesson, list[PremiseState]]]:
+    """Lessons (not withdrawn) whose basis changed since they were last assessed: what reassessment owes a reading.
+    Read only. A lesson is unsettled from the moment its premise changed, whether or not this has run."""
+    candidates = list(db.scalars(select(MemoryLessonLink.lesson_id).where(
+        MemoryLessonLink.relation.in_(LESSON_BASIS_RELATIONS)).distinct()))
+    out = []
+    for lesson_id in candidates:
+        row = db.get(MemoryLesson, lesson_id)
+        if row is None or row.status == "withdrawn":
+            continue
+        states = [p for p in premises(db, row.user_id, [row.id])[row.id] if p.basis and p.changed]
+        if states:
+            out.append((row, states))
+            if len(out) >= limit:
+                break
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -548,36 +878,109 @@ def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | N
         chosen = sorted(chosen, key=lambda r: order.index(r))
         left = [(r, "cut by the budget: less relevant here") for r in order if r.id not in ids]
     refs = {r.id: f"L{i}" for i, r in enumerate(chosen, 1)}
-    views = []
-    for r in chosen:
-        conflicts = tuple(refs[uuid.UUID(o)] for o in r.conflicts_with or [] if uuid.UUID(o) in refs)
-        views.append(L.LessonView(refs[r.id], str(r.id), r.revision, r.kind, r.scope, r.statement, r.applies_when,
-                                  tuple(r.exceptions or ()), tuple(r.user_words or ()),
-                                  len(counts[r.id]["support"]), conflicts, r.status, r.status_reason,
-                                  tuple(sorted({ref for e in db.scalars(select(MemoryLessonEvidence).where(
-                                      MemoryLessonEvidence.lesson_id == r.id, MemoryLessonEvidence.current.is_(True)))
-                                                for ref in e.refs or []})), r.form, tuple(r.alternatives or ())))
+    states = premises(db, user_id, [r.id for r in chosen])
+    views = [_view(db, user_id, r, refs, counts, states.get(r.id, [])) for r in chosen]
     return Supply(tuple(views), tuple((str(r.id), r.revision, why) for r, why in left), sum(r.status == "accepted" for r in rows), ranked_by)
+
+
+def _view(db: Session, user_id: uuid.UUID, r: MemoryLesson, refs: dict, counts: dict, linked: list) -> L.LessonView:
+    """One lesson as a decision reads it: whole, with what it rests on and whether that changed since."""
+    conflicts = tuple(refs[uuid.UUID(o)] for o in r.conflicts_with or [] if uuid.UUID(o) in refs)
+    sources = tuple(sorted({ref for e in db.scalars(select(MemoryLessonEvidence).where(
+        MemoryLessonEvidence.lesson_id == r.id, MemoryLessonEvidence.current.is_(True))) for ref in e.refs or []}))
+    return L.LessonView(refs[r.id], str(r.id), r.revision, r.kind, r.scope, r.statement, r.applies_when,
+                        tuple(r.exceptions or ()), tuple(r.user_words or ()), len(counts[r.id]["support"]), conflicts,
+                        r.status, r.status_reason, sources, r.form, tuple(r.alternatives or ()),
+                        _details_tuple(r.details), tuple(basis_lines(linked)),
+                        tuple(unsettled_lines(db, user_id, linked)))
+
+
+def refresh(db: Session, user_id: uuid.UUID, supply: "Supply") -> "Supply":
+    """A supply prepared earlier, made current before it is delivered (post-audit 4): each lesson is read again; one
+    that changed since (a new revision, or a premise that changed: unsettled) is given as it is now, and one no
+    longer supplied (withdrawn, gone, or without live support) is left out, said. Refs stay as they were."""
+    if not supply.views:
+        return supply
+    ids = [uuid.UUID(v.id) for v in supply.views]
+    rows = {r.id: r for r in db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
+                                                                   MemoryLesson.id.in_(ids)))}
+    counts = _counts(db, list(rows))
+    states = premises(db, user_id, list(rows))
+    refs = {uuid.UUID(v.id): v.ref for v in supply.views}
+    views, left = [], list(supply.left_out)
+    for v in supply.views:
+        r = rows.get(uuid.UUID(v.id))
+        if r is None or not _supplied(r.kind, r.status, len(counts[r.id]["support"])):
+            left.append((v.id, r.revision if r else v.revision, "changed since it was prepared: no longer supplied"))
+            continue
+        now = _view(db, user_id, r, refs, counts, states.get(r.id, []))
+        views.append(now if now != v else v)
+    return Supply(tuple(views), tuple(left), supply.accepted, supply.ranked_by, supply.error)
+
+
+def current(supply: "Supply") -> tuple["Supply", str | None]:
+    """``refresh`` in its own session, for a supply prepared earlier and about to be delivered: (the supply as it is
+    now, None), or, when that can't be confirmed, (no lessons, why): a lesson never goes out unconfirmed."""
+    from app.db.session import SessionLocal
+
+    if not supply.views:
+        return supply, None
+    try:
+        with SessionLocal() as db:
+            owners = set(db.scalars(select(MemoryLesson.user_id).where(
+                MemoryLesson.id.in_([uuid.UUID(v.id) for v in supply.views]))))
+            if len(owners) > 1:
+                raise ValueError("a supply mixes users")
+            user_id = next(iter(owners), None)
+            fresh = refresh(db, user_id, supply) if user_id else Supply(
+                (), tuple(supply.left_out) + tuple((v.id, v.revision, "gone since it was prepared")
+                                                   for v in supply.views), supply.accepted, supply.ranked_by)
+            db.rollback()
+            return fresh, None
+    except Exception as exc:  # noqa: BLE001 - unconfirmed lessons are not delivered
+        log.exception("memory_lessons: confirming a prepared supply failed")
+        return Supply(error=f"{type(exc).__name__}"[:100]), (
+            f"its lessons couldn't be confirmed current ({type(exc).__name__}), so none were given")
 
 
 def for_learning(db: Session, user_id: uuid.UUID, query: str, *, limit: int = 6, embed=None) -> list:
     """Her lessons for this user (every status but withdrawn), the most relevant to ``query``: what learning's
     reviewer compares new experience with. Read only. Earlier understanding, never evidence."""
-    from app.ai.learning import assessment as A
-
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
                                                       MemoryLesson.status != "withdrawn")
                            .order_by(MemoryLesson.created_at)))
-    rows = _relevant(rows, query, limit, embed=embed)
+    return _for_learning(db, user_id, _relevant(rows, query, limit, embed=embed))
+
+
+def for_learning_ids(db: Session, user_id: uuid.UUID, ids) -> list:
+    """These lessons of this user (every status but withdrawn), shown to learning's reviewer the same way as
+    ``for_learning``: the ones her parts were given during what it reads. Read only."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return []
+    rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id, MemoryLesson.id.in_(ids),
+                                                      MemoryLesson.status != "withdrawn")
+                           .order_by(MemoryLesson.created_at)))
+    return _for_learning(db, user_id, rows)
+
+
+def _for_learning(db: Session, user_id: uuid.UUID, rows: list) -> list:
+    from app.ai.learning import assessment as A
+
     counts = _counts(db, [r.id for r in rows])
+    states = premises(db, user_id, [r.id for r in rows])
     out = []
     for r in rows:
         what = r.kind + (f": {r.form}" if r.form else "")
+        c = counts[r.id]
         text = (f"({r.status}, {what}, {r.scope}) {r.statement} Applies: {r.applies_when}."
                 + "".join(f" Except: {e}." for e in r.exceptions or [])
                 + (f" Other explanations: {'; '.join(r.alternatives)}." if r.alternatives else "")
-                + f" Rests on {len(counts[r.id]['support'])} independent occasion(s), found against on "
-                  f"{len(counts[r.id]['counter'])}.")
+                + "".join(f" {d[0].upper()}{d[1:]}." for d in L.detail_lines(r.details))
+                + f" Rests on {len(c['support'])} independent occasion(s), found against on {len(c['counter'])}"
+                + (f", noted without either on {len(c['noted'])}" if c["noted"] else "") + "."
+                + "".join(f" Link: {line}." for line in link_lines(states.get(r.id, [])))
+                + "".join(f" UNSETTLED: {line}." for line in unsettled_lines(db, user_id, states.get(r.id, []))))
         out.append(A.PriorLesson("", str(r.id), r.revision, text))
     return out
 
@@ -717,9 +1120,9 @@ def _summary(r: MemoryLesson, counts: dict[str, Any]) -> dict:
     return {"id": str(r.id), "kind": r.kind, "origin": r.origin, "scope": r.scope, "status": r.status,
             "statement": r.statement, "applies_when": r.applies_when, "exceptions": list(r.exceptions or []),
             "user_words": list(r.user_words or []), "revision": r.revision, "status_reason": r.status_reason,
-            "form": r.form, "alternatives": list(r.alternatives or []),
+            "form": r.form, "alternatives": list(r.alternatives or []), "details": dict(r.details or {}),
             "conflicts_with": list(r.conflicts_with or []), "support": len(counts["support"]),
-            "counter": len(counts["counter"]),
+            "counter": len(counts["counter"]), "noted": len(counts.get("noted") or ()),
             "withdrawn_at": _aware(r.withdrawn_at).isoformat() if r.withdrawn_at else None,
             "created_at": _aware(r.created_at).isoformat(), "updated_at": _aware(r.updated_at).isoformat()}
 
@@ -745,11 +1148,13 @@ def detail(db: Session, user_id: uuid.UUID, lesson_id: uuid.UUID, *, uses: int =
                                .order_by(MemoryLessonEvidence.occasion_at)))
     recent = list(db.scalars(select(MemoryLessonUse).where(MemoryLessonUse.lesson_id == row.id)
                              .order_by(MemoryLessonUse.created_at.desc()).limit(uses)))
+    linked = premises(db, user_id, [row.id])[row.id]
     return {**_summary(row, _counts(db, [row.id])[row.id]),
+            "links": [p.to_dict() for p in linked], "unsettled": unsettled_lines(db, user_id, linked),
             "revisions": [{"revision": v.revision, "op": v.op, "status": v.status, "scope": v.scope,
                            "statement": v.statement, "applies_when": v.applies_when, "exceptions": v.exceptions,
                            "user_words": v.user_words, "form": v.form, "alternatives": v.alternatives,
-                           "reason": v.reason,
+                           "details": v.details, "prompted_by": v.prompted_by, "reason": v.reason,
                            "assessment_id": str(v.assessment_id) if v.assessment_id else None,
                            "assessment_revision": v.assessment_revision,
                            "at": _aware(v.created_at).isoformat()} for v in revisions],
@@ -801,6 +1206,7 @@ def _log(record: dict) -> None:
         log.warning("memory_lessons: could not write %s", path)
 
 
-__all__ = ["Stale", "Source", "Applied", "Supply", "apply", "shown_for", "reconsider", "for_decision", "for_learning",
-           "offered",
+__all__ = ["Stale", "Source", "Applied", "Supply", "apply", "shown_for", "reconsider", "for_decision", "for_learning", "for_learning_ids",
+           "offered", "refresh", "premises", "unsettled_lines", "basis_lines", "link_lines", "PremiseState",
+           "reconsidered", "changed_lessons", "current",
            "record_uses", "explain", "uses_for_attempt", "listing", "detail", "drop_for", "lock"]

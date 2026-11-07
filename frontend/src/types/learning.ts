@@ -83,7 +83,10 @@ export interface AssessmentResult {
     form: string
     applies_when: string
     alternatives: string[]
-    relates_to: { lesson: string; id: string; revision: number; relation: string }[]
+    /** A lesson (id, revision) or, since post-audit 4, a memory (target: "fact:<id>", "item:<id>"). */
+    relates_to: { lesson: string; id?: string; revision?: number; target?: string; relation: string }[]
+    /** Post-audit 4: untested / needs / would_support / would_challenge, in the reviewer's words. */
+    details?: Record<string, string>
   })[]
   follow_up?: { propose: boolean; kind: 'question' | 'observation' | 'practice'; text: string; resolves: string; item?: string | null }
   inquiry?: AssessmentInquiry
@@ -181,18 +184,39 @@ export interface AdaptationLesson {
   exceptions: string[]
   form?: string | null
   alternatives?: string[]
+  /** Post-audit 4: untested / tried / needs / would_support / would_challenge, in the builder's words. */
+  details?: Record<string, string>
   user_words: string[]
   revision: number
   status_reason: string | null
   conflicts_with: string[]
   support: number
   counter: number
+  /** Occasions that bore on it without support or counter (post-audit 4). */
+  noted?: number
   withdrawn_at: string | null
   created_at: string
   updated_at: string
 }
 
+/** How a lesson relates to another memory (post-audit 4); never support. */
+export interface LessonLink {
+  relation: 'depends_on' | 'builds_on' | 'same_as' | 'distinct' | 'supports' | 'challenges' | 'related'
+  target_kind: 'lesson' | 'fact' | 'item'
+  target_id: string
+  what: string
+  then_text: string
+  then_status: string | null
+  now_status: string | null
+  now_text: string | null
+  changed: boolean
+  note: string | null
+}
+
 export interface AdaptationLessonDetail extends AdaptationLesson {
+  links?: LessonLink[]
+  /** Premises that changed since it was last assessed: it is being reassessed. */
+  unsettled?: string[]
   revisions: {
     revision: number
     op: string
@@ -203,12 +227,14 @@ export interface AdaptationLessonDetail extends AdaptationLesson {
     exceptions: string[]
     user_words: string[]
     reason: string
+    /** A revision made without new evidence: a critique of its reasoning, or a changed premise. */
+    prompted_by?: 'critique' | 'premise' | null
     assessment_id: string | null
     assessment_revision: number | null
     at: string
   }[]
   evidence: {
-    role: 'support' | 'counter'
+    role: 'support' | 'counter' | 'noted'
     occasion: string
     occasion_at: string
     assessment_id: string | null

@@ -431,6 +431,8 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             _capture_attempt(attempt_id, source, scope, problem, inp, thought, started_at=started_at)
             if thought.learn and not thought.error:
                 _nominate(scope, attempt_id, thought.learn)
+            if thought.reconsider and not thought.error:
+                _critique(scope, attempt_id, inp, thought.reconsider)
         if thought.error or thought.kind is None:
             if source.shadow:
                 _log_shadow(scope, problem, system, render(inp), thought, status="nothing", why=None)
@@ -481,6 +483,26 @@ def _nominate(scope: Scope, attempt_id: uuid.UUID, text: str) -> None:
                 db.commit()
     except Exception:  # noqa: BLE001
         log.exception("mind: a nomination for learning was not kept")
+
+
+def _critique(scope: Scope, attempt_id: uuid.UUID, inp: HardInput, asked: dict) -> None:
+    """She thinks a lesson she was shown is mistaken (post-audit 4): her learning reads it again on its own evidence.
+    Only a lesson in what she read (its ref there); her thought is what prompts the reading, never evidence. Never
+    raises."""
+    from app.services import learning_lessons
+
+    supply = getattr(inp, "lesson_supply", None)
+    view = next((v for v in getattr(supply, "views", ()) if v.ref == asked.get("lesson")), None)
+    if view is None:
+        log.info("mind: a critique named %s, which wasn't among the lessons she read", asked.get("lesson"))
+        return
+    try:
+        with SessionLocal() as db:
+            if learning_lessons.critique(db, scope.user_id, uuid.UUID(view.id), asked.get("why") or "",
+                                         source=f"hard_thought:{attempt_id}"):
+                db.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("mind: a critique of a lesson was not kept")
 
 
 def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, problem: Problem, inp: HardInput,
@@ -600,6 +622,21 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
             if results["tip"].status == "accepted":
                 from app.services import system_signals
                 system_signals.emit(scope.user_id, "mind", "hands", "tip", thought_id)
+    judged = thought.assessment or {}
+    if problem.trigger == "review" and judged.get("progress") == "no" and thought.conclusion:
+        # Her look back judged the effort isn't getting anywhere: the approach is her planner's, so it is asked to
+        # look again (it may keep the plan). Only on a look back (code picks when), never on every surprise:
+        # 2026-11-04 every thought asking for a rethink made 44 revisions in 24 minutes.
+        body = source.body(scope)
+        if body is not None and "rethink" in body.controls():
+            why = f"your own look back found no progress: {thought.conclusion}"
+            if judged.get("cause"):
+                why += f" (the cause you favour: {judged['cause']}" + (
+                    f"; you'd check it by: {judged['check']})" if judged.get("check") else ")")
+            results["rethink"] = body.command(scope, Command("rethink", why))
+            if results["rethink"].status == "accepted":
+                from app.services import system_signals
+                system_signals.emit(scope.user_id, "mind", "hands", "rethink", thought_id)  # a new plan for her hands
     if thought.kind == "intention":
         add_intention(scope.key, thought.for_hands or thought.conclusion)  # her hands' tip (an execution hint)
         # Memory gets it through ``to_memory``, never written here.

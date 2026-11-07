@@ -193,10 +193,15 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions,
                        #   iterative requests, parked inquiries); learning_review.py: review opportunities (every
                        #   exchange, pauses, ongoing play, her mind's nominations) and follow-ups handed to memory;
-                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences);
+                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences), and
+                       #   reconsideration (post-audit 4): a lesson read again on its own evidence after a changed
+                       #   premise (sweep) or her mind's critique, never new support;
                        #   learning_trials.py: bounded game trials (investigation, cognition's choice, preparation,
                        #   execution bounds, recovery, assessment, what persists);
-                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting);
+                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting),
+                       #   their links to other memories (premises / ingredients: a changed one makes the lesson
+                       #   UNSETTLED for every consumer at once), details (untested, tried, needs, would support /
+                       #   challenge), a prepared supply made current before delivery (``current``);
                        #   transcript_search.py: what was said (heard text, by speaker), her "said" search;
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
@@ -232,6 +237,10 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   src/trajectory.js = her trajectory: every tick, damage causes, actions, in chunks (GET /trajectory);
                         #   backend side: app/ai/desktop/practice.py + services/game_practice.py (H1, her learner).
                         #   `bun run test`, `bun run smoke`, `bun run itest` (real server, needs the EULA accepted)
+
+/backend/evals/post_audit_04 # post-audit 4 behavioral acceptance: frozen RUBRIC.md, reserved/fixtures.json (evaluation
+                        #   only, never for tuning), development/ (runner checks), the pack's skill manifest snapshot.
+                        #   Runner: `uv run python scripts/broader_learning_eval.py --run` (TEST_DATABASE_URL, real models)
 
 /model_weights          # pretrained weights copied/downloaded from the separate training repo (gitignored)
 
@@ -335,7 +344,8 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - Hard thoughts conclude (decision / guess / question / intention / feeling) and have no tools. Concluded thoughts reach memory as observations.
 - The planner is the one author of a game pack's plan. Inner state is observed only and has no influence yet.
 - No code-defined "stuck" (2026-11-04, the user's decision): no time limit or try count decides it. Code keeps the
-  effort record and picks when she looks back (a plan step ending); her mind judges progress and the cause.
+  effort record and picks when she looks back (a plan step ending, or every `MIND_STEP_LOOK_BACK_SECONDS` while one
+  keeps going); her mind judges progress and the cause, and a look back that finds no progress asks her planner to rethink.
 
 **Memory** (`docs/COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md`, `docs/COLUMBINA_MEMORY_SESSION{1,2,3}_*.md`, `docs/COLUMBINA_SOURCE_BACKED_RECALL.md`, `docs/COLUMBINA_MEMORY_CORRECTIONS.md`, `docs/COLUMBINA_MEMORY_CONFLICTS.md`, `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`)
 - Working memory (contexts, items, events, evidence), observation, shared recall, source-backed history, corrections, conflicts, forgetting, claims/entities/time, dependencies, transcript search and upkeep. Status of each stage: `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`.

@@ -82,23 +82,24 @@ def shown(ref="L1", **kw) -> L.Shown:
     return L.Shown(**base)
 
 
-def test_a_preference_rests_on_the_users_exact_words_and_an_inference_on_supported_evidence():
+def test_preferences_need_exact_words_but_inference_certainty_is_the_builders_judgment():
     b = bundle()
     checked = L.check({"changes": [
         change(user_quote="when I vent, please just listen", conclusion_cites=["m3", "a1"]),   # kept
         change(user_quote="never give me advice", conclusion_cites=["m3"]),                   # invented: dropped
         change(user_quote="Here are five fixes", conclusion_cites=["m2"]),                    # her words: dropped
-        change(kind="strategy", conclusion_cites=["a3"], applicability_cites=["m1"]),         # plausible only
+        change(kind="strategy", conclusion_cites=["a3"], applicability_cites=["m1"]),         # plausible: kept
         change(kind="strategy", conclusion_cites=["a2"], applicability_cites=[]),             # no applicability
         change(kind="strategy", conclusion_cites=["a2", "zz9"], applicability_cites=["m1"]),  # kept, zz9 dropped
     ], "explanation": "x"}, b)
     kinds = [(c.op, c.kind) for c in checked.changes]
-    assert kinds == [("create", "preference"), ("create", "strategy")]
-    pref, strat = checked.changes
+    assert kinds == [("create", "preference"), ("create", "strategy"), ("create", "strategy")]
+    pref, tentative, strat = checked.changes
+    assert tentative.certainty == "tentative"
     assert pref.user_words == ["when I vent, please just listen"] and pref.quote and "message:u2" in pref.roots
     assert strat.user_words == [] and "attempt:s2" in strat.roots
     reasons = " | ".join(d["why"] for d in checked.dropped)
-    assert "exact words" in reasons and "supported conclusion" in reasons and "where it applies" in reasons
+    assert "exact words" in reasons and "where it applies" in reasons
     assert any("zz9" in d["what"] for d in checked.dropped)
     # The stated preference is accepted; an inference is tentative unless the builder judged it established
     # (post-audit 3: its judgment, never a count of occasions).
@@ -124,6 +125,30 @@ def test_a_cited_stated_conclusion_vouches_only_for_the_users_own_line_it_rests_
     assert len(checked.dropped) == 3 and all("exact words" in d["why"] for d in checked.dropped)
 
 
+@pytest.mark.parametrize("status", ["supported", "plausible", "unresolved", "contradicted"])
+def test_finding_status_does_not_veto_model_judged_retention_or_revision(status):
+    result = {"review": {"decision": "examine"}, "findings": [{"status": status, "relates_to": []}]}
+    assert LL.worth_reading(result)
+    assert not LL.worth_reading({**result, "review": {"decision": "leave"}})
+    b = bundle(lessons=[shown(kind="understanding", status="hypothesis", user_words=())])
+    b.conclusions["a5"] = L.Conclusion("a5", "finding", status, "A possible relationship", ("message:u1",))
+    for op in ("create", "support", "counter", "revise", "withdraw"):
+        checked = L.check({"changes": [change(
+            op=op, lesson="L1" if op != "create" else "", kind="understanding",
+            conclusion_cites=["a5"], applicability_cites=["m1"], certainty="tentative",
+            statement="A revised possible relationship",
+        )]}, b)
+        assert len(checked.changes) == 1, checked.dropped
+        assert checked.changes[0].op == op
+    # Uncertainty does not remove traceability: unknown refs and rootless claims still cannot be retained.
+    b.conclusions["a6"] = L.Conclusion("a6", "finding", status, "No source", ())
+    for cite in ("unknown", "a6"):
+        checked = L.check({"changes": [change(
+            kind="understanding", conclusion_cites=[cite], applicability_cites=[cite],
+        )]}, b)
+        assert not checked.changes
+
+
 def test_an_episode_correction_does_not_become_a_standing_preference():
     b = bundle()
     checked = L.check({"changes": [change(scope="episode", user_quote="yesterday I only wanted you to listen",
@@ -142,16 +167,15 @@ def test_an_episode_correction_does_not_become_a_standing_preference():
     assert kept[0].user_words == ["yesterday I only wanted you to listen", "from now on, when I vent, please just listen"]
 
 
-def test_withdrawal_needs_the_users_words_or_a_supported_conclusion_against_it():
+def test_preference_withdrawal_needs_user_words_but_inference_withdrawal_is_model_judged():
     pref = shown()
     strat = shown("L2", kind="strategy", user_words=(), support_from=("message:a", "message:b"))
     b = bundle(lessons=[pref, strat])
-    # A preference is theirs: only their words withdraw it. An inference with only an unsupported reading against
-    # it is a counterexample to reason about, not an erase.
+    # A preference is theirs; an inference is the model's to reconsider on cited records.
     out = L.check({"changes": [change(op="withdraw", lesson="L1", conclusion_cites=["a2"]),
                                change(op="withdraw", lesson="L2", conclusion_cites=["m1"])]}, b)
-    assert [(c.lesson_ref, c.op) for c in out.changes] == [("L1", "counter"), ("L2", "counter")]
-    assert sum("recorded as a counterexample" in d["why"] for d in out.dropped) == 2
+    assert [(c.lesson_ref, c.op) for c in out.changes] == [("L1", "counter"), ("L2", "withdraw")]
+    assert sum("recorded as a counterexample" in d["why"] for d in out.dropped) == 1
     # Their words withdraw the preference; a supported conclusion against the inference withdraws it at once
     # (strong contradictory evidence doesn't wait for a number of repetitions).
     out = L.check({"changes": [change(op="withdraw", lesson="L1", user_quote="please just listen",
@@ -240,8 +264,15 @@ def teacher_answer(**kw) -> dict:
     return base
 
 
+def confirmed(monkeypatch):
+    """Pure decision tests hand Student 2 lessons that no database holds: delivery confirms a supply is current
+    (post-audit 4), so here it is taken as confirmed."""
+    monkeypatch.setattr(ML, "current", lambda supply: (supply, None))
+
+
 @pytest.fixture
 def teacher(monkeypatch, tmp_path):
+    confirmed(monkeypatch)
     settings = svc.get_settings()
     monkeypatch.setattr(settings, "cognition_decision_provider", "teacher")
     monkeypatch.setattr(settings, "cognition_teacher_data_path", str(tmp_path / "live_teacher.jsonl"))
@@ -277,6 +308,7 @@ def test_the_teacher_gets_the_guide_and_the_account_field_only_with_lessons(teac
 
 
 def test_a_local_model_without_lessons_in_its_rendering_is_recorded_as_not_receiving_them(monkeypatch):
+    confirmed(monkeypatch)
     monkeypatch.setattr(svc, "manifest", lambda: {"name": "qwen-4", "system": "s", "rendering": "memory-v1"})
     outcome = svc.decide(S.Live(trigger="user_message", domain="chat", now=NOW, lines=(), new_message="hi",
                                 lessons=views()),

@@ -209,3 +209,27 @@ def test_hard_thought_logs_are_replayable(tmp_path, monkeypatch):
     record = json.loads((tmp_path / "hard.jsonl").read_text())
     assert (record["system"], record["input"], record["kind"], record["trigger"]) == (
         "system text", "input text", "decision", "failing")
+
+
+def test_a_look_back_that_finds_no_progress_asks_her_planner_to_look_again(isolated_redis, monkeypatch):  # noqa: F811
+    """Live 2026-11-06 her mind judged "no progress" ten times while the plan never changed: thoughts only reached
+    her hands. A look back that finds no progress now also reaches her planner (who may keep the plan); a surprise
+    doesn't, so not every thought replans."""
+    from app.services import autonomous_speech
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(session()))
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: "Proposed.")
+    asked = []
+    monkeypatch.setattr(mind_minecraft, "rethink", lambda sid, text: asked.append((sid, text))
+                        or mind_minecraft.CommandResult("accepted"))
+    review = Problem("review", "A step of your plan has been going for 6 minutes", topic="looking back: find iron",
+                     query="iron armor find iron")
+    stuck = HardThought("decision", "I'll dig down and tunnel instead of wandering caves.", for_hands="dig down",
+                        assessment={"progress": "no", "cause": "perception", "check": "dig to y 16"})
+    routed = mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), review, stuck, goal="iron armor")
+    assert routed["rethink"].status == "accepted" and routed["tip"].status == "accepted"
+    assert asked == [(SID, "your own look back found no progress: I'll dig down and tunnel instead of wandering "
+                           "caves. (the cause you favour: perception; you'd check it by: dig to y 16)")]
+    going = HardThought("decision", "Keep going.", for_hands="keep going", assessment={"progress": "yes"})
+    assert "rethink" not in mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), review, going, goal="iron armor")
+    assert "rethink" not in mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), failing_problem(), stuck, goal="iron armor")
+    assert len(asked) == 1

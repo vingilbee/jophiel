@@ -108,10 +108,7 @@ def record_lesson_use(db: Session, session_id, attempt_id, lessons, output, stat
     session = db.get(DesktopSession, session_id)
     if session is None:
         return
-    views = tuple(L.LessonView(**{**v, "exceptions": tuple(v.get("exceptions", ())),
-                                  "user_words": tuple(v.get("user_words", ())),
-                                  "conflicts": tuple(v.get("conflicts", ())),
-                                  "source_refs": tuple(v.get("source_refs", ()))}) for v in lessons)
+    views = tuple(L.LessonView.from_dict(v) for v in lessons)
     weighed, _ = L.parse_weighed(json.dumps(output), [v.ref for v in views])
     memory_lessons.record_uses(session.owner_user_id, attempt_id, memory_lessons.Supply(views=views),
                               consumer="hands", received=True, weighed=weighed, decision_status=status)

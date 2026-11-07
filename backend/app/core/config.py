@@ -458,6 +458,10 @@ class Settings(BaseSettings):
     mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
     mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
     mind_hard_log_path: str = "var/mind_hard.jsonl"
+    # A look back while a step of her game plan keeps going: once this long into the step, and again each time
+    # this long passes (0 turns it off). It picks only *when* she looks back; whether she is stuck is hers to
+    # judge (the user's rule, 2026-11-04). Live 2026-11-06 one step ran 21 minutes with no look back at all.
+    mind_step_look_back_seconds: float = Field(default=300.0, ge=0, le=7200)
     # A shadow source's thoughts go only here (never saved, said or shown). No shadow source runs today:
     # conversation is live (services/mind_conversation.py).
     mind_shadow_log_path: str = "var/mind_shadow.jsonl"

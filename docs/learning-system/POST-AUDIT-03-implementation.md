@@ -114,3 +114,109 @@ Test results are in section 7.
 - Frontend: build passes; lint shows only the 3 earlier Fast Refresh warnings.
 - Not run: any real-model evaluation, the behavioral acceptance, a live chat or game session. The dev database
   was not migrated.
+
+## 8. Follow-up 2026-11-06: whole stretches are read, not parked
+
+Found in a live Minecraft run (session 9e42d19d, 14:59-15:37): both reviews her mind nominated for whole stretches
+stopped at once with "the evidence is more than can be read at once" (378k and 71k characters against the 60k
+limit), so only single-failure assessments concluded, and every lesson restated one action's outcome. The
+decision in §3 of the design ("code may page and bound evidence transport; pages are not semantic boundaries") was
+not met in practice. Changed, with the 60k limit kept:
+
+- Compact game records (`services/learning_assessment.py`): a run is its call, how it ended, seconds, reason and
+  what was observed changing (position, health, food, inventory diff); her hands' available actions and plan step
+  only when they change; her mind's, planner's and Student 2's answers as their own fields, labelled as reasoning.
+  The exact records stay behind the "inputs" look. Nothing is inferred.
+- The records window no longer counts the hands decisions already shown as targets, which had pushed her mind's
+  thoughts out of a long stretch.
+- A condensed view (`ai/learning/assessment.py`, `render(condensed=True)`) when the full one is too long: one line
+  per decision of her hands, citable as `hN` (a target ref already stands for its records), repeated identical
+  records once with a count, conversation turns during play cut short. Her mind's thoughts stay whole. Only if
+  that is still too long does it park as before. The digest is of the full view either way.
+- Prompts `assessment-v5` and `lessons-v4`: look at the approach across the stretch (what she kept doing, how long,
+  what finally worked) before single actions; describe the kind of situation, not the recorded instance; keep
+  doubt in status, applies_when and alternatives rather than in the statement; a restated error report is no
+  change. Examples in the prompts are deliberately not from this session.
+
+All six assessments parked that day fit afterwards (largest condensed: 59k). Tests:
+`tests/test_learning_compact_evidence.py`. Not yet run: a real-model reading of those stretches.
+
+## 9. Follow-up 2026-11-06 (second run): look backs during long steps, lessons judged by what followed
+
+Found in the second live run (session c2b6396f, 17:18-17:39, no iron in 21 minutes): the reviews now concluded and
+9 lessons reached her hands (127 deliveries, 87 "applied"), but nothing changed how she went about it.
+
+- **Her planner ran once.** The step "find iron" never ended, so the step-ended look back never came; and every hard
+  thought (10, each judging progress "no", 8 naming perception as the cause) only reached her hands as a tip.
+- **A lesson became a reason to keep failing.** "When a route fails, try another nearby passage" was applied over and
+  over while the search went nowhere, and no review ever saw which lessons had been applied.
+
+Changed:
+
+- **A look back while a step keeps going** (`services/mind_minecraft.py` `step_running_long`): once
+  `mind_step_look_back_seconds` (default 300; 0 turns it off) into a step, and again each time that passes, her
+  mind gets a `review` problem like the step-ended one, asking whether the effort is getting anywhere and whether the
+  approach, not only the next move, should change. Code picks only *when*; no time or count decides she is stuck
+  (the 2026-11-04 rule stands).
+- **Her judgment reaches her planner** (`services/mind_hard.py` `route`): a look back (trigger `review`) that judges
+  progress "no" also sends `rethink` through the Minecraft body (`mind_minecraft.rethink` ->
+  `game_planning.request`), with her conclusion and the cause she favours. The planner may keep the plan; a rethink
+  still waits until the plan has stood `RETHINK_GAP_S`. Surprises never replan (2026-11-04: 44 revisions in 24
+  minutes when every thought did). The hard-thinking prompt says that "no" on a look back reaches her planner.
+- **Lessons judged by what followed their use** (`services/learning_assessment.py` `_lessons_used`): the lessons her
+  parts were given for the decisions in a stretch are shown among her existing lessons with "Given in this stretch:
+  her hands said applied on N decision(s) (h3, h7, ...)", and each decision says `applied L1` / `L2 not relevant`.
+  Prompts `assessment-v6` (judge a lesson by what followed its use; a part saying it applied one is its own
+  account) and `lessons-v5` (a lesson applied again and again while the effort didn't move is countered and
+  narrowed or revised into what works instead, never left as a reason to keep doing what failed).
+  `memory_lessons.for_learning_ids` shows them the same way as `for_learning`.
+
+Tests: `tests/test_mind.py` (the look back during a step), `tests/test_mind_hard.py` (no progress on a look back
+asks the planner; progress or a surprise doesn't), `tests/test_learning_compact_evidence.py` (lessons applied, by
+decision). Not yet run: a live session with these, or a real-model review.
+
+## 10. Live check of §9, 2026-11-06 (session c2b6396f resumed 18:59-19:17 UTC)
+
+Workers restarted 18:57 UTC, so §8 and §9 were live. She started over with an empty inventory (another place:
+around -60 -300, earlier -250 200), goal still a diamond pickaxe.
+
+**What she got in 18 minutes:** wooden pickaxe at 19:01:36 (2.5 min), stone pickaxe at 19:07:57 (lost 1.5 min on a
+crafting table she no longer had and "oak planks" from spruce), then 10 minutes looking for iron, none found.
+
+**(a) works as wired.** 10 planner runs instead of 1: 4 from her own look backs ("your own look back found no
+progress: ..."), the rest from cognition's rethinks and one from the user ("dig down"). 22 hard thoughts, 9 of them
+look backs (`review`). Plan changes were spaced (8 revisions in 18 minutes, no churn of the 2026-11-04 kind).
+
+**But the method her mind found never got carried out.** From 19:05 her mind concluded 7+ times "mine beneath my
+feet one block at a time, checking each opening" (the right method). Her hands kept walking (`go_to`, mostly
+`dig=no`) to the end. Two causes, both in the record:
+
+1. **A missing move.** The planner said so twice: "I can't dig straight down with the moves I have right now"
+   (19:05:14), "I don't currently have a move that can carry out that exact intention" (19:05:26). The only digging
+   is `go_to(dig=yes)` toward a target and `mine(block, radius)`, which picks the nearest matching block, not the one
+   below. The 4 `mine(stone, radius 4)` at 19:06 did take her down a little; nothing does it on purpose. Next step:
+   a pack skill to dig down / tunnel at a chosen depth (e.g. `dig(direction=down, to_y=..)`, a staircase, a branch
+   tunnel), in `game_packs/minecraft/src/skills`, listed in the manifest so the planner and hands know it.
+2. **The planner turned "dig down" into "walk to lower ground".** After the 19:09:58 rethink ("dig down from here")
+   the next three plans (19:12, 19:13, 19:14) were "move east toward the lower ground", "walk north...", "walk into
+   the cave-like opening", while her mind's look backs at 19:13:33 and 19:13:53 still said "stop walking routes, mine
+   beneath my feet". Part of this follows from cause 1 (it plans with the moves it has). Worth checking once the
+   move exists: whether the planner weighs her mind's repeated conclusion over the nearest walkable route.
+
+**(b) not exercised yet.** No review since the resume challenged a lesson (0 revisions with `challenges`), and
+the "try another nearby passage" lessons from the first run weren't what her hands were given here (different
+situation). Needs a session where an applied lesson keeps failing.
+
+**Lessons are getting better.** New ones are partly methods, not logs: "When repeated searches for a resource
+report that it is not in sight, I can stop repeating that search and gather a suitable resource that is actually
+visible" (it worked: spruce instead of oak). There are still plain logs ("directional labels such as 'right' are
+rejected"; "no oak log in sight ... fails without moving"), and "can" phrasing is still in them.
+
+**Still open, in order:**
+1. A dig-down / tunnel move in the pack (cause 1 above). Without it the right method can't happen.
+2. Sight (§8 notes; the user plans a revamp): `sight.js` checks only the `LOOK_AT=128` nearest candidates, all buried
+   inside a hill, so visible stone or ore reads "not in sight"; caves are detected only from open sky
+   (`surroundings.js`). "no stone in sight within 64 blocks" at 19:01:48 and 19:03:15 while standing on a hill is
+   probably this.
+3. Check (b) live, and whether the lesson writer still writes logs under `lessons-v5`.
+4. Old crafting-table habit: she lost the placed table and tried crafting with none near (19:06:25-19:07:29).

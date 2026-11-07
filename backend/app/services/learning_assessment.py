@@ -32,6 +32,7 @@ Learning reads what happened and what the evidence supports. It never speaks, ne
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -54,7 +55,7 @@ from app.core.config import get_settings
 from app.db.models import (
     CaptureGap, ChatMessage, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, GameExperience, LearningAssessment,
     LearningAssessmentEvidence, LearningAssessmentLink, LearningAssessmentRevision, LearningAssessmentUse,
-    MemoryCorrection, Observation, ObservationProcessing, TrainingExample,
+    MemoryCorrection, Observation, ObservationProcessing, TrainingExample, User,
 )
 from app.services.learning_capture import execution_id_for
 
@@ -75,6 +76,8 @@ QUOTE_MIN = 12
 OPEN_SHOWN = 5
 OPEN_ELSEWHERE = 5  # the user's parked inquiries in other conversations or sessions, most recent first
 REQUEST_RESULTS = 6  # results shown per request (an answer is a page; asking again more precisely gets others)
+RELEVANT_LESSONS = 3  # her existing lessons shown without being asked, the most relevant to what is read (post-audit 4)
+RELEVANT_MEMORIES = 4  # what memory holds (facts, her open items) shown without being asked, the most relevant
 PRIORITY = {"review": 0, "sample": 0, "execution": 1, "complaint": 2, "correction": 3}
 FORGOTTEN = "[forgotten: not shown]"
 
@@ -427,7 +430,8 @@ class Gathered:
 
 
 def _hm(at: datetime | None) -> str:
-    return _aware(at).strftime("%Y-%m-%d %H:%M:%S") if at else "?"
+    # With the weekday: when something happens in the week can be what a pattern is about.
+    return _aware(at).strftime("%a %Y-%m-%d %H:%M:%S") if at else "?"
 
 
 def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | None = None) -> Gathered:
@@ -555,6 +559,10 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
 
     # What it asked memory and the other owners for (read only; each answer says its coverage).
     _requests(db, row, ev, plan, {m.id for m in messages})
+    # Her existing lessons most relevant to what is read, shown without being asked (post-audit 4), so ordinary
+    # experience can check them: earlier understanding, never evidence.
+    _relevant_lessons(db, row, ev)
+    _relevant_memories(db, row, ev)
 
     # Open inquiries and unresolved assessments, here first, then the user's parked inquiries elsewhere (not
     # evidence; for reopening: later evidence in another session can resume one with its state).
@@ -584,8 +592,10 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
                if question else (other.explanation or "")[:300]))
 
     if plan.inputs is False and any(i.kind == "record" and i.captured for i in ev.items.values()):
-        ev.can_look["inputs"] = "the exact inputs each captured learner was given"
+        ev.can_look["inputs"] = ("the exact inputs each captured learner was given, and the exact records behind "
+                                "the compact lines shown")
     ev.trigger, ev.trigger_refs = _trigger_text(row, ev, lines, anchor)
+    ev.user_name = db.scalar(select(User.name).where(User.id == row.user_id))
     if prior:
         ev.prior = A.render_prior(prior, ev)
     return out
@@ -755,6 +765,157 @@ def _game_excerpt(value, limit=2400):
     return text if len(text) <= limit else text[:limit] + " [excerpt truncated; exact record available by source ref]"
 
 
+# Compact views of game records (2026-11-06). A raw record ran ~1-3k characters (ids, timestamps, the whole
+# inventory twice, the action list on every decision), so a 20-minute stretch was ~300k characters and every
+# review of a whole stretch parked unread. These keep what a reader needs to follow the play: what was done,
+# what came back, what changed. Nothing is inferred; the exact record stays one "inputs" look away.
+
+def _call(skill, params) -> str:
+    params = {k: v for k, v in (params or {}).items() if k != "time_limit"}
+    return f"{skill}(" + ", ".join(f"{k}={v}" for k, v in params.items()) + ")"
+
+
+def _short(value, limit=300) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return text if len(text) <= limit else text[:limit] + " [cut]"
+
+
+def _where(position) -> str | None:
+    if not isinstance(position, dict) or "x" not in position:
+        return None
+    return " ".join(str(round(float(position.get(k) or 0))) for k in ("x", "y", "z"))
+
+
+def _changes(before: dict, after: dict) -> list[str]:
+    out = []
+    a, b = _where(before.get("position")), _where(after.get("position"))
+    if a and b and a != b:
+        out.append(f"moved {a} -> {b}")
+    for key in ("health", "food"):
+        if before.get(key) is not None and before.get(key) != after.get(key):
+            out.append(f"{key} {before.get(key)} -> {after.get(key)}")
+    inv_a, inv_b = before.get("inventory") or {}, after.get("inventory") or {}
+    diff = [f"{k} {'+' if (inv_b.get(k, 0) - inv_a.get(k, 0)) > 0 else ''}{inv_b.get(k, 0) - inv_a.get(k, 0)}"
+            for k in sorted(set(inv_a) | set(inv_b)) if inv_b.get(k, 0) != inv_a.get(k, 0)]
+    if diff:
+        out.append("inventory " + ", ".join(diff))
+    held_a, held_b = (before.get("held") or {}).get("name"), (after.get("held") or {}).get("name")
+    if held_a != held_b:
+        out.append(f"holding {held_a} -> {held_b}")
+    return out
+
+
+def _execution_brief(ex: dict) -> str:
+    """One skill run as run: the call, how it ended, and what the pack observed changing."""
+    intended, executed = ex.get("intended") or {}, ex.get("executed") or {}
+    if not isinstance(executed, dict):
+        return _short(ex, 600)
+    if ex.get("kind") != "skill_run":
+        if ex.get("kind") == "effect" and executed.get("effect"):
+            return (f"effect of her decision (work {intended.get('work')}, target {intended.get('target')}): "
+                    f"{_short(executed.get('effect'), 200)} (result {ex.get('result')})")
+        if ex.get("kind") == "thought_route":
+            # Its conclusion and tip are on the thought's own record; this says where they went.
+            return (f"her {intended.get('kind')} thought routed"
+                    + (" (with a tip for her hands)" if intended.get("for_hands") else "")
+                    + f": {_short(executed.get('routed') or executed.get('status'), 160)} (result {ex.get('result')})")
+        if ex.get("kind") == "plan_apply" and isinstance(intended, dict):
+            # The plan itself is on the planner's record; this says it was applied and what came of it.
+            steps, drop = intended.get("steps") or [], intended.get("drop") or []
+            return (f"plan applied: goal \"{_short(intended.get('goal') or '', 120)}\", {len(steps)} steps, "
+                    f"{len(drop)} dropped -> {_short(executed, 200)} (result {ex.get('result')})")
+        return f"{ex.get('kind')}: {_short(intended, 300)} -> {_short(executed, 300)} (result {ex.get('result')})"
+    observed = executed.get("observed") or {}
+    head = (_call(intended.get("skill"), intended.get("params")) if intended.get("skill") else ex.get("kind"))
+    status = executed.get("status") or (executed.get("report") or {}).get("status")
+    result = ex.get("result")
+    parts = [f"{head} -> {status or '?'}" + ("" if (result, status) in (("succeeded", "done"), ("failed", "failed"))
+                                              else f" (result {result})")]
+    if executed.get("seconds") is not None:
+        parts.append(f"{executed['seconds']} s")
+    if executed.get("reason"):
+        parts.append(f"reason: {_short(executed['reason'], 200)}")
+    data = {k: v for k, v in (executed.get("data") or {}).items() if k != "counted"} \
+        if isinstance(executed.get("data"), dict) else executed.get("data")
+    if data:
+        parts.append(f"pack data: {_short(data, 200)}")
+    if ex.get("deviation"):
+        parts.append(f"deviation: {_short(ex['deviation'], 200)}")
+    if observed.get("after"):
+        changes = _changes(observed.get("before") or {}, observed["after"])
+        parts.append(("observed: " + "; ".join(changes)) if changes else "observed: no change in place, health, "
+                     "food or inventory")
+        after = observed["after"]
+        if after.get("inventory") is not None and any(c.startswith("inventory") for c in changes):
+            parts.append("inventory after: " + _short(after.get("inventory"), 300))
+    return "; ".join(parts)
+
+
+def _execution_line(ex: dict) -> str:
+    """The shortest faithful line for one run, for the condensed view: call, ending, time, reason, changes."""
+    intended, executed = ex.get("intended") or {}, ex.get("executed") or {}
+    if not isinstance(executed, dict):
+        return "run recorded"
+    observed = executed.get("observed") or {}
+    parts = [f"-> {executed.get('status') or ex.get('result') or '?'}"]
+    if executed.get("seconds") is not None:
+        parts[0] += f" {executed['seconds']} s"
+    if executed.get("reason"):
+        parts.append(_short(executed["reason"], 120))
+    if observed.get("after"):
+        parts += _changes(observed.get("before") or {}, observed["after"])
+    return "; ".join(parts)
+
+
+def _experience_brief(e) -> str:
+    p = e.payload or {}
+    when = f"[{_hm(e.occurred_at)}]"
+    if e.kind == "skill_outcome":
+        parts = [f"{when} skill_outcome: {_call(p.get('skill'), p.get('params'))} -> {p.get('status')}"]
+        if p.get("attempt_id"):
+            # Its call and what was observed are on the decision's run record; this is the report as it arrived.
+            parts = [f"{when} skill_outcome: {p.get('skill')} -> {p.get('status')}"]
+        if p.get("seconds") is not None:
+            parts.append(f"{p['seconds']} s")
+        if p.get("reason"):
+            parts.append(f"reason: {_short(p['reason'], 200)}")
+        data = dict(p.get("data") or {})
+        counted = data.pop("counted", None)
+        if data and not p.get("attempt_id"):
+            parts.append(f"pack data: {_short(data, 240)}")
+        if counted:
+            parts.append(f"counted while it ran: {_short(counted, 200)}")
+        if p.get("step_id"):
+            parts.append(f"step {p['step_id']}")
+        return "; ".join(parts)
+    rest = {k: v for k, v in p.items() if k not in ("seq", "pack_at", "run_id", "attempt_id")}
+    return f"{when} {e.kind}: {_short(rest, 500)}"
+
+
+def _answer_brief(record: DecisionAttempt) -> str:
+    """A captured learner's answer in its own words: the fields that say what it saw, chose and why."""
+    output = record.output or {}
+    parsed = output.get("parsed") if isinstance(output.get("parsed"), dict) else None
+    if record.learner == "hard_thought" and parsed:
+        keys = ("kind", "conclusion", "thinking", "for_hands", "question", "assessment")
+        label = "her mind's hard thought (her own reasoning at the time: not evidence of what happened)"
+    elif record.learner == "planner" and parsed:
+        keys = ("decision", "progress", "goal", "why", "steps", "drop", "sees", "cannot_see")
+        label = "her planner's decision (its reasoning at the time: not evidence of what happened)"
+    elif record.learner == "student_2" and isinstance(output.get("decision"), dict):
+        d = output["decision"]
+        return (f"student_2 decision: intention \"{d.get('intention')}\", communication {d.get('communication')}, "
+                f"said \"{_short(d.get('what_to_communicate') or '', 200)}\", work {d.get('work')}")
+    elif record.learner == "hands":
+        inner = output.get("output") or {}
+        return (f"hands answer: status {inner.get('status')}, action {output.get('action')}, "
+                f"note \"{_short(inner.get('note') or '', 200)}\"")
+    else:
+        return f"{record.learner} captured answer: {_game_excerpt(record.output, 1200)}"
+    shown = {k: parsed[k] for k in keys if parsed.get(k) not in (None, "", [], {})}
+    return f"{label}: " + "; ".join(f"{k}: {_short(v, 600)}" for k, v in shown.items())
+
+
 def _game_input(db, record):
     from app.services import capture_chains
     captured = capture_chains.attempt_out(db, record, blobs=True)
@@ -784,6 +945,9 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
     if before:
         ev.can_look["game"] = "more earlier game outcomes and detailed capture"
     by_attempt = {}
+    manifest_shown, step_shown = None, None
+    calls: dict[str, str] = {}  # target -> its one-line call, for the condensed view
+    runs: dict[str, str] = {}  # target -> its run's one-line ending
     for e in chosen:
         aid = _uuid((e.payload or {}).get("attempt_id"))
         if aid is None or str(aid) in by_attempt:
@@ -797,12 +961,26 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
         out.attempts[href] = {"hands": str(aid)}
         if record is None:
             out.awaiting.append(f"attempt:{aid}")
+        text = "hands decision: missing or expired capture"
+        if record is not None:
+            manifest = (record.versions or {}).get("manifest")
+            step_read = (record.input or {}).get("plan") or {}
+            step = step_read.get("step") or {}
+            note = ((record.output or {}).get("output") or {}).get("note")
+            step_key = (step_read.get("goal"), step.get("id"), step.get("do"))
+            text = (f"her hands' decision ({record.status}): {_record_summary(record)}"
+                    + (f'; note "{_short(note, 200)}"' if note else "")
+                    + ("" if manifest == manifest_shown else f"; available actions: {_game_excerpt(manifest)}")
+                    + (f"; same plan step ({step.get('id')})" if step and step_key == step_shown else
+                       f'; plan and step read: goal "{step_read.get("goal")}", step {step.get("id")} '
+                       f'"{step.get("do")}" (done when "{step.get("done_when")}", {step.get("state")})'
+                       if step else f"; plan and step read: {_game_excerpt(step_read, 600)}"))
+            manifest_shown, step_shown = manifest, step_key
+            action = (record.output or {}).get("action")
+            chose = _call(action[0], action[1] if len(action) > 1 else None) if action else "no action"
+            calls[href] = f"[{_aware(record.started_at).strftime('%H:%M:%S')}] {chose}" + (f' "{_short(note, 110)}"' if note else "")
         ev.add(A.Item(ref=f"{href}.d", kind="record", learner="hands", event=f"run:{aid}",
-                      roots=(f"attempt:{aid}",), target=href, captured=record is not None,
-                      text=(f"her hands' decision ({record.status}): {_record_summary(record)}; "
-                            f"available actions: {_game_excerpt((record.versions or {}).get('manifest'))}; "
-                            f"plan and step read: {_game_excerpt((record.input or {}).get('plan'))}"
-                            if record else "hands decision: missing or expired capture"),
+                      roots=(f"attempt:{aid}",), target=href, captured=record is not None, text=text,
                       detail=_game_input(db, record) if record and plan.inputs else None))
     # A stretch remains assessable when no hands decision was captured (ordinary play, notices,
     # trials). That never establishes the quality of an uncaptured choice.
@@ -814,24 +992,23 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
         aid = str(_uuid(p.get("attempt_id")) or "")
         ev.add(A.Item(ref=f"g{e.id}", kind="game", fact_kind="skill" if e.kind == "skill_outcome" else "notice",
                       event=f"run:{aid}" if aid else f"experience:{e.id}", roots=(f"experience:{e.id}",),
-                      target=by_attempt.get(aid, "s1"),
-                      text=f"[{_hm(e.occurred_at)}] {e.kind}: {_game_excerpt(p)}; counted while it ran: {json.dumps((p.get('data') or {}).get('counted'))}. "
-                           "A recorded report, not proof of the cause or the quality of the choice."))
+                      target=by_attempt.get(aid, "s1"), text=_experience_brief(e)))
     since = max(cutoff, min(_aware(e.occurred_at) for e in chosen) - timedelta(seconds=30))
     until = max(_aware(e.occurred_at) for e in chosen) + timedelta(seconds=5)
     # Include plans, applied rules, thoughts, measured outcomes and all three reports from step 1.
+    # The hands decisions already shown as targets are left out of the query, not just of the rendering: they
+    # used to fill the 100-record window, so her mind's and planner's records later in a long stretch were lost.
     records = list(db.scalars(select(DecisionAttempt).where(
         DecisionAttempt.user_id == row.user_id, DecisionAttempt.game_session_id == row.game_session_id,
         DecisionAttempt.started_at >= since, DecisionAttempt.started_at <= until,
-        DecisionAttempt.expires_at > _now())
+        DecisionAttempt.expires_at > _now(),
+        DecisionAttempt.id.not_in([uuid.UUID(a) for a in by_attempt] or [uuid.uuid4()]))
         .order_by(DecisionAttempt.started_at).limit(100)))
     for record in records:
         target = by_attempt.get(str(record.id), "s1")
-        if record.learner == "hands" and target != "s1":
-            continue
         ev.add(A.Item(ref=f"a{record.id.hex}", kind="record", learner=record.learner,
                       event=f"attempt:{record.id}", roots=(f"attempt:{record.id}",), target=target,
-                      text=f"{record.learner} captured answer: {_game_excerpt(record.output)}",
+                      text=_answer_brief(record),
                       detail=_game_input(db, record) if plan.inputs else None))
     executions = list(db.scalars(select(DecisionExecution).where(
         DecisionExecution.user_id == row.user_id, DecisionExecution.game_session_id == row.game_session_id,
@@ -840,10 +1017,14 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
          ((DecisionExecution.ended_at >= since) & (DecisionExecution.ended_at <= until))))
         .order_by(DecisionExecution.captured_at).limit(150)))
     for ex in executions:
+        if ex.kind == "skill_run" and by_attempt.get(str(ex.attempt_id)):
+            runs[by_attempt[str(ex.attempt_id)]] = _execution_line(capture_chains.execution_out(ex))
         ev.add(A.Item(ref=f"x{ex.id.hex}", kind="fact", fact_kind="skill" if ex.kind == "skill_run" else ex.kind,
                       event=f"run:{ex.attempt_id}" if ex.attempt_id else f"execution:{ex.id}",
                       roots=(f"execution:{ex.id}",), target=by_attempt.get(str(ex.attempt_id), "s1"),
-                      text=_game_excerpt(capture_chains.execution_out(ex))))
+                      text=_execution_brief(capture_chains.execution_out(ex)),
+                      detail=("exact record: " + _game_excerpt(capture_chains.execution_out(ex), 4000))
+                      if plan.inputs else None))
     held_executions = {str(e.attempt_id) for e in executions if e.kind == "skill_run"}
     for aid in by_attempt:
         if aid not in held_executions:
@@ -855,6 +1036,15 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
     for gap in gaps:
         ev.add(A.Item(ref=f"gap{gap.id}", kind="fact", event=f"gap:{gap.id}", roots=(f"gap:{gap.id}",),
                       text=f"Missing capture: {gap.record_id} ({gap.reason}): {gap.detail or ''}"))
+    used = _lessons_used(db, row, ev, by_attempt, records)
+    for href, note in used.items():
+        item = ev.items.get(f"{href}.d")
+        if item is not None:
+            ev.items[item.ref] = dataclasses.replace(item, text=f"{item.text}; {note}")
+    for href in by_attempt.values():
+        brief = calls.get(href, "decision not captured") + " " + runs.get(href, "-> no run record")
+        brief += f"; {used[href]}" if href in used else ""
+        ev.targets[href] = dataclasses.replace(ev.targets[href], brief=brief)
     if len(records) == 100 or len(executions) == 150:
         out.awaiting.append("capture window truncated at 100 attempts / 150 executions")
     events = list(db.scalars(select(DesktopSessionEvent).where(
@@ -867,7 +1057,9 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
     for e in ([goal] if goal else []) + events:
         ev.add(A.Item(ref=f"p{e.id}", kind="fact", event=f"session_event:{e.id}",
                       roots=(f"session_event:{e.id}",), target="s1",
-                      text=f"[{_hm(e.occurred_at)}] {e.type}: {_game_excerpt(e.payload)}"))
+                      text=f"[{_hm(e.occurred_at)}] {e.type}: " + _short(
+                          {k: v for k, v in (e.payload or {}).items()
+                           if k not in ("execution_generation", "state_revision", "plan_revision")}, 600)))
     streams = trajectory.streams(db, row.user_id, session_id=row.game_session_id, since=since, until=until)
     if not streams:
         out.awaiting.append("trajectory missing or expired for this stretch")
@@ -885,6 +1077,63 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
             ev.add(A.Item(ref=f"t{st['id'].replace('-', '')}", kind="game", fact_kind="trajectory",
                           event=f"trajectory:{st['id']}", roots=(f"trajectory:{st['id']}",), target="s1",
                           text="Pack clock and coverage (not the backend clock): " + json.dumps(detail, default=str)))
+
+
+LESSONS_USED_SHOWN = 8  # lessons her parts were given in one stretch, the most used first
+
+
+def _lessons_used(db: Session, row: LearningAssessment, ev: A.Evidence, by_attempt: dict[str, str],
+                  records: list) -> dict[str, str]:
+    """The lessons her parts were given for the decisions read here, shown among her existing lessons with what
+    each part said about them in this stretch, so the reviewer can judge a lesson by what followed its use
+    (2026-11-06: her hands said they applied "choose a nearby passage target" 87 times while no iron was found,
+    and nothing ever read that). Returns, per hands decision, the note shown on it ("applied L1").
+    A part saying it applied a lesson is its own account: not proof the lesson shaped the choice."""
+    from app.db.models import MemoryLessonUse
+    from app.services import memory_lessons
+
+    hands = {uuid.UUID(a): h for a, h in by_attempt.items()}
+    others = {r.id: r.learner for r in records if r.learner != "hands"}  # hands outside the stretch aren't shown
+    if not hands and not others:
+        return {}
+    uses = list(db.scalars(select(MemoryLessonUse).where(
+        MemoryLessonUse.user_id == row.user_id, MemoryLessonUse.received.is_(True),
+        MemoryLessonUse.attempt_id.in_(list(hands) + list(others))).order_by(MemoryLessonUse.id)))
+    if not uses:
+        return {}
+    tally: dict[uuid.UUID, int] = {}
+    for u in uses:
+        tally[u.lesson_id] = tally.get(u.lesson_id, 0) + 1
+    chosen = sorted(tally, key=lambda k: -tally[k])[:LESSONS_USED_SHOWN]
+    refs = {v.id: v.ref for v in ev.lessons.values()}
+    for found in memory_lessons.for_learning_ids(db, row.user_id, [k for k in chosen if str(k) not in refs]):
+        ref = f"L{len(ev.lessons) + 1}"
+        ev.lessons[ref] = A.PriorLesson(ref, found.id, found.revision, found.text)
+        refs[found.id] = ref
+    notes: dict[str, list[str]] = {}
+    for lesson_id in chosen:
+        ref = refs.get(str(lesson_id))
+        if ref is None:
+            continue  # withdrawn since
+        said: dict[str, list[str]] = {}
+        for u in (u for u in uses if u.lesson_id == lesson_id):
+            who = "her hands" if u.attempt_id in hands else {
+                "hard_thought": "her mind", "planner": "her planner"}.get(others.get(u.attempt_id), u.consumer)
+            label = (f"{who} said {u.reported.replace('_', ' ')}" if u.reported else f"{who} was given it (no report)")
+            unit = "decision" if u.attempt_id in hands else {"her mind": "thought", "her planner": "plan"}.get(who, "time")
+            said.setdefault((label, unit), []).append(hands.get(u.attempt_id, ""))
+            if u.attempt_id in hands:
+                notes.setdefault(hands[u.attempt_id], []).append(
+                    f"applied {ref}" if u.reported == "applied"
+                    else f"{ref} {(u.reported or 'given, no report').replace('_', ' ')}")
+        parts = []
+        for (label, unit), hrefs in said.items():
+            named = [h for h in hrefs if h]
+            parts.append(f"{label} on {len(hrefs)} {unit}(s)"
+                         + (f" ({', '.join(named[:12])}{', ...' if len(named) > 12 else ''})" if named else ""))
+        lesson = ev.lessons[ref]
+        ev.lessons[ref] = dataclasses.replace(lesson, text=f"{lesson.text} Given in this stretch: {'; '.join(parts)}.")
+    return {h: ", ".join(n) for h, n in notes.items()}
 
 
 def _elsewhere(db: Session, row: LearningAssessment, ev: A.Evidence, attached: set[str]) -> None:
@@ -963,7 +1212,7 @@ def _requests(db: Session, row: LearningAssessment, ev: A.Evidence, plan: Plan, 
         new = 0
         for item in found:
             if isinstance(item, A.PriorLesson):
-                if item.id in lessons_seen:
+                if item.id in lessons_seen or any(v.id == item.id for v in ev.lessons.values()):
                     continue
                 lessons_seen.add(item.id)
                 ref = f"L{len(ev.lessons) + 1}"
@@ -974,7 +1223,8 @@ def _requests(db: Session, row: LearningAssessment, ev: A.Evidence, plan: Plan, 
                 continue  # already shown here
             n += 1
             ev.add(A.Item(ref=f"r{n}", kind=item.kind, event=item.event, roots=item.roots, text=item.text,
-                          words=item.words, fact_kind=item.fact_kind, group=qref))
+                          words=item.words, fact_kind=item.fact_kind, group=qref,
+                          own_inference=item.own_inference, memory=item.memory))
             shown_roots |= set(item.roots)
             new += 1
         ev.requests.append(A.Request(qref, source, query, status, coverage, new))
@@ -1001,11 +1251,22 @@ def _ask(db: Session, row: LearningAssessment, source: str, query: str,
                 elif e.source == "thought":
                     based.append("her own thought")
             when = _hm(record.occurred_at or record.recorded_at)
+            # Her own hypotheses and decisions (and anything resting on her thought) are her inferences: shown so
+            # learning can relate to them, never evidence that what they say is so.
+            own = bool(based) or (record.ref.kind == "item" and record.owner == "columbina"
+                                  and record.epistemic == "inferred")
+            whose = (f"her own {record.subkind}" if record.ref.kind == "item" and record.owner == "columbina"
+                     else f"{record.owner}'s {record.subkind}" if record.ref.kind == "item" and record.owner
+                     else record.ref.kind)
             items.append(A.Item(ref="", kind="memory", event=f"memory:{record.ref}", roots=tuple(dict.fromkeys(roots)),
-                                fact_kind=record.ref.kind,
-                                text=f"[memory {record.ref.kind}, {record.epistemic}, {record.status}, {when}] "
+                                fact_kind=record.ref.kind, own_inference=own,
+                                memory=str(record.ref) if record.ref.kind in ("fact", "item") else None,
+                                text=f"[memory {whose}, {record.epistemic}, {record.status}, {when}] "
                                      f"{record.content[:400]}" + (f" (rests on {', '.join(based)})" if based else "")
-                                     + ". Memory's record, not proof of what it says."))
+                                     + (". Her own inference: never evidence" if own else
+                                        ". Memory's record, not proof of what it says")
+                                     + (f"; relate to it in relates_to as {{lesson: this ref}}"
+                                        if record.ref.kind in ("fact", "item") else "") + "."))
         coverage = f"searched {', '.join(result.searched_kinds) or 'nothing'}" + (
             f"; errors: {', '.join(result.errors)}" if result.errors else "")
         return result.status, coverage, items
@@ -1047,6 +1308,61 @@ def _ask(db: Session, row: LearningAssessment, source: str, query: str,
         found = memory_lessons.for_learning(db, row.user_id, query, limit=REQUEST_RESULTS)
         return ("matched" if found else "no_match"), "her lessons for this user, any status but withdrawn", found
     return "not_available", f"{source} can't be asked", []
+
+
+def _relevant_lessons(db: Session, row: LearningAssessment, ev: A.Evidence) -> None:
+    """Up to RELEVANT_LESSONS of her lessons for this user, the most relevant to what is shown, added to those it
+    asked for (never twice). Read only; a failure shows none, said."""
+    from app.services import memory_lessons
+
+    query = " ".join((i.words or i.text) for i in ev.items.values()
+                     if i.kind in ("user", "her", "game", "said"))[-4000:]
+    if not query.strip():
+        return
+    try:
+        with db.begin_nested():
+            found = memory_lessons.for_learning(db, row.user_id, query, limit=RELEVANT_LESSONS)
+    except Exception:  # noqa: BLE001 - shown none, said
+        log.exception("learning assessment %s: relevant lessons failed", row.id)
+        ev.signals.append("her existing lessons couldn't be read for this (none are shown unless asked for)")
+        return
+    known = {v.id for v in ev.lessons.values()}
+    for item in found:
+        if item.id not in known:
+            ref = f"L{len(ev.lessons) + 1}"
+            ev.lessons[ref] = A.PriorLesson(ref, item.id, item.revision, item.text)
+            known.add(item.id)
+
+
+def _relevant_memories(db: Session, row: LearningAssessment, ev: A.Evidence) -> None:
+    """Up to RELEVANT_MEMORIES facts and working items memory holds that are most relevant to what is shown (read only,
+    recall's explicit search, no access counting), so the reviewer can relate this stretch to them without having
+    thought to ask. Records drawn from these very messages, or already shown, are left out. A failure shows none,
+    said."""
+    query = " ".join((i.words or i.text) for i in ev.items.values()
+                     if i.kind in ("user", "her", "game", "said"))[-2000:]
+    if not query.strip():
+        return
+    try:
+        with db.begin_nested():
+            status, coverage, found = _ask(db, row, "memory", query, set())
+    except Exception:  # noqa: BLE001 - shown none, said
+        log.exception("learning assessment %s: relevant memories failed", row.id)
+        ev.signals.append("memory couldn't be read for this (nothing it holds is shown unless asked for)")
+        return
+    shown_roots = ev.evidence_roots()
+    n = sum(1 for i in ev.items.values() if i.group == "related")
+    for item in found:
+        if n >= RELEVANT_MEMORIES or item.memory is None:
+            continue
+        sources = set(item.roots) - {item.memory}
+        if set(item.roots) <= shown_roots or (sources and sources <= shown_roots):
+            continue  # memory's record of what is shown here: not something else it knows
+        n += 1
+        ev.add(A.Item(ref=f"k{n}", kind=item.kind, event=item.event, roots=item.roots, text=item.text,
+                      words=item.words, fact_kind=item.fact_kind, group="related",
+                      own_inference=item.own_inference, memory=item.memory))
+        shown_roots |= set(item.roots)
 
 
 def _quotes(text: str) -> list[str]:
@@ -1214,6 +1530,17 @@ def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer
             break
         text = A.render(gathered.ev)
         if len(text) > s.learning_assessment_max_chars:
+            # Too much to read at once in full: read it condensed (one line per decision of her hands) before
+            # parking. Parking a whole stretch unread is what kept her longer stretches from ever being learned from.
+            shorter = A.render(gathered.ev, condensed=True)
+            if len(shorter) <= s.learning_assessment_max_chars:
+                rounds_note = {"condensed": True, "full_chars": len(text)}
+                text = shorter
+            else:
+                rounds_note = None
+        else:
+            rounds_note = None
+        if len(text) > s.learning_assessment_max_chars:
             if last is None:
                 checked = A.check({"feedback": "unclear", "missing": [{
                     "what": "evidence small enough to read at once", "needed_for": "any conclusion"}]}, gathered.ev)
@@ -1234,7 +1561,8 @@ def _investigate(db: Session, claimed: Claim, evaluate: Callable[[str], A.Answer
         nxt = checked.result["next"]
         rounds.append({"plan": plan.to_dict(), "digest": current, "chars": len(text), "fingerprint": fp,
                        "next": nxt, "requests": checked.result["requests"], "dropped": len(checked.dropped),
-                       "latency_ms": answer.latency_ms, "summary": A.summarize(checked.result)})
+                       "latency_ms": answer.latency_ms, "summary": A.summarize(checked.result),
+                       **(rounds_note or {})})
         last = (gathered, checked, fp)
         if checked.result["review"]["decision"] == "leave":
             stop, why = "left", checked.result["review"]["why"] or "nothing worth examining"

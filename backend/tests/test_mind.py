@@ -295,3 +295,36 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
     mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert saved[-1]["status"] == "stale" and saved[-1].get("said") is None and len(said) == 1
     assert mind._minds[sid].quick_busy is False
+
+
+def test_a_step_that_keeps_going_is_looked_back_on_now_and_then(brain, monkeypatch):
+    """Live 2026-11-06 one step ran 21 minutes and nothing looked back: a step that never ends never got the
+    step-ended look back. Code picks only when (every mind_step_look_back_seconds of the step); judging is hers."""
+    monkeypatch.setattr(get_settings(), "mind_step_look_back_seconds", 300.0)
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s1", "state": "active", "do": "find iron ore"}]}
+    brain.driver["step"] = {"id": "s1", "do": "find iron ore", "since": 100.0, "tries": 30, "failed": 12,
+                            "failures": [{"skill": "go_to", "params": {"target": "-1 2 3"}, "status": "failed",
+                                          "reason": "no path"}]}
+    assert brain.run(Gate({"none": 0.9}), at=100)["hard"] is None
+    assert brain.run(Gate({"none": 0.9}), at=399)["hard"] is None  # not yet: no count of tries decides it
+    assert brain.run(Gate({"none": 0.9}), at=401)["hard"] == "hard: review"
+    problem = brain.hard[-1]
+    assert problem.trigger == "review" and '"find iron ore"' in problem.text and "going for 5 minutes" in problem.text
+    assert "tried 30 times; 12 failed" in problem.text and "the approach" in problem.text
+    brain.landed()
+    assert brain.run(Gate({"none": 0.9}), at=650)["hard"] is None  # once per stretch of the step
+    assert brain.run(Gate({"none": 0.9}), at=702)["hard"] == "hard: review"
+    brain.landed()
+    # A new step starts its own clock.
+    brain.session.plan_revision = 2
+    brain.session.plan = {"goal": "iron armor", "steps": [{"id": "s2", "state": "active", "do": "dig down"}]}
+    brain.driver["step"] = {"id": "s2", "do": "dig down", "since": 710.0, "tries": 0, "failed": 0, "failures": []}
+    assert brain.run(Gate({"none": 0.9}), at=730)["hard"] == "hard: review"  # the old step ended: its own look back
+    assert "the plan moved on before it was done" in brain.hard[-1].text
+    brain.landed()
+    assert brain.run(Gate({"none": 0.9}), at=900)["hard"] is None
+    assert brain.run(Gate({"none": 0.9}), at=1011)["hard"] == "hard: review"
+    assert '"dig down"' in brain.hard[-1].text
+    brain.landed()
+    monkeypatch.setattr(get_settings(), "mind_step_look_back_seconds", 0.0)
+    assert brain.run(Gate({"none": 0.9}), at=1400)["hard"] is None  # 0 turns it off

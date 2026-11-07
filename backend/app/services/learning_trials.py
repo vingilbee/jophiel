@@ -306,8 +306,11 @@ def _bundle(db: Session, trigger: LearningTrialTrigger, session: DesktopSession,
                 for i, e in enumerate(trigger.payload.get("evidence") or [], 1)]
     game = game_experience.game_for_profile(session.profile_id) or "minecraft"
     from app.services import memory_lessons
-    lessons = [T.Line(f"g{i}", f"({v.status}) {v.statement}; applies: {v.applies_when}; "
-                               f"exceptions: {'; '.join(v.exceptions)}", f"lesson:{v.id}")
+    from app.ai.learning import lessons as LS
+    lessons = [T.Line(f"g{i}", f"({v.status}" + (", UNSETTLED" if v.unsettled else "") + f") {v.statement}; "
+                               f"applies: {v.applies_when}; exceptions: {'; '.join(v.exceptions)}"
+                               + "".join(f"; {d}" for d in LS.detail_lines(v.detail))
+                               + "".join(f"; unsettled: {u}" for u in v.unsettled), f"lesson:{v.id}")
                for i, v in enumerate(memory_lessons.for_game(
                    db, session.owner_user_id, game, query=str(trigger.payload)).views, 1)]
     trials = []

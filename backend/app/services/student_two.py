@@ -512,6 +512,7 @@ def decide(live: S.Live, ask=None, *, capture=None) -> Outcome:
     started = time.monotonic()
     started_at = datetime.now(timezone.utc)
     exact: dict[str, Any] = {}
+    live = _current_lessons(live)
     if get_settings().cognition_decision_provider == "teacher":
         outcome = _teacher_decide(live, started, ask=ask, exact=exact)
     else:
@@ -534,6 +535,23 @@ def decide(live: S.Live, ask=None, *, capture=None) -> Outcome:
             logger.exception("student_two: capturing the attempt failed")
         _record_lessons(outcome, live, capture.user_id, upstream=capture.upstream)
     return outcome
+
+
+def _current_lessons(live: S.Live) -> S.Live:
+    """The lessons gathered for this decision, made current before its input is built (post-audit 4): one revised,
+    withdrawn or unsettled since it was gathered goes in as it is now, or not at all, said."""
+    from dataclasses import replace
+
+    from app.services import memory_lessons
+
+    if not live.lessons:
+        return live
+    supply, why = memory_lessons.current(memory_lessons.Supply(tuple(live.lessons), tuple(live.lessons_left_out)))
+    if supply.views == tuple(live.lessons) and supply.left_out == tuple(live.lessons_left_out) and why is None:
+        return live
+    return replace(live, lessons=supply.views, lessons_left_out=supply.left_out,
+                   lessons_note=why or live.lessons_note or (None if supply.views else
+                                                             "its lessons changed since they were gathered"))
 
 
 def _settle_lessons(outcome: Outcome, live: S.Live) -> None:

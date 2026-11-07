@@ -180,7 +180,7 @@ def _skill_line(skill: dict) -> str:
 
 def lessons_text(lessons: list[dict]) -> str:
     from app.ai.learning import lessons as L
-    views = [L.LessonView(**v) for v in lessons]
+    views = [L.LessonView.from_dict(v) for v in lessons]
     lines = L.decision_lines(views)
     return "\n\n" + "\n".join(lines) + "\n" + L.GUIDE if lines else ""
 

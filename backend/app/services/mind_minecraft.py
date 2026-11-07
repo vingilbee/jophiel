@@ -77,6 +77,7 @@ class Triggers:
     goal_seen: str | None = None
     learned_seen: tuple | None = None  # the learned move run already thought about
     place_surprise_at: float = 0.0  # when going in or out last made her think hard
+    step_looked: tuple | None = None  # (plan revision, step id, when) of the last look back while a step ran
 
 
 # --------------------------------------------------------------------------- #
@@ -164,6 +165,40 @@ def step_ended(st: Triggers, session: DesktopSession, plan: dict | None, driver:
              "and if not, why?")
     return Problem("review", text, topic=f"looking back: {before['do']}"[:200],
                    query=f"{(plan or {}).get('goal') or ''} {before['do']}"[:300],
+                   anchor={"outcome": str(session.goal_item_id) if getattr(session, "goal_item_id", None) else None})
+
+
+def step_running_long(st: Triggers, session: DesktopSession, plan: dict | None, driver: dict, at: float, *,
+                      every: float | None = None) -> Problem | None:
+    """A step of her plan is still going a while after it began: a moment to look back over the whole effort,
+    as when one ends. Code picks only *when* (``mind_step_look_back_seconds`` into the step, and again each time
+    that passes); whether it is getting anywhere, and whether the way she goes about it should change, is her
+    mind's to judge. Live 2026-11-06 the iron step ran 21 minutes and nothing looked back: a step that never
+    ends never got the step-ended look back."""
+    from app.ai.desktop.skill_driver import failure_summary
+
+    every = get_settings().mind_step_look_back_seconds if every is None else every
+    if session is None or not every:
+        return None
+    now = _active(session, plan, driver)
+    log_ = driver.get("step") or {}
+    if now is None or log_.get("id") != now["id"] or not log_.get("since"):
+        return None
+    began = float(log_["since"])
+    key = (now["revision"], now["id"])
+    last = st.step_looked[2] if st.step_looked and st.step_looked[:2] == key else began
+    if at - last < every:
+        return None
+    st.step_looked = (*key, at)
+    minutes = max(1, round((at - began) / 60))
+    text = f'A step of your plan has been going for {minutes} minutes and isn\'t done: "{now["do"]}".'
+    if now["tries"]:
+        text += f" Your hands tried {now['tries']} times; {now['failed']} failed"
+        text += (": " + failure_summary(now["failures"]) + "." if now["failed"] and now["failures"] else ".")
+    text += ("\nLook back over your whole effort below, not just the last move: is it getting anywhere? If not, "
+             "is it the way you are going about it (the approach), not only where to go next?")
+    return Problem("review", text, topic=f"looking back: {now['do']}"[:200],
+                   query=f"{(plan or {}).get('goal') or ''} {now['do']}"[:300],
                    anchor={"outcome": str(session.goal_item_id) if getattr(session, "goal_item_id", None) else None})
 
 
@@ -359,13 +394,33 @@ class Hands:
     """Her hands in the game (the skill driver): they take tips."""
 
     def controls(self) -> frozenset[str]:
-        return frozenset({"tip"})
+        return frozenset({"tip", "rethink"})
 
     def command(self, scope: Scope, command: Command) -> CommandResult:
+        if command.control == "rethink":
+            return rethink(scope.activity, command.text)
         if command.control != "tip":
             return CommandResult("unsupported", f"her hands don't take {command.control}")
         kept = desktop_commands.send_hands_message(scope.activity, command.text)
         return CommandResult("accepted") if kept is not None else CommandResult("refused", "no Redis")
+
+
+def rethink(session_id: uuid.UUID, text: str) -> CommandResult:
+    """Her own look back judged that the effort isn't getting anywhere: her planner, who owns the approach, is
+    asked to look at it again (it may keep the plan). Before 2026-11-06 her thoughts only ever reached her hands
+    as tips, so she judged "no progress" ten times in 18 minutes while the plan never changed. A rethink still
+    waits until the plan has stood a while (``game_planning.RETHINK_GAP_S``)."""
+    from app.db.session import SessionLocal
+    from app.services import agent_events, game_planning
+
+    with SessionLocal() as db:
+        session = db.get(DesktopSession, session_id)
+        if session is None or not game_planning.handles(session):
+            return CommandResult("unsupported", "no planner for this session")
+        game_planning.request(db, session, f"rethink: {' '.join(text.split())[:300]}")
+        db.commit()
+    agent_events.wake()
+    return CommandResult("accepted")
 
 
 class MinecraftSource:
@@ -428,7 +483,9 @@ class MinecraftSource:
         while st.inventory and st.inventory[0][0] < at - INVENTORY_KEPT_SECONDS:
             st.inventory.popleft()
         driver = desktop_commands.load_driver_state(scope.activity) or {}
-        found = [step_ended(st, moment.data.get("session"), plan, driver), surprise_from_outcome(st, plan, driver, state),
+        ended = step_ended(st, moment.data.get("session"), plan, driver)
+        found = [ended or step_running_long(st, moment.data.get("session"), plan, driver, at),
+                 surprise_from_outcome(st, plan, driver, state),
                  surprise_from_gate(moment.fresh, plan, driver, st) if gate_hard else None,
                  big(st, plan, driver, state)]
         return [p for p in found if p is not None]

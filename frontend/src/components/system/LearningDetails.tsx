@@ -354,7 +354,13 @@ function AssessmentCard({
                 {f.applies_when && ` (applies: ${f.applies_when})`}
                 {f.alternatives.length > 0 && <span className="text-[#8C97A3]"> · or: {f.alternatives.join('; ')}</span>}
                 {f.relates_to.length > 0 && (
-                  <span className="text-[#8C97A3]"> · {f.relates_to.map((r) => `${r.relation} a lesson`).join(', ')}</span>
+                  <span className="text-[#8C97A3]">
+                    {' '}
+                    · {f.relates_to.map((r) => `${r.relation.replace('_', ' ')} ${r.target ? `a memory (${r.target.split(':')[0]})` : 'a lesson'}`).join(', ')}
+                  </span>
+                )}
+                {f.details && Object.keys(f.details).length > 0 && (
+                  <span className="text-[#8C97A3]"> · {Object.entries(f.details).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(' · ')}</span>
                 )}
                 <span className="text-[#8C97A3]"> · cites {f.cites.join(', ') || 'nothing'} · {f.independent} independent</span>
               </p>
@@ -439,8 +445,16 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
       {l.user_words.length > 0 && (
         <p className="mt-1 text-xs text-[#9AA5B1]">Your words: {l.user_words.map((w) => `“${w}”`).join(' / ')}</p>
       )}
+      {l.details && Object.keys(l.details).length > 0 && (
+        <p className="mt-1 text-xs text-[#9AA5B1]">
+          {Object.entries(l.details)
+            .map(([k, v]) => (k === 'tried' ? (v === 'tried' ? 'tried' : 'not tried yet') : `${k.replace('_', ' ')}: ${v}`))
+            .join(' · ')}
+        </p>
+      )}
       <p className="mt-1 text-[11px] text-[#8C97A3]">
         Supported on {l.support} occasion{l.support === 1 ? '' : 's'} · found against on {l.counter}
+        {l.noted ? ` · noted without either on ${l.noted}` : ''}
         {l.conflicts_with.length > 0 && ` · points against ${l.conflicts_with.length} other lesson${l.conflicts_with.length === 1 ? '' : 's'}`}
         {l.status_reason && ` · ${l.status_reason}`}
       </p>
@@ -449,9 +463,21 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
         {!detail && <Loading />}
         {detail && (
           <div className="mt-2 flex flex-col gap-2 text-xs text-[#C5CDD5]">
+            {(detail.unsettled ?? []).map((u, i) => (
+              <p key={`u-${i}`} className="text-[#F0C08A]">
+                Unsettled: {u}
+              </p>
+            ))}
+            {(detail.links ?? []).map((k, i) => (
+              <p key={`k-${i}`} className="text-[#9AA5B1]">
+                {k.relation.replace('_', ' ')} {k.what}: “{k.then_text}”
+                {k.changed ? ` · changed since (${k.now_text === null ? 'gone' : k.now_status})` : ''}
+                {k.note && ` · reassessed: ${k.note}`}
+              </p>
+            ))}
             {detail.evidence.map((e, i) => (
               <p key={`e-${i}`}>
-                <Chip label={e.role === 'support' ? 'supported' : 'contradicted'} /> {day(e.occasion_at)}
+                <Chip label={e.role === 'support' ? 'supported' : e.role === 'noted' ? 'noted' : 'contradicted'} /> {day(e.occasion_at)}
                 {e.quote && <> · “{e.quote}”</>}
                 {e.why && <> · {e.why}</>}
                 <span className="text-[#8C97A3]">
@@ -464,7 +490,9 @@ function AdaptationCard({ lesson: l, onError }: { lesson: AdaptationLesson; onEr
             <ul className="divide-y divide-[#1C2228] rounded-xl border border-[#1C2228]">
               {detail.revisions.map((r) => (
                 <li key={r.revision} className="px-3 py-2 text-[11px] text-[#9AA5B1]">
-                  Revision {r.revision} · {day(r.at)} · {r.op} · {LESSON_STATUS_LABELS[r.status]} · {r.statement}
+                  Revision {r.revision} · {day(r.at)} · {r.op}
+                  {r.prompted_by && ` (${r.prompted_by === 'critique' ? 'her mind questioned it' : 'a premise changed'}, same evidence)`} ·{' '}
+                  {LESSON_STATUS_LABELS[r.status]} · {r.statement}
                   {r.exceptions.length > 0 && ` (except ${r.exceptions.join('; ')})`} · {r.reason}
                 </li>
               ))}

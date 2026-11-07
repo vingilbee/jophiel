@@ -15,9 +15,11 @@ These continue the implemented foundation; they do not restart historical steps 
 | 1 | [Fill missing experience capture](POST-AUDIT-01-fill-missing-experience-capture.md) | Built; see [implementation](POST-AUDIT-01-implementation.md). |
 | 2 | [Consolidate into one learning path](POST-AUDIT-02-consolidate-learning-path.md) | Built 2026-11-05; see [implementation](POST-AUDIT-02-implementation.md). Shared assessment and memory-owned lessons replace the old game lifecycle, including ordinary stretches and tentative delivery. |
 | 3 | [Broaden experience understanding](POST-AUDIT-03-broaden-experience-understanding.md) | Infrastructure built 2026-11-05 on request; see [implementation](POST-AUDIT-03-implementation.md). Review opportunities, game triggers and mind nominations, iterative requests, parked and resumed inquiries, `understanding` lessons judged by the builder, tentative delivery to conversation. Behavioral acceptance not yet run; its pass rule awaits agreement. |
-| 4 | [Broader learning products](POST-AUDIT-04-broader-learning-products.md) | Design and eight-family acceptance rule agreed 2026-11-05; implementation not authorized. Reuses step 3 infrastructure. Student 1 compatible input remains an external dependency and blocks full interpretation coverage until delivered and verified. |
+| 4 | [Broader learning products](POST-AUDIT-04-broader-learning-products.md) | Built 2026-11-05 on request; see [implementation](POST-AUDIT-04-implementation.md). Links between products and memories, derived possibilities, checkable expectations, unsettled dependents visible at once, reconsideration on the same evidence. Reserved acceptance run recorded there; full acceptance blocked on Student 1's lesson input. |
 
 This post-audit order supersedes the audit's earlier assignment of consolidation to historical step 3.
+
+Review handoff: [behavioral test readiness for steps 3 and 4](REVIEW-2026-11-05-behavioral-test-readiness.md). Current families are useful, but scoring and coverage gaps must be repaired before a full acceptance claim.
 
 ### Remaining roadmap and ownership
 

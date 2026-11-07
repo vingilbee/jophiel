@@ -192,7 +192,7 @@ def test_existing_lessons_are_shown_to_compare_with_never_as_evidence(env):
     m = f"m{msg.conversation_sequence}"
 
     def compare(text):
-        assert "# Her existing lessons you asked for" in text and "L1 (revision 1)" in text
+        assert "# Her existing lessons, the most relevant and any you asked for" in text and "L1 (revision 1)" in text
         return answer(findings=[finding("a serious remark right after a joke", [m], relates_to=[
                           {"lesson": "L1", "relation": "narrows"}]),
                                 finding("cites only the lesson", ["L1"], relates_to=[{"lesson": "L1", "relation": "supports"}])])
@@ -396,7 +396,7 @@ def test_contrary_evidence_withdraws_an_understanding_at_once_and_consumers_stop
                  embed=lambda t: None)
         db.commit()
         lesson = db.get(MemoryLesson, lesson.id)
-        assert lesson.status == "withdrawn" and "supported conclusion against it" in lesson.status_reason
+        assert lesson.status == "withdrawn" and "builder judged against it" in lesson.status_reason
         assert ML.for_decision(db, user.id, "call", include_tentative=True).views == ()
 
 
