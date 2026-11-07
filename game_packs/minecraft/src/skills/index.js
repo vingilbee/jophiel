@@ -9,11 +9,12 @@ import { smelt, store, take } from './containers.js'
 import { wear } from './armor.js'
 import { hold, putInHotbar } from './inventory.js'
 import { surface } from './water.js'
+import { lookAround } from './looking.js'
 
 export function createSkills () {
   return [
     goTo, mine, fight, eat, sleep, craft, followPlayer,
-    place, collectItems, give, lookAt, store, take, smelt, wear, hold, putInHotbar, surface
+    place, collectItems, give, lookAt, lookAround, store, take, smelt, wear, hold, putInHotbar, surface
   ]
 }
 

@@ -213,7 +213,9 @@ export function readState (bot, { radius = 32, now = new Date() } = {}) {
     // The shape of the place: sky or rock overhead, how far each way she can walk, cave mouths.
     surroundings,
     // The lie of the land: the high ground, which way it rises or falls, and underground the way out.
-    terrain: safeTerrain(bot, surroundings)
+    terrain: safeTerrain(bot, surroundings),
+    // What she sees from her eyes, forward and far, and the landmarks she knows (src/perception.js).
+    view: safeView(bot)
   }
 }
 
@@ -245,6 +247,14 @@ function safeSurroundings (bot) {
     return readSurroundings(bot)
   } catch {
     return null // a half-loaded world
+  }
+}
+
+function safeView (bot) {
+  try {
+    return bot.perception?.summary() ?? null
+  } catch {
+    return null
   }
 }
 

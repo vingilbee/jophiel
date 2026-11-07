@@ -227,3 +227,23 @@ def test_going_underground_and_a_cave_mouth_are_news():
     assert news(tick(at=104, state=state(surroundings=place("trees"))), inside) == ["you're outdoors again"]
     assert news(tick(at=104, state=state(surroundings=place("trees"))), outside) == []  # under trees is still outdoors
     assert news(outside, tick(at=99)) == []  # an older pack without surroundings: nothing
+
+
+def test_a_landmark_seen_for_the_first_time_is_news_once():
+    def view(in_view=(), remembered=()):
+        return {"in_view": list(in_view), "remembered": list(remembered)}
+
+    mouth = {"id": "L1", "kind": "opening", "x": 0, "y": 64, "z": -40, "distance": 40, "side": "ahead"}
+    lava = {"id": "L2", "kind": "lava", "x": 3, "y": 60, "z": -6, "distance": 6, "side": "ahead-left"}
+    passage = {"id": "L3", "kind": "passage", "x": 0, "y": 30, "z": -20, "distance": 20, "side": "ahead"}
+    before = tick(at=100, state=state(view=view()))
+    seen = tick(at=101, state=state(view=view([mouth, lava, passage])))
+    assert news(seen, before) == ["lava came into view 6 m ahead-left (L2)"]  # the far mouth is background
+    assert [c for c in changes(seen, before) if "came into view" in c] == [
+        "an opening came into view 40 m ahead (L1)", "lava came into view 6 m ahead-left (L2)"]
+    turned = tick(at=102, state=state(view=view([], [mouth, lava])))
+    back = tick(at=103, state=state(view=view([mouth], [lava])))
+    assert news(back, turned) == []  # seen again, not new
+    walked = {"overhead": {"kind": "sky"}, "ways": [], "openings": [{"position": {"x": 1, "y": 64, "z": -39}}]}
+    both = tick(at=104, state=state(view=view([mouth]), surroundings=walked))
+    assert not [c for c in changes(both, before) if "(L1)" in c]  # the walking senses already said it

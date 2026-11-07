@@ -59,7 +59,7 @@ _manual_cache: dict = {"at": 0.0, "lines": []}
 
 # What her own Minecraft player's skills do, in words (the pack's manifest is the truth).
 PACK_SKILLS = ("go somewhere, mine, fight, craft, place a block, eat, sleep, follow, store, take, "
-               "smelt, give, pick up items, look at something")
+               "smelt, give, pick up items, look at something, look around")
 
 # Written to Columbina: she is the one playing. The fast model that presses the
 # keys is her hands, never someone she talks about.

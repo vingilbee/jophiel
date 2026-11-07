@@ -2,7 +2,7 @@
 
 Stage G of `docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`. A small Node.js service on the Mac that joins a
 Minecraft world as her own player, reads her state, lets you watch, and runs **skills** (go_to,
-mine, fight, eat, sleep, craft, follow_player, place, collect_items, give, look_at, store,
+mine, fight, eat, sleep, craft, follow_player, place, collect_items, give, look_at, look_around, store,
 take, smelt, wear, hold, put_in_hotbar, surface) one at a time when asked through its API, and keeps a list of what she **notices**.
 Phases 0-3 are built: she joins, reads her state, runs skills, moves through a natural-motion
 layer, notices things, and **her hands (the driver model) pick skills** in a game session that
@@ -144,9 +144,39 @@ time running out (5 s) used to start the walk over and the same block with it, f
 waits for the real arrival, finishes the block before ending, and its 20 s limit counts from the last
 block broken or block gained. A player in spectator mode is said to be invisible and isn't chased.
 
+**Her view** (`src/view.js`, `src/scene.js`, `src/landmarks.js`, `src/perception.js`; in the state as
+`view` and in the text as "In view / Remembered places"; design: `docs/MINECRAFT_RAY_BASED_PERCEPTION_DESIGN.md`):
+rays from her eyes through a perspective grid (100° wide, 64 × 36, out to 128 m, plus finer rays where
+depth jumps), cast over the loaded world by block state id (about 25 ms a view on the test server). Each
+ray ends on a surface (with the face it hit, the light in front of it, glass it passed, what's under
+water), in terrain that isn't loaded (unknown, never empty), past the top of the world (sky), or at the
+range (nothing hit: not "sky"). Far unlit surfaces keep their shape but not their name. Rays that went
+from open air under a roof found **openings** (a cave or tunnel mouth, or a doorway when the roof is
+built): wherever she stands, under trees, an overhang or across a ravine, with their size, how far in
+she sees, how the floor goes, and the ground on the straight line to them (a drop, water). Inside covered
+space, rays that go far are **passages**. Built materials grouped are **possible structures** (partly
+behind trees, a door, glass); water and lava too. Each becomes a **landmark** with an id (`L3`) kept
+across views and saved with the world's memory (`var/explore/`): visible, remembered, or gone (its place
+checked and changed); ids are never reused. Hits on ores, logs, water, beds, tables... count as seen for
+the block searches. The view refreshes when she moves or turns, and by itself every 1.5 s; a new clear
+landmark is a notice. `GET /view` and `GET /view/image?layer=material|depth` serve it (images: fixed
+colours and a fixed depth scale, landmarks labelled, for comparing text and images; nothing sends them
+to a model yet).
+
+**Grounded go_to** (`src/navigation.js`): before walking to coordinates she checks the spot is somewhere
+to stand (inside a block or in the air: the nearest standing spot within 3 blocks, said as `adjusted`;
+none: refused without walking) and runs a bounded route search in slices (her body keeps moving)
+under the same rules walking uses. `no_route` (the search ran out of places: walking can't get there
+within loaded terrain) ends at once, after going to the closest spot the search reached when that's a
+real step nearer, and the reason says where she got and what's straight ahead (a drop, water, a wall).
+`incomplete` (the time budget ran out first) is said not to be proof. Walks go on in legs while she keeps
+getting closer, never the same attempt four times. A landmark target picks spots to stand at it (an
+opening's mouth first) and the first one a route reaches; each try is kept with the landmark.
+
 | Skill | Parameters | Done when | Stops early when |
 |---|---|---|---|
-| `go_to` | `target`: `"x y z"`, `"x z"`, `player:<name>`, `mob:<type>`, `block:<type>`, `peak`, `surface`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No path, not found, target gone (`lost`), attacked (`hurt`) |
+| `go_to` | `target`: `"x y z"`, `"x z"`, a landmark (`L3`), `player:<name>`, `mob:<type>`, `block:<type>`, `peak`, `surface`, `looking:<player>` (the block they look at: a floor block is stood on, anything else is gone next to); `range` (0: that exact block; players at least 1, so "next to me" is `player:<name>` range 1) | Within range | No route (with the closest spot reached and what's in the way), no place to stand there, beyond loaded terrain, not found, target gone (`lost`), attacked (`hurt`) |
+| `look_around` | `toward` (empty: all round in 4 views; a landmark, ahead/left/right/behind, a compass direction, or `"x y z"`), `routes` (yes: check a walking route to the nearest 3 landmarks seen) | Looked (and checked) | Stopped |
 | `mine` | `block` (or `log` for any log), `count`, `radius` | Collected `count` of what it drops | None in sight nearby, no tool that can harvest it (says which), unreachable |
 | `fight` | `target`: `nearest_hostile` or a mob type; `count` (hostiles: all nearby; other mobs: 1) | `count` dead / no hostiles left | Outnumbered (flees), none found, an animal got away. Never players |
 | `eat` | `food` (optional) | Ate | Not hungry, nothing to eat |
@@ -290,7 +320,12 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8790/skills/stop    
 ```
 
 Also `GET /skills/current`, `GET /skills/history`, `GET /notices`, `GET /state` (includes notable
-blocks nearby, recent notices, the running skill and motion stats).
+blocks nearby, recent notices, the running skill and motion stats), `GET /view` (her view now and her
+landmarks; `?rays=1` adds the grid's rays) and `GET /view/image?layer=material|depth&scale=8` (a PNG).
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "localhost:8790/view/image?layer=material" -o view.png
+```
 
 ## Playing with Columbina (phase 3)
 

@@ -296,12 +296,16 @@ def big(st: Triggers, plan: dict | None, driver: dict, state: dict) -> Problem |
 # What she reads, and whether a thought still holds
 # --------------------------------------------------------------------------- #
 
-SHAPE_LINES = ("Ways", "Land ", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on")
+SHAPE_LINES = ("Ways", "Land ", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on",
+               "In view", "Remembered places")
 # The shape lines her mind reads (all but the long "Land out to" survey): which way the ground rises or
 # falls, cave mouths, the way out. Before 2026-11-04 her mind got none of them, so "which branch goes
 # deeper?" had no answer in what it read.
 # The open space she is in and where it goes on (2026-11-04) are kept too: the passages underground.
-SHAPE_KEPT = ("Ways", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on")
+# Her view (2026-11-07, the pack's src/perception.js): what's in front of her eyes, far, and the landmarks she
+# remembers, under ids kept across views.
+SHAPE_KEPT = ("Ways", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on",
+              "In view", "Remembered places")
 
 # How she perceives in Minecraft, checked against the pack's code (game_packs/minecraft/src/sight.js,
 # surroundings.js, terrain.js) on 2026-11-04. Fixed: what the code can and can't tell her.
@@ -311,7 +315,15 @@ SENSES = (
     "check at most 128 candidates, so many hidden ones nearby can crowd out a visible one further off.",
     "Ways: in 8 directions you walk the ground up to 24 blocks (up 1, down at most 3) and learn how far it rises "
     "or falls and what stops you. It stops at the first wall.",
-    "Openings (cave or tunnel mouths): detected only while you're under open sky, along 16 directions.",
+    "Openings (cave or tunnel mouths found walking 16 directions): only while you're under open sky.",
+    "View (\"In view\"): rays from your eyes over what's in front of you, 100° wide and up to 128 m, wherever you "
+    "stand (under trees, a roof or rock, across water): openings into covered space (cave or tunnel mouths, doorways) "
+    "with their size, how far in you see and how the floor goes; passages where the space you're in goes on; possible "
+    "structures from built materials; water and lava. Each gets an id (L3) kept across views; \"Remembered "
+    "places\" were seen before and aren't in view now. Only what the rays reached: past a bend, behind a wall, "
+    "behind you or out of loaded terrain is unknown until you look from elsewhere; far unlit surfaces keep their "
+    "shape, not their name. Seeing a place isn't a way there: a route check (go_to, look_around) says whether "
+    "walking reaches it, and a failed one is one way that didn't work, not proof none does.",
     "Overhead: open sky, trees, a roof, or underground with how far up the rock starts.",
     "Open space: the air connected to where you stand, filled side by side and never through rock, out to 12 "
     "blocks sideways, 4 above your head and 8 below your feet: its size, the floor in it, water or lava at its "
@@ -353,8 +365,9 @@ def coverage(state: dict | None) -> tuple[str, ...]:
     # and she left caves for open sky four times in ten minutes (2026-11-04).
     if "underground" in around or "under a roof" in around:
         out.append("Under rock or a roof: the openings list is empty here by design (it's only filled under "
-                   "open sky); the ways say where walkable ground rises or falls within 24 blocks; the open "
-                   "space says where the air around you goes on past 12 blocks, not where it leads after that.")
+                   "open sky; your view still shows openings and passages in front of you); the ways say where "
+                   "walkable ground rises or falls within 24 blocks; the open space says where the air around you "
+                   "goes on past 12 blocks, not where it leads after that.")
     else:
         out.append("Under open sky: openings are listed along 16 directions from here.")
     if "Ways" not in text:

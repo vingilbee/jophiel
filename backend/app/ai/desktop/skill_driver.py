@@ -238,9 +238,26 @@ way", "that direction", "go this way" from the user means the way THEY face (the
 (your <side>)"): walk your way on that side (go_to its end spot, or a spot a few blocks along it for "a few \
 blocks"). "The other way" is the opposite side of where you were going. When they point at a spot ("go there", \
 "stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
-- A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways and "Where it goes \
-on" are the passages: each says which way the open space leads on and whether it goes down; pick one you \
-haven't walked). For a search on the surface, use go_to toward a reachable spot from Ways, then reassess.
+- "In view" is what your eyes see now, forward and far (100° wide, up to 128 m), wherever you stand: openings \
+(cave or tunnel mouths, doorways), passages where the space you're in goes on, possible structures, water and \
+lava, each with an id (L3) that stays the same as you turn away and come back. "Remembered places" were seen \
+before and aren't in view now. Seeing a place isn't a way there: "along the straight line to it: a drop of \
+14 m" is a ravine or cliff in between, and a "route to L3" line says what a route check found.
+- To go to something you see or remember, go_to its id (target "L3"): it picks a spot to stand at it that a \
+route reaches, or goes as close as walking allows and says what's in the way. Take coordinates only from your \
+state (a Ways end spot, a landmark's position); never make up coordinates toward something you can't see: \
+look_around first, or walk a Ways direction and look again.
+- When what you need isn't in view (a cave, trees, a building), look_around (all round, or toward a side or \
+direction) before walking off; after getting somewhere new, look again.
+- A go_to that fails says why; act on it. "no route ... under go_to's rules" means walking can't get there \
+from here: don't send that go_to again; take another landmark or spot on this side, look_around toward it for \
+a way round, or use dig="yes". "the route search used its time" is not proof there's none: go part of the way \
+(a nearer landmark or Ways spot), then try again. "no place to stand" means the spot was inside a block or in \
+the air: pick a real one. "beyond the loaded world": what's ahead was unknown; look at your state again.
+- A cave or tunnel: go_to its opening's id (or an Openings spot), then walk its passages (underground, your \
+"In view" passages, Ways and "Where it goes on" say which way the open space leads on and whether it goes \
+down; pick one you haven't walked). For a search on the surface, go_to a reachable spot or landmark, then \
+reassess.
 - "Land", "Highest ground (peak)", "Way out" and "Surface" are the bigger picture: where the land rises and \
 falls, the highest ground near and how steep the way up is, and underground the way to the sky. "Climb the \
 mountain" / "go to the top": go_to target "peak"; steps higher than 1 block need dig="yes" (it digs steps). \

@@ -235,6 +235,11 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   src/sandbox.js = the sealed box her own code runs in (stage H; Node >= 24);
                         #   src/needs.js = what it takes to get an item or mine a block (GET /needs/<name>);
                         #   src/trajectory.js = her trajectory: every tick, damage causes, actions, in chunks (GET /trajectory);
+                        #   her view (docs/MINECRAFT_RAY_BASED_PERCEPTION_DESIGN.md): src/view.js (rays from her eyes),
+                        #   src/scene.js (openings, passages, structures, water, lava), src/landmarks.js (stable ids L3,
+                        #   saved with the world), src/perception.js (kept fresh, into her state as "In view"),
+                        #   src/view_image.js (material/depth PNGs, GET /view/image), src/navigation.js (standing spots,
+                        #   bounded route checks: go_to's grounding); skill look_around in src/skills/looking.js;
                         #   backend side: app/ai/desktop/practice.py + services/game_practice.py (H1, her learner).
                         #   `bun run test`, `bun run smoke`, `bun run itest` (real server, needs the EULA accepted)
 

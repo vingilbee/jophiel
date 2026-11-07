@@ -1,7 +1,10 @@
-// What she remembers about one world: ground she has explored (chunks) and places she noted.
-// One instance per world, used by the noticing layer, saved to var/explore/.
+// What she remembers about one world: ground she has explored (chunks), places she noted, and the
+// landmarks her view found (src/landmarks.js: stable ids across views and reconnects).
+// One instance per world, used by the noticing layer and her view, saved to var/explore/.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+
+import { Landmarks } from './landmarks.js'
 
 const SAVE_DELAY_MS = 2000
 
@@ -11,12 +14,15 @@ export class WorldMemory {
     this.visited = new Set()
     this.places = []
     this._timer = null
-    if (!path) return
-    try {
-      const saved = JSON.parse(readFileSync(path, 'utf8'))
-      this.visited = new Set(saved.visited ?? [])
-      this.places = saved.places ?? []
-    } catch {}
+    let saved = null
+    if (path) {
+      try {
+        saved = JSON.parse(readFileSync(path, 'utf8'))
+        this.visited = new Set(saved.visited ?? [])
+        this.places = saved.places ?? []
+      } catch {}
+    }
+    this.landmarks = new Landmarks(saved?.landmarks ?? null, () => this.saveSoon())
   }
 
   // Note a place unless one of the same kind is already noted within `spacing` blocks.
@@ -54,6 +60,6 @@ export class WorldMemory {
   save () {
     if (!this.path) return
     mkdirSync(dirname(this.path), { recursive: true })
-    writeFileSync(this.path, JSON.stringify({ visited: [...this.visited], places: this.places }))
+    writeFileSync(this.path, JSON.stringify({ visited: [...this.visited], places: this.places, landmarks: this.landmarks.toJSON() }))
   }
 }

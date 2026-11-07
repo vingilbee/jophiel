@@ -6,6 +6,7 @@ import { attachOwnAir } from './air.js'
 import { attachKills } from './kills.js'
 import { attachMotion } from './motion/motion.js'
 import { attachNoticing } from './noticing.js'
+import { attachPerception } from './perception.js'
 import { programEvents } from './sandbox.js'
 import { attachSightings } from './sightings.js'
 import { attachWatching } from './watching.js'
@@ -36,6 +37,8 @@ export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true
   const noticing = attachNoticing(bot, { memory })
   // What the other players do: into the state, and the news of it into her notices.
   const watching = attachWatching(bot, { report: noticing.report })
+  // Her view from her eyes, and the landmarks it finds (src/perception.js): read by her state and go_to.
+  bot.perception = attachPerception(bot, { memory, noticing })
   const skills = createSkills()
   const runner = new SkillRunner(bot, skills, { maxSeconds, motion: motionLayer, modes })
   // What a mode did is something she noticed: her hands see it, and it's in her play log.
@@ -44,5 +47,5 @@ export function attachSkills (bot, { memoryPath, maxSeconds = 600, motion = true
     mode: result.mode, why: result.why, status: result.status, data: result.data
   }))
   trajectory?.attach(bot, { runner, noticing, programs: programEvents })
-  return { runner, motion: motionLayer, noticing, sightings, watching, memory, manifest: manifest(skills) }
+  return { runner, motion: motionLayer, noticing, sightings, watching, memory, perception: bot.perception, manifest: manifest(skills) }
 }

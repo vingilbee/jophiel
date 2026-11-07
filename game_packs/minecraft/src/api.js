@@ -24,6 +24,9 @@
 //                                        base64 (src/trajectory.js): { run, chunks, dropped, streams, more };
 //                                        works when she isn't in the world (what's buffered is kept)
 //   GET  /trajectory/stats            -> counts, buffer, coverage
+//   GET  /view?rays=1                 -> her view now (src/perception.js): camera, landmarks in view and
+//                                        remembered, the image legend; rays=1 adds the grid's rays
+//   GET  /view/image?layer=material|depth&scale=<px per ray> -> the same view as a PNG (src/view_image.js)
 // Every POST is also recorded in her trajectory as a command: what was asked and what was answered.
 import { createServer } from 'node:http'
 import { createHash, timingSafeEqual } from 'node:crypto'
@@ -32,6 +35,8 @@ import { ParamError } from './skills/contract.js'
 import { BusyError, UnknownSkillError } from './skills/runner.js'
 import { getProgram, startProgram } from './sandbox.js'
 import { blockCensus } from './state.js'
+import { END_NAMES } from './view.js'
+import { LEGEND, renderView } from './view_image.js'
 
 const MAX_BODY = 16 * 1024
 
@@ -119,6 +124,32 @@ export function startApi ({ host, port, token, pack }) {
       const limit = Math.min(Math.max(Math.round(Number(url.searchParams.get('limit') ?? 40)) || 40, 1), 500)
       return send(res, 200, trajectory.since(stream ? { stream, seq: Number.isFinite(seq) ? seq : -1 } : null,
         { maxChunks: limit }))
+    }
+    if (key === 'GET /view' || key === 'GET /view/image') {
+      if (needsWorld()) return
+      const perception = pack.perception?.()
+      if (!perception) return send(res, 503, { error: 'no view' })
+      const summary = perception.summary()
+      const now = perception.last()
+      if (key === 'GET /view/image') {
+        const layer = url.searchParams.get('layer') ?? 'material'
+        if (layer !== 'material' && layer !== 'depth') throw new ParamError('layer must be material or depth')
+        const scale = Math.min(Math.max(Math.round(Number(url.searchParams.get('scale') ?? 8)) || 8, 1), 16)
+        const png = renderView(now.obs, { layer, scale, labels: summary.in_view })
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store', 'x-view-id': String(now.obs.id) })
+        return res.end(png)
+      }
+      const body = { ...summary, camera: now.obs.camera, legend: LEGEND }
+      if (url.searchParams.get('rays') === '1') {
+        const { store, names, grid } = now.obs
+        body.rays = {
+          order: 'row by row from the top left, cols × rows',
+          end: Array.from(store.end.subarray(0, grid), (e) => END_NAMES[e]),
+          distance: Array.from(store.dist.subarray(0, grid), (d) => Math.round(d * 10) / 10),
+          block: Array.from(store.name.subarray(0, grid), (n) => (n >= 0 ? names[n] : n === -2 ? 'dark' : null))
+        }
+      }
+      return send(res, 200, body)
     }
     if (key === 'GET /trajectory/stats') {
       const trajectory = pack.trajectory?.()

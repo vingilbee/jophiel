@@ -211,7 +211,7 @@ export const lookAt = {
   doneWhen: 'the seconds are up',
   stopsWhen: 'the target isn\'t around or leaves',
   params: {
-    target: { type: 'string', required: true, description: '"player:<name>", "mob:<type>", "block:<type>" or "x y z"' },
+    target: { type: 'string', required: true, description: '"player:<name>", "mob:<type>", "block:<type>", a landmark ("L3") or "x y z"' },
     seconds: { type: 'number', min: 0.5, max: 30, default: 3, description: 'how long to keep looking' },
     time_limit: timeLimitParam(35, 35)
   },
@@ -229,7 +229,10 @@ export const lookAt = {
     else if (target.kind === 'block') {
       const ids = bot.registry.blocksByName[target.name] ? [bot.registry.blocksByName[target.name].id] : []
       point = seenBlock(bot, { matching: ids, maxDistance: 32 })?.position.offset(0.5, 0.5, 0.5)
-    } else point = new Vec3(target.x, target.y ?? bot.entity.position.y + 1.6, target.z)
+    } else if (target.kind === 'landmark') {
+      const lm = bot.perception?.landmarks?.()?.get(target.id)
+      if (lm) point = new Vec3(lm.x + 0.5, lm.y + 1, lm.z + 0.5)
+    } else if (target.kind === 'place') point = new Vec3(target.x, target.y ?? bot.entity.position.y + 1.6, target.z)
     if (!entity && !point) return failed(`can't see ${target.name ?? 'that'}`)
 
     const until = Date.now() + params.seconds * 1000

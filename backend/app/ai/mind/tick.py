@@ -196,6 +196,7 @@ def _changes(tick: TickInput, previous: TickInput | None) -> list[tuple[str, boo
     if old.get("weather") != cur.get("weather"):
         out.append((f"weather: {cur.get('weather')}", True))
     out.extend(_place_changes(old.get("surroundings"), cur.get("surroundings")))
+    out.extend(_view_changes(old.get("view"), cur.get("view"), cur.get("surroundings")))
 
     a, b = (old.get("skill") or {}).get("name"), (cur.get("skill") or {}).get("name")
     if a != b:
@@ -243,6 +244,30 @@ def _place_changes(old: dict | None, cur: dict | None) -> list[tuple[str, bool]]
                 continue
             out.append((f"a cave or tunnel mouth came into view {o.get('distance', '?')} m {o.get('side', '')}".rstrip(),
                         _num(o.get("distance", 99)) <= NEWS_RADIUS))
+    return out
+
+
+VIEW_NEWS = {"opening": "an opening", "structure": "a possible structure", "lava": "lava", "water": "water"}
+
+
+def _view_changes(old: dict | None, cur: dict | None, surroundings: dict | None) -> list[tuple[str, bool]]:
+    """A landmark of her view (the pack's src/perception.js) seen for the first time: one not in view or
+    remembered last tick. Passages aren't news (underground they come and go with every turn), and an
+    opening the walking senses already reported (within 4 blocks) isn't said twice."""
+    if not old or not cur:
+        return []
+    known = {lm.get("id") for lm in (old.get("in_view") or []) + (old.get("remembered") or [])}
+    walked = [o.get("position") or {} for o in (surroundings or {}).get("openings") or []]
+    out: list[tuple[str, bool]] = []
+    for lm in cur.get("in_view") or []:
+        kind = lm.get("kind")
+        if lm.get("id") in known or kind not in VIEW_NEWS:
+            continue
+        if kind == "opening" and any(
+                math.dist((lm.get("x", 0), lm.get("z", 0)), (q.get("x", 0), q.get("z", 0))) < 4 for q in walked):
+            continue
+        out.append((f"{VIEW_NEWS[kind]} came into view {lm.get('distance', '?')} m {lm.get('side', '')} ({lm.get('id')})",
+                    _num(lm.get("distance", 99)) <= NEWS_RADIUS))
     return out
 
 

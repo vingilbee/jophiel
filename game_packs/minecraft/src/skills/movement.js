@@ -4,22 +4,29 @@ import { createRequire } from 'node:module'
 import { ParamError, SkillEnd, done, failed, timeLimitParam } from './contract.js'
 import {
   blockIds, distanceTo, findEntity, findPlayer, goals, hostilesAround, movements,
-  requireBlock, requireEntityType, requireOtherPlayer, walkTo
+  requireBlock, requireEntityType, requireOtherPlayer, walkMovements, walkTo
 } from './common.js'
 import { seenBlock } from '../sight.js'
 import { lastSeen } from '../sightings.js'
 import { lookedAtBlock } from '../watching.js'
 import { peakSpot, surfaceSpot } from '../terrain.js'
+import { describeEnd, walk } from '../surroundings.js'
+import { approachSpots, checkRoute, groundSpot, loaded, nearestStandable, spotGoal, spotProblem } from '../navigation.js'
+import { botWorld } from '../view.js'
+import { dimensionOf } from '../perception.js'
 
 const require = createRequire(import.meta.url)
 const { Vec3 } = require('vec3')
 
 // Targets: "x y z" or "x z" (commas fine), "player:<name>", "mob:<type>", "block:<type>",
 // "looking:<player>" (the block that player is looking at), "peak" (the highest ground near,
-// src/terrain.js) and "surface" (underground: the way out to the sky).
-const TARGETS = '"x y z", "x z", "player:<name>", "mob:<type>", "block:<type>", "looking:<player>", "peak" or "surface"'
+// src/terrain.js), "surface" (underground: the way out to the sky) and a landmark of her view
+// ("L3" or "landmark:L3", src/landmarks.js).
+const TARGETS = '"x y z", "x z", "player:<name>", "mob:<type>", "block:<type>", "looking:<player>", "peak", "surface" or a landmark ("L3")'
 export function parseTarget (text) {
   if (text === 'peak' || text === 'surface') return { kind: text }
+  const landmark = /^(?:landmark:)?(L\d{1,6})$/i.exec(text)
+  if (landmark) return { kind: 'landmark', id: landmark[1].toUpperCase() }
   const numbers = text.split(/[\s,]+/).filter(Boolean)
   if (numbers.length && numbers.every((n) => /^-?\d+(\.\d+)?$/.test(n))) {
     if (numbers.length === 3) return { kind: 'place', x: +numbers[0], y: +numbers[1], z: +numbers[2] }
@@ -55,14 +62,19 @@ function watchForAttack (ctx) {
 
 export const goTo = {
   name: 'go_to',
-  description: 'Walk to a place, a player, a mob, the nearest block of a type, or the spot a player is looking at. ' +
+  description: 'Walk to a place, a landmark you see or remember (L3: an opening, a passage, a structure, water), ' +
+    'a player, a mob, the nearest block of a type, or the spot a player is looking at. ' +
+    'A landmark: it picks a spot to stand at it that a route reaches; when none does, it goes as close as walking allows ' +
+    'and says what is in the way. Coordinates: it checks the spot is somewhere to stand (moving to the nearest one ' +
+    'within 3 blocks if not) and that a route reaches it before walking. ' +
     'A player out of sight: first to where she last saw them. "Come here" / "next to me": player:<name> with range 1. ' +
     '"Go there" / "stand here" while they point their view at a spot: looking:<name> with range 0. ' +
     '"Climb the mountain" / "get to the top": peak (the highest ground near, see your state). ' +
     '"Get out" / "go up" underground: surface (the way out to the sky; with dig=yes it digs up when there is none).',
   doneWhen: 'she is within range of the target (for a player: also at their level, within 1 block up or down; ' +
     'range 0: standing on that exact block)',
-  stopsWhen: 'no path, target not found or gone, attacked, time limit',
+  stopsWhen: 'no route under its rules (it says the closest spot reached and what is in the way), no place to stand ' +
+    'there, target not found or gone, attacked, time limit',
   params: {
     target: {
       type: 'string',
@@ -86,6 +98,7 @@ export const goTo = {
   },
   validate (bot, params) {
     const target = parseTarget(params.target)
+    if (target.kind === 'landmark') requireLandmark(bot, target.id)
     if (target.kind === 'mob') requireEntityType(bot, target.name)
     if (target.kind === 'block') requireBlock(bot, target.name)
     if (target.kind === 'player' || target.kind === 'looking') requireOtherPlayer(bot, target.name)
@@ -96,7 +109,8 @@ export const goTo = {
     const dig = params.dig === 'yes'
     const attack = watchForAttack(ctx)
     try {
-      if (target.kind === 'place') return await goToPlace(ctx, target, params.range, attack, { dig })
+      if (target.kind === 'place') return await goToCoordinates(ctx, target, params.range, attack, { dig })
+      if (target.kind === 'landmark') return await goToLandmark(ctx, target.id, params.range, attack, { dig })
       if (target.kind === 'block') {
         const blockPos = seenBlock(bot, { matching: blockIds(bot, target.name), maxDistance: 64 })?.position
         if (!blockPos) return failed(`no ${target.name} in sight within 64 blocks`)
@@ -119,6 +133,263 @@ export const goTo = {
       attack.off()
     }
   }
+}
+
+// ---- grounded movement: coordinates she gave, and landmarks ------------------------------
+
+function requireLandmark (bot, id) {
+  const marks = bot.perception?.landmarks?.()
+  const lm = marks?.get(id)
+  if (!lm) {
+    const known = marks?.list({ dimension: dimensionOf(bot), near: bot.entity?.position, max: 8 }).map((l) => l.id) ?? []
+    throw new ParamError(`no landmark ${id}` + (known.length ? `; landmarks you know here: ${known.join(', ')}` : '; none known yet'))
+  }
+}
+
+const at3 = (p) => `(${p.x} ${p.y} ${p.z})`
+const dist = (a, b) => Math.hypot(a.x - b.x, (a.y ?? b.y ?? 0) - (b.y ?? a.y ?? 0), a.z - b.z)
+const here = (bot) => {
+  const p = bot.entity.position
+  return { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
+}
+
+// What's straight toward a place from where she stands, walking the ground (src/surroundings.js).
+function straightToward (bot, place) {
+  const p = bot.entity.position
+  const dx = place.x + 0.5 - p.x
+  const dz = place.z + 0.5 - p.z
+  const n = Math.hypot(dx, dz)
+  if (n < 2) return null
+  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z), false) ?? null
+  try {
+    const w = walk(at, p, dx / n, dz / n, Math.min(24, Math.ceil(n)))
+    const end = describeEnd(w.end)
+    if (!end) return null
+    return w.walked ? `straight toward it from here the ground goes ${w.walked} m, then ${end}` : `straight toward it from here: ${end} right away`
+  } catch {
+    return null
+  }
+}
+
+function routeNote (route, place, dig) {
+  return {
+    status: route.status, at: new Date().toISOString(), from: route.from, dig, ms: route.ms, searched: route.searched,
+    closest: route.closest, remaining: Math.round(dist(route.closest, place))
+  }
+}
+
+// The pathfinder's own limits (mineflayer-pathfinder Movements: maxDropDown 4, any depth into water).
+const RULES = (dig) => dig
+  ? 'digging allowed, no block placing, drops of at most 4 (deeper only into water)'
+  : 'walking only: no digging, no block placing, drops of at most 4 (deeper only into water)'
+
+// The reason for a walk that didn't arrive, from the evidence: the route search's result, where she
+// got to, and what's straight ahead. Only what was measured is said.
+function noArrival (bot, place, label, route, { dig, adjusted, walkedTo = null }) {
+  const now = here(bot)
+  const remaining = Math.round(dist(now, place))
+  const parts = []
+  if (route?.status === 'no_route') {
+    parts.push(`no route to ${label} under go_to's rules (${RULES(dig)}) within loaded terrain: the search ran out of ` +
+      `places to try (${route.searched} spots)`)
+  } else if (route?.status === 'incomplete') {
+    parts.push(`didn't get to ${label}: the route search used its time before finding a way (not proof there's none)`)
+  } else {
+    parts.push(`didn't get to ${label}: the walk stopped getting closer`)
+  }
+  if (route?.closest && route.status !== 'success') {
+    const c = route.closest
+    parts.push(`the closest spot the search reached is ${at3(c)}, ${Math.round(dist(c, place))} m from it`)
+  }
+  parts.push(walkedTo ? `walked to ${at3(now)} (a nearer spot to look from), ${remaining} m from it` : `you're at ${at3(now)}, ${remaining} m from it`)
+  const ahead = straightToward(bot, place)
+  if (ahead) parts.push(ahead)
+  parts.push(dig ? 'Try a different approach: another side or landmark, or look_around from here'
+    : 'Don\'t repeat it unchanged: try another spot or landmark on this side, look_around for a way round, or dig="yes"')
+  return failed(parts.join('; ') + '.', {
+    nav: {
+      problem: route?.status === 'no_route' ? 'no_route' : route?.status === 'incomplete' ? 'search_incomplete' : 'no_progress',
+      target: place, reached: now, remaining,
+      ...(route ? { route: { status: route.status, ms: route.ms, searched: route.searched, closest: route.closest } } : {}),
+      ...(adjusted ? { adjusted } : {})
+    }
+  })
+}
+
+// Walk to a goal after a route check; legs while she keeps getting closer (terrain loads as she goes).
+// No route under the rules: walking it again won't change that; she goes to the closest spot the search
+// reached if that's a real step nearer (a new place to look from), and says what's in the way.
+async function travel (ctx, goal, place, label, attack, { dig = false, adjusted = null, onRoute = () => {} } = {}) {
+  const { bot } = ctx
+  if (goal.isEnd(bot.entity.position.floored())) return done({ ...position(bot), ...(adjusted ? { adjusted } : {}) })
+  const moves = walkMovements(bot, dig)
+  let route = await checkRoute(bot, goal, moves, { budgetMs: dig ? 4000 : 2500, check: ctx.check })
+  attack.check()
+  onRoute(route)
+  ctx.progress({ route: route.status })
+  if (route.status === 'no_route') {
+    const start = here(bot)
+    const c = route.closest
+    if (dist(c, place) < dist(start, place) - 3 && dist(c, start) >= 2) {
+      await walkTo(ctx, new goals.GoalBlock(c.x, c.y, c.z), { canDig: dig })
+      attack.check()
+      const moved = dist(here(bot), start) >= 2
+      return noArrival(bot, place, label, route, { dig, adjusted, walkedTo: moved ? c : null })
+    }
+    return noArrival(bot, place, label, route, { dig, adjusted })
+  }
+  let stalls = 0
+  for (let leg = 0; leg < 8; leg++) {
+    const before = distanceToPlace(bot, place)
+    const arrived = await walkTo(ctx, goal, { canDig: dig })
+    attack.check()
+    if (arrived || goal.isEnd(bot.entity.position.floored())) {
+      return done({ ...position(bot), ...(adjusted ? { adjusted } : {}) })
+    }
+    const after = distanceToPlace(bot, place)
+    ctx.progress({ remaining: Math.round(after) })
+    if (after < before - 2) {
+      stalls = 0
+      continue
+    }
+    if (++stalls >= 2) break
+    // Not closer: check again from here before trying again.
+    const again = await checkRoute(bot, goal, moves, { budgetMs: 1500, check: ctx.check })
+    attack.check()
+    onRoute(again)
+    route = again
+    if (again.status === 'no_route') break
+    await ctx.sleep(200)
+  }
+  return noArrival(bot, place, label, route, { dig, adjusted })
+}
+
+// Coordinates she gave: a spot to stand on (the nearest one within 3 blocks when it isn't), loaded,
+// and reached by a route. Terrain that isn't loaded is unknown, never empty: she walks toward it while
+// she keeps getting closer and says where the known world ended.
+async function goToCoordinates (ctx, target, range, attack, { dig }) {
+  const { bot } = ctx
+  const world = botWorld(bot)
+  const asked = target.y === undefined ? { x: target.x, z: target.z } : { x: target.x, y: target.y, z: target.z }
+  const fx = Math.floor(target.x)
+  const fz = Math.floor(target.z)
+  if (target.y === undefined) {
+    const ground = groundSpot(world, fx, fz, Math.floor(bot.entity.position.y), { up: 96, down: 96 })
+    if (ground === null) return toUnloaded(ctx, { x: fx, z: fz }, range, attack, dig)
+    const place = ground || { x: fx, y: Math.floor(bot.entity.position.y), z: fz }
+    return travel(ctx, new goals.GoalNearXZ(target.x, target.z, range), place, `(${fx} ${fz})`, attack, { dig })
+  }
+  const fy = Math.floor(target.y)
+  if (!loaded(world, fx, fy, fz)) return toUnloaded(ctx, { x: fx, y: fy, z: fz }, range, attack, dig)
+  let spot = { x: fx, y: fy, z: fz }
+  let adjusted = null
+  const problem = spotProblem(world, fx, fy, fz)
+  if (problem) {
+    const near = nearestStandable(world, fx, fy, fz, { radius: Math.max(3, Math.ceil(range)), column: 8 })
+    if (!near) {
+      return failed(`${at3(spot)} is no place to stand (${problem}) and there's no spot to stand within 3 blocks of it, ` +
+        'so go_to didn\'t walk. Pick a spot from your state (a Ways end spot, a landmark like L3), or give "x z" for the ground there.',
+      { nav: { problem: 'invalid_spot', target: asked, why: problem } })
+    }
+    adjusted = { from: asked, to: near, why: problem }
+    spot = near
+  }
+  const goal = range <= 0 ? new goals.GoalBlock(spot.x, spot.y, spot.z) : new goals.GoalNear(spot.x, spot.y, spot.z, range)
+  const label = adjusted ? `${at3(spot)} (the nearest place to stand to ${at3(asked)}, which is ${problem})` : at3(spot)
+  return travel(ctx, goal, spot, label, attack, { dig, adjusted })
+}
+
+// Toward a place beyond the loaded world: legs while she gets closer, then an honest outcome.
+async function toUnloaded (ctx, place, range, attack, dig) {
+  const { bot } = ctx
+  const goal = new goals.GoalNearXZ(place.x, place.z, Math.max(range, 1))
+  const start = distanceToPlace(bot, place)
+  let stalls = 0
+  for (let leg = 0; leg < 12; leg++) {
+    const before = distanceToPlace(bot, place)
+    const arrived = await walkTo(ctx, goal, { canDig: dig })
+    attack.check()
+    if (arrived || goal.isEnd(bot.entity.position.floored())) return done(position(bot))
+    const after = distanceToPlace(bot, place)
+    ctx.progress({ remaining: Math.round(after) })
+    if (after < before - 2) { stalls = 0; continue }
+    if (++stalls >= 2) break
+    await ctx.sleep(300)
+  }
+  const now = here(bot)
+  const walked = Math.round(start - distanceToPlace(bot, place))
+  const label = place.y === undefined ? `(${place.x} ${place.z})` : at3(place)
+  const ahead = straightToward(bot, place)
+  return failed(`${label} was beyond the loaded world when asked (unknown terrain, not known to be open)` +
+    `; got ${Math.max(0, walked)} m closer, to ${at3(now)}, ${Math.round(distanceToPlace(bot, place))} m from it` +
+    (ahead ? `; ${ahead}` : '') + '. What\'s around you now is newly loaded: look at your state before going on.',
+  { nav: { problem: 'unloaded', target: place, reached: now, remaining: Math.round(distanceToPlace(bot, place)) } })
+}
+
+// A landmark (src/landmarks.js): spots to stand at it, nearest first; the first one a route reaches is
+// where she goes. When no spot is reached by a route, she goes to the closest spot any search reached (a
+// nearer viewpoint) and says so; each try is kept with the landmark.
+async function goToLandmark (ctx, id, range, attack, { dig }) {
+  const { bot } = ctx
+  const marks = bot.perception?.landmarks?.()
+  const lm = marks?.get(id)
+  if (!lm) return failed(`no landmark ${id}`)
+  if (lm.dimension !== dimensionOf(bot)) return failed(`${id} is in the ${String(lm.dimension).replace('minecraft:', '')}, not here`)
+  if (lm.status === 'gone') return failed(`${id} was gone when last checked (${lm.gone_at}): its place has changed`)
+  const world = botWorld(bot)
+  const from = here(bot)
+  const place = { x: lm.x, y: lm.y, z: lm.z }
+  const label = `${id} (${lm.kind} at ${at3(place)})`
+  const record = (outcome, extra = {}) => marks.noteApproach(id, {
+    at: new Date().toISOString(), from, dig, outcome, reached: here(bot), remaining: Math.round(dist(here(bot), place)), ...extra
+  })
+  if (!loaded(world, lm.x, lm.y, lm.z)) {
+    const end = await toUnloaded(ctx, place, Math.max(range, 2), attack, dig)
+    record(end.status === 'done' ? 'arrived' : 'beyond loaded terrain')
+    return end
+  }
+  const spots = approachSpots(world, lm, from)
+  if (!spots.length) {
+    record('no place to stand found at it')
+    return failed(`found no spot to stand at ${label}: the ground there isn't somewhere to stand (water, a drop, or blocks). ` +
+      'look_around toward it from closer, or go_to a spot next to it.', { nav: { problem: 'invalid_spot', target: place } })
+  }
+  const moves = walkMovements(bot, dig)
+  const budgetAt = Date.now() + (dig ? 6000 : 4500)
+  let best = null // the attempt whose search got closest
+  for (const spot of spots.slice(0, 4)) {
+    if (Date.now() > budgetAt) break
+    const goal = range >= 2 ? spotGoal(spot, Math.min(range, 3)) : spotGoal(spot, 0)
+    if (goal.isEnd(bot.entity.position.floored())) {
+      record('arrived')
+      return done({ ...position(bot), landmark: id, stand: spot })
+    }
+    const route = await checkRoute(bot, goal, moves, { budgetMs: Math.max(800, Math.min(2500, budgetAt - Date.now())), check: ctx.check })
+    attack.check()
+    if (route.status === 'success') {
+      marks.noteRoute(id, { ...routeNote(route, spot, dig), spot })
+      const end = await travel(ctx, goal, spot, `${label}, standing at ${at3(spot)}`, attack, { dig })
+      record(end.status === 'done' ? 'arrived' : end.reason?.slice(0, 160) ?? end.status, { spot })
+      if (end.status === 'done') end.data = { ...end.data, landmark: id, stand: spot }
+      return end
+    }
+    const gap = dist(route.closest, spot)
+    if (!best || gap < best.gap) best = { route, spot, gap }
+  }
+  // No spot reached by a route.
+  const { route, spot } = best
+  marks.noteRoute(id, { ...routeNote(route, spot, dig), spot })
+  const c = route.closest
+  let walkedTo = null
+  if (dist(c, place) < dist(from, place) - 3 && dist(c, from) >= 2) {
+    await walkTo(ctx, new goals.GoalBlock(c.x, c.y, c.z), { canDig: dig })
+    attack.check()
+    if (dist(here(bot), from) >= 2) walkedTo = c
+  }
+  const end = noArrival(bot, place, label, route, { dig, walkedTo })
+  record(walkedTo ? 'went to the closest reachable spot' : route.status === 'no_route' ? 'no route' : 'search incomplete',
+    { spot, route: route.status })
+  return end
 }
 
 // dig: she may break blocks on the way (it used to be dropped here, so "x y z" with dig=yes never

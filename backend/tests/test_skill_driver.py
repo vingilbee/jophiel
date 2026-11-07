@@ -481,8 +481,18 @@ def test_directions_and_caves_are_read_from_the_surroundings():
     prompt = system_prompt(MANIFEST)
     assert '"This way", "that direction"' in prompt and "the way THEY face" in prompt
     assert "go_to looking:<name>" in prompt
-    assert "go_to an Openings spot" in prompt
-    assert "use go_to toward a reachable spot from Ways" in prompt
+    flat = " ".join(prompt.split())
+    assert "go_to its opening's id (or an Openings spot)" in flat
+    assert "go_to a reachable spot or landmark, then reassess" in flat
+
+
+def test_landmarks_routes_and_go_to_failures_are_in_the_rules():
+    prompt = " ".join(system_prompt(MANIFEST).split())
+    assert '"In view" is what your eyes see now' in prompt and '"Remembered places"' in prompt
+    assert 'go_to its id (target "L3")' in prompt
+    assert "never make up coordinates toward something you can't see" in prompt
+    assert "look_around" in prompt
+    assert "don't send that go_to again" in prompt and "is not proof there's none" in prompt
 
 
 def test_peak_surface_and_spectators_are_in_the_rules():

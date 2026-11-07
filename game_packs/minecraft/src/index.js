@@ -142,7 +142,8 @@ await startApi({
     modes: () => modes,
     recipe: (item) => recipeFor(bot, item),
     needs: (name, count) => needsForBot(bot, name, count),
-    trajectory: () => trajectory
+    trajectory: () => trajectory,
+    perception: () => (spawned ? bot?.perception ?? null : null)
   }
 })
 log(`api on http://${config.apiHost}:${config.apiPort}`)
