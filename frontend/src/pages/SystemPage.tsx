@@ -9,6 +9,7 @@ import { TraceContext } from '../components/system/trace'
 import type { TraceTarget } from '../components/system/trace'
 import { PartPage } from '../components/system/PartPage'
 import { PARTS, PART_BY_ID } from '../components/system/anatomy'
+import { anchorFromHash } from '../components/system/format'
 import { tabsFor } from '../components/tabs'
 import { useAuth } from '../hooks/useAuth'
 import { useSignals } from '../hooks/useSignals'
@@ -37,7 +38,7 @@ export function SystemPage() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const anchor = location.hash ? decodeURIComponent(location.hash.slice(1)) : null
+  const anchor = anchorFromHash(location.hash)
   const [logOpen, setLogOpen] = useState(logOpenAtFirst)
   const [trace, setTrace] = useState<TraceTarget | null>(null)
   const toggleLog = useCallback((open: boolean) => {

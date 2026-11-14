@@ -260,7 +260,7 @@ function Feed({ part, anchor }: { part: keyof PartFeeds; anchor?: string | null 
   useEffect(() => {
     if (!data || !anchor || scrolled.current === anchor) return
     scrolled.current = anchor
-    const el = document.getElementById(anchor) ?? document.querySelector(`[data-section="${anchor}"]`)
+    const el = document.getElementById(anchor) ?? document.querySelector(`[data-section="${CSS.escape(anchor)}"]`)
     el?.scrollIntoView({ block: 'start' })
   }, [data, anchor])
   if (error) return <p className="pt-2 text-[14px] text-[#FF8A80] lg:pt-16">{error}</p>

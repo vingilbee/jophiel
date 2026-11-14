@@ -29,3 +29,14 @@ export function clock(at: string | number | null | undefined): string {
 export const join = (...bits: (string | null | undefined | false | 0)[]) => bits.filter(Boolean).join(' · ')
 
 export const words = (s: string | null | undefined) => (s ?? '').replaceAll('_', ' ')
+
+/** The anchor named by an address's fragment ("#lessons" -> "lessons"), or null when there is none or it doesn't decode. */
+export function anchorFromHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!raw) return null
+  try {
+    return decodeURIComponent(raw) || null
+  } catch {
+    return null // a malformed fragment such as "#%" names nothing
+  }
+}
