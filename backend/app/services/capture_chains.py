@@ -1,7 +1,7 @@
 """Reading the learning capture back as chains (docs/learning-system/01-implementation.md, "Reconstruction").
 
-A chain is what saved records say happened, never more: a conversation turn (Student 1's reading -> Student 2's
-choice -> its effect and the reply's delivery -> the channel's settlement and what was heard) or one decision of
+A chain is what saved records say happened, never more: a conversation turn (her mind's evaluation -> the
+reply's delivery -> the channel's settlement and what was heard) or one decision of
 her hands (the skill choice -> the skill run). What a chain needs and doesn't have is listed under ``missing``
 (an upstream attempt never saved, no delivery record, a known gap), so an incomplete chain is never shown as
 complete. ``leaks`` checks the one thing exact capture must guarantee: no source an attempt read was written after
@@ -18,7 +18,6 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     CaptureBlob, CaptureGap, ChatMessage, DecisionAttempt, DecisionAttemptSource, DecisionExecution,
-    TrainingExample,
 )
 
 
@@ -139,14 +138,12 @@ def _chain(db: Session, user_id: uuid.UUID, attempts: list[DecisionAttempt], exe
     leaked = {k: v for k, v in leaked.items() if v}
     attempts.sort(key=lambda a: (_aware(a.started_at), a.learner))
     executions.sort(key=lambda e: (_aware(e.ended_at or e.started_at or e.captured_at), e.kind))
-    examples = list(db.scalars(select(TrainingExample.id).where(TrainingExample.user_id == user_id,
-                                                                TrainingExample.attempt_id.in_(attempt_ids or {uuid.uuid4()}))))
     return {"complete": not missing and not gaps, "attempts": [attempt_out(db, a, blobs=blobs) for a in attempts],
             "executions": [execution_out(e) for e in executions], "missing": missing,
-            "gaps": [gap_out(g) for g in gaps], "leaks": leaked, "training_examples": [str(i) for i in examples]}
+            "gaps": [gap_out(g) for g in gaps], "leaks": leaked}
 
 
-TURN_EXPECTS = ("student_1", "student_2", "reply")
+TURN_EXPECTS = ("mind", "reply")
 
 
 def turn(db: Session, user_id: uuid.UUID, turn_id: uuid.UUID, *, blobs: bool = False) -> dict[str, Any] | None:
@@ -158,10 +155,7 @@ def turn(db: Session, user_id: uuid.UUID, turn_id: uuid.UUID, *, blobs: bool = F
     gaps = list(db.scalars(select(CaptureGap).where(CaptureGap.user_id == user_id, CaptureGap.turn_id == turn_id)))
     if not attempts and not executions and not gaps:
         return None
-    # A follow-up has no Student 1: its decision is on a finished thought.
-    expects = TURN_EXPECTS if any(a.trigger == "user_message" for a in attempts) or not attempts else (
-        "student_2", "reply")
-    chain = _chain(db, user_id, attempts, executions, blobs=blobs, expect=expects)
+    chain = _chain(db, user_id, attempts, executions, blobs=blobs, expect=TURN_EXPECTS)
     known = {g["record_id"] for g in chain["gaps"]}
     chain["gaps"] += [gap_out(g) for g in gaps if str(g.record_id) not in known]
     chain["complete"] = chain["complete"] and not gaps
@@ -323,8 +317,6 @@ def overview(db: Session, user_id: uuid.UUID, *, limit: int = 20) -> dict[str, A
         DecisionAttempt.user_id == user_id).group_by(DecisionAttempt.learner)).all())
     by_result = dict(db.execute(select(DecisionExecution.result, func.count()).where(
         DecisionExecution.user_id == user_id).group_by(DecisionExecution.result)).all())
-    examples = dict(db.execute(select(TrainingExample.eligible, func.count()).where(
-        TrainingExample.user_id == user_id).group_by(TrainingExample.eligible)).all())
     gaps = list(db.scalars(select(CaptureGap).where(CaptureGap.user_id == user_id)
                            .order_by(CaptureGap.detected_at.desc()).limit(limit)))
     recent = list(db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id)
@@ -334,7 +326,6 @@ def overview(db: Session, user_id: uuid.UUID, *, limit: int = 20) -> dict[str, A
     return {"process": learning_capture.service().stats(),
             "attempts": by_learner, "executions": by_result,
             "trajectory": trajectory.measure(db, user_id),
-            "training_examples": {"eligible": examples.get(True, 0), "ineligible": examples.get(False, 0)},
             "gaps": [gap_out(g) for g in gaps],
             "recent": [{"id": str(a.id), "learner": a.learner, "status": a.status, "turn_id": _s(a.turn_id),
                         "game_session_id": _s(a.game_session_id), "started_at": _iso(a.started_at)} for a in recent]}

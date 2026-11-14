@@ -9,8 +9,8 @@ From then on the disagreement is visible, not applied:
 
 - recall marks the fact "unresolved" with the user's words, on every read path (``notes``);
 - consolidation sees it next to the fact (``known_suffix``), so a later message can settle it (``settled``);
-- her mind gets it as a problem in the conversation it came from (``services/mind_conversation.py``), and
-  cognition (Student 2) chooses whether to ask, think it over or leave it.
+- it wakes her mind once in the conversation it came from (``services/mind_conversation.py``), where she
+  chooses whether to ask, think it over, note it or leave it.
 
 It closes as ``known_confirmed`` (the user settled it and the memory holds), ``fact_changed`` (the fact was
 revised since: the revision is the answer) or ``forgotten``. It never closes on its own with time.

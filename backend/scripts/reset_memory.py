@@ -13,7 +13,7 @@ their goal link). Deleting conversations alone leaves goals in place, without th
 observation (what sources reported, its processing and source state; capture restarts from now).
 Resetting working alone keeps observations but skips any memory hadn't taken in, so none are replayed.
 recall (what replies were given from memory, and memory-event embeddings; rebuilt in the background).
-capture (raw decision captures), training (training examples and their tombstones),
+capture (raw decision captures),
 assessment (learning's retrospective assessments, with their revisions, links and uses).
 consolidation (shared assessments/lessons/jobs, legacy game products/jobs, trial products,
 game episodes and pending learning receipts; preserve capture, game evidence and generated skills).

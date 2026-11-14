@@ -162,30 +162,10 @@ def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis, monk
     assert [i["text"] for i in mind_hard.intentions(SID)] == ["keep 5 planks"]
     send_on(HardThought("question", "Does he want me up there?", question="Want me on top, or just the move?"))
     assert proposed[-1]["text"] == "Want me on top, or just the move?"
-    assert proposed[-1]["question"] is True
-    assert mind_hard.take_question(SID) is None  # her reply took it: never also asked at a pause
+    assert proposed[-1]["question"] is True  # a wake of her mind: whether it's asked is decided there
 
 
-def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch):  # noqa: F811
-    said, spoke = [], {"recently": True}
-    monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: spoke["recently"])
-    monkeypatch.setattr(mind_hard, "_reply_in_flight", lambda db, uid: False)
-    from app.services import autonomous_speech
-    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
-    mind_hard.set_question(SID, {"text": "Want me on top?", "at": 1.0, "goal": "kill a sheep", "topic": "t"})
-    db = Db(session())
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 100.0) is None and said == []  # they just spoke
-    spoke["recently"] = False
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Proposed."
-    assert said[0]["text"] == "Want me on top?" and said[0]["reasons"][0].startswith("question:")
-    assert said[0]["commentary_mode"] == "occasional"
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 120.0) is None  # asked once
-    mind_hard.set_question(SID, {"text": "Still?", "at": 1.0, "goal": "an old goal"})
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 130.0) == "question dropped: the goal changed"
-
-
-def test_her_mouth_hands_a_problem_to_her_slow_thinking(isolated_redis, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: False)
+def test_she_hands_a_problem_to_her_slow_thinking_while_she_plays(isolated_redis, monkeypatch):  # noqa: F811
     from app.services import desktop_game
 
     monkeypatch.setattr(desktop_game, "_live", lambda db, uid: session())

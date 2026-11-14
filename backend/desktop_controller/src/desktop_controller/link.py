@@ -179,6 +179,108 @@ class PauseRequest(_Msg):
     reason: str = Field(max_length=48)
 
 
+class ScreenInfo(_Msg):
+    """What a desktop screenshot covers: ``region`` is the screen rectangle the picture shows, in
+    Windows screen pixels (physical, virtual-desktop coordinates), ``size`` the picture's own pixels."""
+
+    region: tuple[int, int, int, int]  # left, top, width, height
+    size: tuple[int, int]
+    screen: tuple[int, int, int, int]  # the primary screen, same units
+    foreground_process: str | None = Field(default=None, max_length=64)
+    foreground_title: str | None = Field(default=None, max_length=200)
+
+
+DesktopStatus = Literal["done", "failed", "refused"]
+
+
+class DesktopResult(_Msg):
+    """What became of one desktop action (general desktop control). ``done``: every input was delivered
+    (or the picture taken); ``failed``: it started and Windows refused part of it (everything held was
+    released); ``refused``: nothing was sent (capture off, a sign-in prompt in front, a bad action)."""
+
+    type: Literal["desktop_result"] = "desktop_result"
+    action_id: str = Field(min_length=1, max_length=64)
+    status: DesktopStatus
+    reason: str | None = Field(default=None, max_length=300)
+    ran_ms: int = Field(default=0, ge=0)
+    # For a screenshot: what the picture shows (the picture itself went just before, as a frame).
+    screen: ScreenInfo | None = None
+    # What was in front once the action finished, when known.
+    foreground_process: str | None = Field(default=None, max_length=64)
+    foreground_title: str | None = Field(default=None, max_length=200)
+
+
+# --- Security activity (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md): the VM's event logs, read only ---------
+
+SECURITY_MAX_CHANNELS = 16
+SECURITY_MAX_EVENTS = 100
+SECURITY_MESSAGE_CHARS = 600
+SECURITY_DATA_FIELDS = 24
+SECURITY_FIELD_CHARS = 240
+_Channel = Annotated[str, Field(min_length=1, max_length=128)]
+
+
+class SecurityEvent(_Msg):
+    """One record of a Windows event log, as the log rendered it. Its text is the machine's own words."""
+
+    record_id: int = Field(ge=0)
+    time_created: str = Field(min_length=1, max_length=40)  # ISO 8601, UTC, from the log
+    provider: str = Field(default="", max_length=128)
+    event_id: int = Field(ge=0, le=65535)
+    version: int | None = Field(default=None, ge=0, le=255)
+    level: int | None = Field(default=None, ge=0, le=255)
+    level_name: str | None = Field(default=None, max_length=32)
+    task: str | None = Field(default=None, max_length=64)
+    opcode: str | None = Field(default=None, max_length=64)
+    keywords: list[Annotated[str, Field(max_length=48)]] = Field(default_factory=list, max_length=8)
+    audit: Literal["success", "failure"] | None = None
+    computer: str | None = Field(default=None, max_length=128)
+    user_sid: str | None = Field(default=None, max_length=96)
+    process_id: int | None = Field(default=None, ge=0)
+    message: str = Field(default="", max_length=SECURITY_MESSAGE_CHARS)
+    data: dict[Annotated[str, Field(max_length=64)], Annotated[str, Field(max_length=SECURITY_FIELD_CHARS)]] = Field(
+        default_factory=dict, max_length=SECURITY_DATA_FIELDS)
+
+
+SecurityIntervalStatus = Literal["covered", "gap", "reset", "unavailable"]
+
+
+class SecurityInterval(_Msg):
+    """What the collector can say about one channel over ``[start, end]`` (the VM's clock, UTC):
+    ``covered``: every record written then was read (continuity checked by record number);
+    ``gap``: records from then were gone before they could be read (overwritten);
+    ``reset``: the log was cleared or recreated, so what was in it then is gone;
+    ``unavailable``: the channel couldn't be read (not installed, access denied)."""
+
+    status: SecurityIntervalStatus
+    start: str = Field(min_length=1, max_length=40)
+    end: str = Field(min_length=1, max_length=40)
+    reason: str | None = Field(default=None, max_length=200)
+    first_record: int | None = Field(default=None, ge=0)
+    last_record: int | None = Field(default=None, ge=0)
+
+
+class SecurityChannelRead(_Msg):
+    channel: _Channel
+    # Bumped each time the collector sees the log reset (its record numbers start again).
+    stream: int = Field(default=0, ge=0)
+    intervals: list[SecurityInterval] = Field(default_factory=list, max_length=4)
+    events: list[SecurityEvent] = Field(default_factory=list, max_length=SECURITY_MAX_EVENTS)
+    # More records were waiting than one read takes: the collector reads again right away.
+    more: bool = False
+
+
+class SecurityBatch(_Msg):
+    """Controller -> relay: one read of the monitored channels, answered with one ``SecurityAck``. The
+    collector only moves its bookmarks on ``stored``, so a lost batch is read again (and deduplicated)."""
+
+    type: Literal["security_batch"] = "security_batch"
+    batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    epoch: int = Field(ge=1)
+    sent_at: str = Field(min_length=1, max_length=40)  # the VM's clock, UTC: the relay measures skew from it
+    channels: list[SecurityChannelRead] = Field(default_factory=list, max_length=SECURITY_MAX_CHANNELS)
+
+
 class Heartbeat(_Msg):
     type: Literal["heartbeat"] = "heartbeat"
     # The capture setting this controller is obeying (its epoch), so the app can
@@ -250,10 +352,30 @@ class ControlGrant(_Msg):
     lease_ms: int = Field(ge=200, le=5000)
 
 
+class SecurityConfig(_Msg):
+    """Security monitoring, the owner's own switch (separate from capture and input). ``epoch`` changes each
+    time monitoring is switched on: the collector then starts afresh from the log's end, so nothing from the
+    time it was off is ever read. ``channels`` is the active collection filter: whole channels, read only."""
+
+    enabled: bool = False
+    epoch: int = Field(default=0, ge=0)
+    channels: list[_Channel] = Field(default_factory=list, max_length=SECURITY_MAX_CHANNELS)
+    poll_seconds: float = Field(default=15.0, ge=2, le=300)
+
+
 class HeartbeatAck(_Msg):
     type: Literal["heartbeat_ack"] = "heartbeat_ack"
     capture: CaptureConfig = CaptureConfig()
     control: ControlGrant | None = None
+    # Only sent to controllers that know it (0.11.0+); absent means monitoring is off.
+    security: SecurityConfig | None = None
+
+
+class SecurityAck(_Msg):
+    type: Literal["security_ack"] = "security_ack"
+    batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["stored", "refused"]
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class SessionStart(_Msg):
@@ -287,6 +409,15 @@ class Cancel(_Msg):
     reason: str = Field(default="cancelled", max_length=48)
 
 
+class DesktopAction(_Msg):
+    """One bounded desktop action for the general desktop (``desktop_controller.desktop``). Checked again
+    on arrival; answered with exactly one ``DesktopResult``."""
+
+    type: Literal["desktop_action"] = "desktop_action"
+    action_id: str = Field(min_length=1, max_length=64)
+    action: dict
+
+
 class LinkError(_Msg):
     """Sent just before the relay closes the connection."""
 
@@ -298,11 +429,13 @@ class LinkError(_Msg):
 
 
 ControllerMessage = Annotated[
-    Union[Pair, Hello, Heartbeat, SessionReady, SessionProblem, DecisionReport, PauseRequest],
+    Union[Pair, Hello, Heartbeat, SessionReady, SessionProblem, DecisionReport, PauseRequest, DesktopResult,
+          SecurityBatch],
     Field(discriminator="type"),
 ]
 RelayMessage = Annotated[
-    Union[Paired, Welcome, HeartbeatAck, LinkError, SessionStart, SessionStop, DecisionCommand, Cancel],
+    Union[Paired, Welcome, HeartbeatAck, LinkError, SessionStart, SessionStop, DecisionCommand, Cancel,
+          DesktopAction, SecurityAck],
     Field(discriminator="type"),
 ]
 controller_message = TypeAdapter(ControllerMessage)
@@ -325,9 +458,11 @@ class FrameHeader(_Msg):
     encoding: Literal["jpeg"] = "jpeg"
     gate_epoch: int = Field(ge=0)
     # "preview" for the card; "observation" for the driver model (game window,
-    # exact observation size, with the input context at capture).
-    kind: Literal["preview", "observation"] = "preview"
+    # exact observation size, with the input context at capture); "screenshot" for a
+    # desktop action's picture (``action_id`` says which one).
+    kind: Literal["preview", "observation", "screenshot"] = "preview"
     context: str | None = Field(default=None, max_length=32)
+    action_id: str | None = Field(default=None, max_length=64)
 
 
 def pack_frame(header: FrameHeader, image: bytes) -> bytes:

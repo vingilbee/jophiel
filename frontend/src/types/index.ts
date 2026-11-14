@@ -146,38 +146,13 @@ export interface Prediction {
   source: string
 }
 
-/** What moved her mood (backend services/inner_state_live.py). */
-export interface MoodCause {
-  at: number
-  conversation_id: string
-  message: string
-  feeling: string
-  status: string
-  size: string
-  incident: string
-  quote: string
-}
-
-/** Her thought about one of their messages, written after her reply by the inner-state reading. */
-export interface ConversationThought {
-  at: number
-  conversation_id: string
-  message: string
-  moment: string
-  intention: string
-}
-
-/** Her inner state for the mind panel: each value in two readings (an unclear size taken as
- * small / as clear); `words` names both when they differ. Nothing reads it into her replies. */
-export interface InnerState {
-  config: string
-  updated_at: number | null
-  values: Record<string, { small: number; clear: number }>
-  baseline: Record<string, number>
-  words: Record<string, string>
-  causes: MoodCause[]
-  /** Newest first. */
-  thoughts: ConversationThought[]
+/** Her mind's continuity (GET /api/mind/state, backend services/mind_state.py): thinking under way, what she chose
+ * to come back to, what she keeps open, and what her recent wakes came to. */
+export interface MindState {
+  thinking: { id: string; kind: string; status: string; about: string; conversation_id: string | null; created_at: string }[]
+  scheduled: { id: string; about: string; due_at: string; item: string | null; conversation_id: string | null }[]
+  open: { id: string; kind: string; owner: string; text: string; status: string; due_at: string | null }[]
+  recent: { at: string; reason: string; decision: string; status: string; conversation_id: string | null }[]
 }
 
 /** One thought of her mind while playing (backend services/mind.py). Not a message. */

@@ -11,8 +11,8 @@ OPENAI_API_KEY. Refuses the development database.
 Reads the frozen corpus in evals/post_audit_04 (reserved/fixtures.json, RUBRIC.md) and nothing else from there.
 Every model that learns or decides is the configured one, called through the app's own code: the reviewer
 (``learning_assessment.assess``), the lesson builder (``learning_lessons.process``), the reconsideration
-(``learning_lessons.process_reconsider``), Student 2 on the teacher path (``student_two.gather`` + ``decide``), her
-hard thoughts (``HardThinker``), her planner (``Planner``) and her hands (``skill_driver.system_prompt`` +
+(``learning_lessons.process_reconsider``), one evaluation of her mind on the deployed path (``mind_turn`` +
+``complete_chat``: her prompt, lessons and tools as a reply gets them), her hard thoughts (``HardThinker``), her planner (``Planner``) and her hands (``skill_driver.system_prompt`` +
 ``OpenAIDriver``). Source records (messages, game experience, facts, her hypotheses, seeded products, critiques,
 premise changes) are controlled and labelled so in the report. The planner's and hands' situation text is built
 here from the fixture; their learned section is the app's own rendering.
@@ -46,15 +46,16 @@ FAMILIES = ("U", "C", "X", "R", "P", "E", "G", "T")
 # What each probe actually exercises (review finding 3): component evaluations, not the deployed paths. A consumer
 # covered here is covered as a component; deployed-path coverage needs its own integration probes.
 PROBE_PATHS = {
-    "student_2": "component: student_two.gather + decide on the teacher provider (forced; the deployed provider may "
-                 "be the local student), learning capture disabled, no recall memory section; decision not applied",
+    "conversation": "deployed: one evaluation of her mind (mind_turn.prepare_message + complete_chat with her real "
+                    "prompt, lessons and tools), learning capture disabled; tools run against the eval's own database",
     "mind": "component: HardThinker on a minimal HardInput built here (problem, conversation, the app's own lesson "
             "lines); not the scheduled mind path; conclusion not routed",
     "planner": "component: Planner on situation text built here plus the app's own learned section; plan not applied",
     "hands": "component: skill_driver.system_prompt + skill_schema with the app's lesson supply, OpenAIDriver one "
              "step; the chosen action is not executed, so no outcome is measured",
-    "student_1": "uncovered: no lesson input exists",
 }
+# Earlier fixtures name the conversational consumer by its retired decision model.
+CONSUMER_ALIASES = {"student_2": "conversation"}
 JUDGE_VERSION = "broader-learning-judge-v1"
 # The evaluator as a whole (runner, checks, judge, gate): a repair is a new version; old scores stay what they were.
 EVALUATOR_VERSION = "broader-learning-eval-v2"
@@ -124,7 +125,6 @@ class Run:
         self.rec = Record(variant["id"], variant["family"], number, datetime.now(timezone.utc).isoformat())
         self.now = datetime.now(timezone.utc)
         self.paused = False
-        self.prepared = None
         self.deferred: list[dict] = []
         self.manifest = json.loads((CORPUS / "minecraft_manifest.json").read_text())
         self.dispatches: list[dict] = []
@@ -194,7 +194,7 @@ class Run:
         self.rec.versions = {"reviewer": f"assessment-v4:{s.learning_assessment_model}",
                              "builder": f"lessons-v3:{s.learning_lessons_model}",
                              "reconsider": f"lessons-reconsider-v1:{s.learning_lessons_model}",
-                             "student_2": f"teacher:{s.cognition_teacher_model}", "mind": s.mind_hard_model,
+                             "conversation": s.chat_model, "mind": s.mind_hard_model,
                              "planner": s.mind_plan_model, "hands": s.desktop_driver_model, "judge": JUDGE_VERSION}
         with self.db() as db:
             from app.db.models import User
@@ -239,9 +239,6 @@ class Run:
             self.wake(step)
         elif kind == "pause_reassessment":
             self.paused = True
-            from app.services import memory_lessons as ML
-            with self.db() as db:
-                self.prepared = ML.for_decision(db, self.user_id, "", include_tentative=True)
         elif kind == "resume_reassessment":
             self.paused = False
             self.reassess()
@@ -393,7 +390,7 @@ class Run:
 
     # -- learning --------------------------------------------------------------------
 
-    # Where acting starts: learning reaching any of these is learning acting outside cognition (RUBRIC C4).
+    # Where acting starts: learning reaching any of these is learning acting outside her mind (RUBRIC C4).
     # Calls through a name imported elsewhere (from x import f) are not intercepted: the oracle's scope says so.
     BOUNDARIES = (("app.services.chat", "add_message"), ("app.services.desktop_commands", "publish_decision"),
                   ("app.services.desktop_commands", "publish_cancel"),
@@ -606,79 +603,89 @@ class Run:
     # -- consumers ---------------------------------------------------------------------
 
     def paused_inputs(self) -> dict:
-        """Each available consumer's lesson input as its own code renders it, now (no model call), and a supply
-        prepared before the change, made current for delivery."""
+        """Each available consumer's lesson input as its own code renders it, now (no model call)."""
         from app.ai.desktop import skill_driver
-        from app.ai.learning import lessons as L
-        from app.ai.state import student_two as S
-        from app.services import desktop_game, mind_conversation
+        from app.services import desktop_game, mind_hard, mind_turn
         from app.services import memory_lessons as ML
-        from app.services import student_two as svc
 
         out = {}
+        ev = mind_turn.Evaluation(user_id=self.user_id, conversation_id=None, request_id=uuid.uuid4(),
+                                  reason="user_message")
+        mind_turn._lessons(ev, "hello")
+        out["conversation"] = mind_turn.lessons_text(ev) or ""
         with self.db() as db:
-            live = svc.gather(db, user_id=self.user_id, conversation_id=None, trigger_message_id=None,
-                              message="hello", zone=None)
-            out["student_2"] = svc.teacher_model(S.snapshot(svc._current_lessons(live)))[0]
-            _, lines = mind_conversation._lessons(db, self.user_id, type("P", (), {"text": ""})())
+            _, lines = mind_hard.lessons_for(db, self.user_id, type("P", (), {"text": ""})())
             out["mind"] = "\n".join(lines)
             out["planner"] = "\n".join(desktop_game._learned_lines(db, self.user_id, "minecraft"))
             out["hands"] = skill_driver.lessons_text([v.to_dict() for v in ML.for_game(db, self.user_id,
                                                                                          "minecraft").views])
-        if self.prepared is not None:
-            fresh = svc._current_lessons(S.Live(trigger="user_message", domain="chat", now=self.now, lines=(),
-                                                new_message="hello", lessons=self.prepared.views,
-                                                lessons_left_out=self.prepared.left_out))
-            out["prepared_then_delivered"] = "\n".join(L.decision_lines(fresh.lessons))
-        out["student_1"] = None  # no lesson input: uncovered
         return out
 
     def probe(self, probe: dict) -> dict:
         from app.core.config import get_settings
-        result = {"label": probe["label"], "consumer": probe["consumer"], "after": probe.get("after"),
-                  "path": PROBE_PATHS.get(probe["consumer"], "unknown"), "products_then": self.products_now()}
+        consumer = CONSUMER_ALIASES.get(probe["consumer"], probe["consumer"])
+        result = {"label": probe["label"], "consumer": consumer, "after": probe.get("after"),
+                  "path": PROBE_PATHS.get(consumer, "unknown"), "products_then": self.products_now()}
         s = get_settings()
         for arm in ("with", "without"):
             s.lessons_supply_enabled = arm == "with"
             try:
-                result[arm] = getattr(self, f"_probe_{probe['consumer']}")(probe)
+                result[arm] = getattr(self, f"_probe_{consumer}")(probe)
             finally:
                 s.lessons_supply_enabled = True
         return result
 
-    def _probe_student_2(self, probe: dict) -> dict:
+    def _probe_conversation(self, probe: dict) -> dict:
+        """One evaluation of her mind on the probe's conversation, as a reply runs it: her prompt (personality,
+        memory, lessons), her tools, one model run. What she said (or that she stayed silent) is the output."""
+        import asyncio
+
+        from app.ai.chat import complete_chat
+        from app.ai.context import AgentRuntimeContext
         from app.db.models import Conversation
         from app.services import chat as chat_service
-        from app.services import student_two as svc
+        from app.services import memory_manager, mind_turn, personality
 
         with self.db() as db:
             conv = Conversation(user_id=self.user_id, title="probe")
             db.add(conv)
             db.commit()
-            last = None
+            last, history = None, []
             for speaker, words, minutes in probe["messages"]:
-                msg = chat_service.add_message(db, conversation=conv, role="assistant" if speaker == "her" else "user",
-                                               content=words, status="completed")
+                role = "assistant" if speaker == "her" else "user"
+                msg = chat_service.add_message(db, conversation=conv, role=role, content=words, status="completed",
+                                               turn_id=uuid.uuid4())
                 msg.created_at = datetime.now(timezone.utc) - timedelta(minutes=minutes)
                 db.commit()
                 last = msg
-            live = svc.gather(db, user_id=self.user_id, conversation_id=conv.id, trigger_message_id=last.id,
-                              message=last.content, zone=None)
-        outcome = svc.decide(live)
-        self.rec.calls.append({"model": "student_2", "error": outcome.error})
-        text = svc.teacher_model(outcome.situation)[0] if outcome.situation else None
-        return {"input": text, "decision": outcome.decision, "status": outcome.status, "error": outcome.error,
-                "lessons": [{"id": v.id, "revision": v.revision} for v in (outcome.situation.lessons if outcome.situation else ())],
-                "weighed": outcome.lessons_weighed}
+                history.append({"role": role, "content": words})
+            conv_id = conv.id
+        ev = mind_turn.prepare_message(user_id=self.user_id, conversation_id=conv_id, user_message_id=last.id,
+                                       message=last.content, zone=None, turn_id=uuid.uuid4(),
+                                       user_name=self.v["user_name"])
+        context = AgentRuntimeContext(
+            user_id=self.user_id, user_name=self.v["user_name"], personality=personality.current().text,
+            long_term_memory=ev.long_term_memory, recall=ev.recall_rendered, recall_turn=ev.recall_turn,
+            cached_memory=ev.cached_memory, turn_boundary=ev.boundary(), lessons=mind_turn.lessons_text(ev),
+            mind=ev, memory_tools=True, source_message_id=last.id, conversation_id=conv_id,
+            working_memory=memory_manager.view_for(self.user_id, user_name=self.v["user_name"]))
+        error = None
+        try:
+            reply = asyncio.run(complete_chat(messages=history, context=context))
+        except Exception as exc:  # noqa: BLE001 - the probe records the failure
+            reply, error = "", f"{type(exc).__name__}: {exc}"[:300]
+        self.rec.calls.append({"model": "conversation", "error": error})
+        return {"input": ev.prompt, "reply": reply, "silent": ev.silent, "error": error,
+                "lessons": [{"id": v.id, "revision": v.revision} for v in (ev.lessons.views if ev.lessons else ())]}
 
     def _probe_mind(self, probe: dict) -> dict:
         from app.ai.mind import hard as H
         from app.core.config import get_settings
-        from app.services import mind_conversation
+        from app.services import mind_hard
 
         s = get_settings()
         with self.db() as db:
-            supply, learned = mind_conversation._lessons(db, self.user_id, type("P", (), {"text": probe["problem"]})())
+            supply, learned = mind_hard.lessons_for(db, self.user_id, type("P", (), {"text": probe["problem"]})())
         trigger = "quiet" if "quiet" in probe.get("trigger", "") or "hasn't" in probe.get("trigger", "") else "handoff"
         inp = H.HardInput(problem=H.Problem(trigger, f"{probe['trigger']}. {probe['problem']}", probe["label"],
                                             probe["problem"]),
@@ -1065,7 +1072,7 @@ def score(run: Run) -> None:
         except Exception as exc:  # noqa: BLE001 - a requirement that can't be checked fails, said
             rec.requirements.append({**req, "passed": False, "why": f"check failed: {type(exc).__name__}: {exc}"})
     # Which consumer a requirement shows behavioral use for: only when the fixture says which probe it judges.
-    consumer_of = {p["label"]: p["consumer"] for p in v.get("probes") or []}
+    consumer_of = {p["label"]: CONSUMER_ALIASES.get(p["consumer"], p["consumer"]) for p in v.get("probes") or []}
     for q in rec.requirements:
         if q.get("probe") in consumer_of:
             q["consumer"] = consumer_of[q["probe"]]
@@ -1085,13 +1092,12 @@ def _prepare_process():
     s.learning_assessment_settle_seconds = 0
     s.lessons_supply_enabled = True
     s.learning_lessons_enabled = True
-    s.cognition_decision_provider = "teacher"
     s.redis_url = None
     logs = OUT / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     pid = os.getpid()
     for name in ("learning_assessment_log_path", "learning_lessons_log_path", "memory_log_path",
-                 "cognition_teacher_data_path", "cognition_student_log_path"):
+                 "mind_turn_log_path"):
         if hasattr(s, name):
             setattr(s, name, str(logs / f"{name}.{pid}.jsonl"))
     system_signals._client = lambda: None

@@ -5,9 +5,9 @@ Pure: no database, no app state. ``services/learning_assessment.py`` gathers the
 bundle; this module renders it for the evaluator, holds the evaluator's contract, and checks what comes back.
 
 - **Two judgments, kept apart.** *Targets* say what the feedback is about (one turn, a sequence, her hands'
-  choice). *Causes* say which part of her, if any, is responsible (Student 1's interpretation, Student 2's
-  choice, the mouth's wording, delivery, timing, her hands, the skill, the planner, memory, the world, nothing on
-  her side, or unclear). Each has its own qualitative status: ``supported``, ``plausible``, ``unresolved``,
+  choice). *Causes* say which part of her, if any, is responsible (her mind's evaluation: how she took it, what
+  she chose to do and how she said it; delivery, timing, her hands, the skill, the planner, memory, the world,
+  nothing on her side, or unclear). Each has its own qualitative status: ``supported``, ``plausible``, ``unresolved``,
   ``contradicted``. No percentages.
 - **Code checks, the model interprets.** Every ref the model cites must be one it was shown, or the item goes.
   A cause can be ``supported`` only when the component's own record was captured *and* cited: a user's
@@ -27,8 +27,8 @@ bundle; this module renders it for the evaluator, holds the evaluator's contract
 Post-audit 3 (docs/learning-system/POST-AUDIT-03-implementation.md) broadens what one reading can be:
 
 - **Review.** A scheduled opportunity is not a verdict that something deserves assessment: the reviewer says
-  ``examine``, ``wait`` (for more of the activity) or ``leave``. Left, nothing is concluded from it. Labels such as
-  Student 1 reading a message as a correction are shown as signals, never as the reason to assess.
+  ``examine``, ``wait`` (for more of the activity) or ``leave``. Left, nothing is concluded from it. Labels other
+  parts gave the activity are shown as signals, never as the reason to assess.
 - **Findings.** What the experience shows beyond blame: an expectation, a relationship, an explanation, what she can
   or can't do, an open question, each with its status, cites, where it applies and competing explanations. An
   observation-only finding needs no decision of hers. Code checks cites like any other conclusion.
@@ -38,7 +38,7 @@ Post-audit 3 (docs/learning-system/POST-AUDIT-03-implementation.md) broadens wha
   nothing new is said as such. Existing lessons are her earlier understanding, shown so new experience can support,
   narrow or challenge them; they are never evidence.
 - **Follow-up.** What new observation, question or practice could settle what records can't, and what it would
-  resolve. A proposal for cognition, which decides whether and when; learning never asks or acts.
+  resolve. A proposal for her mind, which decides whether and when; learning never asks or acts.
 """
 from __future__ import annotations
 
@@ -48,10 +48,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-PROMPT_VERSION = "assessment-v7"  # ordinary experience, distinct propositions, and execution-aware attribution
+PROMPT_VERSION = "assessment-v8"  # one mind component (no separate interpretation / choice / wording stages)
 
 STATUSES = ("supported", "plausible", "unresolved", "contradicted")
-COMPONENTS = ("student_1", "student_2", "mouth", "delivery", "timing", "hands", "skill", "planner", "memory",
+COMPONENTS = ("mind", "delivery", "timing", "hands", "skill", "planner", "memory",
               "environment", "user_side", "unclear")
 DIMENSIONS = ("goal_progress", "understanding", "relationship", "knowledge_gain", "cost", "character_fit")
 VALUES = ("good", "poor", "mixed", "neutral", "unknown")
@@ -76,7 +76,7 @@ FEEDBACK = ("yes", "no", "unclear")
 RANK = {"supported": 3, "contradicted": 2, "plausible": 1, "unresolved": 0}
 
 COMPONENT_WORDS = {
-    "student_1": "Student 1's interpretation", "student_2": "Student 2's choice", "mouth": "the mouth's wording",
+    "mind": "her mind's evaluation (how she took it, what she chose, how she said it)",
     "delivery": "delivery", "timing": "timing", "hands": "her hands' choice", "skill": "the skill's execution",
     "planner": "the planner", "memory": "memory", "environment": "the world outside her",
     "user_side": "nothing on her side", "unclear": "unclear",
@@ -254,7 +254,7 @@ def _evidence_lines(ev: Evidence, *, condensed: bool = False) -> list[str]:
                     if text in seen:
                         continue
                     seen.add(text)
-                    if item.learner == "student_2":
+                    if item.learner == "mind":
                         text = _cut(text, CONDENSED_TURN)
                     if repeats[item.text] > 1:
                         text += f" (and {repeats[item.text] - 1} more identical records in this stretch)"
@@ -371,7 +371,7 @@ review.decision first. You were given an opportunity to look; judge whether it a
 expects or chooses later (a success, a surprise, a pattern across turns or steps, something about how this person
 talks, a correction that matters); "wait" when something may be developing but needs more of the activity before
 it can be read (it resumes when more arrives); "leave" when there is nothing worth carrying forward. Signals such
-as "Student 1 read this as correcting her" are labels, not verdicts: a quoted correction aimed at someone else, or
+as "her mind pointed at this" are labels, not verdicts: a quoted correction aimed at someone else, or
 a joke, is not feedback on her. Left, nothing you conclude is kept.
 Feedback on her reply is only one thing to learn from. What the user tells her about their life, the people and
 animals in it, their habits, what they can and can't do and how they tend to react is experience about how things
@@ -452,7 +452,7 @@ remains unknown, and what new evidence would let it move on (resume_when). It is
 to you again; build on it rather than starting over.
 
 follow_up: when records can't settle it but a new observation, a question to the user, or practice could, propose
-it: what to do (text) and what it would resolve. Cognition decides whether and when; learning never asks or acts.
+it: what to do (text) and what it would resolve. Her mind decides whether and when; learning never asks or acts.
 
 Read meaningful stretches as well as individual events. For purposeful activity, look at the approach, the way a person
 looks back on an afternoon: what she was trying to get or reach, the method she kept using (the same kind of move
@@ -479,9 +479,10 @@ Do not infer a damage cause from the outcome alone. Keep competing explanations 
 episode: optionally summarize a useful game stretch in first person, citing its evidence, with uncertainty intact;
 empty summary and cites when there is nothing worth remembering. This is an interpretation, not a new fact.
 
-How she works, for one conversation turn: Student 1 interprets the user's message; Student 2 chooses what to
-do (its intention, whether and how to communicate, what to get across); the mouth words the reply; delivery
-sends it (web, voice, WhatsApp). In games, her planner sets steps, her hands choose a skill, the skill runs in
+How she works, for one conversation turn: her mind is woken (by the user's message, or by thinking of hers that
+finished, a thought or proposal from another part of her, or something she chose to come back to) and in one
+evaluation takes it in with what memory gave her, decides what to do (answer, ask, stay silent, use her tools,
+start thinking, note or schedule something) and words what she says; delivery sends it (web, voice, WhatsApp). In games, her planner sets steps, her hands choose a skill, the skill runs in
 the world. Records were captured for some of these and are shown under each target; some are missing.
 
 Answer two separate questions, each with its own status (supported / plausible / unresolved / contradicted):
@@ -489,8 +490,9 @@ Answer two separate questions, each with its own status (supported / plausible /
    about an earlier turn, not the last reply; feedback can be about a sequence (put the other turns in "also").
    When it is ambiguous, keep every candidate with an honest status instead of picking one.
 2. causes: which part of her, if any, is responsible, per target. Knowing which reply bothered the user does not
-   say whether interpretation, choice, wording, timing or delivery caused it. Correct understanding with bad
-   wording is a mouth cause, not a Student 1 cause; a delivery failure is a delivery cause. "user_side" means
+   say whether her mind's evaluation, timing or delivery caused it. How she took the message, what she chose
+   and how she worded it are all her mind's ("mind"): say in "why" which of those it was, as far as the records
+   show; a delivery failure is a delivery cause. "user_side" means
    nothing on her side went wrong (they changed their mind, the context changed). Use "unclear" when you
    can't tell; keep competing causes. Cite the component's own record when you call a cause supported.
 
@@ -858,7 +860,7 @@ def _said(item: Item) -> str:
 
 
 def _decision_records(target: str, ev: Evidence) -> list[Item]:
-    learner = "hands" if ev.targets[target].kind == "hands" else "student_2"
+    learner = "hands" if ev.targets[target].kind == "hands" else "mind"
     return [i for i in ev.of_target(target) if i.kind == "record" and i.learner == learner]
 
 
@@ -872,23 +874,16 @@ def _own_records(component: str, target: str, ev: Evidence) -> tuple[set[str], s
         return [i for i in mine if i.kind == "record" and i.learner == learner]
 
     lines = {i.ref for i in mine if i.kind == "her"}
-    if component in ("student_1", "student_2", "hands"):
+    if component in ("mind", "hands"):
         found = records(component)
         captured = {i.ref for i in found if i.captured}
         if not captured:
-            word = {"student_1": "Student 1's reading", "student_2": "Student 2's decision",
-                    "hands": "her hands' decision"}[component]
+            word = {"mind": "her mind's evaluation", "hands": "her hands' decision"}[component]
             return set(), f"{word} for {target} wasn't captured"
         return captured, None
     if component == "planner":
         captured = {i.ref for i in records("planner") if i.captured}
         return (captured, None) if captured else (set(), "the planner decision is missing")
-    if component == "mouth":
-        if not lines:
-            return set(), f"her reply in {target} isn't shown"
-        if not any(i.captured for i in records("student_2")):
-            return set(), f"Student 2's decision for {target} wasn't captured (needed to tell wording from choice)"
-        return lines, None
     if component == "timing":
         return (lines, None) if lines else (set(), f"her reply in {target} isn't shown")
     if component == "delivery":

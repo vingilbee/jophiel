@@ -20,7 +20,7 @@ from app.db.models import (
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
-    RecallReference, SemanticMemory, TrainingExample, TrainingExampleDeletion, WorkingItem, LearningTrial,
+    RecallReference, SemanticMemory, WorkingItem, LearningTrial,
     LearningTrialTrigger,
 )
 
@@ -50,11 +50,8 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Learning capture (docs/learning-system/01-implementation.md): raw decision captures and their gaps, and her
     # trajectory (docs/learning-system/POST-AUDIT-01-implementation.md).
     "capture": (DecisionExecution, DecisionAttempt, CaptureGap, CaptureBlob, TrajectoryChunk, TrajectoryStream),
-    # Training examples derived from them, with deletion tombstones (a test reset starts over; a user's own
-    # source deletion never removes examples, and their explicit deletion keeps the tombstone).
-    "training": (TrainingExampleDeletion, TrainingExample),
     # Learning's assessments (docs/learning-system/02-implementation.md): revisions, links, evidence and uses
-    # cascade with them. Training examples they flagged stay flagged (scope training resets those).
+    # cascade with them.
     "assessment": (LearningAssessment,),
     # Lessons (docs/learning-system/03-implementation.md): revisions, evidence and uses cascade with them; the
     # lesson jobs also go with scope assessment (they cascade with their assessment).
@@ -104,7 +101,7 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
             pending = pending.where(LearningTrialTrigger.user_id.in_(ids))
         db.execute(pending)
         # Learning's open follow-up proposals (post-audit 3) go with the assessments that made them: closed, so
-        # cognition never takes one up across test attempts.
+        # her mind never takes one up across test attempts.
         counts["learning_follow_ups"] = 0
         for kind, status in (("question", "dropped"), ("hypothesis", "unresolved")):
             closing = update(WorkingItem).where(WorkingItem.kind == kind, WorkingItem.closed_at.is_(None),

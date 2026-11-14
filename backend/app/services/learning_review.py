@@ -22,7 +22,7 @@ stretch is bounded for transport (``LEARNING_REVIEW_STRETCH_MESSAGES`` messages,
 is not an experience boundary: the reviewer can look earlier, ask memory, and reopen other inquiries.
 
 ``propose`` hands a reviewer's follow-up (a question, an observation or practice that could settle what records
-can't) to memory as an open item of hers: cognition sees it and decides whether and when. Learning never asks.
+can't) to memory as an open item of hers: her mind sees it and decides whether and when. Learning never asks.
 """
 from __future__ import annotations
 
@@ -248,6 +248,16 @@ def nominate(db: Session, user_id: uuid.UUID, *, source: str, activity: uuid.UUI
     evidence = [(f"nomination:{thought_id}", "her mind pointed at this", {"text": words})]
     try:
         with db.begin_nested():
+            if source == "security":
+                # A security investigation: its own conversation, with the investigation attached as evidence.
+                from app.db.models import SecurityInvestigation
+
+                investigation = db.get(SecurityInvestigation, activity)
+                if investigation is None or investigation.user_id != user_id or investigation.conversation_id is None:
+                    return False
+                evidence.append((f"security:{investigation.id}", "the security records her mind looked into",
+                                 {"revision": investigation.revision}))
+                source, activity = "conversation", investigation.conversation_id
             if source == "conversation":
                 last = db.scalar(select(ChatMessage).where(ChatMessage.conversation_id == activity)
                                  .order_by(ChatMessage.conversation_sequence.desc()).limit(1))
@@ -268,13 +278,13 @@ def nominate(db: Session, user_id: uuid.UUID, *, source: str, activity: uuid.UUI
 
 
 # --------------------------------------------------------------------------- #
-# Follow-up proposals: to memory, for cognition
+# Follow-up proposals: to memory, for her mind
 # --------------------------------------------------------------------------- #
 
 
 def propose(db: Session, row: LearningAssessment, revision: int, follow_up: dict, inquiry: dict) -> str | None:
     """A reviewer's follow-up as an open item of hers (a question to ask, or a hypothesis to check by observation
-    or practice), so cognition can take it up or not. One per assessment while it stays open. In the caller's
+    or practice), so her mind can take it up or not. One per assessment while it stays open. In the caller's
     transaction (a savepoint). Returns the item ref, or None."""
     from app.services import memory_manager
 
@@ -290,7 +300,7 @@ def propose(db: Session, row: LearningAssessment, revision: int, follow_up: dict
     alternatives = "; ".join(inquiry.get("alternatives") or [])
     reason = (f"{marker}, revision {revision}: it could resolve {follow_up.get('resolves') or 'what records leave open'}"
               + (f"; other explanations: {alternatives}" if alternatives else "")
-              + ". A proposal: whether and when is cognition's choice.")[:1000]
+              + ". A proposal: whether and when is her choice.")[:1000]
     try:
         with db.begin_nested():
             context_id = None

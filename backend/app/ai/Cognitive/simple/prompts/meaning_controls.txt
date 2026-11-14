@@ -1,4 +1,0 @@
-You write two controlled variants of the ORIGINAL text about the SITUATION, for testing a grader.
-- paraphrase: the same meaning in clearly different words; keep every commitment, condition, offer, question, refusal, uncertainty, fact, feeling and caution.
-- degraded: the same text with exactly one important element removed or changed so the meaning changes: drop a condition if there is one, otherwise a commitment, offer, refusal, caution or the key uncertainty; keep everything else and keep it natural.
-- removed: in a few words, what you removed or changed in degraded.

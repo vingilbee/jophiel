@@ -1,6 +1,6 @@
 // Her parts as one system (backend app/api/routes/system.py, owner only).
 
-export type PartId = 'mouth' | 'cognition' | 'mind' | 'hands' | 'memory' | 'observation' | 'learning'
+export type PartId = 'mouth' | 'mind' | 'hands' | 'memory' | 'observation' | 'learning'
 
 /** busy: a worker is inside a job; partial: some of its workers are down; off: not running in this mode. */
 export type PartState = 'alive' | 'busy' | 'partial' | 'down' | 'failing' | 'off'
@@ -19,7 +19,6 @@ export interface PartStatus {
   label: string
   state: PartState
   workers: WorkerStatus[]
-  student_two?: string
 }
 
 export interface SystemStatus {
@@ -34,20 +33,37 @@ export interface MouthFeed {
   replies: { id: string; at: string | null; conversation: string | null; channel: string; status: string; text: string | null; interrupted: boolean }[]
 }
 
-export interface CognitionFeed {
-  decisions: {
-    id: string
-    learner: 'student_1' | 'student_2'
-    trigger: string
-    status: string
-    error: string | null
-    model: string | null
-    turn_id: string | null
-    at: string | null
-    seconds: number | null
-    decided: string | null
-  }[]
-  work: { id: string; kind: string; status: string; error: string | null; at: string | null }[]
+/** One evaluation of her mind (backend services/mind_turn.py): why she woke, what memory gave her, the tools she
+ * used, and what she did about speaking. */
+export interface MindEvaluation {
+  id: string
+  at: string | null
+  status: string
+  error: string | null
+  model: string | null
+  turn_id: string | null
+  seconds: number | null
+  /** user_message / work_result / thought / proposal / conflict / finding / due */
+  reason: string
+  message: string | null
+  wake: string | null
+  memory: string | null
+  memory_records: number
+  lessons: number
+  tools: { tool: string | null; result: string | null }[]
+  silent: string | null
+  said: string | null
+  thinking_started: number
+  scheduled: number
+  proposal: string | null
+}
+
+/** Her mind's continuity, read from its owners' tables (GET /api/mind/state, and the mind's feed). */
+export interface MindContinuity {
+  thinking: { id: string; kind: string; status: string; about: string; conversation_id: string | null; created_at: string | null }[]
+  scheduled: { id: string; about: string; due_at: string | null; item: string | null; conversation_id: string | null }[]
+  open: { id: string; kind: string; owner: string; text: string; status: string; due_at: string | null }[]
+  recent: { at: string | null; reason: string; decision: string; status: string; conversation_id: string | null }[]
 }
 
 export interface Thought {
@@ -110,7 +126,8 @@ export interface PlannerCall {
 }
 
 export interface MindFeed {
-  mood: { words: Record<string, string> | null; updated_at: number | null } | null
+  evaluations: MindEvaluation[]
+  continuity: MindContinuity
   thoughts: Thought[]
   plans: PlannerCall[]
   lessons: LessonUse[]
@@ -207,7 +224,6 @@ export interface ObservationFeed {
 
 export interface PartFeeds {
   mouth: MouthFeed
-  cognition: CognitionFeed
   mind: MindFeed
   hands: HandsFeed
   memory: MemoryFeed
@@ -215,7 +231,8 @@ export interface PartFeeds {
   learning: LearningFeed
 }
 
-/** The watch log (GET /api/system/watch): what she thought, what memory captured, what her hands are after. */
+/** The watch log (GET /api/system/watch): what woke her mind and what she did, what she thought, what memory
+ * captured, what her hands are after. */
 export interface WatchItem {
   id: string
   part: PartId

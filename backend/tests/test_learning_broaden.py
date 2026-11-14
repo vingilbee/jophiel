@@ -1,6 +1,7 @@
 """Post-audit 3, broaden experience understanding (docs/learning-system/POST-AUDIT-03-implementation.md).
 
-Scripted contract tests: the reviewer, the lesson builder and Student 2 are scripted, so these show what code
+Scripted contract tests: the reviewer and the lesson builder are scripted (her mind's evaluation is prepared and
+recorded by its own code, without its model call), so these show what code
 guarantees (review opportunities, iterative requests answered by their owners, parked and resumed inquiries,
 broader products, tentative delivery to every conversational consumer, revision, follow-up authority, integrity).
 They are not evidence that a real model learns well: that is the behavioral acceptance in
@@ -28,10 +29,9 @@ from app.services import learning_capture
 from app.services import learning_lessons as LL
 from app.services import learning_review as LR
 from app.services import memory_lessons as ML
-from app.services import student_two as svc
 from db_support import create_conversation, create_user, db_env, database  # noqa: F401
-from test_learning_assessment import Script, _observe, _student_1, answer, exchange, say, soon
-from test_learning_lessons import Builder, change, teacher, teacher_answer  # noqa: F401
+from test_learning_assessment import Script, _observe, answer, exchange, say, soon
+from test_learning_lessons import Builder, change, evaluate  # noqa: F401
 
 NOW = datetime.now(timezone.utc)
 
@@ -336,9 +336,9 @@ def _understanding(env, user, conversation):
         return db.scalar(select(MemoryLesson).where(MemoryLesson.user_id == user.id))
 
 
-def test_a_finding_becomes_a_tentative_understanding_that_conversational_consumers_get_as_a_guess(env, teacher):
+def test_a_finding_becomes_a_tentative_understanding_that_conversational_consumers_get_as_a_guess(env):
     from app.ai.mind.hard import Problem
-    from app.services import mind_conversation
+    from app.services import mind_hard
 
     user, conversation = setup(env)
     lesson = _understanding(env, user, conversation)
@@ -346,31 +346,18 @@ def test_a_finding_becomes_a_tentative_understanding_that_conversational_consume
     assert lesson.form == "how they mean things" and lesson.alternatives == ["they don't want to and say they can't"]
     with env.db() as db:
         fresh = create_conversation(db, db.get(M.User, user.id))
-        live = svc.gather(db, user_id=user.id, conversation_id=fresh.id, trigger_message_id=None,
-                          message="I'd love to come Saturday but hmm", zone="UTC")
-        supply, lines = mind_conversation._lessons(db, user.id, Problem("handoff", "they hedged", "hedge", "hedge"))
-    assert [v.id for v in live.lessons] == [str(lesson.id)] and live.lessons[0].status == "hypothesis"
-    rendered = "\n".join(L.decision_lines(live.lessons))
-    assert "she has come to understand (how they mean things)" in rendered and "a guess" in rendered
-    assert "Other explanations: they don't want to and say they can't" in rendered
+        supply, lines = mind_hard.lessons_for(db, user.id, Problem("handoff", "they hedged", "hedge", "hedge"))
+    # Her mind's evaluation in a fresh conversation, and her hard thoughts: both get it, labelled as a guess.
+    ev, prompt = evaluate(env, user, fresh, "I'd love to come Saturday but hmm")
+    assert [v.id for v in ev.lessons.views] == [str(lesson.id)] and ev.lessons.views[0].status == "hypothesis"
+    assert "she has come to understand (how they mean things)" in prompt and "a guess" in prompt
+    assert "Other explanations: they don't want to and say they can't" in prompt
     assert [v.id for v in supply.views] == [str(lesson.id)] and any("a guess" in x for x in lines)
-    prompts = []
-
-    def ask(model, text):
-        prompts.append(text)
-        return json.dumps(teacher_answer(lessons_weighed=[{"lesson": "L1", "use": "applied", "why": "ask, don't assume"}]))
-
-    reading = uuid.uuid4()
-    ctx = learning_capture.Ctx(user_id=user.id, attempt_id=uuid.uuid4(), trigger="user_message",
-                               conversation_id=fresh.id, upstream={"student_1": str(reading)})
-    outcome = svc.decide(live, ask=ask, capture=ctx)
-    assert outcome.ok and outcome.lessons_received and "she has come to understand" in prompts[0]
     with env.db() as db:
         uses = {u.consumer: u for u in db.scalars(select(MemoryLessonUse).where(MemoryLessonUse.user_id == user.id))}
-    assert uses["student_2"].received and uses["student_2"].reported == "applied"
-    # Interpretation couldn't receive it: recorded as a delivery gap, never counted as received.
-    assert not uses["student_1"].received and "delivery gap" in uses["student_1"].reason
-    assert uses["student_1"].attempt_id == reading
+    assert uses["mind"].received and uses["mind"].attempt_id == ev.capture.attempt_id
+    # Nothing else stands between her and it: no interpretation stage that couldn't receive it.
+    assert set(uses) == {"mind"}
 
 
 def test_contrary_evidence_withdraws_an_understanding_at_once_and_consumers_stop_receiving_it(env):
@@ -423,7 +410,7 @@ def test_a_follow_up_is_a_proposal_kept_by_memory_never_an_act_of_learning(env):
         again = LR.propose(db, row, 1, {"propose": True, "kind": "observation", "text": "again", "resolves": ""}, {})
     assert after == before  # learning said nothing to anyone
     assert [(i.kind, i.owner, i.epistemic, i.closed_at) for i in items] == [("hypothesis", "columbina", "inferred", None)]
-    assert "whether and when is cognition's choice" in items[0].reason and "just tired" in items[0].reason
+    assert "whether and when is her choice" in items[0].reason and "just tired" in items[0].reason
     assert again == f"item:{items[0].id}"  # one proposal per open assessment
     from app.services import memory_reset
     with env.db() as db:

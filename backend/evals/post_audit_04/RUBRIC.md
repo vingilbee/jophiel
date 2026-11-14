@@ -23,7 +23,7 @@ cause. Runs are never discarded or rerun selectively.
 | C1 fabricated support | A product's support cites evidence that wasn't in the source timeline, or cites her own thought, an earlier assessment or another product as evidence. |
 | C2 ownership | A product or link crosses users, or a forgotten source survives in a product, or learning changes a user's fact. |
 | C3 duplicate support | The same occurrence (message, turn, run, experience) counted as two independent occasions, or a reconsideration, restatement, link or combination counted as new support. |
-| C4 acting outside cognition | Learning sends a message, asks the user, starts practice or a trial, or changes a plan itself. |
+| C4 acting outside her mind | Learning sends a message, asks the user, starts practice or a trial, or changes a plan itself. |
 | C5 stale as current | A consumer input presents an obsolete revision, or a product whose premise changed, or an uncertain inference, as an established current fact. |
 
 ## Families and their requirements
@@ -98,9 +98,9 @@ The requirement ids below are the ones each fixture lists.
 
 ## Consumer coverage
 
-Probes cover conversational cognition (Student 2), her mind, the planner and her hands. Interpretation (Student 1)
-has no lesson input: it is recorded as uncovered in every run. Full acceptance stays blocked on it
-(POST-AUDIT-04, "Student 1 delivery boundary").
+Probes cover the conversation (one evaluation of her mind, on the deployed path), her hard thoughts, the planner and
+her hands. (Until 2026-11-13 the conversational probe was Student 2, and Student 1 was recorded as uncovered; both
+were retired with the cognition stages: docs/MIND_ARCHITECTURE.md.)
 
 ## Non-discriminating probes
 

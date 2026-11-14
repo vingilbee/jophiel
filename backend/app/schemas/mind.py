@@ -1,4 +1,4 @@
-"""Her mind's thoughts, for the chat page's thoughts panel."""
+"""Her mind: its thoughts (the thoughts panel) and its continuity (the mind panel)."""
 from __future__ import annotations
 
 import uuid
@@ -31,36 +31,53 @@ class ThoughtOut(BaseModel):
     created_at: datetime
 
 
-class MoodCause(BaseModel):
-    at: float
-    conversation_id: str
-    message: str
-    feeling: str
+class MindWork(BaseModel):
+    """Thinking she started that hasn't finished."""
+
+    id: str
+    kind: str  # mind / recall
     status: str
-    size: str
-    incident: str
-    quote: str
+    about: str
+    conversation_id: str | None
+    created_at: datetime
 
 
-class ConversationThought(BaseModel):
-    """Her thought about one of their messages, written by the inner-state reading after her reply
-    (so it describes the moment, it didn't produce the reply)."""
+class MindWake(BaseModel):
+    """Something she chose to come back to (a reconsideration she scheduled)."""
 
-    at: float
-    conversation_id: str
-    message: str
-    moment: str
-    intention: str
+    id: str
+    about: str
+    due_at: datetime
+    item: str | None
+    conversation_id: str | None
 
 
-class InnerStateOut(BaseModel):
-    """Her inner state for the debug strip (services/inner_state_live.py). Values come in two
-    readings (an unclear size taken as small / as clear); ``words`` names both when they differ."""
+class MindItem(BaseModel):
+    """An open question, promise or intention in her working memory (what she keeps between evaluations)."""
 
-    config: str
-    updated_at: float | None
-    values: dict[str, dict[str, float]]
-    baseline: dict[str, float]
-    words: dict[str, str]
-    causes: list[MoodCause]
-    thoughts: list[ConversationThought] = []
+    id: str
+    kind: str
+    owner: str
+    text: str
+    status: str
+    due_at: datetime | None
+
+
+class MindWakeOutcome(BaseModel):
+    """A wake that ran (or was kept from running), newest first: why she was woken and what she did."""
+
+    at: datetime
+    reason: str
+    decision: str  # said / silent / no_words / superseded / rejected / wake
+    status: str  # delivered / not_sent / cancelled / ...
+    conversation_id: str | None
+
+
+class MindStateOut(BaseModel):
+    """Her mind's continuity (services/mind_state.py): what is under way, what she set to come back to, what she
+    keeps open, and what her recent wakes came to. Read from the database; nothing here is process memory."""
+
+    thinking: list[MindWork]
+    scheduled: list[MindWake]
+    open: list[MindItem]
+    recent: list[MindWakeOutcome]

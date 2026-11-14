@@ -5,15 +5,14 @@ Learning reads what happened and what the evidence supports. It never speaks, ne
 
 1. **Triggers** (code only; post-audit 3, ``services/learning_review.py``). The ``learning`` consumer of
    observations: every completed exchange extends the conversation's ``review`` stretch, an opportunity the
-   reviewer judges (examine, wait or leave), never a verdict. Student 1 reading a message as a correction or a
-   complaint, and memory reading it as correcting an earlier statement, are signals shown on the stretch, not
-   reasons of their own. An interrupted spoken reply, a failed delivery, a failed skill run and a critical game
+   reviewer judges (examine, wait or leave), never a verdict. Memory reading a message as correcting an earlier
+   statement, and her mind pointing at something, are signals shown on the stretch, not reasons of their own. An interrupted spoken reply, a failed delivery, a failed skill run and a critical game
    notice stay ``execution`` facts with their own assessment. A sweep adds what isn't an observation: a failed
-   or cut-off reply, a failed effect, her last reply in a conversation gone quiet, ongoing game play. One
+   or cut-off reply, her last reply in a conversation gone quiet, ongoing game play. One
    assessment per trigger key, so reprocessing never duplicates one; evidence is attached once per ref.
 2. **Investigation.** Code gathers the conversation around the trigger (heard text, forgotten parts withheld),
-   the turns before it as targets with their captured records (Student 1's reading, Student 2's decision, the
-   reply's delivery, what was heard, the effect), facts checked by code (each says what it establishes and what
+   the turns before it as targets with their captured records (her mind's evaluation: what woke her, the tools
+   she used, what she said or that she chose silence; the reply's delivery, what was heard), facts checked by code (each says what it establishes and what
    it doesn't), quotes of her words, memory corrections, game outcomes and her hands' decisions, the user's
    notes, and other open assessments in the conversation. One evaluator call per round
    (``app/ai/learning/assessment.py``); code checks every ref, quote and component claim. The evaluator may ask
@@ -27,8 +26,7 @@ Learning reads what happened and what the evidence supports. It never speaks, ne
    and kept. Reading the same evidence again is not a revision (repetition is not evidence). New evidence
    (a capture that arrives late, a correction, a later message another assessment found relevant, the user's
    note) reopens an assessment. When conclusions change, every owner that acted on the earlier one is told to
-   reconsider (training examples flagged when Student 2's choice in that turn was found at fault; lessons that
-   rested on the earlier reading, docs/learning-system/03-implementation.md).
+   reconsider (lessons that rested on the earlier reading, docs/learning-system/03-implementation.md).
 """
 from __future__ import annotations
 
@@ -55,7 +53,7 @@ from app.core.config import get_settings
 from app.db.models import (
     CaptureGap, ChatMessage, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, GameExperience, LearningAssessment,
     LearningAssessmentEvidence, LearningAssessmentLink, LearningAssessmentRevision, LearningAssessmentUse,
-    MemoryCorrection, Observation, ObservationProcessing, TrainingExample, User,
+    MemoryCorrection, Observation, ObservationProcessing, User,
 )
 from app.services.learning_capture import execution_id_for
 
@@ -261,12 +259,28 @@ def _triage_one(db: Session, observation: Observation | None, now: datetime) -> 
                             "why": f"skill {p.get('skill')} ended {p.get('status')}", "observation": observation.id},
                         evidence=[(f"experience:{experience.id}", "a failed skill run", {})])
         return "applied", "a failed skill run"
+    if key == ("desktop", "desktop_action"):
+        if p.get("status") not in ("failed", "unconfirmed"):
+            return "skipped", "not a failure"
+        turn_id = _uuid(p.get("turn_id"))
+        anchor = _turn_message(db, turn_id, None) if turn_id is not None else None
+        if anchor is None:
+            # Her reply isn't stored yet (the turn is still going): wait for it, the exchange is the unit.
+            return ("wait", "the turn's reply isn't stored yet") if turn_id is not None else ("skipped", "no turn")
+        execution = uuid.uuid5(uuid.NAMESPACE_URL, f"desktop-action:{p.get('action_id')}")
+        # Every failed action of one turn is one assessment of that exchange, with more evidence.
+        open_assessment(db, user_id=observation.user_id, kind="execution", key=f"desktop:{turn_id}",
+                        anchor_at=anchor.created_at, conversation_id=anchor.conversation_id,
+                        anchor_message_id=anchor.id, trigger={
+                            "why": f"her desktop {p.get('tool')} {p.get('status')}", "observation": observation.id},
+                        evidence=[(f"execution:{execution}", f"a desktop {p.get('tool')} {p.get('status')}", {})])
+        return "applied", "a failed desktop action"
     return "skipped", "not a kind learning assesses"
 
 
 def _triage_message(db: Session, observation: Observation, p: dict, now: datetime) -> tuple[str, str]:
     """A completed exchange: an opportunity on the conversation's review stretch. Whether it says anything is the
-    reviewer's to judge; Student 1's reading of it is read as a signal when the stretch is gathered."""
+    reviewer's to judge."""
     from app.services import learning_review
 
     message = db.get(ChatMessage, _uuid(p.get("message_id")))
@@ -293,10 +307,10 @@ def started_at(db: Session) -> datetime:
 
 
 def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[str, int]:
-    """Failed or cut-off replies, failed effects, memory corrections and captures that arrived late. Commits."""
+    """Failed or cut-off replies, memory corrections and captures that arrived late. Commits."""
     now = now or _now()
     horizon = max(started_at(db), now - timedelta(days=get_settings().learning_capture_retention_days))
-    done = {"replies": 0, "effects": 0, "corrections": 0, "arrived": 0, "pauses": 0, "games": 0}
+    done = {"replies": 0, "corrections": 0, "arrived": 0, "pauses": 0, "games": 0}
 
     from app.db.models import LearningReset
 
@@ -321,20 +335,6 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
                         anchor_message_id=anchor.id, trigger={
                             "why": f"her reply {row.result}: {row.deviation or ''}".strip(), "execution": str(row.id)})
         done["replies"] += 1
-    effects = db.scalars(select(DecisionExecution).where(
-        DecisionExecution.kind == "effect", DecisionExecution.result == "failed",
-        DecisionExecution.captured_at >= horizon,
-        after_reset(DecisionExecution.user_id, func.coalesce(DecisionExecution.ended_at, DecisionExecution.captured_at)),
-        unassessed("effect:", DecisionExecution.id)).order_by(DecisionExecution.captured_at).limit(limit))
-    for row in list(effects):
-        anchor = _turn_message(db, row.turn_id, None)
-        open_assessment(db, user_id=row.user_id, kind="execution", key=f"effect:{row.id}",
-                        anchor_at=row.ended_at or row.captured_at,
-                        conversation_id=anchor.conversation_id if anchor else row.conversation_id,
-                        anchor_message_id=anchor.id if anchor else None, game_session_id=row.game_session_id,
-                        trigger={"why": f"the work part of a decision failed: {row.deviation or ''}".strip(),
-                                 "execution": str(row.id)})
-        done["effects"] += 1
     corrections = db.scalars(select(MemoryCorrection).where(
         MemoryCorrection.kind == "mistaken", MemoryCorrection.created_at >= horizon,
         after_reset(MemoryCorrection.user_id, MemoryCorrection.created_at),
@@ -368,6 +368,25 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
         row.awaiting = [r for r in row.awaiting if _uuid(r.split(":", 1)[1]) not in set(arrived)]
     db.commit()
     return done
+
+
+DESKTOP_FACT_STEPS = 30
+
+
+def desktop_facts(rows: list[DecisionExecution]) -> str:
+    """Her desktop actions in one turn, in order, as code recorded them (what she meant, what came back)."""
+    lines = []
+    for e in rows[:DESKTOP_FACT_STEPS]:
+        meant, did = e.intended or {}, e.executed or {}
+        args = {k: v for k, v in meant.items() if k != "tool" and v not in (None, [], "")}
+        front = (did.get("foreground") or {})
+        where = f' [in front: {front.get("process") or "?"} "{(front.get("title") or "")[:80]}"]' if front.get("process") or front.get("title") else ""
+        lines.append(f"{meant.get('tool', '?')} {json.dumps(args, ensure_ascii=False)[:160]} -> {did.get('status', e.result)}"
+                     + (f" ({e.deviation[:120]})" if e.deviation else "") + where)
+    more = f" (+{len(rows) - DESKTOP_FACT_STEPS} more)" if len(rows) > DESKTOP_FACT_STEPS else ""
+    return (f"desktop: her hands on her own desktop this turn, {len(rows)} action(s){more}: " + "; ".join(lines)
+            + ". Establishes: what she sent and whether each input was delivered. Does not establish: whether the "
+              "app did what she wanted (only a later screenshot shows that), or whether using the desktop was right.")
 
 
 def _turn_message(db: Session, turn_id: uuid.UUID | None, assistant_message_id: uuid.UUID | None) -> ChatMessage | None:
@@ -546,6 +565,9 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
     if row.game_session_id is not None:
         _game(db, row, out, attached, plan)
 
+    # Her desktop's security records her mind looked into in this stretch (or attached): what code recorded.
+    _security(db, row, ev, messages, attached, facts)
+
     # The user's notes on this assessment.
     for k, e in enumerate((e for e in evidence_rows if e.ref.startswith("note:")), 1):
         words = str((e.detail or {}).get("text") or "")
@@ -623,10 +645,8 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
         DecisionExecution.user_id == row.user_id, DecisionExecution.assistant_message_id == message.id,
         DecisionExecution.kind.in_(("heard", "channel_delivery"))).order_by(DecisionExecution.captured_at)))
     gaps = list(db.scalars(select(CaptureGap).where(CaptureGap.user_id == row.user_id, CaptureGap.turn_id == turn_id)))
-    s2 = latest.get("student_2")
-    expected_s2 = _uuid(reply.attempt_id) if reply is not None and reply.attempt_id else (s2.id if s2 else None)
-    expected_s1 = _uuid((s2.upstream or {}).get("student_1")) if s2 is not None else None
-    asked = db.scalar(select(ChatMessage.id).where(ChatMessage.turn_id == turn_id, ChatMessage.role == "user").limit(1))
+    mind = latest.get("mind")
+    expected_mind = _uuid(reply.attempt_id) if reply is not None and reply.attempt_id else (mind.id if mind else None)
     expired = _aware(message.created_at) < _now() - retention
     nothing = not attempts and reply is None and not around
 
@@ -642,15 +662,13 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
     roots = [f"turn:{turn_id}", f"message:{message.id}"]
     ids: dict[str, str] = {}
     intention = ""
-    for learner, expected, suffix in (("student_1", expected_s1, "s1"), ("student_2", expected_s2, "s2")):
-        if learner == "student_1" and asked is None and "student_1" not in latest:
-            continue  # a follow-up (a finished thought) has no Student 1
+    for learner, expected, suffix in (("mind", expected_mind, "m"),):
         record = latest.get(learner)
         rid = record.id if record is not None else expected
         if rid is not None:
             ids[learner] = str(rid)
             roots.append(f"attempt:{rid}")
-        word = "Student 1's reading" if learner == "student_1" else "Student 2's decision"
+        word = "her mind's evaluation"
         if record is None:
             text = f"{word}: not captured ({why_missing(rid)})"
             if rid is not None and not expired and not any(g.record_id == rid for g in gaps):
@@ -660,19 +678,13 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
             tries = sum(1 for a in attempts if a.learner == learner)
             if tries > 1:
                 text += f" [try {tries}; earlier tries were retried]"
-            if learner == "student_2":
-                intention = ((record.output or {}).get("decision") or {}).get("intention") or ""
+            intention = (record.output or {}).get("silent") or ""
         detail = _input_detail(record) if plan.inputs and record is not None else None
         ev.add(A.Item(ref=f"{tref}.{suffix}", kind="record", learner=learner, event=f"turn:{turn_id}",
                       roots=(f"attempt:{rid}",) if rid else (f"turn:{turn_id}",), target=tref, text=text,
                       captured=record is not None, detail=detail))
     if reply is not None:
         roots.append(f"execution:{reply.id}")
-        if (reply.intended or {}).get("origin") == "operational_fallback":
-            ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="capture", event=f"turn:{turn_id}",
-                          roots=(f"execution:{reply.id}",), target=tref,
-                          text="decision: Student 2 couldn't decide; the reply used the operational fallback "
-                               "(respond). Establishes: no valid decision was made. Does not establish: why."))
         delivery = {"succeeded": "the reply was stored and sent in full",
                     "deviated": "the reply was sent, but not as intended",
                     "failed": "the reply failed", "cancelled": "the reply was stopped before any of it was kept",
@@ -682,7 +694,7 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
         if "spoke although the decision was silence" in deviation:
             ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="deviation", event=f"turn:{turn_id}",
                           roots=(f"execution:{reply.id}",), target=tref,
-                          text="deviation: the mouth spoke although Student 2 chose silence. Establishes: what was "
+                          text="deviation: words went out although she had chosen silence. Establishes: what was "
                                "done differed from what was chosen. Does not establish: which was right."))
         ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="delivery", event=f"turn:{turn_id}",
                       roots=(f"execution:{reply.id}",), target=tref,
@@ -690,16 +702,6 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
                            + (f" ({deviation})" if deviation else "")
                            + ". Establishes: what happened to the reply on its way. Does not establish: whether its "
                              "content or timing was right."))
-        effect = db.scalar(select(DecisionExecution).where(
-            DecisionExecution.user_id == row.user_id, DecisionExecution.kind == "effect",
-            DecisionExecution.attempt_id == reply.attempt_id).limit(1)) if reply.attempt_id else None
-        if effect is not None and effect.result != "succeeded":
-            ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="effect", event=f"turn:{turn_id}",
-                          roots=(f"execution:{effect.id}",), target=tref,
-                          text=f"effect: the work part ({(effect.intended or {}).get('work')}) {effect.result}"
-                               + (f": {effect.deviation}" if effect.deviation else "")
-                               + ". Establishes: whether the work part was carried out. Does not establish: whether "
-                                 "choosing it was right."))
     elif not nothing:
         ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="capture", event=f"turn:{turn_id}",
                       roots=(f"turn:{turn_id}",), target=tref,
@@ -714,43 +716,66 @@ def _turn_target(db: Session, row: LearningAssessment, out: Gathered, message: C
                 "establish: whether it was read.")
         ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="delivery", event=f"turn:{turn_id}",
                       roots=(f"execution:{e.id}",), target=tref, text=text))
+    desktop = list(db.scalars(select(DecisionExecution).where(
+        DecisionExecution.user_id == row.user_id, DecisionExecution.turn_id == turn_id,
+        DecisionExecution.kind == "desktop_action").order_by(DecisionExecution.started_at)))
+    if desktop:
+        roots += [f"execution:{e.id}" for e in desktop]
+        ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="effect", event=f"turn:{turn_id}",
+                      roots=tuple(f"execution:{e.id}" for e in desktop[:40]), target=tref,
+                      text=desktop_facts(desktop)))
     for gap in gaps:
         ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="capture", event=f"turn:{turn_id}",
                       roots=(f"turn:{turn_id}",), target=tref,
                       text=f"capture: a {gap.label} record of this turn was lost ({gap.reason}). Establishes: that "
                            "record is missing. Does not establish: anything about what it said."))
-    label = f"her reply {line}" + (f' (intention: "{intention[:160]}")' if intention else "")
+    label = f"her reply {line}" + (f' (she chose silence: "{intention[:160]}")' if intention else "")
     ev.targets[tref] = A.Target(tref, "turn", label, f"turn:{turn_id}", tuple(roots))
     out.target_roots[tref] = list(dict.fromkeys(roots))
     out.attempts[tref] = ids
 
 
+def _mind_summary(record: DecisionAttempt) -> str:
+    """One evaluation of her mind in a line: why she woke, the tools she used, and what she did about speaking."""
+    output, inp = record.output or {}, record.input or {}
+    tools = [str(t.get("tool")) for t in output.get("tools") or [] if isinstance(t, dict) and t.get("tool")]
+    parts = [f"woken by {inp.get('reason') or record.trigger}"]
+    if tools:
+        parts.append("used " + ", ".join(dict.fromkeys(tools)))
+    if output.get("silent"):
+        parts.append(f'chose silence ("{_short(output["silent"], 160)}")')
+    elif output.get("reply"):
+        parts.append(f"spoke ({len(output['reply'])} characters)")
+    else:
+        parts.append("wrote nothing")
+    if output.get("thinking_started"):
+        parts.append("started background thinking")
+    if output.get("scheduled"):
+        parts.append(f"scheduled {len(output['scheduled'])} thing(s) to come back to")
+    if output.get("proposal"):
+        parts.append(f"proposal: {output['proposal']}")
+    memory = inp.get("memory") or {}
+    if memory.get("status"):
+        parts.append(f"memory check: {memory['status']}")
+    return "; ".join(parts)
+
+
 def _record_summary(record: DecisionAttempt) -> str:
     output = record.output or {}
-    if record.status != "ok" and record.learner != "student_2":
+    if record.status != "ok":
         return f"failed: {record.error or 'no output'}"
-    if record.learner == "student_1":
-        understand = output.get("understand") or {}
-        acts = [a for a, on in (understand.get("acts") or {}).items() if on]
-        return (f"acts {acts or ['none']}, tone {understand.get('tone')}, request {understand.get('request')}, "
-                f"sure {understand.get('sure')}")
-    if record.learner == "student_2":
-        decision = output.get("decision") or {}
-        if record.status != "ok" or not decision:
-            return f"no valid decision ({record.error or '; '.join(map(str, output.get('problems') or [])) or 'invalid'})"
-        return (f'intention "{decision.get("intention")}", communication {decision.get("communication")}, '
-                f'move {decision.get("move")}, what to get across "{decision.get("what_to_communicate")}", '
-                f'work {decision.get("work")}')
+    if record.learner == "mind":
+        return _mind_summary(record)
     action = output.get("action")
     return f"chose {action}" if action else "no action"
 
 
 def _input_detail(record: DecisionAttempt) -> str | None:
     inp = record.input or {}
-    if record.learner == "student_2":
-        text = inp.get("prompt")
-    elif record.learner == "student_1":
-        text = json.dumps(inp.get("bundle"), ensure_ascii=False) if inp.get("bundle") else None
+    if record.learner == "mind":
+        # What woke her and what memory gave her (the full prompt is kept by hash; this is what differs per turn).
+        shown = {k: inp.get(k) for k in ("reason", "message", "wake", "memory", "lessons") if inp.get(k)}
+        text = json.dumps(shown, ensure_ascii=False) if shown else None
     else:
         text = inp.get("text")
     if not text:
@@ -811,9 +836,6 @@ def _execution_brief(ex: dict) -> str:
     if not isinstance(executed, dict):
         return _short(ex, 600)
     if ex.get("kind") != "skill_run":
-        if ex.get("kind") == "effect" and executed.get("effect"):
-            return (f"effect of her decision (work {intended.get('work')}, target {intended.get('target')}): "
-                    f"{_short(executed.get('effect'), 200)} (result {ex.get('result')})")
         if ex.get("kind") == "thought_route":
             # Its conclusion and tip are on the thought's own record; this says where they went.
             return (f"her {intended.get('kind')} thought routed"
@@ -902,10 +924,8 @@ def _answer_brief(record: DecisionAttempt) -> str:
     elif record.learner == "planner" and parsed:
         keys = ("decision", "progress", "goal", "why", "steps", "drop", "sees", "cannot_see")
         label = "her planner's decision (its reasoning at the time: not evidence of what happened)"
-    elif record.learner == "student_2" and isinstance(output.get("decision"), dict):
-        d = output["decision"]
-        return (f"student_2 decision: intention \"{d.get('intention')}\", communication {d.get('communication')}, "
-                f"said \"{_short(d.get('what_to_communicate') or '', 200)}\", work {d.get('work')}")
+    elif record.learner == "mind":
+        return f"her mind's evaluation: {_mind_summary(record)}"
     elif record.learner == "hands":
         inner = output.get("output") or {}
         return (f"hands answer: status {inner.get('status')}, action {output.get('action')}, "
@@ -1136,6 +1156,29 @@ def _lessons_used(db: Session, row: LearningAssessment, ev: A.Evidence, by_attem
     return {h: ", ".join(n) for h, n in notes.items()}
 
 
+def _security(db: Session, row: LearningAssessment, ev: A.Evidence, messages: list[ChatMessage],
+              attached: set[str], facts: "_Counter") -> None:
+    """Security investigations this conversation's stretch rests on: the ones attached (her mind pointed at one),
+    and the ones she thought about while the messages shown were being said (what she told the user and what
+    they answered, a correction above all, are about them)."""
+    from app.db.models import SecurityInvestigation
+    from app.services import mind_security
+
+    found: dict[uuid.UUID, SecurityInvestigation] = {}
+    for ref in sorted(r for r in attached if r.startswith("security:")):
+        inv = db.get(SecurityInvestigation, _uuid(ref.split(":", 1)[1]))
+        if inv is not None and inv.user_id == row.user_id:
+            found[inv.id] = inv
+    if row.conversation_id is not None and messages:
+        start = _aware(messages[0].created_at) - timedelta(hours=1)
+        end = _aware(messages[-1].created_at)
+        for inv in mind_security.recent_for_conversation(db, row.user_id, row.conversation_id, start, end):
+            found.setdefault(inv.id, inv)
+    for inv in list(found.values())[:5]:
+        ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="security", event=f"security:{inv.id}",
+                      roots=(f"security:{inv.id}",), text=mind_security.facts_for_learning(db, inv)))
+
+
 def _elsewhere(db: Session, row: LearningAssessment, ev: A.Evidence, attached: set[str]) -> None:
     """Attached messages and game experiences that aren't part of this assessment's own conversation or session
     (another assessment reopened this one with them). Shown so a parked inquiry resumes on them."""
@@ -1168,27 +1211,11 @@ def _elsewhere(db: Session, row: LearningAssessment, ev: A.Evidence, attached: s
                            f"{_game_excerpt(e.payload, 900)}. A recorded report from another session."))
 
 
-_ACT_SIGNALS = {"correcting_her": "as correcting her", "complaining": "as complaining"}
-
-
 def _signals(db: Session, row: LearningAssessment, messages: list[ChatMessage], lines: dict,
              evidence_rows: list[LearningAssessmentEvidence]) -> list[str]:
-    """Labels other parts gave the activity shown: Student 1's reading of a user line as a correction or complaint,
-    and her mind pointing at something. Said as labels; whether they matter is the reviewer's."""
+    """Labels other parts gave the activity shown: her mind pointing at something. Said as labels; whether they
+    matter is the reviewer's."""
     out = []
-    users = {m.id: lines[m.id] for m in messages if m.role == "user" and m.id in lines}
-    if users:
-        readings = db.scalars(select(DecisionAttempt).where(
-            DecisionAttempt.user_id == row.user_id, DecisionAttempt.learner == "student_1",
-            DecisionAttempt.status == "ok", DecisionAttempt.source_message_id.in_(list(users)))
-            .order_by(DecisionAttempt.started_at))
-        latest = {r.source_message_id: r for r in readings}
-        for message_id, reading in latest.items():
-            acts = ((reading.output or {}).get("understand") or {}).get("acts") or {}
-            for act, words in _ACT_SIGNALS.items():
-                if acts.get(act):
-                    out.append(f"Student 1 read {users[message_id]} {words} (its label; it can misread jokes, "
-                               "quotes and remarks aimed at someone else)")
     for e in evidence_rows:
         if e.ref.startswith("nomination:"):
             out.append(f'her mind pointed at this: "{(e.detail or {}).get("text", "")}" (her own thought: not '
@@ -1649,7 +1676,7 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
         current.superseded_at, current.superseded_by = now, n
     stop = found.stop
     if result["follow_up"]["propose"] and stop != "left":
-        # A proposal for cognition, kept by memory as an open item of hers; learning never asks or acts.
+        # A proposal for her mind, kept by memory as an open item of hers; learning never asks or acts.
         from app.services import learning_review
         result["follow_up"]["item"] = learning_review.propose(db, row, n, result["follow_up"], result["inquiry"])
     stored = _store_result(result, gathered)
@@ -1757,40 +1784,15 @@ def note_use(db: Session, row: LearningAssessment, revision: int, consumer: str,
         "revision": revision, "state": "current", "reason": reason, "changed_at": func.now()}))
 
 
-def _faulted_choices(result: dict, gathered: Gathered) -> dict[str, str]:
-    """Student 2 attempts a supported cause found at fault: attempt id -> why."""
-    out = {}
-    for c in result["causes"]:
-        if c["component"] == "student_2" and c["status"] == "supported":
-            attempt = gathered.attempts.get(c["target"], {}).get("student_2")
-            if attempt:
-                out[attempt] = c["why"]
-    return out
-
-
 def _owners(db: Session, row: LearningAssessment, n: int, result: dict, gathered: Gathered, *, changed: bool) -> None:
-    """Training examples whose label is a choice this revision found at fault are flagged for review (their owner's
-    rule: ineligible until reviewed). When a revision changes the conclusions, uses that no longer hold are marked
-    ``reconsider`` and their owner is told; the owner decides."""
-    from app.services import training_examples
-
-    faulted = _faulted_choices(result, gathered)
-    flagged = set()
-    for attempt, why in faulted.items():
-        for example_id in training_examples.flag_for_review(
-                db, row.user_id, uuid.UUID(attempt),
-                reason=f"assessment {row.id} (revision {n}) supports that Student 2's choice was at fault: {why}"):
-            ref = f"example:{example_id}"
-            flagged.add(ref)
-            note_use(db, row, n, "training_examples", ref, reason=f"flagged: {why}"[:500])
+    """When a revision changes the conclusions, uses that no longer hold are marked ``reconsider`` and their owner
+    is told; the owner decides."""
     if not changed:
         return
     uses = list(db.scalars(select(LearningAssessmentUse).where(LearningAssessmentUse.assessment_id == row.id,
                                                                LearningAssessmentUse.state == "current",
                                                                LearningAssessmentUse.revision < n)))
     for use in uses:
-        if use.ref in flagged:
-            continue  # still holds: note_use moved it to this revision
         use.state, use.changed_at = "reconsider", _now()
         use.reason = f"revision {n} no longer supports the conclusion it acted on"
         RECONSIDER.get(use.consumer, _nobody)(db, use, row, n)
@@ -1800,15 +1802,6 @@ def _nobody(db: Session, use: LearningAssessmentUse, row: LearningAssessment, n:
     log.warning("learning assessment: no owner registered for %s", use.consumer)
 
 
-def _examples_reconsider(db: Session, use: LearningAssessmentUse, row: LearningAssessment, n: int) -> None:
-    from app.services import training_examples
-
-    example_id = _uuid(use.ref.split(":", 1)[1])
-    if example_id is not None:
-        training_examples.reconsider(db, row.user_id, example_id,
-                                     note=f"assessment {row.id} was revised (revision {n}) and no longer supports it")
-
-
 def _lessons_reconsider(db: Session, use: LearningAssessmentUse, row: LearningAssessment, n: int) -> None:
     from app.services import learning_lessons
 
@@ -1816,7 +1809,6 @@ def _lessons_reconsider(db: Session, use: LearningAssessmentUse, row: LearningAs
 
 
 RECONSIDER: dict[str, Callable[[Session, LearningAssessmentUse, LearningAssessment, int], None]] = {
-    "training_examples": _examples_reconsider,
     "lessons": _lessons_reconsider,
 }
 

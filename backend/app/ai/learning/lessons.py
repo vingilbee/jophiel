@@ -26,10 +26,12 @@ only what the evidence shown can carry:
 - Nothing is cut to fit: a lesson whose text, applicability or exceptions are over the limits is dropped, since a
   shortened exception could change what it means.
 
-**Decision input** (Student 2's side). ``decision_lines`` renders a bounded selection of accepted lessons as the
-LESSONS section (whose lesson each is, where it applies, its exceptions, conflicts left open), ``GUIDE`` tells the
-decision model how to weigh them (experience, not commands), and ``weighed_schema`` / ``parse_weighed`` carry its
-own account of how each bore on the decision. That account is the consumer's report, not proof of influence.
+**Decision input** (the side of whoever decides: her mind in an evaluation, a hard thought, her hands).
+``decision_lines`` renders a bounded selection of accepted lessons as the LESSONS section (whose lesson each is,
+where it applies, its exceptions, conflicts left open), and ``GUIDE`` says how to weigh them (experience, not
+commands). A consumer that answers in a schema (her hands) also gives its own account of how each bore on the
+decision (``weighed_schema`` / ``parse_weighed``, the guide's last paragraph); her mind reads the guide without
+that paragraph. That account is the consumer's report, not proof of influence.
 """
 from __future__ import annotations
 
@@ -42,8 +44,7 @@ from typing import Any
 
 PROMPT_VERSION = "lessons-v7"  # discover useful understanding; reconcile propositions and judge actual use
 RECONSIDER_VERSION = "lessons-reconsider-v1"
-INTERFACE_VERSION = "lessons-input-v5"  # what a decision model is shown (decision_lines + GUIDE + weighed field)
-RENDERING = "lessons-v1"  # memory-v1 plus LESSONS after MEMORY, and the lessons_weighed field
+INTERFACE_VERSION = "lessons-input-v5"  # what a consumer is shown (decision_lines + GUIDE + weighed field)
 
 KINDS = ("preference", "strategy", "understanding")
 INFERRED = ("strategy", "understanding")
@@ -855,13 +856,13 @@ def _ms(started: float) -> float:
 
 
 # --------------------------------------------------------------------------- #
-# Student 2's side: the LESSONS section, the guide, and its own account
+# The consumer's side: the LESSONS section, the guide, and a consumer's own account
 # --------------------------------------------------------------------------- #
 
 
 @dataclass(frozen=True)
 class LessonView:
-    """A lesson as a decision model reads it, with applicability, provenance and uncertainty."""
+    """A lesson as its consumer reads it, with applicability, provenance and uncertainty."""
 
     ref: str  # L1, L2 ... in this decision's input
     id: str
@@ -1290,5 +1291,5 @@ __all__ = ["Bundle", "Line", "Conclusion", "Shown", "Change", "Checked", "Lesson
            "Reconsiderer", "RECONSIDER_INSTRUCTIONS", "RECONSIDER_SCHEMA", "RECONSIDER_VERSION", "detail_lines",
            "LINKS", "BASIS", "DETAILS", "TRIED", "DECISIONS",
            "status_for", "certainty_of", "INFERRED", "CERTAINTY", "Builder", "Answer", "decision_lines", "weighed_schema", "parse_weighed", "GUIDE",
-           "INSTRUCTIONS", "SCHEMA", "PROMPT_VERSION", "INTERFACE_VERSION", "RENDERING", "KINDS", "SCOPES",
+           "INSTRUCTIONS", "SCHEMA", "PROMPT_VERSION", "INTERFACE_VERSION", "KINDS", "SCOPES",
            "STATUSES", "OPS", "REPORTED"]

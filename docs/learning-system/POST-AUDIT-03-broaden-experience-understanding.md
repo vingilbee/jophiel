@@ -1,5 +1,7 @@
 # Post-audit 3: broaden experience understanding
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](../MIND_ARCHITECTURE.md).
+
 Status: design agreed through discussion on 2026-11-05. Implementation requested and built the same day ([implementation](POST-AUDIT-03-implementation.md)); behavioral acceptance not yet run. This is the third post-audit work package, not historical step 3 (immediate adaptation).
 
 ## Goal

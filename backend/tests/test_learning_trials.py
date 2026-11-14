@@ -1,8 +1,8 @@
 """Learning step 4, predictions and bounded game trials (docs/learning-system/04-implementation.md).
 
-Scripted models only: the proposer, Student 2 and the assessor are replaced by scripted answers and the game pack
-by a fake, so these tests show what code guarantees: what a proposal must hold before cognition sees it, that only
-cognition's choice starts a trial, that preparation and the bounds are kept, that expectations are never rewritten,
+Scripted models only: the proposer, her mind's decision and the assessor are replaced by scripted answers and the
+game pack by a fake, so these tests show what code guarantees: what a proposal must hold before her mind sees it, that
+only her choice starts a trial, that preparation and the bounds are kept, that expectations are never rewritten,
 that measurements and not the model's words decide what can be concluded, and what reaches each owner. Whether
 Luna proposes and assesses well needs the real game (``scripts/trial_eval.py``). Pure checks run without a
 database; the rest need real PostgreSQL (TEST_DATABASE_URL).
@@ -18,7 +18,6 @@ from sqlalchemy.exc import DBAPIError
 
 from app.ai.desktop.practice import PracticeDeps, PracticeRun, TrialSpec
 from app.ai.learning import trials as T
-from app.ai.state import student_two as S
 from app.core.config import get_settings
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_skill_driver import MANIFEST, ScriptedModel
@@ -274,28 +273,18 @@ def test_reaching_the_block_limit_ends_the_trial():
 
 
 # --------------------------------------------------------------------------- #
-# Cognition's view: each alternative is a proposal [P*]
+# Her mind's view: each alternative is an option she can take up
 # --------------------------------------------------------------------------- #
 
 
-def test_student_two_reads_the_alternatives_and_must_say_what_happens_to_the_goal_it_competes_with():
-    from datetime import datetime, timezone
+def test_her_mind_reads_every_alternative_with_its_key_and_that_it_competes_with_her_hands():
+    from app.services import learning_trials as LT_
 
-    now = datetime.now(timezone.utc)
-    views = T.proposal_views(proposal())
-    live = S.Live(trigger="component_proposal", domain="minecraft", now=now, lines=(), new_message="",
-                  goals=(S.Goal("g-1", "build a house", "user", "active", "the house stands", now),),
-                  activity=S.Activity("s", "running", "Playing Minecraft together"),
-                  proposals=tuple(S.Proposal(f"trial:t:1:{v['key']}", "curriculum", v["goal"], v["purpose"], "g-1")
-                                  for v in views))
-    situation = S.snapshot(live)
-    text = S.render(situation, "memory-v1")
-    assert "PROPOSALS (not accepted yet):" in text and "[P2] from her curriculum: try dig steps" in text
-    assert situation.refs["P1"] == "trial:t:1:a1"
-    pursue = dict(S.DEFAULTS) | {"work": "pursue", "target": "P2", "intention": "x"}
-    assert any("G1" in p for p in S.check(pursue, situation))  # competing with the goal: say what happens to it
-    assert S.check(pursue | {"other_goal": "G1", "other_goal_handling": "keep_alongside"}, situation) == []
-    assert S.check(dict(S.DEFAULTS) | {"work": "defer_proposal", "target": "P1"}, situation) == []
+    text, options = LT_.proposal_text(proposal())
+    assert options == [v["key"] for v in T.proposal_views(proposal())] == ["a1", "a2"]
+    assert "[a2] try dig steps" in text and "decide_proposal" in text
+    assert "competes with what your hands are doing now" in text
+    assert "Say something to the user only if you choose to" in text
 
 
 # --------------------------------------------------------------------------- #
@@ -307,7 +296,7 @@ from app.db.models import (  # noqa: E402
     LearningTrial, LearningTrialAssessment, LearningTrialEvent, LearningTrialRevision, LearningTrialTrigger, User,
     WorkingItem,
 )
-from app.services import game_practice, learning_trials as LT, memory_manager, student_two as svc  # noqa: E402
+from app.services import game_practice, learning_trials as LT, memory_manager  # noqa: E402
 from tests.db_support import columbina_core_memory, database  # noqa: E402,F401  (fixture)
 
 
@@ -357,19 +346,22 @@ def scripted_proposer(raw):
     return call
 
 
-def scripted_decision(**fields):
-    def decide(live, capture=None):
-        situation = S.snapshot(live)
-        S.render(situation, "memory-v1")
-        d = dict(S.DEFAULTS) | {"intention": "worth a try"} | fields
-        problems = S.check(d, situation)
-        return svc.Outcome("invalid" if problems else "ok", situation=situation, decision=None if problems else d,
-                           problems=problems, decision_id=str(capture.attempt_id))
+def scripted_decision(work, option=None, intention="worth a try", **_):
+    """Her mind deciding the proposal in its wake, as her ``decide_proposal`` tool would (on_pursue / on_decline /
+    on_defer); ``option`` is the alternative's key."""
+    def decide(db, *, trial_id, revision, options, text):
+        trial = db.get(LearningTrial, trial_id)
+        decided = str(uuid.uuid4())  # the evaluation's capture attempt, as the tool passes it
+        key = f"trial:{trial_id}:{revision}:{option or options[0]}"
+        if work == "pursue":
+            return LT.on_pursue(db, trial.user_id, key, reason=intention, decision_id=decided)
+        if work == "decline_proposal":
+            return LT.on_decline(db, trial.user_id, key, reason=intention, decision_id=decided)
+        return LT.on_defer(db, trial.user_id, key, reason=intention, decision_id=decided)
     return decide
 
 
-PURSUE_A2 = dict(work="pursue", target="P2", other_goal="G1", other_goal_handling="keep_alongside",
-                 intention="digging needs nothing I lack")
+PURSUE_A2 = dict(work="pursue", option="a2", intention="digging needs nothing I lack")
 
 
 def assessor(raw):
@@ -402,16 +394,16 @@ def propose(db, game, pack, raw=None):
     return trial_of(db), proposer
 
 
-def test_from_failure_to_assessment_only_cognitions_choice_starts_it_and_each_owner_gets_its_part(db, game):
+def test_from_failure_to_assessment_only_her_minds_choice_starts_it_and_each_owner_gets_its_part(db, game):
     pack = Pack(now=state(dirt=0))
     trial, _ = propose(db, game, pack)
-    # Persisted, whole, before cognition saw it; her hypothesis kept by memory.
+    # Persisted, whole, before her mind saw it; her hypothesis kept by memory.
     assert (trial.status, trial.revision) == ("proposed", 1)
     revision = db.scalar(select(LearningTrialRevision).where(LearningTrialRevision.trial_id == trial.id))
     assert revision.proposal["hypothesis"].startswith("Jumping") and len(revision.proposal["alternatives"]) == 2
     hypothesis = db.get(WorkingItem, trial.hypothesis_item_id)
     assert (hypothesis.kind, hypothesis.status, hypothesis.owner) == ("hypothesis", "open", "columbina")
-    # Nothing runs without cognition: advancing a proposal does nothing.
+    # Nothing runs without her mind: advancing a proposal does nothing.
     assert LT.advance_once(pack=pack) == 0 and db.scalar(select(GameSkillAttempt.id)) is None
 
     # Cognition picks the alternative learning did NOT recommend; the selection is its own.
@@ -459,7 +451,7 @@ def test_from_failure_to_assessment_only_cognitions_choice_starts_it_and_each_ow
     assert trial.status == "assessed" and trial.closed_at is not None
     current = db.scalar(select(LearningTrialAssessment).where(LearningTrialAssessment.trial_id == trial.id))
     assert current.hypothesis == "supported" and current.measurements["values"]["reached"] is True
-    assert "Alternative chosen by cognition: dig steps" in model.calls[0]
+    assert "Alternative chosen by her mind: dig steps" in model.calls[0]
     # Each owner, under its own rules.
     assert db.get(WorkingItem, trial.hypothesis_item_id).status == "supported"
     from app.db.models import LearningAssessment
@@ -501,7 +493,7 @@ def test_from_failure_to_assessment_only_cognitions_choice_starts_it_and_each_ow
 def test_preparation_goes_to_the_planner_and_readiness_is_checked_again(db, game, monkeypatch):
     pack = Pack(now=state(dirt=0))
     propose(db, game, pack)
-    assert LT.present_once(decide=scripted_decision(**(PURSUE_A2 | {"target": "P1"})))
+    assert LT.present_once(decide=scripted_decision(**(PURSUE_A2 | {"option": "a1"})))
     assert trial_of(db).selected_alternative == "a1"
     monkeypatch.setattr("app.services.game_planning.handles", lambda session: True)
     assert LT.advance_once(pack=pack) == 0
@@ -509,7 +501,7 @@ def test_preparation_goes_to_the_planner_and_readiness_is_checked_again(db, game
     assert trial.status == "preparing" and "4 dirt" in trial.costs["asked_for"]
     job = db.scalar(select(AgentEventJob).where(AgentEventJob.source == "plan"))
     assert job is not None and job.reasons[0].startswith("trial: she still needs 4 dirt")
-    assert "Her cognition chose to run an experiment: jump-place a pillar" in "\n".join(
+    assert "She chose to run an experiment: jump-place a pillar" in "\n".join(
         LT.planning_lines(db, db.get(DesktopSession, game.id)))
     pack.state_now = state(dirt=4)
     due(db)
@@ -559,10 +551,10 @@ def test_an_interrupted_trial_is_recovered_never_repeated_and_concludes_nothing(
 def test_deferral_keeps_a_reminder_new_evidence_revises_and_the_reasons_are_kept(db, game):
     pack = Pack(now=state())
     trial, _ = propose(db, game, pack)
-    LT.present_once(decide=scripted_decision(work="defer_proposal", target="P1", intention="after the house"))
+    LT.present_once(decide=scripted_decision(work="defer_proposal", option="a1", intention="after the house"))
     trial = trial_of(db)
     assert trial.status == "deferred" and trial.deferral["reason"] == "after the house"
-    assert trial.deferral["condition"]["by"] == "learning"  # cognition named no condition: learning's default
+    assert trial.deferral["condition"]["by"] == "learning"  # her mind named no condition: learning's default
     reminder = db.get(WorkingItem, trial.reminder_item_id)
     assert (reminder.kind, reminder.status) == ("intention", "active") and "Reconsider the experiment" in reminder.text
     # Not presented again on its own: only when its condition comes true.
@@ -581,7 +573,7 @@ def test_deferral_keeps_a_reminder_new_evidence_revises_and_the_reasons_are_kept
     revisions = list(db.scalars(select(LearningTrialRevision.revision).where(LearningTrialRevision.trial_id == trial.id)))
     assert revisions == [1, 2]
     # Cognition decides about the revision it was shown: deferred again, then the goal it competed with ends.
-    LT.present_once(decide=scripted_decision(work="defer_proposal", target="P2", intention="still busy"))
+    LT.present_once(decide=scripted_decision(work="defer_proposal", option="a2", intention="still busy"))
     trial = trial_of(db)
     assert len(trial.deferrals) == 2 and "Put off before: after the house" in "".join(
         v["purpose"] for v in T.proposal_views(LT.current_revision(db, trial).proposal,
@@ -593,14 +585,14 @@ def test_deferral_keeps_a_reminder_new_evidence_revises_and_the_reasons_are_kept
     assert LT.reconsider_once(pack=pack) == 1
     trial = trial_of(db)
     assert trial.status == "proposed" and trial.presentations == 2
-    LT.present_once(decide=scripted_decision(work="decline_proposal", target="P1", intention="not interested"))
+    LT.present_once(decide=scripted_decision(work="decline_proposal", option="a1", intention="not interested"))
     assert (trial_of(db).status, trial_of(db).stop_reason) == ("rejected", "not interested")
 
 
 def test_running_out_of_time_while_getting_ready_is_assessed_as_never_started_without_a_model(db, game):
     pack = Pack(now=state(dirt=0))
     propose(db, game, pack)
-    LT.present_once(decide=scripted_decision(**(PURSUE_A2 | {"target": "P1"})))
+    LT.present_once(decide=scripted_decision(**(PURSUE_A2 | {"option": "a1"})))
     trial = trial_of(db)
     trial.active_since = game_practice._now() - timedelta(seconds=400)
     db.commit()
@@ -618,7 +610,7 @@ def test_running_out_of_time_while_getting_ready_is_assessed_as_never_started_wi
     assert trial.costs["prep_seconds"] >= 399
 
 
-def test_cognition_can_stop_a_running_trial_and_what_ran_is_kept(db, game):
+def test_her_mind_can_stop_a_running_trial_and_what_ran_is_kept(db, game):
     pack = Pack(now=state())
     propose(db, game, pack)
     LT.present_once(decide=scripted_decision(**PURSUE_A2))
@@ -628,9 +620,9 @@ def test_cognition_can_stop_a_running_trial_and_what_ran_is_kept(db, game):
         "experiment stopping"
     attempt = db.get(GameSkillAttempt, trial.attempt_id)
     assert attempt.stop_requested is True
-    # Shown to Student 2 on a user message as work it can act on.
-    work = svc._work(db, trial.user_id, None, db.get(DesktopSession, game.id))
-    assert any(w.key == f"trial:{trial.id}" and w.state == "running" for w in work)
+    # Her mind sees it's under way (and gets her experiment tool for it) on her next evaluation.
+    from app.services import mind_turn
+    assert mind_turn._has_live_trial(trial.user_id)
 
 
 def test_only_one_pending_investigation_per_problem_and_a_hypothesis_is_investigated_once(db, game):

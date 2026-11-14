@@ -1,3 +1,0 @@
-You check whether a REPRESENTATION of Columbina's decision contains each meaning UNIT, so that a writer who sees only the representation and the SITUATION could express it. A unit is contained if the representation states it, or points at text in the situation that states it and says how it is used (for example an act "commit" about [W1] with the condition [M]). It is not contained if the writer would have to guess it.
-
-For each UNIT (by number): contained true or false.

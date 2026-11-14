@@ -30,33 +30,24 @@ export interface PartAnatomy {
 
 export const PARTS: PartAnatomy[] = [
   {
-    id: 'cognition', label: 'Cognition', fluor: 'CFP', color: '#3FD3F0', x: 800, y: 500, r: 64, labelSide: 'below',
-    role: 'Reads every message and decides how to meet it: a memory check, Student 1’s reading, Student 2’s decision, and background work.',
+    id: 'mind', label: 'Mind', fluor: 'mCherry', color: '#FF5C8A', x: 800, y: 500, r: 64, labelSide: 'below',
+    role: 'Decides everything she does: every message, finished thought or proposal wakes it, and in one evaluation she answers, stays silent, recalls, starts thinking, notes what stays open and chooses when to come back.',
     subs: [
-      { id: 'memory-check', label: 'Memory check' },
-      { id: 'student-1', label: 'Student 1' },
-      { id: 'student-2', label: 'Student 2' },
-      { id: 'coordinator', label: 'Coordinator' },
+      { id: 'evaluations', label: 'Evaluations' },
+      { id: 'continuity', label: 'What she keeps' },
+      { id: 'hard', label: 'Hard thoughts' },
+      { id: 'quick', label: 'Quick thoughts' },
+      { id: 'planner', label: 'Planner' },
+      { id: 'look-backs', label: 'Look backs' },
     ],
   },
   {
     id: 'mouth', label: 'Mouth', fluor: 'GFP', color: '#4BE37A', x: 1235, y: 455, r: 50, labelSide: 'right',
-    role: 'Puts her decision into words, in text and voice, and speaks first when she chooses to.',
+    role: 'Delivers what her mind chose to say, in text and voice, and what she says on her own.',
     subs: [
       { id: 'text', label: 'Text' },
       { id: 'voice', label: 'Voice' },
       { id: 'speaking-first', label: 'Speaking first' },
-    ],
-  },
-  {
-    id: 'mind', label: 'Mind', fluor: 'mCherry', color: '#FF5C8A', x: 440, y: 285, r: 54, labelSide: 'left',
-    role: 'Thinks on her own: quick and hard thoughts, her game planner and its look backs on her effort, and her mood.',
-    subs: [
-      { id: 'quick', label: 'Quick thoughts' },
-      { id: 'hard', label: 'Hard thoughts' },
-      { id: 'planner', label: 'Planner' },
-      { id: 'look-backs', label: 'Look backs' },
-      { id: 'mood', label: 'Mood' },
     ],
   },
   {
@@ -112,8 +103,7 @@ export interface Layout {
 
 /** Where each label sits when the field is turned for a tall screen (chosen so no two labels meet). */
 const PORTRAIT_SIDE: Record<PartId, PartAnatomy['labelSide']> = {
-  cognition: 'below', mouth: 'below', mind: 'above', observation: 'below', memory: 'below', hands: 'below',
-  learning: 'above',
+  mind: 'below', mouth: 'below', observation: 'below', memory: 'below', hands: 'below', learning: 'above',
 }
 const PORTRAIT_ALIGN: Partial<Record<PartId, 'start' | 'end'>> = { observation: 'start' }
 
@@ -133,12 +123,11 @@ export function layoutFor(portrait: boolean): Layout {
 
 /** Who hands work to whom (the direction a signal travels). Every wire is a real hand-off in the backend. */
 export const WIRES: { from: PartId; to: PartId }[] = [
-  { from: 'memory', to: 'cognition' }, // the memory check before every reply, and lessons Student 2 weighs
-  { from: 'cognition', to: 'mouth' }, // Student 2's decision, worded by the mouth
-  { from: 'cognition', to: 'mind' }, // thinking asked for, run by the coordinator
-  { from: 'mind', to: 'mouth' }, // something she wants to say on her own
-  { from: 'mind', to: 'memory' }, // a concluded thought handed to memory
+  { from: 'memory', to: 'mind' }, // the memory check every evaluation starts from, and the lessons it weighs
+  { from: 'mind', to: 'mouth' }, // what she chose to say (or that she chose silence)
+  { from: 'mind', to: 'memory' }, // what she notes and closes, and a concluded thought handed to memory
   { from: 'mind', to: 'hands' }, // tips and plans for her hands
+  { from: 'learning', to: 'mind' }, // a proposal for her to accept, decline or put off
   { from: 'mouth', to: 'memory' }, // a finished exchange, consolidated
   { from: 'mouth', to: 'observation' }, // replies and deliveries reported
   { from: 'hands', to: 'observation' }, // skill outcomes reported
@@ -147,7 +136,6 @@ export const WIRES: { from: PartId; to: PartId }[] = [
   { from: 'hands', to: 'learning' }, // a stretch of play to assess, and her trajectory captured
   { from: 'learning', to: 'memory' }, // a lesson written or revised (memory owns lessons)
   { from: 'memory', to: 'hands' }, // lessons supplied to her hands' decisions
-  { from: 'memory', to: 'mind' }, // lessons supplied to her planner and her game mind
 ]
 
 /** Zoom (as magnification over the fitted view) at which sub-parts begin to resolve. */

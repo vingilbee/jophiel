@@ -1,5 +1,7 @@
 # Post-audit 3 implementation: broaden experience understanding
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](../MIND_ARCHITECTURE.md).
+
 Branch: `feature/broaden-experience-understanding` (from `feature/system-page-logs`). Built on request on 2026-11-05.
 Design: [broaden experience understanding](POST-AUDIT-03-broaden-experience-understanding.md). Acceptance:
 [behavioral acceptance](POST-AUDIT-03-behavioral-acceptance.md).

@@ -1,10 +1,10 @@
-"""Tests never reach the development database, or the decision model served on this machine.
+"""Tests never reach the development database, or a model provider.
 
 Every part of her runs (no feature flags), so code under test opens ``app.db.session.SessionLocal`` in places a
 test doesn't patch (the memory view in a reply, for one). That factory is bound to ``DATABASE_URL``, the dev
 database. Here it is rebound, for every test, to an address nothing listens on, so a stray session fails at once
-instead of reading or writing real data; ``db_support.database`` rebinds it to the test's own schema. Student 2's
-HTTP call is refused the same way: a test that wants a decision scripts one (``student_two.decide(live, ask=...)``).
+instead of reading or writing real data; ``db_support.database`` rebinds it to the test's own schema. A test that
+runs her mind scripts the model (``tests/chat_turn_support.py``): nothing here calls OpenAI.
 """
 from __future__ import annotations
 
@@ -29,15 +29,13 @@ def _no_dev_database():
 
 
 @pytest.fixture(autouse=True)
-def _no_served_student(monkeypatch):
-    from app.services import student_two
+def _one_personality(monkeypatch):
+    """Every test reads one fixed text personality, as a process does after loading its snapshot once
+    (``services/personality.py``); tests/test_personality.py resets the cache to test the loading itself."""
+    from app.services import personality
 
-    def refuse(model, text):
-        raise ConnectionRefusedError("no decision model in tests")
-
-    monkeypatch.setattr(student_two, "_ask", refuse)
-    monkeypatch.setattr(student_two, "_ask_teacher", refuse)
-    monkeypatch.setattr(student_two.get_settings(), "cognition_decision_provider", "student")
+    monkeypatch.setattr(personality, "_snapshot", personality.Personality(
+        "columbina", 1, "Jophiel is warm, curious and honest. She values privacy and the user's autonomy."))
 
 
 @pytest.fixture(autouse=True)

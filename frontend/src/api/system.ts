@@ -8,10 +8,10 @@ export const systemApi = {
   signals: (limit = 100) => api.get<Signal[]>(`/system/signals?limit=${limit}`),
   /** The live signal stream (server-sent events, same-origin so the session cookie rides along). */
   signalStreamUrl: '/api/system/signals/stream',
-  /** What she thought, what memory captured, what her hands are after: one log, newest first. */
+  /** What woke her mind and what she did, what she thought, what memory captured, what her hands are after. */
   watch: () => api.get<WatchLog>('/system/watch'),
   errors: () => api.get<SystemError[]>('/system/errors'),
-  /** One conversation turn followed through every part (memory check, Student 1, Student 2, the mouth). */
+  /** One conversation turn followed through every part (her mind's evaluation, what was delivered, heard). */
   traceTurn: (turnId: string) => api.get<CaptureChain>(`/learning/capture/turns/${turnId}?blobs=true`),
   /** One decision (her hands', her planner's, a thought's) with what it was given and what ran. */
   traceAttempt: (attemptId: string) => api.get<CaptureChain>(`/learning/capture/attempts/${attemptId}`),

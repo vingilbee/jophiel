@@ -15,7 +15,7 @@ import app.db.session as db_session
 from app.db.models import MemoryCorrection, MemoryDependency, MemoryFactRevision, SemanticMemory, WorkingItem
 from app.schemas.long_term_memory import CorrectionCandidate, MemoryCandidate
 from app.services import (
-    long_term_memory, memory_corrections, memory_dependencies, memory_manager, memory_reconcile, mind_conversation,
+    long_term_memory, memory_corrections, memory_dependencies, memory_manager, memory_reconcile,
     recall,
 )
 from app.services.memory_manager import Source
@@ -213,12 +213,6 @@ def test_held_items_are_kept_from_autonomous_use_and_marked_for_replies(db, alic
     reply = memory_manager.view(db, alice.id, user_name="Sam")
     assert "Visit Nora in Lisbon" in reply and "on hold" in reply
 
-    ask = db.get(WorkingItem, lab["ask"].id)
-    ask.created_at = datetime.now(timezone.utc) - timedelta(hours=1)  # old enough to be a promise problem
-    db.commit()
-    problems = mind_conversation.item_problems(db, datetime.now(timezone.utc))
-    assert all(p.anchor.get("item") != str(ask.id) for _, p in problems)
-
     with pytest.raises(memory_manager.MemoryError) as refused:
         intention = memory_manager.note_intention(db, alice.id, "Look up Lisbon trams",
                                                   source=Source("message", lab["taught"].id))
@@ -232,8 +226,6 @@ def test_held_items_are_kept_from_autonomous_use_and_marked_for_replies(db, alic
 
     _settle_all(db)
     assert "Visit Nora in Porto" in (memory_manager.view(db, alice.id, user_name="Sam", autonomous=True) or "")
-    problems = mind_conversation.item_problems(db, datetime.now(timezone.utc))
-    assert any(p.anchor.get("item") == str(ask.id) for _, p in problems)  # the hold was what kept it out
 
 
 def test_a_failing_read_retries_daily_then_fails_and_keeps_the_hold(db, alice, monkeypatch):

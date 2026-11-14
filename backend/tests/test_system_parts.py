@@ -44,16 +44,17 @@ def test_watch_log_holds_her_thoughts_memory_and_hands_runs_newest_first(db_env)
                                            "observed": {"before": {"inventory": {"coal": 1}, "health": 20},
                                                         "after": {"inventory": {"coal": 4}, "health": 18}}},
                                  ended_at=now - timedelta(seconds=2), expires_at=now + timedelta(days=1)))
-        db.add(DecisionAttempt(id=uuid.uuid4(), user_id=user.id, learner="student_2", trigger="user_message",
-                               status="invalid", error="not JSON", input={}, started_at=now,
+        db.add(DecisionAttempt(id=uuid.uuid4(), user_id=user.id, learner="mind", trigger="user_message",
+                               status="error", error="not JSON", input={"reason": "user_message"}, started_at=now,
                                expires_at=now + timedelta(days=1)))
         db.commit()
 
         watch = system_parts.highlights(db, user.id)
-        assert [i["part"] for i in watch["items"]] == ["hands", "memory", "mind"]
-        run = watch["items"][0]
+        assert [i["part"] for i in watch["items"]] == ["mind", "hands", "memory", "mind"]
+        assert watch["items"][0]["kind"] == "evaluation" and watch["items"][0]["tone"] == "error"
+        run = watch["items"][1]
         assert run["text"].startswith("mine") and "coal +3" in run["detail"]
-        assert watch["items"][2]["detail"] == "I keep dying near the lava."
+        assert watch["items"][3]["detail"] == "I keep dying near the lava."
 
         hands = system_parts.feed(db, user.id, "hands")
         decided = hands["decisions"][0]
@@ -64,5 +65,5 @@ def test_watch_log_holds_her_thoughts_memory_and_hands_runs_newest_first(db_env)
 
         errors = system_parts.errors(db, user.id, {"parts": [{"id": "memory", "workers": [
             {"name": "memory", "error": "boom", "seen_ago": 3}]}]})
-        assert {e["part"] for e in errors} == {"cognition", "memory"}
+        assert {e["part"] for e in errors} == {"mind", "memory"}
         assert any(e["text"] == "not JSON" for e in errors)

@@ -203,7 +203,7 @@ def test_something_big_is_thought_over_before_it_starts(brain):
     assert "learned_build_up 10 times in a row" in brain.hard[-1].text
 
 
-def test_quiet_hard_thinking_rotates_topics(brain, monkeypatch):
+def test_quiet_time_leaves_what_to_think_about_to_her(brain, monkeypatch):
     monkeypatch.setattr(get_settings(), "mind_hard_quiet_seconds", 180.0)
     monkeypatch.setattr(get_settings(), "mind_hard_quiet_every_seconds", 300.0)
     brain.run(Gate({"none": 0.9}))
@@ -212,8 +212,9 @@ def test_quiet_hard_thinking_rotates_topics(brain, monkeypatch):
     brain.landed()
     assert brain.run(Gate({"none": 0.9}), at=600, fresh=False)["hard"] is None  # once per 5 min
     assert brain.run(Gate({"none": 0.9}), at=701, fresh=False)["hard"] == "hard: quiet"
-    assert [p.topic for p in brain.hard] == ["quiet: the user: what they want from today, and how they're doing",
-                                             "quiet: the session so far: what you two did, and what's unfinished"]
+    # No canned topics in turn: quiet time is time to think, and what about is hers.
+    assert [p.topic for p in brain.hard] == ["quiet: time to think", "quiet: time to think"]
+    assert all("is yours to choose" in p.text for p in brain.hard)
 
 
 def test_nothing_new_means_no_thought_whatever_the_gate_says(brain):
@@ -254,6 +255,8 @@ def test_a_failing_gate_falls_back(brain):
 
 
 def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
+    from app.services import personality
+    monkeypatch.setattr(personality, "_snapshot", personality.Personality("jophiel", 1, "Curious and honest."))
     saved, said = [], []
 
     class Db:
@@ -275,6 +278,7 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
 
         def think(self, level, text, user, situation):
             assert user == "Vincent" and situation.key == "minecraft"
+            assert "Curious and honest." in text
             return SimpleNamespace(text="zombie on my left", say=self.say, latency_ms=500, error=None,
                                    kind="next", noticed="zombie")
 

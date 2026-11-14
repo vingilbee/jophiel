@@ -163,7 +163,7 @@ def test_a_correction_is_said_only_when_the_game_moved(monkeypatch):
     delivered, written, logged = [], [], []
     monkeypatch.setattr(game_correction, "SessionLocal", Db)
     monkeypatch.setattr(game_correction.autonomous_speech, "submit",
-                        lambda db, **kw: delivered.append(kw) or "Proposed: queued for cognition and mouth.")
+                        lambda db, **kw: delivered.append(kw) or "Proposed: queued to wake her mind.")
     monkeypatch.setattr(mind, "_log", logged.append)
 
     def write(said, changed, user, voice=""):
@@ -179,7 +179,7 @@ def test_a_correction_is_said_only_when_the_game_moved(monkeypatch):
     monkeypatch.setattr(game_correction.game_moment, "since", lambda db, m, kinds=None: learned)
     when = moment()
     outcome = game_correction.check(uuid.uuid4(), "I haven't learned it yet. [[sticker:thinking]]", when)
-    assert outcome.startswith("Proposed")  # cognition decides whether it is said; no direct delivery
+    assert outcome.startswith("Proposed")  # her mind decides whether it is said; no direct delivery
     assert written == [("I haven't learned it yet.", learned, "Vincent")]
     assert delivered[0]["text"].startswith("Oh wait") and delivered[0]["reasons"][0].startswith("correction:")
     assert delivered[0]["activity_id"] == when.session_id and delivered[0]["source"] == "minecraft"

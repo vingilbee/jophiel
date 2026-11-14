@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { systemApi } from '../../api/system'
 import type {
-  CognitionFeed, HandsFeed, LearningFeed, LessonUse, MemoryFeed, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
+  HandsFeed, LearningFeed, LessonUse, MemoryFeed, MindEvaluation, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
   PartId, PartStatus, Signal, Thought, WorkerStatus,
 } from '../../types/system'
 import { PART_BY_ID } from './anatomy'
@@ -22,8 +22,7 @@ const REFRESH_MS = 10_000
 /** Which sub-parts have a section on their part's page (the rest are named, not linked: no record of their own yet). */
 const LINKED: Record<PartId, string[]> = {
   mouth: ['text'],
-  cognition: ['memory-check', 'student-1', 'student-2', 'coordinator'],
-  mind: ['quick', 'hard', 'planner', 'look-backs', 'mood'],
+  mind: ['evaluations', 'continuity', 'hard', 'quick', 'planner', 'look-backs'],
   hands: ['goal', 'skills', 'pack'],
   memory: ['facts', 'working', 'lessons'],
   observation: ['conversation', 'game', 'deliveries'],
@@ -31,6 +30,20 @@ const LINKED: Record<PartId, string[]> = {
 }
 
 const WORKER_WORD: Record<WorkerStatus['state'], string> = { alive: 'alive', busy: 'working', down: 'down', failing: 'failing' }
+
+/** Why her mind woke, in words (backend services/coordinator.wake_reason and mind_turn reasons). */
+const WAKE_WORD: Record<string, string> = {
+  user_message: 'their message', work_result: 'thinking she started', thought: 'a thought of hers',
+  proposal: 'a proposal', conflict: 'something memory noticed', finding: 'a security finding', due: 'something she chose to come back to',
+  event: 'an event',
+}
+/** What a wake came to (coordinator_outputs.decision). */
+const DID_WORD: Record<string, string> = {
+  said: 'She said something.', silent: 'She chose to stay silent.', no_words: 'She wrote nothing.',
+  wake: 'Waiting to wake her.', superseded: 'Moot before she was woken: the conversation moved on.',
+  rejected: 'Kept from her: it no longer held.',
+}
+const OPEN_WORD: Record<string, string> = { question: 'open question', commitment: 'promise', intention: 'intention' }
 
 /** A section of the page: what it's called, where the rail's link jumps to, and which sub-part it belongs to. */
 interface Section {
@@ -155,12 +168,6 @@ function Rail({ part, status, signals, onClose }: { part: PartAnatomy; status: P
                 </span>
               </li>
             ))}
-            {status.student_two && (
-              <li className="flex items-baseline justify-between gap-3 text-[13px]">
-                <span className="text-[#C5CDD5]">Student 2 server</span>
-                <span className="text-[#8C97A3]">{status.student_two}</span>
-              </li>
-            )}
           </ul>
           {status.workers.filter((w) => w.error).map((w) => (
             <p key={w.name} className="mt-2 text-[12px] break-words text-[#FF8A80]">{w.name}: {w.error}</p>
@@ -308,37 +315,6 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
         ),
       }]
     }
-    case 'cognition': {
-      const f = data as CognitionFeed
-      const by = (learner: string) => f.decisions.filter((d) => d.learner === learner)
-      const decision = (d: CognitionFeed['decisions'][number]) => (
-        <Entry
-          key={d.id}
-          at={d.at}
-          tone={d.status === 'ok' ? undefined : 'error'}
-          meta={join(words(d.trigger), d.seconds !== null && `${d.seconds.toFixed(1)} s`, d.model, d.status !== 'ok' && d.status)}
-          action={traceButton(trace, d.turn_id ? { turn: d.turn_id } : { attempt: d.id })}
-        >
-          {d.decided ?? d.error ?? <span className="text-[#8C97A3]">No output recorded.</span>}
-        </Entry>
-      )
-      return [
-        { id: 'student-2', sub: 'student-2', title: 'Student 2 decided', hint: 'Trace follows the turn through every part: memory check, Student 1, Student 2, the mouth, and any thinking it asked for.', body: <Timeline empty="No captured decisions yet.">{by('student_2').map(decision)}</Timeline> },
-        { id: 'student-1', sub: 'student-1', title: 'Student 1 read it', body: <Timeline empty="No captured readings yet.">{by('student_1').map(decision)}</Timeline> },
-        {
-          id: 'coordinator', sub: 'coordinator', title: 'Background work',
-          body: (
-            <Timeline empty="No background recall or thinking requested lately.">
-              {f.work.map((w) => <Entry key={w.id} at={w.at} tone={w.error ? 'error' : undefined} meta={join(w.kind, w.status, w.error)} />)}
-            </Timeline>
-          ),
-        },
-        {
-          id: 'memory-check', sub: 'memory-check', title: 'Memory check',
-          body: <p className="mt-3 max-w-[68ch] text-[14px] leading-relaxed text-[#8C97A3]">Every message starts with a memory check. Each one shows on the map as a signal from Memory, and so do the lessons memory gives Student 2. What it found is on the Memory page.</p>,
-        },
-      ]
-    }
     case 'mind': {
       const f = data as MindFeed
       const thought = (t: Thought) => (
@@ -361,8 +337,61 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
       const hard = f.thoughts.filter((t) => t.level === 'hard' && t.kind !== 'plan')
       const quick = f.thoughts.filter((t) => t.level !== 'hard' && t.kind !== 'plan')
       const lookBacks = f.thoughts.filter((t) => t.judged)
-      const words_ = f.mood?.words
+      const evaluation = (e: MindEvaluation) => {
+        const did = e.silent !== null ? 'stayed silent' : e.said ? 'spoke' : 'wrote nothing'
+        const tools = e.tools.filter((t) => t.tool)
+        return (
+          <Entry
+            key={e.id}
+            at={e.at}
+            tone={e.status === 'ok' ? undefined : 'error'}
+            meta={join(`woken by ${WAKE_WORD[e.reason] ?? words(e.reason)}`, did, e.memory && `memory: ${words(e.memory)}`,
+              e.thinking_started > 0 && 'started thinking', e.scheduled > 0 && `scheduled ${e.scheduled}`,
+              e.proposal && `proposal: ${e.proposal}`, e.seconds !== null && `${e.seconds.toFixed(1)} s`)}
+            action={traceButton(trace, e.turn_id ? { turn: e.turn_id } : { attempt: e.id })}
+            more={tools.length || e.wake ? (
+              <div className="space-y-2.5">
+                {e.wake && <p className="whitespace-pre-wrap">{e.wake}</p>}
+                {tools.length > 0 && (
+                  <ul className="space-y-0.5">
+                    {tools.map((t, i) => <li key={i}>{t.tool}{t.result && <span className="text-[#7D8790]">: {t.result}</span>}</li>)}
+                  </ul>
+                )}
+              </div>
+            ) : undefined}
+            moreLabel="What woke her and the tools she used"
+          >
+            {e.error ?? (e.silent !== null ? <span className="text-[#AEB7BF]">Silent: {e.silent}</span> : e.said ?? e.message ?? <span className="text-[#8C97A3]">No words.</span>)}
+          </Entry>
+        )
+      }
+      const c = f.continuity
       return [
+        {
+          id: 'evaluations', sub: 'evaluations', title: 'Evaluations',
+          hint: 'Each time something woke her (their message, thinking she started that finished, a thought of hers, a proposal, something she chose to come back to): what memory gave her, the tools she used, and whether she spoke. Trace follows it through every part.',
+          body: <Timeline empty="No evaluations recorded yet.">{f.evaluations.map(evaluation)}</Timeline>,
+        },
+        {
+          id: 'continuity', sub: 'continuity', title: 'What she keeps',
+          hint: 'What lives between evaluations, read from the stores that hold it: thinking under way, what she chose to come back to, the questions, promises and intentions she keeps open, and what her recent wakes came to.',
+          body: (
+            <div className="space-y-6">
+              <Timeline empty="No thinking under way.">
+                {c.thinking.map((w) => <Entry key={w.id} at={w.created_at} meta={join(`background ${w.kind}`, words(w.status))}>{w.about}</Entry>)}
+              </Timeline>
+              <Timeline empty="Nothing scheduled to come back to.">
+                {c.scheduled.map((w) => <Entry key={w.id} at={w.due_at} meta={join('will come back', w.item && 'about an item she keeps')}>{w.about}</Entry>)}
+              </Timeline>
+              <Timeline empty="No open questions, promises or intentions.">
+                {c.open.map((i) => <Entry key={i.id} at={i.due_at} meta={join(OPEN_WORD[i.kind] ?? i.kind, i.owner === 'columbina' ? 'hers' : 'theirs', words(i.status))}>{i.text}</Entry>)}
+              </Timeline>
+              <Timeline empty="No wakes yet.">
+                {c.recent.map((r, n) => <Entry key={n} at={r.at} tone={r.status === 'failed' ? 'error' : r.decision === 'silent' || r.status === 'not_sent' ? 'muted' : undefined} meta={join(`woken by ${WAKE_WORD[r.reason] ?? words(r.reason)}`, words(r.status))}>{DID_WORD[r.decision] ?? words(r.decision)}</Entry>)}
+              </Timeline>
+            </div>
+          ),
+        },
         { id: 'hard', sub: 'hard', title: 'Hard thoughts', body: <Timeline empty="No hard thoughts lately.">{hard.map(thought)}</Timeline> },
         { id: 'quick', sub: 'quick', title: 'Quick thoughts', body: <Timeline empty="No quick thoughts lately (they come while she plays).">{quick.map(thought)}</Timeline> },
         {
@@ -405,20 +434,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
           hint: 'When a plan step ends she looks back at her effort and judges it herself: is she getting anywhere, and if not, why.',
           body: <Timeline empty="No look backs yet.">{lookBacks.map(thought)}</Timeline>,
         },
-        { id: 'mind-lessons', title: 'Lessons she was given', hint: 'What memory gave her planner and her game mind, and what each said it did with them.', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
-        {
-          id: 'mood', sub: 'mood', title: 'Mood',
-          body: words_ ? (
-            <dl className="mt-3 grid max-w-xl grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
-              {Object.entries(words_).map(([k, w]) => (
-                <div key={k}>
-                  <dt className="text-[12.5px] text-[#8C97A3]">{k}</dt>
-                  <dd className="text-[15px] text-[#DDE3E8]">{w}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : <p className="mt-3 text-[14px] text-[#8C97A3]">No mood read yet.</p>,
-        },
+        { id: 'mind-lessons', title: 'Lessons she was given', hint: 'What memory gave her evaluations, her hard thoughts and her planner, and what each said it did with them (an evaluation gives no account of its own: reaching her is shown, not how she weighed it).', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
       ]
     }
     case 'hands': {
@@ -519,7 +535,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
         },
         {
           id: 'lessons', sub: 'lessons', title: 'Lessons',
-          hint: 'Learning writes lessons here; memory owns them and gives them to Student 2, her hands, her planner and her game mind. Tentative ones are given labelled as such.',
+          hint: 'Learning writes lessons here; memory owns them and gives them to her mind’s evaluations, her hard thoughts, her planner and her hands. Tentative ones are given labelled as such.',
           body: (
             <Timeline empty="No lessons yet.">
               {f.lessons.map((l) => (

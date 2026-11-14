@@ -9,20 +9,19 @@ import type { TraceTarget } from './trace'
 
 /** Which part made each kind of record, so every step of the trace wears its part's colour. */
 const LEARNER_PART: Record<string, PartId> = {
-  student_1: 'cognition', student_2: 'cognition', hands: 'hands', planner: 'mind', hard_thought: 'mind',
+  mind: 'mind', hands: 'hands', planner: 'mind', hard_thought: 'mind',
 }
 const EXECUTION_PART: Record<string, PartId> = {
   reply: 'mouth', heard: 'mouth', channel_delivery: 'mouth', skill_run: 'hands', step_check: 'hands',
-  plan_apply: 'mind', thought_route: 'mind', effect: 'cognition',
+  plan_apply: 'mind', thought_route: 'mind', desktop_action: 'hands',
 }
 const LEARNER_WORD: Record<string, string> = {
-  student_1: 'Student 1 read it', student_2: 'Student 2 decided', hands: 'Her hands decided',
-  planner: 'Her planner decided', hard_thought: 'She thought it through',
+  mind: 'Her mind decided', hands: 'Her hands decided', planner: 'Her planner decided', hard_thought: 'She thought it through',
 }
 const EXECUTION_WORD: Record<string, string> = {
-  reply: 'The mouth said it', heard: 'What was heard of it', channel_delivery: 'Delivered', skill_run: 'The skill ran',
+  reply: 'What was delivered', heard: 'What was heard of it', channel_delivery: 'Delivered', skill_run: 'The skill ran',
   step_check: 'Code counted the step done', plan_apply: 'The plan was applied', thought_route: 'Where the thought went',
-  effect: 'What it changed',
+  desktop_action: 'Her hands on her desktop',
 }
 
 type Step = { at: string; kind: 'attempt'; row: CapturedAttempt } | { at: string; kind: 'execution'; row: CapturedExecution }
@@ -141,14 +140,12 @@ function StepShell({ part, title, meta, children, tone }: { part: PartId; title:
 /** The decision's answer in a line, from the fields its learner really writes; nothing when it wrote none. */
 function answerLine(row: CapturedAttempt): string | null {
   const out = row.output ?? {}
-  if (row.learner === 'student_2' && typeof out.raw === 'string') {
-    try {
-      const d = JSON.parse(out.raw) as Record<string, string | null>
-      return join(d.intention, d.communication && `says: ${d.communication}`, d.move && d.move !== 'none' && `move: ${d.move}`,
-        d.work && d.work !== 'no_change' && `work: ${d.work}`, d.think_about && `thinks about: ${d.think_about}`) || null
-    } catch {
-      return out.raw
-    }
+  if (row.learner === 'mind') {
+    const tools = Array.isArray(out.tools) ? (out.tools as { tool?: string }[]).map((t) => t.tool).filter(Boolean) : []
+    const reason = (row.input ?? {}).reason
+    return join(typeof reason === 'string' && `woken by ${words(reason)}`,
+      typeof out.silent === 'string' ? `stayed silent: ${out.silent}` : typeof out.reply === 'string' && out.reply ? `said: ${out.reply}` : 'wrote nothing',
+      tools.length > 0 && `used ${[...new Set(tools)].join(', ')}`) || null
   }
   if (row.learner === 'hands') {
     const o = (out.output ?? {}) as Record<string, unknown>
@@ -198,7 +195,7 @@ function AttemptStep({ row }: { row: CapturedAttempt }) {
 }
 
 function ExecutionStep({ row }: { row: CapturedExecution }) {
-  const part = EXECUTION_PART[row.kind] ?? 'cognition'
+  const part = EXECUTION_PART[row.kind] ?? 'mind'
   const bad = row.result === 'failed'
   return (
     <StepShell

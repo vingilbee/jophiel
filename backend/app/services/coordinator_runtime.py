@@ -19,7 +19,7 @@ class Runtime:
     def __init__(self, slots: int = 2):
         self.slots = slots
         self.pools = {kind: ThreadPoolExecutor(max_workers=slots, thread_name_prefix=f"executor-{kind}")
-                      for kind in ("mind", "recall", "memory", "observation", "cognition", "conclusion")}
+                      for kind in ("mind", "recall", "wake", "memory", "observation", "conclusion")}
         self.active = {kind: {} for kind in self.pools}
         self.closed = False
         self.last_prune = 0.0
@@ -41,12 +41,12 @@ class Runtime:
             return False
         self._reap_and_renew()
         service.expire_due()
-        # Recovery and result decisions have their own capacity, never the slow mind's lane.
+        # Recovery and waking the mind with finished work have their own capacity, never the slow thinking lane.
         pending = self.active["conclusion"]
         if len(pending) < self.slots:
             with service.SessionLocal() as db:
                 orphan = db.scalar(select(CoordinatorWork.id).where(
-                    CoordinatorWork.kind == "mind", CoordinatorWork.status.in_(service.TERMINAL),
+                    CoordinatorWork.kind.in_(service.WAKES), CoordinatorWork.status.in_(service.TERMINAL),
                     CoordinatorWork.id.not_in([key for key in pending if isinstance(key, uuid.UUID)]),
                     ~select(CoordinatorOutput.id).where(CoordinatorOutput.work_id == CoordinatorWork.id,
                         CoordinatorOutput.phase == "follow_up").exists())
@@ -61,7 +61,7 @@ class Runtime:
             components.prune_receipts()
             self.last_prune = time.monotonic()
         dispatched = False
-        for kind in ("recall", "mind", "cognition", "memory", "observation"):
+        for kind in ("recall", "mind", "wake", "memory", "observation"):
             if not components.enabled(kind):
                 continue
             pending = self.active[kind]

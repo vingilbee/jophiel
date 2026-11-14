@@ -1,5 +1,6 @@
-"""The general mind's attention and lifecycle (services/mind_hard.py, mind_conversation.py;
-docs/COLUMBINA_INNER_STATE_PLAN.md): what replaying ticks can't show. No network, no database."""
+"""The general mind's attention and lifecycle (services/mind_hard.py; conversations' memory events in
+services/mind_conversation.py;
+docs/MIND_ARCHITECTURE.md): what replaying ticks can't show. No network, no database."""
 import json
 import uuid
 from types import SimpleNamespace
@@ -38,8 +39,8 @@ class FakeSource:
     def drop_waiting(self, scope, moment, problem):
         return None
 
-    def quiet_topics(self, user):
-        return ()
+    def thinks_when_quiet(self):
+        return False
 
     def dropped(self, db, scope, problem, cancelled):
         return cancelled or self.gone
@@ -248,92 +249,36 @@ def test_a_body_that_cannot_take_a_tip_says_so(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# The conversation source, live
+# Conversations: memory's events, handed to her mind
 # --------------------------------------------------------------------------- #
 
-NOTES = [{"id": "n1", "kind": "her_offer", "text": "want me to pick one?"},
-         {"id": "n2", "kind": "their_open_question", "text": "what would you watch tonight?"}]
+def test_a_disagreement_with_memory_wakes_her_mind_once_in_its_conversation(monkeypatch):
+    """No background thinking is scheduled for a conversation by code: memory's open disagreement is handed to her
+    mind as a wake (autonomous_speech, wake "conflict") once, in the conversation it was said in."""
+    from datetime import datetime, timezone
 
+    from app.services import autonomous_speech, memory_conflicts
 
-def test_an_open_question_of_theirs_is_a_problem_worth_revisiting():
-    cid = uuid.uuid4()
-    found = mind_conversation.open_problem(cid, NOTES)
-    assert found.trigger == "open" and "what would you watch tonight?" in found.text
-    assert found.anchor == {"note": "n2", "event": f"{cid}:n2"}
-    assert mind_conversation.open_problem(cid, NOTES[:1]) is None
-
-
-def _live_conversation(monkeypatch, notes, holder=None):
-    mind_hard.reset()
-    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(SimpleNamespace(name="Vincent")))
-    monkeypatch.setattr(mind_hard._pool, "submit", lambda fn, *args: fn(*args))
-    monkeypatch.setattr(mind_hard._shadow_pool, "submit", lambda *a: pytest.fail("a live thought used the shadow pool"))
-    monkeypatch.setattr(mind_conversation.SOURCE, "gather", lambda db, scope, problem, base: (base, None))
-    monkeypatch.setattr(mind_conversation.SOURCE, "current_goal", lambda db, scope: None)
-    from app.services import cognitive_live
-
-    holder = holder if holder is not None else {"notes": notes}
-    monkeypatch.setattr(cognitive_live, "load_state", lambda uid, cid: {"notes": holder["notes"]})
-
-
-def test_a_conversation_thinks_live_with_no_game_and_proposes_what_to_say(monkeypatch, thinking):
-    """No DesktopSession: a thought from an open question, saved under the conversation and proposed to
-    Student 2 (autonomous speech) in that conversation, in the user's one attention."""
-    _live_conversation(monkeypatch, NOTES)
-    thinking.think(HardThought("question", "I should just pick one for them.", thinking="they want a pick",
-                               question="Want me to just pick?"))
-    cid = uuid.uuid4()
-    assert mind_conversation.observe(user_id=UID, conversation_id=cid, notes=NOTES) == "hard: open"
-    saved = thinking.saved[-1]
-    assert (saved["source"], saved["activity_id"], saved["trigger"], saved["status"]) == (
-        "conversation", cid, "open", "done")
-    said = thinking.said[-1]
-    assert (said["source"], said["activity_id"], said["text"], said["question"]) == (
-        "conversation", cid, "Want me to just pick?", True)
-    assert not thinking.shadow.exists()  # nothing goes to the shadow log
-    assert (UID, False) in mind_hard._attention and (UID, True) not in mind_hard._attention  # one mind
-    # The same note again (her next reply left it open too): not a second thought.
-    assert mind_conversation.observe(user_id=UID, conversation_id=cid, notes=NOTES) == "hard: duplicate event"
-
-
-def test_a_conversation_thought_about_a_question_answered_meanwhile_is_dropped(monkeypatch, thinking):
-    notes = {"notes": NOTES}
-    _live_conversation(monkeypatch, NOTES, notes)
-    thinking.think(HardThought("decision", "Pick a film.", for_hands=""),
-                   during=lambda: notes.update(notes=NOTES[:1]))  # n2 answered while she thinks
-    mind_conversation.observe(user_id=UID, conversation_id=uuid.uuid4(), notes=NOTES)
-    assert (thinking.saved[-1]["status"], thinking.saved[-1]["dropped_reason"]) == ("dropped", "it's been answered")
-    assert thinking.said == []
-
-
-def test_student_two_deciding_to_think_wakes_the_mind_in_that_conversation(monkeypatch):
-    mind_hard.reset()
-    offered = []
-    monkeypatch.setattr(mind_hard, "offer", lambda source, scope, problem, at: offered.append((scope, problem)) or "hard: handoff")
-    cid = uuid.uuid4()
-    out = mind_conversation.wake(user_id=UID, conversation_id=cid, think_about="whether Berlin suits them",
-                                 decision_id="d-1")
-    scope, found = offered[0]
-    assert out == "handed to her mind (hard: handoff)" and scope == Scope(UID, "conversation", cid)
-    assert (found.trigger, found.anchor) == ("handoff", {"event": "decision:d-1"})
-    assert "whether Berlin suits them" in found.text
-    assert mind_conversation.wake(user_id=UID, conversation_id=cid, think_about=" ", decision_id="d-2").startswith(
-        "not carried out")
-
-
-def test_the_sweep_offers_what_it_finds_at_its_own_pace(monkeypatch):
-    cid = uuid.uuid4()
-    found = [(Scope(UID, "conversation", cid), problem("promise", item="i", revision=1, event="item:i:1"))]
-    monkeypatch.setattr(mind_conversation, "item_problems", lambda db, now: list(found))
-    monkeypatch.setattr(mind_conversation, "quiet_problems", lambda db, now, turn: [])
-    monkeypatch.setattr(mind_conversation, "conflict_problems", lambda db, now: [])
-    offered = []
-    monkeypatch.setattr(mind_hard, "offer", lambda source, scope, p, at: offered.append(p.trigger) or "hard: promise")
-    source = mind_conversation.ConversationSource()
-    db = SimpleNamespace(rollback=lambda: None)
-    assert source.sweep(db, 1000.0) == ["promise: hard: promise"]
+    cid, conflict_id = uuid.uuid4(), uuid.uuid4()
+    row = SimpleNamespace(id=conflict_id, user_id=UID, conversation_id=cid, stated="where Nora lives",
+                          known_content="Nora lives in Porto.", user_words="my sister in Lisbon",
+                          created_at=datetime.now(timezone.utc))
+    pending = [row]
+    monkeypatch.setattr(memory_conflicts, "due_for_mind", lambda db, before, since: list(pending))
+    marked = []
+    monkeypatch.setattr(memory_conflicts, "mark_offered", lambda db, cid_: marked.append(cid_) or pending.clear())
+    woke = []
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: woke.append(kw) or "Proposed: queued.")
+    source = mind_conversation.ConversationEvents()
+    db = SimpleNamespace(commit=lambda: None)
+    assert source.sweep(db, 1000.0) == [f"conflict {conflict_id.hex[:6]}: Proposed: queued."]
+    (kw,) = woke
+    assert (kw["source"], kw["activity_id"], kw["wake"], kw["premise"]) == ("conversation", cid, "conflict",
+                                                                            {"conflict": conflict_id})
+    assert "Nora lives in Porto" in kw["text"] and "my sister in Lisbon" in kw["text"]
     assert source.sweep(db, 1010.0) == []  # not before SWEEP_SECONDS
-    assert source.sweep(db, 1031.0) == ["promise: hard: promise"] and offered == ["promise", "promise"]
+    assert source.sweep(db, 1031.0) == [] and marked == [conflict_id]  # handed over once
+    assert not source.thinks_when_quiet()  # no canned quiet-time thinking about a conversation
 
 
 # --------------------------------------------------------------------------- #

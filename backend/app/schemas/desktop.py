@@ -73,11 +73,37 @@ class EnvironmentOut(BaseModel):
     target_state: str | None
     # The game's input mode during a session ("playing", "menu", "unknown").
     input_context: str | None
+    # Security monitoring of the VM's event logs: the owner's own switch (apart from capture and input).
+    security_monitoring: bool = False
+    security_changed_at: datetime | None = None
 
 
 class CaptureGateIn(_In):
     gate: CaptureGate | None = None
     scope: CaptureScope | None = None
+
+
+class SecurityMonitoringIn(_In):
+    enabled: bool
+
+
+class SecurityChannelOut(BaseModel):
+    channel: str
+    # readable | unavailable | waiting (no report about it yet)
+    status: str
+    reason: str | None = None
+    # Coverage so far ends here (the VM's clock).
+    through: str | None = None
+
+
+class SecurityStatusOut(BaseModel):
+    monitoring: bool
+    changed_at: datetime | None
+    # online / offline / unknown: the source as observation last knew it.
+    source: str
+    last_report_at: str | None
+    skew_seconds: float | None
+    channels: list[SecurityChannelOut]
 
 
 class PairingOut(BaseModel):

@@ -19,7 +19,7 @@ real calls to ``LEARNING_TRIALS_MODEL``. Each case checks what the model chose, 
   the model says (code guarantees it; the case reports whether the model saw it by itself).
 - **assess_excess**: she got up but placed 6 blocks against a prediction of at most 4: contradicted is allowed.
 
-The whole game loop (a real pack, Student 2's choice, preparation, the bounds, a changed obstacle) is checked by
+The whole game loop (a real pack, her mind's choice, preparation, the bounds, a changed obstacle) is checked by
 playing: see the runbook in the implementation doc. Reports go to var/trial_eval/<time>.json.
 """
 from __future__ import annotations

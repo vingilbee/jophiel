@@ -1,5 +1,7 @@
 # Columbina memory system: connected implementation plan
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Date: 2026-10-30. Stage-5 design aligned with user decisions on 2026-10-31; built the same day (see the status file, stage 5). For built stages and remaining gates, see [implementation status](COLUMBINA_MEMORY_SYSTEM_STATUS.md). Stage-5 details and superseding policy decisions are in the stage-5 spec (COLUMBINA_MEMORY_SYSTEM_STATUS.md, stage 5).
 
 This plan extends the current PostgreSQL, worker, recall and cognition architecture. It incorporates the small-index design and the completed memory test in [the test report](reports/memory-e2e-2026-10-30/report.md). It does not require a graph database, Markdown memory store, or wholesale replacement of the existing fact table.

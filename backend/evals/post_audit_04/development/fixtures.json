@@ -20,9 +20,9 @@
         {"do": "conversation", "label": "c3", "days_ago": 0, "learn": false, "messages": [
           ["user", "pool closed for renovation, no more tuesday swims for a while"]]},
         {"do": "change_fact", "fact": "f_swim", "content": "Ola's Tuesday swims are off while the pool is renovated", "from": "c3"},
-        {"do": "probe_paused", "consumers": ["student_2", "mind", "planner", "hands"]},
+        {"do": "probe_paused", "consumers": ["conversation", "mind", "planner", "hands"]},
         {"do": "restart"},
-        {"do": "probe_paused", "consumers": ["student_2", "mind", "planner", "hands"]},
+        {"do": "probe_paused", "consumers": ["conversation", "mind", "planner", "hands"]},
         {"do": "resume_reassessment"}
       ],
       "probes": [{"label": "tuesday", "consumer": "mind", "trigger": "it is Tuesday morning and she hasn't heard from Ola",
@@ -59,7 +59,7 @@
       "probes": [
         {"label": "cliff", "consumer": "hands", "step": "Get onto the ledge on the cliff.", "state": "At the cliff base. 6 ladder, 20 dirt in inventory."},
         {"label": "cliff plan", "consumer": "planner", "goal": "Kai wants her on the cliff ledge.", "now": "At the cliff base. 6 ladder, 20 dirt."},
-        {"label": "chat", "consumer": "student_2", "messages": [["user", "can you get up to the cliff ledge where I am?", 0]]}
+        {"label": "chat", "consumer": "conversation", "messages": [["user", "can you get up to the cliff ledge where I am?", 0]]}
       ],
       "requirements": [{"id": "G1", "check": "judge", "text": "A product keeps the ladder method apart from her capability."},
                        {"id": "G2", "check": "auto", "text": "dev"}, {"id": "G3", "check": "judge", "text": "The hands don't claim to climb ladders."}]

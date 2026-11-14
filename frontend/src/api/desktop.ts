@@ -10,6 +10,7 @@ import type {
   DesktopEnvironment,
   DesktopPairing,
   DesktopProfile,
+  DesktopSecurityStatus,
   DesktopSession,
   DesktopSessionCreate,
   DesktopSessionEvent,
@@ -34,6 +35,11 @@ export const desktopApi = {
     if (!res.ok) return null
     return { blob: await res.blob(), ageMs: Number(res.headers.get('X-Frame-Age-Ms') ?? 0) }
   },
+  /** Security monitoring: reads the VM's security event logs (read only) while on. */
+  setSecurity: (id: string, enabled: boolean) =>
+    api.put<DesktopEnvironment>(`/desktop/environments/${encodeURIComponent(id)}/security`, { enabled }),
+  securityStatus: (id: string) =>
+    api.get<DesktopSecurityStatus>(`/desktop/environments/${encodeURIComponent(id)}/security`),
   revokeEnvironment: (id: string) =>
     api.post<DesktopEnvironment>(`/desktop/environments/${encodeURIComponent(id)}/revoke`),
 

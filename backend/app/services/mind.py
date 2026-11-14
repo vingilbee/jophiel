@@ -1,5 +1,5 @@
 """Her mind: every tick of a source, decide how hard to think, then think (docs/COLUMBINA_MIND_DESIGN.md,
-docs/COLUMBINA_INNER_STATE_PLAN.md).
+docs/MIND_ARCHITECTURE.md).
 
 General: no game here. The ``mind`` worker thread calls ``run_once`` about once a second. Each
 source (app/ai/mind/contracts.py; Minecraft in services/mind_minecraft.py) gives its live
@@ -8,7 +8,7 @@ the rules code owns apply (urgent pressure caps hard thinking, one quick thought
 and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
-  saved, and its proposed line (if any) queued through cognition and the mouth;
+  saved, and its proposed line (if any) handed to her mind as a wake (autonomous_speech), which decides whether it's said;
 - ``hard``: slow thinking about a problem (services/mind_hard.py), with attention shared per
   user across her activities. The gate's ``hard`` level is only one of its triggers (a
   surprise); here it becomes a light thought.
@@ -85,9 +85,9 @@ def sources() -> list:
     """Every source her mind reads (polled and event ones, live and shadow)."""
     global _sources
     if _sources is None:
-        from app.services import mind_conversation, mind_minecraft
+        from app.services import mind_conversation, mind_minecraft, mind_security
 
-        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE]
+        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE, mind_security.SOURCE]
     return _sources
 
 
@@ -261,9 +261,6 @@ def run_once() -> None:
             for scope, payload in polled:
                 try:
                     tick(db, source, scope, payload, time.time())
-                    asked = mind_hard.ask_if_due(db, source, scope, time.time())
-                    if asked:
-                        _log({"ts": time.time(), "session": str(scope.activity), "question": asked})
                 except Exception:  # noqa: BLE001 - the brain must never get in the way of play
                     log.exception("mind tick for %s %s failed", scope.source, scope.activity)
                     db.rollback()
@@ -370,6 +367,8 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
     try:
         with SessionLocal() as db:
             user = db.get(User, scope.user_id)
+            from app.services.personality import current
+            text = f"PERSONALITY\n{current().text}\n\nCURRENT MOMENT\n{text}"
             thought = thinker.think(level, text, user=(user.name if user and user.name else "the user"),
                                     situation=source.situation())
             if not thought.text:

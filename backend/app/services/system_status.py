@@ -1,4 +1,4 @@
-"""Whether her parts are alive: worker heartbeats, grouped into the seven parts the System page shows.
+"""Whether her parts are alive: worker heartbeats, grouped into the six parts the System page shows.
 
 Every worker thread runs the same loop (``workers/runner._work_loop``), which calls ``beat`` before and after
 each ``run_once``. A beat is one Redis hash field per worker (``system:workers``): when it was last seen, whether
@@ -7,7 +7,7 @@ missing Redis only means the page can't tell.
 
 ``status`` reads them back per part. A worker counts as seen while its last beat is younger than three of its
 loop intervals (plus a margin), or while it's inside a job that started less than ``BUSY_LIMIT`` ago, since a
-long model call beats only when it ends. Cognition also asks the served Student 2 whether it answers.
+long model call beats only when it ends.
 """
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
 import redis
 
 from app.core.config import get_settings
@@ -36,11 +35,12 @@ class Part:
     desktop_only: tuple[str, ...] = ()  # workers that run only with DESKTOP_AGENT_ENABLED
 
 
-# The seven parts and the worker threads that are them (names from workers/runner.py).
+# The six parts and the worker threads that are them (names from workers/runner.py). Her mind's evaluations run
+# where the words come out (the chat worker: every wake is one evaluation there); its wakes and background thinking
+# are the coordinator's, its background thoughts the mind worker's.
 PARTS: tuple[Part, ...] = (
     Part("mouth", "Mouth", ("chat",), desktop_only=("agent-events",)),
-    Part("cognition", "Cognition", ("coordinator",)),
-    Part("mind", "Mind", ("mind",)),
+    Part("mind", "Mind", ("coordinator", "mind")),
     Part("hands", "Hands", (), desktop_only=("desktop-driver", "game-practice")),
     Part("memory", "Memory", ("memory", "recall-embeddings")),
     Part("observation", "Observation", ("observation",)),
@@ -87,22 +87,6 @@ def beat(name: str, *, interval: float, busy: bool = False, worked: bool = False
         pass
 
 
-_student: dict[str, Any] = {"at": 0.0, "ok": None}
-
-
-def _student_answers() -> bool | None:
-    """Whether the served Student 2 answers (cached 5 s; None when it can't be asked)."""
-    now = time.time()
-    if now - _student["at"] < 5:
-        return _student["ok"]
-    try:
-        ok = httpx.get(get_settings().cognition_student_url.rstrip("/") + "/v1/models", timeout=0.5).status_code == 200
-    except Exception:
-        ok = False
-    _student.update(at=now, ok=ok)
-    return ok
-
-
 def _worker_view(name: str, entry: dict | None, now: float) -> dict[str, Any]:
     if not entry:
         return {"name": name, "state": "down", "seen_ago": None, "busy": False, "error": None}
@@ -146,12 +130,5 @@ def status() -> dict[str, Any]:
     for part in PARTS:
         names = list(part.workers) + (list(part.desktop_only) if settings.desktop_agent_enabled else [])
         workers = [_worker_view(n, entries.get(n), now) for n in names]
-        extra: dict[str, Any] = {}
-        state = _part_state(workers)
-        if part.id == "cognition":
-            answers = _student_answers()
-            extra["student_two"] = "answers" if answers else "not answering"
-            if not answers and state in ("alive", "busy"):
-                state = "partial"
-        parts.append({"id": part.id, "label": part.label, "state": state, "workers": workers, **extra})
+        parts.append({"id": part.id, "label": part.label, "state": _part_state(workers), "workers": workers})
     return {"known": raw is not None, "at": now, "desktop": settings.desktop_agent_enabled, "parts": parts}

@@ -171,9 +171,10 @@ The field is full-bleed and spatial, not paged. It is a map you drag, wheel, pin
 A black sky lit by seven part colors and stars in white and the same part colors, with a cool grey ink ramp for text and one red reserved for failure.
 
 ### Primary
-Seven part colors, one per part. They are equal in rank; none is "the brand accent".
-- **Cognition Cyan**: the central, largest node. Also the page's default focus ring and text-selection tint (cyan at 32%).
-- **Mouth Green**, **Mind Rose**, **Hands Amber**, **Memory Orange**, **Observation Blue**, **Learning Violet**.
+Six part colors, one per part. They are equal in rank; none is "the brand accent".
+- **Mind Rose**: the central, largest node (since 2026-11-13, when the Cognition node was retired).
+- **Cognition Cyan**: no longer a part's color; kept as the page's default focus ring and text-selection tint (cyan at 32%).
+- **Mouth Green**, **Hands Amber**, **Memory Orange**, **Observation Blue**, **Learning Violet**.
 
 On the field each part color paints its node's core (a radial gradient from pure white through Core White at 38% into the color at 62%), its halos, arc glow and charging ring, its sub-cores, its state word under the label, its end of every fibre it touches, the tail of every pulse it sends, and its share of the tinted stars and warp streaks. In the jump it is the flood of light (white at the centre, the part color at 16%, the color at 33% alpha at 34%, gone by 62%). On its page it is the live node glyph, the state word, the sub-part dots (with an 8px glow), every timeline meta line, the reasoning rule (at 40%) and the page's focus ring. A hand-off line in the rail takes the *other* part's color for its dot.
 
@@ -223,7 +224,7 @@ On the field each part color paints its node's core (a radial gradient from pure
 
 The System page is fixed to the viewport (`inset: 0`, no page scroll). The field fills it; wheel zoom is captured so the page never scrolls. A part page is a layer over it that scrolls on its own.
 
-- **Field.** Seven parts at fixed positions in a 1600 × 1000 field: Cognition central and largest, Mouth right, Memory beneath, Mind upper left, Hands lower right, Observation top, Learning lower left. The fitted view frames the nodes and their labels (not the empty field), with 70px clear at top and bottom (110px on top in portrait) for the overlay, at 96% of the available fit.
+- **Field.** Six parts at fixed positions in a 1600 × 1000 field: Mind central and largest, Mouth right, Memory beneath, Hands lower right, Observation top, Learning lower left. The fitted view frames the nodes and their labels (not the empty field), with 70px clear at top and bottom (110px on top in portrait) for the overlay, at 96% of the available fit.
 - **Portrait.** When the viewport is more than 1.15× taller than wide, the field is turned on its side (x and y swapped) so every node keeps its neighbours and a phone is filled; labels move above or below.
 - **Overlay.** Specimen label, status, last signal and page links top left; magnification ruler bottom left; zoom buttons bottom right. Gutters 16px, 24px from 640px up. The top-left text fades out (300ms) as soon as a jump begins; the bottom chrome fades while the light is up or a page is open; the map's nodes and fibres fade out while a page is open.
 - **Part page.** Centred, at most 1152px wide, 20px sides on phones and 32px from 640px, 20px / 32px on top, 96px at the bottom. From 1024px it is two columns: a 288px rail that sticks 32px from the top, a 56px gap, and the timeline. Below 1024px the rail stacks above the timeline, the glyph sits beside the name, and sub-parts wrap into a row.

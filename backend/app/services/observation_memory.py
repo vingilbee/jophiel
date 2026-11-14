@@ -179,6 +179,10 @@ def bind(db: Session, observation: Observation, now: datetime) -> uuid.UUID | No
         if at is None:
             return None
         context_id = memory_manager.focus_at(db, observation.user_id, at).id
+    elif observation.source == "desktop":
+        # Her desktop work happens inside a conversation: it belongs to what was in focus when she did it.
+        at = observation.occurred_at or observation.received_at
+        context_id, method = memory_manager.focus_at(db, observation.user_id, at).id, "focus_when_it_happened"
     else:
         at = observation.occurred_at or observation.received_at
         alive = list(db.scalars(select(MemoryContext.id).where(

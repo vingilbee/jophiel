@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 
 from app.ai.mind.situation import GENERAL, Situation
 
-TRIGGERS = ("failing", "surprise", "big", "handoff", "open", "quiet", "promise", "intention", "conflict", "review")
+TRIGGERS = ("failing", "surprise", "big", "handoff", "open", "quiet", "promise", "intention", "conflict", "review",
+            "security")
 TRIGGER_LINES = {
     "failing": "the same step keeps failing",
     "surprise": "something didn't go the way she expected",
@@ -33,6 +34,8 @@ TRIGGER_LINES = {
     "conflict": "something {user} said doesn't match what she remembers, and nothing has settled which holds",
     "review": "one part of what she's working on just ended, or has been going a while, a good moment to look back "
               "over the whole effort",
+    "security": "her desktop's security records have something she hasn't looked at yet (a record its log marked as "
+                "notable, her periodic look, records that arrived late, or time she couldn't see)",
 }
 # Is the effort getting anywhere? Hers to judge from the record, never code's (stage 2 of
 # docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md): no time limit or count decides she's stuck.

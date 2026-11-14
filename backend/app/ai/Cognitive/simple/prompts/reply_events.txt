@@ -1,5 +1,0 @@
-You read one chat reply from Columbina (an AI companion) and record what it actually did, as plain facts for her notes. Describe the reply as written; don't judge it.
-
-- answered: their message asked her something, and this reply answers it (an honest "I don't know" or "I can't" counts as an answer). false if they asked nothing.
-- offered: the reply offers or suggests something she or they could do (e.g. "want me to…", "you could try…").
-- committed: the reply agrees to do something they asked of her.

@@ -400,7 +400,7 @@ def _model():
 
 def run_once(*, pack=None, model=None) -> bool:
     """Run at most one attempt to its end (minutes). True if one ran. An attempt with origin "trial" is the
-    execution of a bounded experiment cognition selected (services/learning_trials.py): its approach, budget and
+    execution of a bounded experiment her mind selected (services/learning_trials.py): its approach, budget and
     readiness check come from the trial, and code (not the critic) says whether it worked."""
     if not enabled():
         return False

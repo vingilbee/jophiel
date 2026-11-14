@@ -456,10 +456,12 @@ def _set_status(db: Session, entry: WorkingItem, status: str, reason: str, now: 
 
 def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: str, reason: str,
             source: Source | None = None, expected_revision: int | None = None,
-            background: bool = False) -> tuple[WorkingItem, list[WorkingItem]]:
+            background: bool = False, own_word: bool = False) -> tuple[WorkingItem, list[WorkingItem]]:
     """Change an item's status. Returns it and its still-open sub-goals (closing a goal never closes them:
     the caller decides). A closed item stays closed; completing or fulfilling needs a source.
-    ``background``: a turn the user didn't start may only change her own intentions."""
+    ``background``: a game-event turn the user didn't start may only change her own intentions.
+    ``own_word``: her mind woke without a user message and kept a promise of her own in that evaluation (said
+    what she'd promised to say): her own promise may be marked fulfilled without a message to point at."""
     entry = item(db, user_id, key)
     # Lock order: environment -> session -> working item (spec 4.6).
     sessions = _linked_sessions(db, user_id, entry.id) if entry.kind == "goal" else []
@@ -475,7 +477,9 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
         raise MemoryError("invalid", f"a {entry.kind} can be: {', '.join(opened + closed)}")
     if entry.closed_at is not None:
         raise MemoryError("closed", f'that {entry.kind} is already {entry.status}')
-    if status in ("completed", "fulfilled", "happened") and source is None:
+    kept_herself = (own_word and status == "fulfilled" and entry.kind == "commitment"
+                    and entry.owner == "columbina")
+    if status in ("completed", "fulfilled", "happened") and source is None and not kept_herself:
         raise MemoryError("no_evidence", "say what shows it's done (only when the user said so or it's clearly done)")
     if status in ("supported", "disproved") and source is None:
         raise MemoryError("no_evidence", "a suspicion is only shown right or wrong by what the user said or what happened")

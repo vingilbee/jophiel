@@ -74,6 +74,8 @@ class Win32:
             (u.ClientToScreen, [w.HWND, ctypes.POINTER(w.POINT)], w.BOOL),
             (u.GetSystemMetrics, [ctypes.c_int], ctypes.c_int),
             (u.GetCursorInfo, [ctypes.POINTER(CURSORINFO)], w.BOOL),
+            (u.GetWindowTextLengthW, [w.HWND], ctypes.c_int),
+            (u.GetWindowTextW, [w.HWND, w.LPWSTR, ctypes.c_int], ctypes.c_int),
             (u.SendInput, [w.UINT, ctypes.POINTER(INPUT), ctypes.c_int], w.UINT),
             (k.OpenProcess, [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
             (k.QueryFullProcessImageNameW, [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)], w.BOOL),
@@ -127,6 +129,14 @@ class Win32:
         if not foreground:
             return False
         return foreground == hwnd or self.user32.GetAncestor(foreground, GA_ROOTOWNER) == hwnd
+
+    def window_title(self, hwnd) -> str | None:
+        length = self.user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return None
+        buffer = ctypes.create_unicode_buffer(min(length, 512) + 1)
+        self.user32.GetWindowTextW(hwnd, buffer, len(buffer))
+        return buffer.value or None
 
     def is_minimized(self, hwnd) -> bool:
         return bool(self.user32.IsIconic(hwnd))

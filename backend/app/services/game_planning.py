@@ -14,7 +14,7 @@ call, and applies its decision here:
 - new_goal / done / wait_for_user: a new plan, nothing, or a pause with a question.
 
 The planner's "why" is saved as her thought (level hard, kind plan), and a question or
-line becomes a shared-state proposal for cognition and the mouth. A decision made on a plan that
+line becomes a wake of her mind, which decides whether it's said. A decision made on a plan that
 changed meanwhile, or while a newer goal from the user waits, is dropped: the newer job
 plans again.
 
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 SOURCE = "plan"
 # Reasons that are news about the plan, which the planner answers instead of a background turn.
-# "trial": an experiment cognition chose needs something arranged first (services/learning_trials.py).
+# "trial": an experiment her mind chose needs something arranged first (services/learning_trials.py).
 PLAN_KINDS = frozenset({"stuck", "needs_human", "struggling", "plan_low", "goal_done", "rethink", "trial"})
 PLAN_PAUSES = frozenset({"paused:plan_complete", "paused:planning_timeout"})
 TALK_MESSAGES = 6
@@ -520,6 +520,8 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
         commentary_mode = session.commentary_mode
         db.commit()
     topic = (f"planning: {goal['text']}" if goal else "planning: " + "; ".join(reasons))[:GOAL_CHARS]
+    from app.services.personality import current
+    text = f"PERSONALITY\n{current().text}\n\nPLANNING SITUATION\n{text}"
     decision = (planner or _get_planner()).plan(
         text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
     from app.services import memory_lessons

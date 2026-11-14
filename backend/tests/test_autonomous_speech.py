@@ -1,69 +1,71 @@
-"""Step 5 routing through real durable coordinator and mouth; scripted cognition only."""
+"""Events from the other parts of her (a thought of her own, a question from her slow thinking, a learning proposal)
+wake her mind through the real durable coordinator and chat worker; she decides what, if anything, to say. Only the
+model's run is scripted (``test_coordinator.env``). Execution fences are checked before the wake and again before
+anything is stored: a newer user message, a settled premise, something forgotten, the same thing already said in
+this quiet stretch, an expired event."""
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
 
-from app.ai.state.decisions import ResultDecision, RESULT_GAP
 from app.db.models import ChatMessage, CoordinatorOutput, CoordinatorWork, DesktopEnvironment, DesktopSession
-from app.services import autonomous_speech, cognition_decisions, coordinator
+from app.services import autonomous_speech, coordinator
 from app.services import chat as chat_service
-from test_coordinator import env, _run_chat  # noqa: F401
+from test_coordinator import drain, env, messages, outputs, run_job, says  # noqa: F401
 from db_support import database, db_env  # noqa: F401
 
 
-def propose(env, monkeypatch, event=None):
-    monkeypatch.setattr(autonomous_speech.agent_say, "user_spoke_since", lambda *a: False)
-    monkeypatch.setattr(autonomous_speech.agent_say, "allowed", lambda *a, **k: (True, ""))
-    monkeypatch.setattr(autonomous_speech.desktop_preview, "redis_client", lambda: None)
+def propose(env, text="A completed autonomous thought", *, event=None, question=False, premise=None):
     with env.db() as db:
         result = autonomous_speech.submit(
             db, user_id=env.user.id, activity_id=env.conversation.id, source="conversation",
-            event_id=event or uuid.uuid4(), text="A completed autonomous thought", reasons=["thought: test"],
-            commentary_mode="occasional")
+            event_id=event or uuid.uuid4(), text=text, question=question, premise=premise,
+            reasons=["question: test" if question else "thought: test"], commentary_mode="occasional")
         assert result.startswith("Proposed")
-        return db.scalar(select(CoordinatorWork))
+        return db.scalar(select(CoordinatorWork).order_by(CoordinatorWork.created_at.desc()).limit(1))
 
 
-@pytest.mark.parametrize("action", ["respond", "ask", "defer", "silent", None])
-def test_proposal_cognition_mouth_and_receipt(env, monkeypatch, action):
-    calls = []
-    def decide(inp):
-        calls.append(inp)
-        return ResultDecision(action, "stub" if action else "unsupported", bool(action),
-                              missing_capability=None if action else RESULT_GAP)
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", decide)
-    work = propose(env, monkeypatch)
-    assert coordinator.execute_once()
-    assert len(calls) == 1 and calls[0].trigger_ref.startswith("event:")
-    assert env.calls["think"] == []
-    if action in ("respond", "ask"):
-        assert _run_chat(env)
-        assert env.announced
-        assert "autonomous thought" in coordinator.render_result(coordinator.follow_up_still_valid(work.id)[1])
-    else:
-        assert not _run_chat(env)
+def _said(env):
+    return [content for role, content in messages(env) if role == "assistant"]
+
+
+def write(env, text):
     with env.db() as db:
-        output = db.scalar(select(CoordinatorOutput))
-        assert output.decision == (action or "blocked")
-        assert output.status == ("delivered" if action in ("respond", "ask") else "not_sent")
-    assert not coordinator.execute_once()
+        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+        chat_service.add_message(db, conversation=conversation, role="user", content=text)
 
 
-def test_unlinked_minecraft_proposal_reaches_cognition_in_active_voice_chat(env, monkeypatch):
+@pytest.mark.parametrize("choice", ["say", "silent"])
+def test_a_thought_of_hers_wakes_her_mind_and_she_decides(env, choice):
+    work = propose(env)
+    drain(env)
+    assert env.thoughts == []  # a thought already made: nothing is thought again
+
+    async def decide(use, context):
+        assert "A thought of your own" in context.wake and "A completed autonomous thought" in context.wake
+        if choice == "silent":
+            await use("stay_silent", reason="not now")
+            return ""
+        return "Something I was thinking about..."
+
+    env.scripts.append(decide)
+    assert run_job(env)
+    [output] = outputs(env)
+    if choice == "say":
+        assert _said(env) == ["Something I was thinking about..."] and env.announced
+        assert (output.decision, output.status) == ("said", "delivered")
+    else:
+        assert _said(env) == [] and not env.announced
+        assert (output.decision, output.status) == ("silent", "not_sent")
+    assert output.work_id == work.id
+    drain(env)
+    assert not run_job(env)  # once
+
+
+def test_a_game_event_reaches_her_in_the_active_voice_conversation(env, monkeypatch):
     socket_id = uuid.uuid4()
     monkeypatch.setattr(autonomous_speech.voice_target, "current", lambda _: (socket_id, env.conversation.id))
-    calls = []
-
-    def decide(inp):
-        calls.append(inp)
-        return ResultDecision("silent", "stub", True)
-
-    def unexpected_restraint(*args):
-        pytest.fail("Minecraft proposals must reach cognition without the recent-reply heuristic")
-
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", decide)
-    monkeypatch.setattr(autonomous_speech, "_restraint", unexpected_restraint)
     with env.db() as db:
         desktop = DesktopEnvironment(owner_user_id=env.user.id, display_name="Minecraft", hosting_kind="game_pack")
         db.add(desktop)
@@ -72,116 +74,72 @@ def test_unlinked_minecraft_proposal_reaches_cognition_in_active_voice_chat(env,
                               profile_revision=1, state="running", max_duration_seconds=600)
         db.add(game)
         db.commit()
-        activity_id = game.id
         assert game.conversation_id is None
         assert autonomous_speech.submit(
-            db, user_id=env.user.id, activity_id=activity_id, source="minecraft",
+            db, user_id=env.user.id, activity_id=game.id, source="minecraft",
             event_id=uuid.uuid4(), text="I need wood first.", reasons=["light: need wood"],
-            commentary_mode="occasional").startswith("Proposed")
+            commentary_mode="quiet").startswith("Proposed")
         work = db.scalar(select(CoordinatorWork))
-        assert work.conversation_id == env.conversation.id
-        assert work.input["voice_socket_id"] == str(socket_id)
+        assert work.conversation_id == env.conversation.id and work.input["voice_socket_id"] == str(socket_id)
+    drain(env)
 
-    assert coordinator.execute_once()
-    assert len(calls) == 1 and calls[0].activity_id == str(activity_id)
-    with env.db() as db:
-        assert db.scalar(select(CoordinatorOutput)).decision == "silent"
+    async def decide(use, context):
+        # The user's commentary setting reaches her as a fact, not as a rule that decided for her.
+        assert "commentary setting for this game: quiet" in context.wake
+        await use("stay_silent", reason="they asked for quiet")
+        return ""
+
+    env.scripts.append(decide)
+    assert run_job(env)
+    assert outputs(env)[0].decision == "silent"
 
 
-def test_duplicate_proposal_and_new_user_fence(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("respond", "stub", True))
+def test_duplicate_events_are_one_wake_and_a_new_message_fences_it(env):
     event = uuid.uuid4()
-    work = propose(env, monkeypatch, event)
-    assert propose(env, monkeypatch, event).id == work.id
-    assert coordinator.execute_once()
-    with env.db() as db:
-        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
-        chat_service.add_message(db, conversation=conversation, role="user", content="Different topic now")
+    work = propose(env, event=event)
+    assert propose(env, event=event).id == work.id
+    drain(env)
+    write(env, "Different topic now")
     assert coordinator.follow_up_still_valid(work.id) == (False, None)
-    assert _run_chat(env)
-    assert not env.announced
-    with env.db() as db:
-        assert not list(db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant")))
-        assert db.scalar(select(CoordinatorOutput)).status == "cancelled"
+    assert run_job(env)  # the wake job runs, finds it stale, and wakes nobody
+    assert env.seen == [] and _said(env) == [] and not env.announced
+    assert outputs(env)[0].status == "cancelled"
 
 
-def test_recover_accepted_proposal_after_restart(env, monkeypatch):
-    work = propose(env, monkeypatch)
-    with env.db() as db:
-        db.get(CoordinatorWork, work.id).status = "completed"
-        db.commit()
-    assert coordinator.execute_once()
-    with env.db() as db:  # production cognition: Student 2 (scripted to keep it) read her own thought as [T1]
-        output = db.scalar(select(CoordinatorOutput))
-        assert (output.decision, output.decision_origin) == ("silent", "student_2")
-    situation = env.calls["situations"][-1]
-    assert "[T1] HER PRIVATE THOUGHT (conclusion, just finished; not said to anyone): A completed autonomous" in situation
-    assert "WORK: none." in situation  # her own thought has no thinking work behind it
+def test_a_new_message_while_she_words_it_keeps_it_unsaid(env):
+    propose(env)
+    drain(env)
+
+    async def decide(use, context):
+        write(env, "Stop, new topic")
+        return "An obsolete thought"
+
+    env.scripts.append(decide)
+    assert run_job(env)
+    assert _said(env) == [] and not env.announced and outputs(env)[0].status == "cancelled"
 
 
-def test_new_message_during_mouth_generation_prevents_announcement(env, monkeypatch):
-    from app.workers import chat as worker
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("respond", "stub", True))
-    propose(env, monkeypatch)
-    coordinator.execute_once()
-    async def mouth(**kwargs):
-        yield {"type": "token", "content": "An obsolete thought"}
-        with env.db() as db:
-            conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
-            chat_service.add_message(db, conversation=conversation, role="user", content="Stop, new topic")
-    monkeypatch.setattr(worker, "stream_chat", mouth)
-    assert _run_chat(env)
-    assert not env.announced
-    with env.db() as db:
-        assert db.scalar(select(CoordinatorOutput)).status == "cancelled"
-        assert not list(db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant")))
-
-
-def test_an_expired_proposal_stays_private(env, monkeypatch):
-    from datetime import timedelta
-    work = propose(env, monkeypatch)
+def test_an_expired_event_never_wakes_her(env):
+    work = propose(env)
     with env.db() as db:
         db.get(CoordinatorWork, work.id).deadline_at = coordinator._now() - timedelta(seconds=1)
         db.commit()
-    coordinator.execute_once()
-    assert not _run_chat(env)
-    with env.db() as db:
-        assert db.scalar(select(CoordinatorOutput)).decision == "rejected"
+    drain(env)
+    assert not run_job(env)
+    assert outputs(env)[0].decision == "rejected"
 
 
-@pytest.mark.parametrize("rule", ["quiet", "recent_user"])
-def test_in_chat_only_student_two_decides_game_pacing_rules_do_not_hold_it_back(env, monkeypatch, rule):
-    """A conversation's proposal (the user's decision, 2026-10-28): Student 2 alone decides whether it is said."""
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("respond", "stub", True))
-    propose(env, monkeypatch)
-    if rule == "quiet":
-        monkeypatch.setattr(autonomous_speech.agent_say, "allowed", lambda *a, **k: (False, "quiet"))
-    else:
-        monkeypatch.setattr(autonomous_speech.agent_say, "user_spoke_since", lambda *a: True)
-    coordinator.execute_once()
-    assert _run_chat(env) and env.announced
-    with env.db() as db:
-        assert db.scalar(select(CoordinatorOutput)).status == "delivered"
+def test_in_chat_no_game_pacing_or_recent_reply_rule_holds_a_thought_back(env, monkeypatch):
+    """A conversation's event: the user just spoke and the game rules would say quiet; neither decides for her."""
+    monkeypatch.setattr(autonomous_speech.agent_say, "allowed", lambda *a, **k: (False, "quiet"))
+    write(env, "hi")
+    propose(env)
+    drain(env)
+    env.scripts.append(says("Oh, one more thing."))
+    assert run_job(env) and env.announced and outputs(env)[0].status == "delivered"
 
 
-# --- checked again before it's said (plan stage 2) ----------------------------------------------------------
-
-
-def _ask(env, monkeypatch, text, *, premise=None, event=None):
-    monkeypatch.setattr(autonomous_speech.agent_say, "user_spoke_since", lambda *a: False)
-    monkeypatch.setattr(autonomous_speech.agent_say, "allowed", lambda *a, **k: (True, ""))
-    monkeypatch.setattr(autonomous_speech.desktop_preview, "redis_client", lambda: None)
-    with env.db() as db:
-        assert autonomous_speech.submit(
-            db, user_id=env.user.id, activity_id=env.conversation.id, source="conversation",
-            event_id=event or uuid.uuid4(), text=text, question=True, premise=premise,
-            reasons=["question: test"], commentary_mode="occasional").startswith("Proposed")
-
-
-def _said(env):
-    with env.db() as db:
-        return [m.content for m in db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant")
-                                              .order_by(ChatMessage.conversation_sequence))]
+# --- checked again before it's said ----------------------------------------------------------------------------
 
 
 def _conflict(env):
@@ -201,60 +159,108 @@ def _conflict(env):
         return row.id, fact.id
 
 
-def _mouth(monkeypatch):
-    from app.workers import chat as worker
-
-    async def mouth(**kwargs):
-        decision = kwargs["context"].thought_result or ""
-        yield {"type": "token", "content": decision.split("\n")[0][:120] or "said"}
-    monkeypatch.setattr(worker, "stream_chat", mouth)
-
-
-def test_a_question_about_a_settled_disagreement_is_never_asked(env, monkeypatch):
-    from app.services import memory_conflicts
+def test_a_question_about_a_settled_disagreement_never_wakes_her(env):
     from app.db.models import SemanticMemory
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("ask", "stub", True))
+    from app.services import memory_conflicts
+
     conflict, fact = _conflict(env)
-    _ask(env, monkeypatch, "Is Biscuit your dog, or Pretzel?", premise={"conflict": conflict, "event": "x"})
+    propose(env, "Is Biscuit your dog, or Pretzel?", question=True, premise={"conflict": conflict})
     with env.db() as db:
         memory_conflicts.settle(db, db.get(SemanticMemory, fact), "known_confirmed", message_id=None)
         db.commit()
-    coordinator.execute_once()
-    assert not _run_chat(env) and _said(env) == []
-    with env.db() as db:
-        assert db.scalar(select(CoordinatorOutput)).decision == "rejected"
+    drain(env)
+    assert not run_job(env) and _said(env) == [] and outputs(env)[0].decision == "rejected"
 
 
-def test_the_same_question_in_other_words_is_asked_once_per_quiet_stretch(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("ask", "stub", True))
-    _mouth(monkeypatch)
-    _ask(env, monkeypatch, "Is Biscuit your dog now, or did you mean Pretzel?")
-    assert coordinator.execute_once() and _run_chat(env)
+def test_the_same_question_in_other_words_is_said_once_per_quiet_stretch(env):
+    def ask_it(text):
+        propose(env, text, question=True)
+        drain(env)
+        env.scripts.append(says(text))
+        return run_job(env)
+
+    assert ask_it("Is Biscuit your dog now, or did you mean Pretzel?") and len(_said(env)) == 1
+    # Not again, though the words differ: dropped before her mind is even woken.
+    assert not ask_it("Wait, I may have this mixed up: is Biscuit your dog, or did you mean Pretzel?")
+    env.scripts.clear()
     assert len(_said(env)) == 1
-    _ask(env, monkeypatch, "Wait, I may have this mixed up: is Biscuit your dog, or did you mean Pretzel?")
-    coordinator.execute_once()
-    assert not _run_chat(env) and len(_said(env)) == 1  # not again, though time passed and the words differ
-    _ask(env, monkeypatch, "Want to plan something for the weekend?")  # a different thing is fine
-    assert coordinator.execute_once() and _run_chat(env) and len(_said(env)) == 2
-    with env.db() as db:  # the user writes: a new stretch
-        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
-        chat_service.add_message(db, conversation=conversation, role="user", content="sorry, was away")
-    _ask(env, monkeypatch, "Is Biscuit your dog now, or did you mean Pretzel?")
-    assert coordinator.execute_once() and _run_chat(env) and len(_said(env)) == 3
+    assert ask_it("Want to plan something for the weekend?") and len(_said(env)) == 2  # a different thing is fine
+    write(env, "sorry, was away")  # the user writes: a new stretch
+    assert ask_it("Is Biscuit your dog now, or did you mean Pretzel?") and len(_said(env)) == 3
 
 
-def test_something_forgotten_since_it_was_thought_keeps_it_private(env, monkeypatch):
+def test_something_forgotten_since_it_was_thought_keeps_it_private(env):
     from app.db.models import MemoryForget
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", lambda _: ResultDecision("respond", "stub", True))
-    _ask(env, monkeypatch, "How's your knee after the race?")
+
+    work = propose(env, "How's your knee after the race?", question=True)
     with env.db() as db:
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
         asked = chat_service.add_message(db, conversation=conversation, role="assistant", content="Sure.")
         db.add(MemoryForget(user_id=env.user.id, source_message_id=asked.id, conversation_id=env.conversation.id,
                             status="done", request=None, removed={"episode": 1}, finished_at=coordinator._now()))
         db.commit()
-    coordinator.execute_once()
-    assert not _run_chat(env)
+    drain(env)
+    assert not run_job(env)
     with env.db() as db:
-        work = db.scalar(select(CoordinatorWork).where(CoordinatorWork.kind == "mind"))
-        assert "forgotten" in autonomous_speech.why_not(db, work)
+        assert "forgotten" in autonomous_speech.why_not(db, db.get(CoordinatorWork, work.id))
+
+
+# --- a proposal from learning, decided by her mind ---------------------------------------------------------------
+
+
+def _proposal(env, monkeypatch, decided):
+    """A trial proposal's wake (as learning_trials.present_once submits it); its producer is told what happened."""
+    from app.services import learning_trials
+
+    told = []
+    monkeypatch.setattr(learning_trials, "settle_presented",
+                        lambda **kw: told.append(kw) or None)
+    trial = uuid.uuid4()
+    with env.db() as db:
+        assert autonomous_speech.submit(
+            db, user_id=env.user.id, activity_id=env.conversation.id, source="conversation", event_id=uuid.uuid4(),
+            text="An experiment you could run: [a1] try a pillar; [a2] try dig steps", reasons=["trial: x"],
+            commentary_mode="occasional", wake="proposal",
+            extra={"trial": str(trial), "revision": 1, "options": ["a1", "a2"]}).startswith("Proposed")
+    drain(env)
+    env.scripts.append(decided)
+    run_job(env)
+    return told
+
+
+def test_a_proposal_wakes_her_with_its_decision_tool_and_no_decision_is_undecided(env, monkeypatch):
+    async def ignore(use, context):
+        assert "Another part of you has a proposal" in context.wake
+        tools = {t.name for t in __import__("app.ai.tools.mind", fromlist=["x"]).build_mind_tools(context.mind)}
+        assert "decide_proposal" in tools
+        return ""
+
+    told = _proposal(env, monkeypatch, ignore)
+    assert told and told[0]["decided"] is False and "no decision" in told[0]["why"]
+
+
+@pytest.mark.parametrize("choice", ["accept", "decline", "defer"])
+def test_a_proposal_can_be_accepted_declined_or_deferred_by_her_mind(env, monkeypatch, choice):
+    from app.services import learning_trials
+
+    calls = []
+    for name in ("on_pursue", "on_decline", "on_defer"):
+        monkeypatch.setattr(learning_trials, name,
+                            lambda db, user_id, key, _name=name, **kw: calls.append((_name, key, kw)) or "done")
+
+    async def decide(use, context):
+        args = {"choice": choice, "reason": "worth it" if choice == "accept" else "not now"}
+        if choice == "accept":
+            args["option"] = "a2"
+        if choice == "defer":
+            args["come_back_in_minutes"] = 30
+        assert await use("decide_proposal", **args) == "done"
+        return ""
+
+    told = _proposal(env, monkeypatch, decide)
+    (name, key, kw), = calls
+    assert name == {"accept": "on_pursue", "decline": "on_decline", "defer": "on_defer"}[choice]
+    assert key.endswith(":1:a2" if choice == "accept" else ":1:a1") and kw["decision_id"]
+    if choice == "defer":
+        assert kw["condition"]["kind"] == "time_reached" and kw["condition"]["by"] == "mind"
+    assert told[0]["decided"] is True

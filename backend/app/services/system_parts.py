@@ -7,8 +7,8 @@ filled in where a record has none.
 
 Learning's feed here is only what the learning API doesn't serve (capture gaps); the page reads the rest there.
 
-``highlights`` is the page's watch log: what she thought, what memory captured and what her hands are after,
-newest first. ``errors`` gathers what went wrong across the parts.
+``highlights`` is the page's watch log: what woke her mind and what she did, what she set to come back to, what she
+thought, what memory captured and what her hands are after, newest first. ``errors`` gathers what went wrong across the parts.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from app.db.models import (
 from app.services.heard import heard_text
 
 LIMIT = 15
-PARTS = ("mouth", "cognition", "mind", "hands", "memory", "observation", "learning")
+PARTS = ("mouth", "mind", "hands", "memory", "observation", "learning")
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -78,37 +78,22 @@ def _mouth(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     return {"replies": replies}
 
 
-def _decision_summary(attempt: DecisionAttempt) -> str | None:
-    out = attempt.output or {}
-    if attempt.learner == "student_2" and isinstance(out.get("raw"), str):
-        try:
-            d = json.loads(out["raw"])
-        except ValueError:
-            return _clip(out["raw"], 400)
-        bits = [d.get("intention"), f"says: {d['communication']}" if d.get("communication") else None,
-                f"move: {d['move']}" if d.get("move") not in (None, "none") else None,
-                f"work: {d['work']}" if d.get("work") not in (None, "no_change") else None,
-                f"thinks about: {d['think_about']}" if d.get("think_about") else None]
-        return " · ".join(b for b in bits if b) or None
-    return _compact(out, 400)
-
-
-def _cognition(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
-    attempts = db.scalars(
-        select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
-                                      DecisionAttempt.learner.in_(("student_1", "student_2")))
-        .order_by(DecisionAttempt.captured_at.desc()).limit(LIMIT)).all()
-    work = db.scalars(select(CoordinatorWork).where(CoordinatorWork.user_id == user_id)
-                      .order_by(CoordinatorWork.created_at.desc()).limit(8)).all()
-    return {
-        "decisions": [{"id": str(a.id), "learner": a.learner, "trigger": a.trigger, "status": a.status,
-                       "error": _clip(a.error, 200), "model": a.model, "turn_id": str(a.turn_id) if a.turn_id else None,
-                       "at": _iso(a.started_at or a.captured_at),
-                       "seconds": _seconds(a.started_at, a.produced_at), "decided": _decision_summary(a)}
-                      for a in attempts],
-        "work": [{"id": str(w.id), "kind": w.kind, "status": w.status, "error": w.error_code,
-                  "at": _iso(w.created_at)} for w in work],
-    }
+def _evaluation_out(a: DecisionAttempt) -> dict[str, Any]:
+    """One evaluation of her mind as recorded: why she woke, what memory gave her, the tools she used (with what
+    each returned), and what she did about speaking."""
+    out, inp = a.output or {}, a.input or {}
+    memory = inp.get("memory") or {}
+    tools = [{"tool": t.get("tool"), "result": _clip(t.get("result"), 200)}
+             for t in out.get("tools") or [] if isinstance(t, dict)][:20]
+    return {"id": str(a.id), "at": _iso(a.started_at or a.captured_at), "status": a.status,
+            "error": _clip(a.error, 200), "model": a.model, "turn_id": str(a.turn_id) if a.turn_id else None,
+            "seconds": _seconds(a.started_at, a.produced_at), "reason": inp.get("reason") or a.trigger,
+            "message": _clip(inp.get("message"), 300), "wake": _clip(inp.get("wake"), 500),
+            "memory": memory.get("status"), "memory_records": len(memory.get("refs") or []),
+            "lessons": len(inp.get("lessons") or []), "tools": tools,
+            "silent": _clip(out.get("silent"), 200), "said": _clip(out.get("reply"), 400),
+            "thinking_started": len(out.get("thinking_started") or []),
+            "scheduled": len(out.get("scheduled") or []), "proposal": out.get("proposal")}
 
 
 def _thought_out(t: MindThought) -> dict[str, Any]:
@@ -155,23 +140,24 @@ def _plan_out(a: DecisionAttempt, applied: DecisionExecution | None) -> dict[str
 
 
 def _mind(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
-    from app.services import inner_state_live
+    from app.services import mind_state
 
+    evaluations = db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
+                                                           DecisionAttempt.learner == "mind")
+                             .order_by(DecisionAttempt.captured_at.desc()).limit(LIMIT)).all()
     thoughts = db.scalars(select(MindThought).where(MindThought.user_id == user_id)
                           .order_by(MindThought.created_at.desc()).limit(LIMIT * 2)).all()
-    try:
-        mood = inner_state_live.view(user_id)
-        mood = {"words": mood.get("words"), "updated_at": mood.get("updated_at")}
-    except Exception:
-        mood = None
     planner = db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
                                                        DecisionAttempt.learner == "planner")
                          .order_by(DecisionAttempt.captured_at.desc()).limit(10)).all()
     applied = {e.attempt_id: e for e in db.scalars(select(DecisionExecution).where(
         DecisionExecution.user_id == user_id, DecisionExecution.kind == "plan_apply",
         DecisionExecution.attempt_id.in_([a.id for a in planner] or [uuid.uuid4()])))}
+    continuity = mind_state.view(db, user_id, limit=LIMIT)
     return {
-        "mood": mood,
+        "evaluations": [_evaluation_out(a) for a in evaluations],
+        "continuity": {key: [{k: (_iso(v) if isinstance(v, datetime) else v) for k, v in row.items()}
+                             for row in rows] for key, rows in continuity.items()},
         "thoughts": [_thought_out(t) for t in thoughts],
         "plans": [_plan_out(a, applied.get(a.id)) for a in planner],
         "lessons": _lesson_uses(db, user_id, ("planner", "mind")),
@@ -352,7 +338,7 @@ def _observation(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-_FEEDS = {"mouth": _mouth, "cognition": _cognition, "mind": _mind, "hands": _hands, "memory": _memory,
+_FEEDS = {"mouth": _mouth, "mind": _mind, "hands": _hands, "memory": _memory,
           "observation": _observation, "learning": _learning}
 
 
@@ -389,6 +375,25 @@ def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
             anchor="planner" if t.kind == "plan" else ("hard" if t.level == "hard" else "quick"), ref=o["id"],
             tone="muted" if t.status in ("dropped", "stale") else None,
             detail=o["thinking"])
+    for a in db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
+                                                      DecisionAttempt.learner == "mind")
+                        .order_by(DecisionAttempt.captured_at.desc()).limit(20)):
+        o = _evaluation_out(a)
+        did = ("stayed silent" if o["silent"] else "spoke" if o["said"] else "wrote nothing")
+        extras = [f"started thinking" if o["thinking_started"] else None,
+                  f"scheduled {o['scheduled']}" if o["scheduled"] else None,
+                  f"proposal: {o['proposal']}" if o["proposal"] else None]
+        add("mind", "evaluation", o["at"], " · ".join(b for b in (f"woke: {o['reason']}", did, *extras) if b),
+            o["silent"] or o["said"] or o["message"], anchor="evaluations", ref=o["id"],
+            tone="error" if a.status != "ok" else None,
+            detail=", ".join(t["tool"] for t in o["tools"] if t["tool"]) or None)
+    for w in db.scalars(select(CoordinatorWork).where(CoordinatorWork.user_id == user_id,
+                                                      CoordinatorWork.kind == "wake")
+                        .order_by(CoordinatorWork.created_at.desc()).limit(10)):
+        add("mind", "scheduled", _iso(w.created_at), f"will come back · {w.status}",
+            _clip(w.input.get("about"), 300), anchor="continuity", ref=str(w.id),
+            tone="muted" if w.status in ("cancelled", "superseded") else None,
+            detail=f"due {_iso(w.next_attempt_at)}")
     for e in db.scalars(select(MemoryEvent).where(MemoryEvent.user_id == user_id)
                         .order_by(MemoryEvent.recorded_at.desc()).limit(20)):
         add("memory", "event", _iso(e.recorded_at), f"noted · {e.kind.replace('_', ' ')} · {e.epistemic}",
@@ -436,8 +441,7 @@ def errors(db: Session, user_id: uuid.UUID, status: dict[str, Any] | None = None
                 at = (datetime.fromtimestamp(time.time() - (w.get("seen_ago") or 0), timezone.utc)).isoformat()
                 out.append({"id": f"worker:{w['name']}", "part": part["id"], "at": at, "what": f"worker {w['name']}",
                             "text": _clip(w["error"], 400)})
-    learner_part = {"student_1": "cognition", "student_2": "cognition", "hands": "hands", "planner": "mind",
-                    "hard_thought": "mind"}
+    learner_part = {"mind": "mind", "hands": "hands", "planner": "mind", "hard_thought": "mind"}
     for a in db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
                                                       DecisionAttempt.status != "ok")
                         .order_by(DecisionAttempt.captured_at.desc()).limit(20)):
@@ -446,18 +450,22 @@ def errors(db: Session, user_id: uuid.UUID, status: dict[str, Any] | None = None
                     "text": _clip(a.error, 400) or "no valid answer", "turn_id": str(a.turn_id) if a.turn_id else None,
                     "attempt_id": str(a.id)})
     exec_part = {"reply": "mouth", "heard": "mouth", "channel_delivery": "mouth", "plan_apply": "mind",
-                 "thought_route": "mind", "effect": "cognition", "step_check": "hands"}
+                 "thought_route": "mind", "step_check": "hands",
+                 "desktop_action": "hands"}
     for x in db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
                                                         DecisionExecution.result == "failed",
                                                         DecisionExecution.kind != "skill_run")
                         .order_by(DecisionExecution.captured_at.desc()).limit(20)):
-        out.append({"id": f"execution:{x.id}", "part": exec_part.get(x.kind, "cognition"),
+        out.append({"id": f"execution:{x.id}", "part": exec_part.get(x.kind, "mind"),
                     "at": _iso(x.captured_at), "what": f"{x.kind.replace('_', ' ')} failed",
                     "text": _clip(x.deviation, 400), "turn_id": str(x.turn_id) if x.turn_id else None})
     for w in db.scalars(select(CoordinatorWork).where(CoordinatorWork.user_id == user_id,
-                                                      CoordinatorWork.error_code.is_not(None))
+                                                      CoordinatorWork.error_code.is_not(None),
+                                                      # her own stops and moved wakes, and moot thinking, aren't errors
+                                                      CoordinatorWork.status.in_(("failed", "expired", "blocked")))
                         .order_by(CoordinatorWork.created_at.desc()).limit(10)):
-        out.append({"id": f"work:{w.id}", "part": "cognition", "at": _iso(w.updated_at or w.created_at),
+        part = {"memory": "memory", "observation": "observation"}.get(w.kind, "mind")
+        out.append({"id": f"work:{w.id}", "part": part, "at": _iso(w.updated_at or w.created_at),
                     "what": f"background {w.kind} · {w.status}", "text": w.error_code})
     for j in db.scalars(select(MemoryJob).where(MemoryJob.user_id == user_id, MemoryJob.last_error.is_not(None))
                         .order_by(MemoryJob.created_at.desc()).limit(10)):

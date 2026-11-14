@@ -19,7 +19,6 @@ from sqlalchemy import func, select
 from app.ai.learning import assessment as A
 from app.ai.learning import lessons as L
 from app.ai.mind import hard as H
-from app.ai.state import student_two as S
 from app.db import models as M
 from app.db.models import (
     LearningLessonJob, MemoryLesson, MemoryLessonEvidence, MemoryLessonLink, MemoryLessonRevision, SemanticMemory,
@@ -30,7 +29,6 @@ from app.services import learning_lessons as LL
 from app.services import learning_review as LR
 from app.services import memory_lessons as ML
 from app.services import memory_manager
-from app.services import student_two as svc
 from db_support import create_conversation, create_user, db_env, database  # noqa: F401
 from test_learning_assessment import Script, _observe, answer, exchange, say, soon
 
@@ -243,23 +241,24 @@ def run_job(env, job_id, script) -> str:
         return LL.process(db, job_id, attempts, reconsiderer=script)
 
 
-def consumer_inputs(env, user, *, prepared=None) -> dict[str, str]:
+def consumer_inputs(env, user) -> dict[str, str]:
     """What each available consumer's model would read about lessons now, rendered by its own code."""
     from app.ai.desktop import skill_driver
-    from app.services import desktop_game, mind_conversation
+    from app.services import desktop_game, mind_hard
 
     out = {}
     with env.db() as db:
-        out["student_2"] = lesson_lines(db, user)
-        _, lines = mind_conversation._lessons(db, user.id, type("P", (), {"text": "Fridays"})())
+        out["conversation"] = lesson_lines(db, user)
+        _, lines = mind_hard.lessons_for(db, user.id, type("P", (), {"text": "Fridays"})())
         out["mind"] = "\n".join(lines)
         out["planner"] = "\n".join(desktop_game._learned_lines(db, user.id, "minecraft"))
         out["hands"] = skill_driver.lessons_text([v.to_dict() for v in ML.for_game(db, user.id, "minecraft").views])
-    if prepared is not None:
-        live = svc._current_lessons(S.Live(trigger="user_message", domain="chat", now=NOW, lines=(),
-                                           new_message="hi", lessons=prepared.views,
-                                           lessons_left_out=prepared.left_out))
-        out["student_2_prepared"] = "\n".join(L.decision_lines(live.lessons))
+    # Her mind's evaluation, prepared by its own code (what a wake reads, from the database at that moment).
+    from app.services import mind_turn
+
+    ev = mind_turn.Evaluation(user_id=user.id, conversation_id=None, request_id=uuid.uuid4(), reason="user_message")
+    mind_turn._lessons(ev, "Fridays")
+    out["mind_evaluation"] = mind_turn.lessons_text(ev) or ""
     return out
 
 
@@ -279,12 +278,11 @@ def test_a_changed_premise_is_visible_to_every_consumer_while_reassessment_is_pa
                      certainty="tentative")
         db.commit()
         midday_id, other_id, other_rev, fact_id = midday.id, other.id, other.revision, wfh.id
-        prepared = ML.for_decision(db, user.id, "Fridays", include_tentative=True)
         before = consumer_inputs(env, user)
     for name, text in before.items():
         line = next((x for x in text.splitlines() if "midday check-in" in x), "")
         assert line and "UNSETTLED" not in line, (name, text)
-    assert "Rests on a fact memory holds about the user" in before["student_2"]
+    assert "Rests on a fact memory holds about the user" in before["conversation"]
 
     # The premise changes through memory's own path and commits; the reassessment worker is held (never run).
     with env.db() as db:
@@ -297,16 +295,12 @@ def test_a_changed_premise_is_visible_to_every_consumer_while_reassessment_is_pa
             line = next((x for x in text.splitlines() if "midday check-in" in x), "")
             assert "UNSETTLED" in line and "Lena works from home on Fridays" in line, (name, text)
             assert "works in the office on Fridays now" in line and "being reassessed" in line, (name, line)
-        assert "Status: accepted, UNSETTLED" in seen["student_2"]
+        assert "Status: accepted, UNSETTLED" in seen["conversation"]
 
-    visible(consumer_inputs(env, user, prepared=prepared))
-    # The decision model's own input (the teacher's rendering) says it too, from the supply prepared before.
-    situation = S.snapshot(svc._current_lessons(S.Live(trigger="user_message", domain="chat", now=NOW, lines=(),
-                                                       new_message="hi", lessons=prepared.views)))
-    assert "UNSETTLED" in S.render(situation, L.RENDERING)
+    visible(consumer_inputs(env, user))
     # A restart: nothing held in memory between sessions; the same state is visible from the database alone.
     from app.services import memory_lessons as fresh
-    visible(consumer_inputs(env, user, prepared=prepared))
+    visible(consumer_inputs(env, user))
     with env.db() as db:
         assert fresh.changed_lessons(db)[0][0].id == midday_id
 
@@ -336,7 +330,7 @@ def test_a_changed_premise_is_visible_to_every_consumer_while_reassessment_is_pa
         assert (untouched.revision, untouched.status) == (other_rev, "hypothesis")
         assert ML.changed_lessons(db) == [] and LL.sweep_premises(db) == 0
     after = consumer_inputs(env, user)
-    line = next(x for x in after["student_2"].splitlines() if "midday check-in" in x)
+    line = next(x for x in after["conversation"].splitlines() if "midday check-in" in x)
     assert "UNSETTLED" not in line and "only if she is working from home" in line
     assert "reassessed: she is in the office on Fridays now" in line
 

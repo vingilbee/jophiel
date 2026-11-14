@@ -1,4 +1,4 @@
-"""Minecraft as a source and a body of her general mind (docs/COLUMBINA_INNER_STATE_PLAN.md).
+"""Minecraft as a source and a body of her general mind (docs/COLUMBINA_MIND_DESIGN.md).
 
 Everything about the game the mind needs, behind the contracts in app/ai/mind/contracts.py:
 
@@ -40,11 +40,6 @@ INVENTORY_KEPT_SECONDS = 180  # how far back "while it ran" can look
 # on only these is not a surprise (the user talking is her mouth's to answer).
 NOT_WORLD = ("the user said", "you said", "your hands:", "new goal:", "next step:", "session ", "learning:",
              "(first tick")
-QUIET_TOPICS = (
-    "{user}: what they want from today, and how they're doing",
-    "the session so far: what you two did, and what's unfinished",
-    "yourself: how it's going for you, and what you'd like to do",
-)
 
 _situation = None
 _notice_cursors: dict[uuid.UUID, int] = {}
@@ -510,8 +505,8 @@ class MinecraftSource:
             return "the goal changed"
         return None
 
-    def quiet_topics(self, user: str) -> tuple[str, ...]:
-        return tuple(topic.format(user=user) for topic in QUIET_TOPICS)
+    def thinks_when_quiet(self) -> bool:
+        return True  # a live game with nothing happening leaves her time to think; about what is hers
 
     def gather(self, db: Session, scope: Scope, problem: Problem, base: HardInput) -> tuple[HardInput | None, Any]:
         session = db.get(DesktopSession, scope.activity)

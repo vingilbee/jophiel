@@ -464,7 +464,7 @@ def test_a_hard_thought_recalls_observed_game_events_without_a_game_summary(db, 
 
 def test_the_reply_prompt_has_one_memory_section(db, alice):
     context = AgentRuntimeContext(user_id=alice.id, recall="Memory search ran (looked in: events):\n- [event:1] died",
-                                  typed_memory="What you know about them:\n- x", long_term_memory="- [fact] x")
+                                  long_term_memory="- [fact] x")
     prompt = prompts.build_system_prompt(context)
     assert "What you recall" in prompt and "by whose it is" not in prompt and "Relevant long-term memory" not in prompt
     assert "never switch_context just to talk about it" in prompt

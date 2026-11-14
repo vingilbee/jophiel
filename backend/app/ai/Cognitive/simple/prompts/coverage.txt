@@ -1,1 +1,0 @@
-You check whether a short list of OPEN NOTES carries the same decision-relevant meaning as some older conversation messages a prediction depended on. For each USED item, answer covered=true only if the notes alone (without the older messages) tell the reader the fact that mattered. Similar wording is not required; the same meaning is.

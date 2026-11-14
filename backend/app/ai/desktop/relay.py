@@ -32,7 +32,9 @@ from sqlalchemy.orm import Session
 
 from app.ai.desktop.tls import ensure_relay_certificate
 from app.core.config import get_settings
-from app.services import desktop_commands, desktop_link, desktop_preview, desktop_sessions
+from app.services import (
+    desktop_commands, desktop_control, desktop_link, desktop_preview, desktop_sessions, security_activity,
+)
 from app.services.desktop_sessions import DesktopError
 from app.services.desktop_link import LinkRefused
 from desktop_controller.link import (
@@ -45,12 +47,17 @@ from desktop_controller.link import (
     ControlGrant,
     DecisionCommand,
     DecisionReport,
+    DesktopAction,
+    DesktopResult,
     Hello,
     HeartbeatAck,
     LinkError,
     Pair,
     Paired,
     PauseRequest,
+    SecurityAck,
+    SecurityBatch,
+    SecurityConfig,
     SessionProblem,
     SessionReady,
     SessionStart,
@@ -106,7 +113,8 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             environment_id, generation = await db_call(desktop_link.authenticate, first)
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
             await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
-            link = _SessionLink(ws, environment_id, db_call, controller_version=first.controller_version)
+            link = _SessionLink(ws, environment_id, db_call, controller_version=first.controller_version,
+                                generation=generation)
             commands = asyncio.create_task(link.forward_commands())
             last_frame_at: dict[int, float] = {}
             last_heartbeat_at = time.monotonic()
@@ -118,6 +126,11 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                     raise TimeoutError
                 message = await _receive(ws, remaining, allow_frames=True)
                 if isinstance(message, bytes):
+                    if _frame_kind(message) == 2:
+                        # A desktop screenshot answers one action of hers: not rate limited,
+                        # but only for an action this connection forwarded.
+                        await link.accept_screenshot(db_call, generation, message)
+                        continue
                     # Frames are best-effort: anything malformed, too fast, or
                     # taken under an outdated capture setting is dropped quietly.
                     # Rate-limited per kind: a preview and an observation arrive
@@ -139,8 +152,10 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                     context=message.context,
                 )
                 link.last_capture = capture
+                if link.knows_security:
+                    link.last_security = await db_call(security_activity.config_for, environment_id)
                 control = await link.control()
-                await link.send(HeartbeatAck(capture=capture, control=control))
+                await link.send(link.ack(capture, control))
         except LinkRefused as refused:
             reason = {"superseded": "controller_replaced", "revoked": "environment_revoked"}.get(
                 refused.code, "controller_lost"
@@ -156,6 +171,10 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                 commands.cancel()
             if environment_id is not None and generation is not None:
                 await db_call(desktop_link.disconnected, environment_id, generation, reason=reason)
+                try:
+                    await db_call(security_activity.mark_offline, environment_id)
+                except Exception:  # noqa: BLE001 - source health never blocks a disconnect
+                    log.exception("desktop relay: marking security source offline failed")
                 log.info("desktop relay: environment %s connection %s closed (%s)", environment_id, generation, reason)
 
     return app
@@ -165,6 +184,8 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
 # profile model forbids unknown keys, so the whole session would be refused).
 # Left out for older controllers: the game still plays, just without them.
 PROFILE_SECTIONS_SINCE = {"reflexes": (0, 8, 0)}
+# Controllers that know security monitoring (older ones forbid the unknown field in a heartbeat reply).
+SECURITY_SINCE = (0, 11, 0)
 # Sections only the Mac uses (careful mode is enforced by the driver loop):
 # never sent, so changing them can't break a VM's profile check.
 MAC_ONLY_SECTIONS = {"careful"}
@@ -194,19 +215,47 @@ class _SessionLink:
     another environment's session.
     """
 
-    def __init__(self, ws: WebSocket, environment_id: uuid.UUID, db_call, controller_version: str = ""):
+    def __init__(self, ws: WebSocket, environment_id: uuid.UUID, db_call, controller_version: str = "",
+                 generation: int = 0):
         self.ws = ws
         self.controller_version = controller_version
+        self.generation = generation
+        self.knows_security = _version(controller_version) >= SECURITY_SINCE
+        self.last_security = SecurityConfig()
+        self._tasks: set[asyncio.Task] = set()
         self.environment_id = environment_id
         self.db_call = db_call
         self.started: str | None = None
         self.ready: set[str] = set()
         self.last_capture = CaptureConfig()
         self._send_lock = asyncio.Lock()
+        # Desktop actions forwarded on this connection and not answered yet (general desktop control).
+        self.desktop_pending: set[str] = set()
 
     async def send(self, message) -> None:
         async with self._send_lock:  # heartbeat replies and forwarded commands share the socket
-            await self.ws.send_text(message.model_dump_json())
+            await self.ws.send_text(message.model_dump_json(
+                exclude={"security"} if isinstance(message, HeartbeatAck) and message.security is None else None))
+
+    def ack(self, capture: CaptureConfig, control: ControlGrant | None) -> HeartbeatAck:
+        """A heartbeat reply: capture, the lease, and (to controllers that know it) security monitoring."""
+        return HeartbeatAck(capture=capture, control=control,
+                            security=self.last_security if self.knows_security else None)
+
+    async def security_batch(self, message: SecurityBatch) -> None:
+        """Store one batch of her desktop's security records, from this connection only, and answer it."""
+        if not self.knows_security:
+            return
+        try:
+            status, reason = await self.db_call(security_activity.ingest, self.environment_id, self.generation,
+                                                message)
+        except Exception:  # noqa: BLE001 - not stored: the controller reads the same records again
+            log.exception("desktop relay: security batch %s for %s failed", message.batch_id, self.environment_id)
+            status, reason = "refused", "the backend couldn't store it; it will be read again"
+        try:
+            await self.send(SecurityAck(batch_id=message.batch_id, status=status, reason=reason))
+        except Exception:  # noqa: BLE001 - the connection ended meanwhile: the controller reads them again
+            pass
 
     async def control(self) -> ControlGrant | None:
         state = await self.db_call(desktop_sessions.control_state, self.environment_id)
@@ -227,7 +276,62 @@ class _SessionLink:
             return ControlGrant(session_id=session_id, generation=state.execution_generation, lease_ms=LEASE_MS)
         return None
 
+    async def desktop_action(self, data: dict) -> None:
+        """Forward one of her desktop actions, unless it is stale or input isn't hers to give now."""
+        action_id = data.get("action_id", "")[:64]
+        try:
+            deliver_by = float(data.get("deliver_by") or 0)
+            action = json.loads(data.get("action") or "")
+        except ValueError:
+            return
+        if not action_id or not isinstance(action, dict):
+            return
+        if time.time() > deliver_by:
+            return  # the caller has given up or will soon: never press late
+        refusal = None
+        if self.last_capture.gate != "allowed":
+            refusal = "the user has your view of the desktop switched off"
+        elif self.started is not None and action.get("kind") != "screenshot":
+            refusal = "a game session is using the keyboard and mouse"
+        if refusal is not None:
+            await asyncio.to_thread(desktop_control.store_result, action_id,
+                                    {"action_id": action_id, "status": "refused", "reason": refusal})
+            return
+        self.desktop_pending.add(action_id)
+        if len(self.desktop_pending) > 64:
+            self.desktop_pending.pop()
+        await self.send(DesktopAction(action_id=action_id, action=action))
+
+    async def desktop_result(self, message: DesktopResult) -> None:
+        if message.action_id not in self.desktop_pending:
+            return  # not an action this connection forwarded
+        self.desktop_pending.discard(message.action_id)
+        await asyncio.to_thread(desktop_control.store_result, message.action_id,
+                                message.model_dump(mode="json", exclude={"type"}))
+
+    async def accept_screenshot(self, db_call, generation: int, data: bytes) -> None:
+        try:
+            header, jpeg = unpack_frame(data)
+        except ValueError:
+            return
+        if header.kind != "screenshot" or header.action_id not in self.desktop_pending:
+            return
+        if not await db_call(desktop_link.frame_allowed, self.environment_id, generation, header.gate_epoch):
+            return  # taken under an older capture setting: dropped (its result then says the picture was lost)
+        if not await asyncio.to_thread(desktop_preview.check_jpeg, header, jpeg):
+            return
+        await asyncio.to_thread(desktop_control.store_shot, header.action_id, jpeg)
+
     async def handle(self, message) -> None:
+        if isinstance(message, DesktopResult):
+            await self.desktop_result(message)
+            return
+        if isinstance(message, SecurityBatch):
+            # Stored off the read loop, so heartbeats keep flowing while a big batch is written.
+            task = asyncio.create_task(self.security_batch(message))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+            return
         session_id = getattr(message, "session_id", None)
         if session_id is None or session_id != self.started:
             return  # not the session this connection is serving: ignore
@@ -253,7 +357,7 @@ class _SessionLink:
     async def push_control(self) -> None:
         """Send the current lease now rather than at the next heartbeat, so
         input works the moment a session starts playing or is resumed."""
-        await self.send(HeartbeatAck(capture=self.last_capture, control=await self.control()))
+        await self.send(self.ack(self.last_capture, await self.control()))
 
     async def forward_commands(self) -> None:
         """Decisions and cancels the API publishes for this environment, sent
@@ -275,6 +379,9 @@ class _SessionLink:
                         last = entry_id
                         if fields.get(b"kind") == b"refresh":
                             await self.push_control()
+                            continue
+                        if fields.get(b"kind") == b"desktop_action":
+                            await self.desktop_action({k.decode(): v.decode() for k, v in fields.items()})
                             continue
                         command = _command(fields)
                         if command is not None and command.session_id == self.started:
@@ -299,8 +406,11 @@ def _command(fields: dict) -> DecisionCommand | Cancel | None:
 
 
 def _frame_kind(data: bytes) -> int:
-    """Cheap pre-parse for rate limiting: 1 for observations, 0 otherwise."""
-    return 1 if b'"kind":"observation"' in data[:1100] else 0
+    """Cheap pre-parse for rate limiting: 1 for observations, 2 for desktop screenshots, 0 otherwise."""
+    head = data[:1100]
+    if b'"kind":"screenshot"' in head:
+        return 2
+    return 1 if b'"kind":"observation"' in head else 0
 
 
 async def _accept_frame(db_call, environment_id: uuid.UUID, generation: int, data: bytes) -> None:

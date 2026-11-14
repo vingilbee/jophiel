@@ -155,3 +155,137 @@ class WindowsInput:
         """Positive ``amount`` scrolls down (towards you), negative up."""
         self.window()
         self._win.send(_mouse_input(MOUSEEVENTF_WHEEL, data=-amount * WHEEL_DELTA))
+
+
+# --------------------------------------------------------------------------- #
+# General desktop control (desktop_controller.desktop): the whole desktop, no game window.
+# Desktop apps read virtual-key codes, so keys go as VK codes; text goes as typed Unicode
+# characters (any keyboard layout, any language); the pointer moves in absolute screen pixels.
+# --------------------------------------------------------------------------- #
+
+KEYEVENTF_UNICODE = 0x0004
+MOUSEEVENTF_HWHEEL = 0x1000
+
+VK: dict[str, int] = {
+    **{c: ord(c.upper()) for c in "abcdefghijklmnopqrstuvwxyz0123456789"},
+    **{f"f{i}": 0x6F + i for i in range(1, 13)},
+    "shift": 0x10, "ctrl": 0x11, "alt": 0x12, "win": 0x5B, "enter": 0x0D, "tab": 0x09, "esc": 0x1B,
+    "space": 0x20, "backspace": 0x08, "delete": 0x2E, "insert": 0x2D, "home": 0x24, "end": 0x23,
+    "pageup": 0x21, "pagedown": 0x22, "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    "capslock": 0x14, "printscreen": 0x2C, "menu": 0x5D, "minus": 0xBD, "equals": 0xBB, "lbracket": 0xDB,
+    "rbracket": 0xDD, "backslash": 0xDC, "semicolon": 0xBA, "quote": 0xDE, "backquote": 0xC0, "comma": 0xBC,
+    "period": 0xBE, "slash": 0xBF, "volumeup": 0xAF, "volumedown": 0xAE, "volumemute": 0xAD, "playpause": 0xB3,
+}
+# Keys Windows treats as "extended" (they share scancodes with the number pad otherwise).
+EXTENDED_VK = frozenset({0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25, 0x27, 0x5B, 0x5D, 0x2C})
+DESKTOP_BUTTONS = {"left": "MOUSE_LEFT", "right": "MOUSE_RIGHT", "middle": "MOUSE_MIDDLE"}
+
+
+def _vk_input(vk: int, up: bool) -> INPUT:
+    item = INPUT(type=INPUT_KEYBOARD)
+    item.u.ki.wVk = vk
+    item.u.ki.dwFlags = (KEYEVENTF_KEYUP if up else 0) | (KEYEVENTF_EXTENDEDKEY if vk in EXTENDED_VK else 0)
+    return item
+
+
+def _unicode_inputs(text: str) -> list[INPUT]:
+    """Each character as typed text (UTF-16 units; newlines as Enter, tabs as Tab)."""
+    out: list[INPUT] = []
+    for char in text.replace("\r\n", "\n"):
+        if char == "\n":
+            out += [_vk_input(0x0D, False), _vk_input(0x0D, True)]
+            continue
+        if char == "\t":
+            out += [_vk_input(0x09, False), _vk_input(0x09, True)]
+            continue
+        data = char.encode("utf-16-le")
+        for i in range(0, len(data), 2):
+            unit = int.from_bytes(data[i:i + 2], "little")
+            for up in (False, True):
+                item = INPUT(type=INPUT_KEYBOARD)
+                item.u.ki.wScan = unit
+                item.u.ki.dwFlags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if up else 0)
+                out.append(item)
+    return out
+
+
+def screen_absolute(x: int, y: int, desktop: Rect) -> tuple[int, int]:
+    """A screen pixel -> SendInput's 0..65535 virtual-desktop coordinates."""
+    nx = round((x - desktop.left) * 65535 / max(desktop.width - 1, 1))
+    ny = round((y - desktop.top) * 65535 / max(desktop.height - 1, 1))
+    return nx, ny
+
+
+class WindowsDesktopInput:
+    """``desktop.DesktopInput`` over the real Windows desktop."""
+
+    def __init__(self, sleep=None):
+        import time
+
+        from .capture import SENSITIVE_PROCESSES
+
+        self._win = win32()
+        self._sensitive = SENSITIVE_PROCESSES
+        self._sleep = sleep or time.sleep
+
+    def _send(self, *inputs: INPUT) -> None:
+        from .desktop import Failed
+
+        try:
+            self._win.send(*inputs)
+        except OSError as exc:
+            # Usually UIPI: the window in front runs as administrator and this controller doesn't.
+            raise Failed("Windows blocked the input (the app in front may be running as administrator)") from exc
+
+    def key_down(self, key: str) -> None:
+        self._send(_vk_input(VK[key], up=False))
+
+    def key_up(self, key: str) -> None:
+        try:
+            self._win.send(_vk_input(VK[key], up=True))
+        except OSError:
+            pass
+
+    def type_text(self, text: str) -> None:
+        inputs = _unicode_inputs(text)
+        # In small batches with a short pause, so slow apps don't drop characters.
+        for i in range(0, len(inputs), 40):
+            self._send(*inputs[i:i + 40])
+            self._sleep(0.01)
+
+    def move_to(self, x: int, y: int) -> None:
+        nx, ny = screen_absolute(x, y, self._win.virtual_screen())
+        self._send(_mouse_input(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny))
+
+    def button_down(self, button: str) -> None:
+        down, _, data = MOUSE_BUTTON_FLAGS[DESKTOP_BUTTONS[button]]
+        self._send(_mouse_input(down, data=data))
+
+    def button_up(self, button: str) -> None:
+        _, up, data = MOUSE_BUTTON_FLAGS[DESKTOP_BUTTONS[button]]
+        try:
+            self._win.send(_mouse_input(up, data=data))
+        except OSError:
+            pass
+
+    def wheel(self, notches: int, horizontal: bool = False) -> None:
+        # The vertical wheel's positive delta is away from you (up); "down" notches are positive here.
+        flag, sign = (MOUSEEVENTF_HWHEEL, 1) if horizontal else (MOUSEEVENTF_WHEEL, -1)
+        step = 1 if notches > 0 else -1
+        for _ in range(abs(notches)):
+            self._send(_mouse_input(flag, data=sign * step * WHEEL_DELTA))
+            self._sleep(0.015)
+
+    def screen_bounds(self) -> tuple[int, int, int, int]:
+        rect = self._win.virtual_screen()
+        return rect.left, rect.top, rect.width, rect.height
+
+    def sensitive_in_front(self) -> bool:
+        foreground = self._win.foreground()
+        return bool(foreground) and self._win.process_name(foreground) in self._sensitive
+
+    def foreground(self) -> tuple[str | None, str | None]:
+        hwnd = self._win.foreground()
+        if not hwnd:
+            return None, None
+        return self._win.process_name(hwnd), self._win.window_title(hwnd)

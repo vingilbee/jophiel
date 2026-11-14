@@ -1,9 +1,11 @@
-import { useRef, useState, type PointerEvent, type WheelEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
 import { Button } from './Button'
+import { desktopApi } from '../api/desktop'
 import { useDesktopSession } from '../hooks/useDesktopSession'
 import type {
   DesktopEnvironment,
   DesktopDecisionReport,
+  DesktopSecurityStatus,
   DesktopSessionEvent,
   DesktopSessionState,
   DesktopTargetState,
@@ -108,6 +110,80 @@ function toFrame(
   const fy = (e.clientY - (box.top + (box.height - height) / 2)) / height
   if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null
   return [Math.min(Math.round(fx * frame[0]), frame[0] - 1), Math.min(Math.round(fy * frame[1]), frame[1] - 1)]
+}
+
+/**
+ * Security monitoring: Jophiel reads the VM's security event logs (read only) while this is on, and only then.
+ * Its own switch, apart from the preview and her hands. The channel list says what she can and can't read, so
+ * "access denied" on the Security log is visible here rather than silently missing.
+ */
+function SecurityMonitor() {
+  const { environment: env, busy, setSecurityMonitoring } = useDesktopSession()
+  const [status, setStatus] = useState<DesktopSecurityStatus | null>(null)
+  const envId = env && env.paired_at && env.hosting_kind !== 'game_pack' ? env.id : null
+  const monitoring = env?.security_monitoring ?? false
+
+  useEffect(() => {
+    if (!envId) return
+    let cancelled = false
+    const load = () =>
+      desktopApi
+        .securityStatus(envId)
+        .then((next) => !cancelled && setStatus(next))
+        .catch(() => !cancelled && setStatus(null))
+    void load()
+    const timer = window.setInterval(load, 10_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [envId, monitoring])
+
+  if (!env || !envId) return null
+  const unreadable = status?.channels.filter((c) => c.status === 'unavailable') ?? []
+  const readable = status?.channels.filter((c) => c.status === 'readable').length ?? 0
+  const lastReport = status?.last_report_at ? new Date(status.last_report_at) : null
+
+  return (
+    <div className="space-y-1.5 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3 text-xs text-[#4C5D7D]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-medium text-[#23314F]">Security monitoring · {monitoring ? 'on' : 'off'}</p>
+        <Button
+          variant={monitoring ? 'ghost' : 'outline'}
+          disabled={busy}
+          onClick={() => void setSecurityMonitoring(!monitoring)}
+        >
+          {monitoring ? 'Stop monitoring' : 'Start monitoring'}
+        </Button>
+      </div>
+      <p className="text-[11px] text-[#7183A3]">
+        {monitoring
+          ? 'Jophiel reads the VM’s security logs (read only) and looks into anything notable. Nothing from while it was off is collected.'
+          : 'Off: nothing is read from the VM’s logs. Records collected earlier stay readable for about two weeks.'}
+      </p>
+      {monitoring && status && (
+        <p className="text-[11px] text-[#7183A3]" aria-live="polite">
+          {status.source === 'offline'
+            ? 'The VM is offline: nothing new is arriving.'
+            : lastReport
+              ? `${readable} of ${status.channels.length} channels readable · last report ${lastReport.toLocaleTimeString()}`
+              : 'Waiting for the VM’s first report…'}
+          {status.skew_seconds !== null && Math.abs(status.skew_seconds) >= 5
+            ? ` · the VM’s clock is ${Math.round(Math.abs(status.skew_seconds))} s off`
+            : ''}
+        </p>
+      )}
+      {monitoring && unreadable.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] text-[#7183A3]">
+          {unreadable.map((c) => (
+            <li key={c.channel}>
+              <span className="font-mono">{c.channel}</span>: {c.reason ?? 'can’t be read'}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function GamePreview() {
@@ -738,6 +814,7 @@ function StartForm() {
       </p>
 
       {!pairing && <GamePreview />}
+      {!pairing && <SecurityMonitor />}
 
       {pairing ? (
         <PairingBox />

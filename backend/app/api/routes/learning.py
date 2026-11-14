@@ -13,9 +13,6 @@ Learning capture (docs/learning-system/01-implementation.md), the user's own rec
                                                        thoughts, hands, what each did, trajectory, what's missing
     GET    /api/learning/capture/trajectory            her trajectory's streams and what it costs
     GET    /api/learning/capture/trajectory/{stream}   a stretch of one stream: every tick, its events, holes
-    GET    /api/learning/training-examples             derived examples (?learner=, ?eligible=)
-    PATCH  /api/learning/training-examples/{id}        review (accepted / rejected / unreviewed)
-    DELETE /api/learning/training-examples/{id}        delete from future training (and the export files)
 
 Retrospective assessment (docs/learning-system/02-implementation.md):
 
@@ -50,10 +47,10 @@ from app.schemas.game_learning import (
     LearnedSkillOut,
     LearnedSkillUpdate,
 )
-from app.schemas.learning_capture import AssessmentNote, TrainingExampleOut, TrainingExampleReview
+from app.schemas.learning_capture import AssessmentNote
 from app.services import (
     capture_chains, game_challenges, game_skills, learning_assessment, learning_lessons, learning_trials,
-    memory_lessons, training_examples,
+    memory_lessons,
 )
 
 # The owner only (deps.require_owner): her insides are not for other users.
@@ -149,36 +146,6 @@ def capture_trajectory(stream_id: uuid.UUID, from_tick: int | None = Query(defau
     if readable and found["ticks"]:
         found["ticks"] = [{**t, "state": trajectory.readable(t["state"])} for t in found["ticks"]]
     return found
-
-
-@router.get("/training-examples", response_model=list[TrainingExampleOut])
-def list_training_examples(learner: str | None = Query(default=None), eligible: bool | None = Query(default=None),
-                           user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from sqlalchemy import select
-
-    from app.db.models import TrainingExample
-    query = select(TrainingExample).where(TrainingExample.user_id == user.id)
-    if learner:
-        query = query.where(TrainingExample.learner == learner)
-    if eligible is not None:
-        query = query.where(TrainingExample.eligible.is_(eligible))
-    return list(db.scalars(query.order_by(TrainingExample.decided_at.desc()).limit(200)))
-
-
-@router.patch("/training-examples/{example_id}", response_model=TrainingExampleOut, dependencies=mutation)
-def review_training_example(example_id: uuid.UUID, data: TrainingExampleReview,
-                            user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = training_examples.review(db, user.id, example_id, data.review_status)
-    if row is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such example."})
-    return row
-
-
-@router.delete("/training-examples/{example_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=mutation)
-def delete_training_example(example_id: uuid.UUID, user: User = Depends(get_current_user),
-                            db: Session = Depends(get_db)):
-    if not training_examples.delete_examples(db, user.id, [example_id]):
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such example."})
 
 
 # --------------------------------------------------------------------------- #

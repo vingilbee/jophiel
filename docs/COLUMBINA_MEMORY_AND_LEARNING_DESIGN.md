@@ -1,5 +1,7 @@
 # Columbina: general memory, observation, and learning
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Status: proposed architecture for review. This document records the direction discussed with Vincent; it does not authorize or implement runtime changes. Concrete table names, thresholds, and worker deployment remain proposals.
 
 Date: 2026-10-20

@@ -34,9 +34,11 @@ from app.schemas.desktop import (
     SessionOptions,
     SessionOut,
     SessionResume,
+    SecurityMonitoringIn,
+    SecurityStatusOut,
 )
 from app.ai.desktop.tls import ensure_relay_certificate
-from app.services import desktop_commands, desktop_link, desktop_preview
+from app.services import desktop_commands, desktop_link, desktop_preview, security_activity
 from app.services import desktop_sessions as service
 from desktop_controller.link import display_fingerprint
 from app.services.desktop_sessions import CommandResult, DesktopError
@@ -147,6 +149,21 @@ def set_capture(
     environment_id: uuid.UUID, payload: CaptureGateIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return _call(desktop_link.set_capture_gate, db, user.id, environment_id, payload.gate, scope=payload.scope)
+
+
+@router.put("/environments/{environment_id}/security", response_model=EnvironmentOut, dependencies=mutation)
+def set_security_monitoring(
+    environment_id: uuid.UUID, payload: SecurityMonitoringIn, db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The owner's switch for reading the VM's security logs (read only; apart from capture and input)."""
+    return _call(security_activity.set_monitoring, db, user.id, environment_id, payload.enabled)
+
+
+@router.get("/environments/{environment_id}/security", response_model=SecurityStatusOut)
+def security_status(environment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """How monitoring is doing: which channels can be read, and why not the others."""
+    return _call(security_activity.status, db, user.id, environment_id)
 
 
 @router.get("/environments/{environment_id}/preview")

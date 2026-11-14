@@ -27,7 +27,9 @@ QUOTE_LIMIT = 120
 # A skill ending one of these ways failed (app/ai/desktop/skill_driver.FAILED, kept apart so this
 # module stays pure).
 SKILL_FAILED = frozenset({"failed", "lost", "blocked", "refused", "timeout"})
-SOURCE_LABELS = {"conversation": "the conversation", "minecraft_pack": "Minecraft"}
+SOURCE_LABELS = {"conversation": "the conversation", "minecraft_pack": "Minecraft", "desktop": "your desktop",
+                 "desktop_security": "your desktop's security logs"}
+DESKTOP_NOT_DONE = frozenset({"failed", "refused", "unconfirmed"})
 
 
 class ObservationInvalid(ValueError):
@@ -135,6 +137,61 @@ class GameNotice(_Payload):
     # Items the game said she carried when she died (name -> count), only for "died".
     dropped: dict[str, int] = Field(default_factory=dict)
     detail: CaptureLink | None = None
+
+
+class DesktopAction(_Payload):
+    """One action of her hands on her own Windows desktop (services/desktop_control), and what was in front
+    once it finished. ``summary`` is code's words for what she meant to do; window titles are the desktop's
+    own text, quoted."""
+
+    action_id: str = Field(max_length=40)
+    tool: Literal["screenshot", "move_mouse", "click", "drag", "scroll", "keyboard"]
+    status: Literal["done", "failed", "refused", "unconfirmed"]
+    reason: str | None = Field(default=None, max_length=300)
+    summary: str = Field(max_length=200)
+    foreground_process: str | None = Field(default=None, max_length=64)
+    foreground_title: str | None = Field(default=None, max_length=200)
+    # What's in front differs from what she last saw there.
+    app_changed: bool = False
+    turn_id: str | None = Field(default=None, max_length=40)
+    step: int = Field(default=1, ge=1)
+
+
+class SecurityEventReport(_Payload):
+    """One record of a Windows event log on her desktop (services/security_activity.py), as the log rendered it.
+    Everything but the numbers is the machine's own text: evidence of what the log said, never an instruction.
+    ``occurred_at`` is the log's own time (the VM's clock)."""
+
+    environment_id: str = Field(max_length=40)
+    channel: str = Field(max_length=128)
+    stream: int = Field(default=0, ge=0)
+    record_id: int = Field(ge=0)
+    provider: str = Field(default="", max_length=128)
+    event_id: int = Field(ge=0, le=65535)
+    version: int | None = None
+    level: int | None = None
+    level_name: str | None = Field(default=None, max_length=32)
+    task: str | None = Field(default=None, max_length=64)
+    opcode: str | None = Field(default=None, max_length=64)
+    keywords: list[str] = Field(default_factory=list, max_length=8)
+    audit: Literal["success", "failure"] | None = None
+    computer: str | None = Field(default=None, max_length=128)
+    user_sid: str | None = Field(default=None, max_length=96)
+    process_id: int | None = None
+    message: str = Field(default="", max_length=600)
+    data: dict[str, str] = Field(default_factory=dict)
+
+
+class SecurityCoverageChange(_Payload):
+    """What the security collector could or couldn't see changed: records lost (``gap``), a log cleared
+    (``reset``), a channel unreadable or readable again, monitoring switched on or off by the owner."""
+
+    environment_id: str = Field(max_length=40)
+    channel: str = Field(max_length=128)  # "*": every channel (the monitoring switch)
+    status: Literal["gap", "reset", "unavailable", "available", "monitoring_on", "monitoring_off"]
+    start: str | None = Field(default=None, max_length=40)
+    end: str | None = Field(default=None, max_length=40)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class SourceAvailability(_Payload):
@@ -269,6 +326,67 @@ def _notice_memory(p: GameNotice, _instance: str) -> Decision:
     return Promote("died", f"Minecraft reported: you died{told}", "observed")
 
 
+def _front(p: DesktopAction) -> str:
+    if not p.foreground_process and not p.foreground_title:
+        return "an unknown window"
+    title = f' "{quote(p.foreground_title)}"' if p.foreground_title else ""
+    return f"{p.foreground_process or 'a window'}{title}"
+
+
+def _desktop_summary(p: DesktopAction) -> str:
+    if p.status == "done":
+        return f"On her desktop, Jophiel {p.summary}; in front: {_front(p)}"
+    reason = f' ("{quote(p.reason)}")' if p.reason else ""
+    return f"On her desktop, Jophiel {p.summary}: {p.status}{reason}"
+
+
+def _desktop_salience(p: DesktopAction) -> str:
+    return "notable" if p.status in ("failed", "unconfirmed") else "routine"
+
+
+def _desktop_memory(p: DesktopAction, instance: str) -> Decision:
+    """A failure is kept (repeats of the same failure on the same tool are one memory); seeing a new window
+    in front is kept as what she saw; everything else stays an observation."""
+    if p.status in ("failed", "unconfirmed"):
+        key = f"desktop_failed:{instance}:{p.tool}:{p.status}:{quote(p.reason, 60).lower()}"
+        reason = f' ("{quote(p.reason)}")' if p.reason else ""
+        word = "failed" if p.status == "failed" else "may not have happened (no answer)"
+        return Promote("action_failed", f"Your desktop reported: {p.summary} {word}{reason}", "observed",
+                       coalesce_key=key[:240])
+    if p.status == "done" and p.app_changed and (p.foreground_process or p.foreground_title):
+        return Promote("desktop_seen", f"On your desktop you had {_front(p)} in front", "observed",
+                       coalesce_key=f"desktop_seen:{instance}:{p.foreground_process}:{quote(p.foreground_title, 80)}"[:240])
+    return Skip("an ordinary desktop action; kept as an observation only")
+
+
+def _security_salience(p: SecurityEventReport) -> str:
+    """The source's own severity, never a judgment of what the record means: Windows' Critical level is
+    critical; Error, Warning and audit failures are notable; everything else is routine."""
+    if p.level == 1:
+        return "critical"
+    return "notable" if p.level in (2, 3) or p.audit == "failure" else "routine"
+
+
+def _security_summary(p: SecurityEventReport) -> str:
+    traits = [t for t in (p.provider, p.level_name if p.level not in (0, 4, None) else None,
+                          "audit failure" if p.audit == "failure" else None) if t]
+    said = f': "{quote(p.message, 200)}"' if p.message else ""
+    return f"{p.channel} event {p.event_id}" + (f" ({', '.join(traits)})" if traits else "") + said
+
+
+def _coverage_summary(p: SecurityCoverageChange) -> str:
+    where = "every channel" if p.channel == "*" else p.channel
+    words = {"gap": f"{where}: records were lost before they could be read",
+             "reset": f"{where}: the log was cleared or recreated",
+             "unavailable": f"{where} can't be read",
+             "available": f"{where} can be read again",
+             "monitoring_on": "Security monitoring was switched on",
+             "monitoring_off": "Security monitoring was switched off"}[p.status]
+    span = f" ({p.start} to {p.end})" if p.start and p.end and p.start != p.end else ""
+    reason = f' ("{quote(p.reason)}")' if p.reason else ""
+    return words + span + reason
+
+
 def _availability_summary(p: SourceAvailability) -> str:
     return f"Source is {p.availability} (was {p.previous})"
 
@@ -314,6 +432,18 @@ _SPECS = [
              _notice_salience, _notice_summary, _notice_memory, consumers=("memory", "learning")),
     KindSpec("minecraft_pack", "source_availability", 1, SourceAvailability, "system", "observed", "system",
              _fixed("notable"), _availability_summary, _availability_memory("minecraft_pack")),
+    KindSpec("desktop", "desktop_action", 1, DesktopAction, "columbina", "observed", "external",
+             _desktop_salience, _desktop_summary, _desktop_memory, consumers=("memory", "learning")),
+    # Security records stay in observation (routine ones until retention): her mind's investigations read them, and
+    # what she concludes reaches memory as her thought. No per-record receipts: nothing processes them one by one.
+    KindSpec("desktop_security", "security_event", 1, SecurityEventReport, "environment", "observed", "external",
+             _security_salience, _security_summary,
+             _skip("security records stay in observation; what her mind concludes about them reaches memory"),
+             needs_context=False, consumers=()),
+    KindSpec("desktop_security", "security_coverage", 1, SecurityCoverageChange, "system", "observed", "system",
+             lambda p: "routine" if p.status == "available" else "notable", _coverage_summary,
+             _skip("what the collector could see is source health, shown with every answer about it"),
+             needs_context=False, consumers=()),
     KindSpec("mind", "thought_concluded", 1, ThoughtConcluded, "columbina", "inferred", "model", _fixed("notable"),
              _thought_summary, _skip("her thoughts go to thought memory"), consumers=("thought_memory",)),
 ]

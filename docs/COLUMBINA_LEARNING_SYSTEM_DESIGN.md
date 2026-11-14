@@ -1,5 +1,7 @@
 # Columbina: learning-system design and implementation roadmap
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Status: **design only, revised 2026-11-03. No implementation is authorized by this document.**
 The user accepted the architectural direction below: three learning loops, evidence before learning products,
 multidimensional reward, attribution, and explicit prediction. Capture and ownership decisions were accepted on 2026-11-01 in

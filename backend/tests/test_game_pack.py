@@ -258,7 +258,8 @@ def test_with_the_pack_minecraft_on_the_vm_is_retired(db, alice, pack):
     vm = _paired_env(db, alice)  # allows minecraft_java
     pack_env = game_pack.ensure_environment(db, alice.id)
     summary = desktop_game.describe(db, alice.id).summary
-    assert 'Your game computer "Legion VM"' in summary and "Games you have: none" in summary
+    # A VM with no game left to play there is only her desktop (general desktop control): not in the game summary.
+    assert "Legion VM" not in summary and not desktop_game.describe(db, alice.id).vm
     assert "Minecraft as your own player [minecraft_pack]" in summary
     # Columbina asking for the old id gets her own player.
     desktop_game.start(db, alice.id, goal="Collect logs", game="minecraft_java")

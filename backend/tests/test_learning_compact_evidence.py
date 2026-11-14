@@ -39,10 +39,6 @@ def test_a_run_that_changed_nothing_says_so():
 
 
 def test_other_runs_read_as_what_they_did():
-    effect = {"kind": "effect", "result": "succeeded", "intended": {"work": "no_change", "target": "none"},
-              "executed": {"effect": "nothing changed"}}
-    assert LA._execution_brief(effect) == ("effect of her decision (work no_change, target none): nothing changed "
-                                           "(result succeeded)")
     route = {"kind": "thought_route", "result": "succeeded",
              "intended": {"kind": "decision", "conclusion": "mine it", "for_hands": "use the pickaxe"},
              "executed": {"routed": {"tip": ["accepted", ""]}}}
@@ -88,7 +84,7 @@ def _stretch() -> A.Evidence:
     ev.add(A.Item(ref="a1", kind="record", event="attempt:t", roots=("attempt:t",), target="s1",
                   learner="hard_thought", text="her mind's hard thought: conclusion: dig down instead"))
     ev.add(A.Item(ref="n1", kind="record", event="attempt:s", roots=("attempt:s",), target="s1",
-                  learner="student_2", text="student_2 decision: " + "z" * 500))
+                  learner="mind", text="her mind's evaluation: " + "z" * 500))
     return ev
 
 

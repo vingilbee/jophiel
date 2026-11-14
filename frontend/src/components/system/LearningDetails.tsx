@@ -69,6 +69,8 @@ const TRIGGER_LABELS: Record<AssessmentSummary['trigger_kind'], string> = {
 }
 
 const PART_LABELS: Record<string, string> = {
+  mind: 'her mind (how she took it, what she chose, how she said it)',
+  // Earlier assessments, before her mind owned all three:
   student_1: 'how she understood it',
   student_2: 'what she chose to do',
   mouth: 'her wording',

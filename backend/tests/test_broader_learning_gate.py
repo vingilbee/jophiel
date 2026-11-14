@@ -1,7 +1,7 @@
 """The post-audit 4 acceptance gate fails closed (evals/post_audit_04/gate.py). Model-free, no database.
 
 docs/learning-system/REVIEW-2026-11-05-behavioral-test-readiness.md, finding 1: the earlier runner reported
-acceptance from family counts alone, accepted one variant run six times, and ignored the Student 1 gap it printed.
+acceptance from family counts alone, accepted one variant run six times, and ignored an uncovered consumer it printed.
 Each case below is a way an acceptance claim could be false; each must be refused with a reason. A complete, valid
 set passes, so the gate isn't hardcoded false.
 """
@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals" / "post_aud
 
 import gate  # noqa: E402
 
-CONSUMER_OF = {"U": "student_2", "C": "planner", "X": "mind", "R": "student_1", "P": "hands", "E": "student_2",
-               "G": "hands", "T": "mind"}
+CONSUMER_OF = {"U": "conversation", "C": "planner", "X": "mind", "R": "conversation", "P": "hands",
+               "E": "conversation", "G": "hands", "T": "mind"}
 
 
 def corpus() -> dict:
@@ -105,18 +105,18 @@ def test_runs_from_another_corpus_or_unfinished_runs_are_refused():
 def test_an_uncovered_consumer_blocks_acceptance_even_when_every_family_passes():
     c = corpus()
     rs = runs(c)
-    for r in rs:  # Student 1 probed by nobody (the real state today)
-        if r["family"] == "R":
+    for r in rs:  # the planner probed by nobody
+        if r["family"] == "C":
             r["probes"], r["requirements"] = [], [{"id": "x", "passed": True}]
     result = decide(rs, c)
     assert result.family_thresholds_passed and not result.accepted
-    assert "consumer student_1 not covered (no probe)" in result.reasons
+    assert "consumer planner not covered (no probe)" in result.reasons
     # Probed but never passing is still not coverage; receipt alone is not either.
     for r in rs:
-        if r["family"] == "R":
-            r["probes"] = [{"label": "p", "consumer": "student_1"}]
-            r["requirements"] = [{"id": "x", "passed": False, "consumer": "student_1"}]
-    assert "consumer student_1 not covered (probed, never passed)" in decide(rs, c).reasons
+        if r["family"] == "C":
+            r["probes"] = [{"label": "p", "consumer": "planner"}]
+            r["requirements"] = [{"id": "x", "passed": False, "consumer": "planner"}]
+    assert "consumer planner not covered (probed, never passed)" in decide(rs, c).reasons
 
 
 def test_a_missing_failed_or_mismatched_integrity_suite_blocks_acceptance():

@@ -100,14 +100,22 @@ class GameContext:
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
-    """The user's usable environments, oldest first: a paired game VM, and her
-    Minecraft pack (stage G) when it's configured for this user."""
+    """The user's game environments, oldest first: her Minecraft pack (stage G) when it's configured for
+    this user, and a paired VM only while it still has a game to play there.
+
+    The paired Windows VM is first of all her own desktop (docs/GENERAL_DESKTOP_CONTROL_DESIGN.md,
+    services/desktop_control), used through the desktop tools. A VM whose games are all played through a
+    pack instead (``game_pack.REPLACED_BY``), or that has none, is no game machine: no game summary, no
+    game tools."""
     game_pack.ensure_environment(db, user_id)
-    return [env for env in db.scalars(
+    envs = [env for env in db.scalars(
         select(DesktopEnvironment)
         .where(DesktopEnvironment.owner_user_id == user_id, DesktopEnvironment.revoked_at.is_(None))
         .order_by(DesktopEnvironment.created_at)
     ) if env.paired_at is not None or game_pack.is_pack(env)]
+    retired = set(game_pack.REPLACED_BY) if any(game_pack.is_pack(env) for env in envs) else set()
+    return [env for env in envs
+            if game_pack.is_pack(env) or any(p not in retired for p in env.allowed_profile_ids)]
 
 
 def _usable_environment(db: Session, user_id: uuid.UUID, game: str | None = None) -> DesktopEnvironment | None:
@@ -565,10 +573,6 @@ def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: 
     if thoughts:
         lines.append("On your mind (your own thoughts while playing, newest last): "
                      + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
-    question = mind_hard.take_question(session.id) if for_reply else None
-    if question:
-        lines.append(f'A question you wanted to ask the user, from thinking it over: "{question["text"]}". '
-                     "Ask it in this reply if it still fits, in your own words; otherwise let it go.")
     thinking = mind.thinking_about(session.id)
     if thinking:
         lines.append(f"You're still thinking over: {thinking}.")

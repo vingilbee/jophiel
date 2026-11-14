@@ -1,25 +1,31 @@
-"""The coordinator's background work: recall and thinking for a user request, and what happens to the result
-(docs/SHARED_STATE_STEP4_SPEC.md). Code, not a model. Tables: ``coordinator_work``, ``coordinator_outputs``.
+"""The coordinator's background work and durable wake events for her mind (docs/MIND_ARCHITECTURE.md). Code, not
+a model: it runs what the mind asked for and wakes the mind with what came of it; it never decides what she says.
+Tables: ``coordinator_work``, ``coordinator_outputs``.
 
-Lifecycle of a request that needs thinking:
+Kinds of work:
 
-1. ``schedule`` (in ``shared_state.prepare``, before the mouth): commits a mind work item, plus a recall item it
-   depends on when recall is also needed. Idempotent per request, so a retried chat job schedules nothing new.
-2. ``decide_immediate``: cognition decides acknowledge / partial / silent (``cognition_decisions``). The
-   student can't decide it yet, so the labelled fallback is ``respond``: the mouth replies, told that the
-   thinking is pending and not done. Recorded as the request's ``immediate`` output.
-3. The ``coordinator`` heartbeat (``run_once``) dispatches leased work to bounded executors: recall through memory's own reply search,
-   then the mind through ``app/ai/mind/hard.py``, which waits for its recall dependency. Every result is
+- ``mind`` / ``recall``: background thinking the mind started with its ``think_it_over`` tool (``schedule``), with
+  a memory lookup it depends on when asked for. Also the carrier of a thought another part of her mind produced
+  (``autonomous_speech.submit``: its result is already there).
+- ``wake``: a reconsideration the mind scheduled for later (``schedule_wake``): nothing to execute, it just comes
+  due (``next_attempt_at``). It is never superseded by a new user message: an intention outlives the turn.
+- ``memory`` / ``observation``: maintenance (``background_components``).
+
+Lifecycle:
+
+1. The ``coordinator`` heartbeat (``run_once``) dispatches leased work to bounded executors. Every result is
    checked against the lease and the cancellation generation before it's accepted.
-4. ``_conclude``: a result for a conversation that moved on is kept private (``superseded``). Otherwise cognition
-   (Student 2, reading the finished thought as [T1]) decides respond / ask / defer / silent. When it can't decide,
-   ``blocked``: nothing is said. respond/ask queues a follow-up chat job, ``uuid5(request, "follow_up")``, carrying
-   its decision for the mouth, which the chat worker runs after the immediate reply. Chat jobs run one at a time per conversation, so the follow-up can't
-   overtake or interleave with it.
+2. ``_conclude``: finished ``mind`` / ``wake`` work becomes one wake of the mind: a chat job
+   ``uuid5(request, "follow_up")`` in the work's own conversation, behind any reply in progress (chat jobs run one
+   at a time per conversation). Only execution facts are checked here: a result for a conversation that moved on
+   stays private (``superseded``); evidence that changed makes it stale. Whether anything is said is the mind's
+   choice in that evaluation, never the coordinator's.
+3. The chat worker runs the wake (``workers/chat.py``), stores what she said (or that she stayed silent) on the
+   output row, and announces it through the durable outbox (``announce_follow_up``).
 
-A new user message supersedes every unfinished item in its conversation (``supersede_older``): its result can
-never become the answer to the new message. Deadlines end work as ``expired``; failures as ``failed``. Both
-still reach ``_conclude``, so a waiting user isn't left with silence nobody decided on.
+A new user message supersedes unfinished thinking in its conversation (``supersede_older``): its result can never
+become the answer to the new message. Deadlines end work as ``expired``; failures as ``failed``. Both still wake
+the mind, so a waiting user isn't left with silence nobody chose.
 """
 from __future__ import annotations
 
@@ -34,17 +40,34 @@ from sqlalchemy import func, select, update, exists, cast, String
 from sqlalchemy.orm import aliased
 from sqlalchemy.dialects.postgresql import insert
 
-from app.ai.state.decisions import PendingDecision, PendingInput, PendingWork, ResultInput, ThoughtResult
+from dataclasses import dataclass
+
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork
 from app.db.session import SessionLocal
-from app.services import cognition_decisions
 
 logger = logging.getLogger(__name__)
+BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ACTIVE = ("queued", "waiting_for_memory", "running")
 TERMINAL = ("completed", "failed", "cancelled", "expired", "superseded", "blocked")
 LEASE_SECONDS = 120
+# Work that wakes the mind when it ends (thinking she started, a thought of hers, a reconsideration come due).
+WAKES = ("mind", "wake")
+# A scheduled reconsideration is kept this long past its time (the worker was down): then it wakes her as late.
+WAKE_GRACE = timedelta(days=30)
+WAKE_MAX_AHEAD = timedelta(days=60)
+
+
+@dataclass(frozen=True)
+class PendingWork:
+    """What the mind may know about work in progress. ``status`` is real: queued is not thinking."""
+
+    work_id: str
+    kind: str  # recall / mind
+    status: str  # queued / waiting_for_memory / running / ...
+    subject: str  # what it's about, in her own words (never a conclusion)
+    unresolved: str  # what waits on it
 
 
 def follow_up_turn(request_id: uuid.UUID) -> uuid.UUID:
@@ -86,10 +109,10 @@ def supersede_older(user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigg
 def schedule(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid.UUID,
              trigger_message_id: uuid.UUID | None, with_recall: bool, work_input: dict[str, Any],
              input_versions: dict[str, str]) -> tuple[PendingWork, ...] | None:
-    """Commit the request's work (a mind item, after a recall item when ``with_recall``). Returns what the mouth
+    """Commit thinking the mind started (a mind item, after a recall item when ``with_recall``). Returns what she
     may know about it, or None when it couldn't be committed (then no work exists, and nobody may say it does)."""
-    deadline = _now() + timedelta(seconds=get_settings().shared_state_work_deadline_seconds)
-    subject = (work_input.get("message") or "")[:200]
+    deadline = _now() + timedelta(seconds=get_settings().mind_work_deadline_seconds)
+    subject = (work_input.get("think_about") or work_input.get("message") or "")[:200]
     try:
         with SessionLocal() as db:
             # Admission is atomic for the request's recall/mind pair and bounded across schedulers.
@@ -127,35 +150,24 @@ def schedule(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid
                  for r in sorted(rows, key=lambda r: order[r.kind]))
 
 
-def decide_immediate(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid.UUID,
-                     trigger_ref: str, interpretation: dict | None, pending: tuple[PendingWork, ...],
-                     channel: str, voice: bool, decided: PendingDecision | None = None) -> tuple[str, PendingDecision]:
-    """Cognition's decision for the reply while she thinks, and the action the turn takes. ``decided``: the one
-    cognition already made with the request (Student 2 decides the reply and the thinking together); else the
-    pending provider is asked. Unsupported: ``respond``, labelled ``policy_fallback``: never silence nobody chose.
-    Recorded once per request."""
-    decision = decided or cognition_decisions.decide_pending(PendingInput(str(request_id), trigger_ref,
-                                                                          interpretation, pending, channel, voice))
-    action = decision.action if decision.supported and decision.action else "respond"
-    origin = decision.origin if decision.supported else "policy_fallback"
+def record_immediate(*, user_id: uuid.UUID, conversation_id: uuid.UUID, request_id: uuid.UUID,
+                     spoke: bool, pending: tuple[PendingWork, ...]) -> None:
+    """What the evaluation that started the thinking did meanwhile (her own choice: ``respond`` or ``silent``).
+    Recorded once per request, before its delivery outcome."""
     _record(request_id=request_id, user_id=user_id, conversation_id=conversation_id, phase="immediate",
-            decision=action, origin=origin, missing=decision.missing_capability,
+            decision="respond" if spoke else "silent", origin="mind", missing=None,
             work_id=uuid.UUID(pending[-1].work_id) if pending else None)
-    return action, decision
 
 
 def immediate_outcome(request_id: uuid.UUID, *, status: str, assistant_message_id: uuid.UUID | None) -> None:
-    """What the immediate phase actually did: delivered / partial / cancelled / failed / not_sent (silent)."""
+    """What the evaluation that started the thinking actually delivered: delivered / partial / cancelled /
+    failed / not_sent (silent)."""
     try:
         with SessionLocal() as db:
             row = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.request_id == request_id,
                                                             CoordinatorOutput.phase == "immediate"))
             if row is not None:
                 row.status, row.assistant_message_id = status, assistant_message_id
-                work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
-                if status == "delivered" and work and work.input.get("autonomous"):
-                    from app.services import autonomous_speech
-                    autonomous_speech.delivered(work)
                 db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("coordinator: recording the immediate outcome failed")
@@ -166,7 +178,7 @@ def immediate_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
 # --------------------------------------------------------------------------- #
 
 
-def _claim(db, token: str, kinds: tuple[str, ...] = ("recall", "mind"), *, exclude_ids=()) -> tuple[CoordinatorWork | None, str | None]:
+def _claim(db, token: str, kinds: tuple[str, ...] = ("recall", "mind", "wake"), *, exclude_ids=()) -> tuple[CoordinatorWork | None, str | None]:
     """Claim one ready job. Per-user/component advisory locking serializes competing schedulers."""
     now = _now()
     busy = aliased(CoordinatorWork)
@@ -235,7 +247,8 @@ def execute_claim(work, token):
     """Slow code runs only on an executor, outside the claim transaction."""
     from app.services import background_components
     try:
-        if work.input.get("autonomous"):
+        if work.input.get("autonomous") or work.kind == "wake":
+            # Nothing to compute: a thought already made, or a reconsideration whose time came.
             result, status, error = work.result, "completed", None
         elif work.kind == "recall":
             result, status, error = _run_recall(work)
@@ -257,7 +270,7 @@ def execute_once() -> bool:
     repaired = recover_follow_up()
     with SessionLocal() as db:
         orphan = db.scalar(select(CoordinatorWork.id).where(
-            CoordinatorWork.kind == "mind", CoordinatorWork.status.in_(("completed", "failed", "expired")),
+            CoordinatorWork.kind.in_(WAKES), CoordinatorWork.status.in_(("completed", "failed", "expired")),
             ~select(CoordinatorOutput.id).where(CoordinatorOutput.work_id == CoordinatorWork.id,
                 CoordinatorOutput.phase == "follow_up").exists()).order_by(CoordinatorWork.created_at).limit(1))
     if orphan:
@@ -272,7 +285,7 @@ def execute_once() -> bool:
         db.expunge(work)
     if not ended:
         execute_claim(work, token)
-    if work.kind == "mind":
+    if work.kind in WAKES:
         _conclude(work.id)
     return True
 
@@ -377,17 +390,18 @@ def _run_mind(work: CoordinatorWork) -> tuple[dict, str, str | None]:
         memories = f"Looking this up in memory didn't work ({recall.status}): don't treat it as found or absent."
         evidence_status, refs = recall.status, []
     message = work.input.get("message", "")
-    reading = work.input.get("interpretation")
-    about = (work.input.get("think_about") or "").strip()  # what her decision said to think over
+    about = (work.input.get("think_about") or "").strip()  # what she decided to think over, in her words
     problem = Problem(
         trigger="handoff",
-        text=(f'They said: "{message}"\n'
-              + (f"Your quick reading of it: {json.dumps(reading)}\n" if reading else "")
+        text=((f'They said: "{message}"\n' if message else "")
               + (f"What you decided to think over: {about}\n" if about else "")
-              + "Work out what you really think before you answer them properly."),
-        topic=message[:60], query=message)
+              + "Work out what you really think about it."),
+        topic=(about or message)[:60], query=about or message)
+    from app.services.personality import current
+
     thought = _think(HardInput(problem=problem, user=work.input.get("user_name") or "the user",
-                               conversation=conversation, memories=memories))
+                               conversation=conversation, memories=memories,
+                               character=(current().text,)))  # her personality: every model call gets it
     result = {"schema_version": 1, "kind": thought.kind, "conclusion": thought.conclusion, "question": thought.question,
               "thinking": thought.thinking, "evidence_status": evidence_status, "evidence_refs": refs,
               "latency_ms": thought.latency_ms, "error": thought.error,
@@ -404,7 +418,7 @@ def _run_mind(work: CoordinatorWork) -> tuple[dict, str, str | None]:
 
 
 def _conclude(work_id: uuid.UUID) -> None:
-    """Decide what happens to a mind item's outcome and dispatch it once. Never speaks directly."""
+    """Wake the mind with a finished item, once. Execution facts only: the mind decides what to do with it."""
     with SessionLocal() as db:
         work = db.get(CoordinatorWork, work_id)
         if work is None or work.status not in TERMINAL:
@@ -418,8 +432,6 @@ def _conclude(work_id: uuid.UUID) -> None:
             newer = db.scalar(select(func.count()).select_from(ChatMessage).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
                 ChatMessage.conversation_sequence > trigger.conversation_sequence)) or 0
-        immediate = db.scalar(select(CoordinatorOutput.decision).where(
-            CoordinatorOutput.request_id == work.request_id, CoordinatorOutput.phase == "immediate"))
         db.expunge(work)
     common = dict(request_id=work.request_id, user_id=work.user_id, conversation_id=work.conversation_id,
                   phase="follow_up", work_id=work.id)
@@ -427,42 +439,23 @@ def _conclude(work_id: uuid.UUID) -> None:
         from app.services import autonomous_speech
         with SessionLocal() as db:
             if not autonomous_speech.valid(db, work):
-                why = autonomous_speech.why_not(db, work) if work.input.get("source") == "conversation" else None
-                _log({"op": "autonomous_not_said", "work": str(work.id), "why": why or "stale or restrained"})
+                why = (autonomous_speech.why_not(db, work)
+                       if work.input.get("source") in autonomous_speech.CONVERSATIONAL else None)
+                _log({"op": "autonomous_not_said", "work": str(work.id), "why": why or "stale"})
                 _record(**common, decision="rejected", origin="coordinator", missing=None, status="not_sent")
+                autonomous_speech.dropped(work, why or "stale")
                 return
-    if work.status in ("superseded", "cancelled", "blocked") or newer:
+    if work.status in ("superseded", "cancelled", "blocked") or (newer and work.kind != "wake"):
         # The conversation moved on: the thought stays private; it can't answer a newer message.
         _record(**common, decision="superseded", origin="coordinator", missing=None, status="not_sent")
         return
-    r = work.result or {}
-    result = ThoughtResult(
-        str(work.id), r.get("kind"), r.get("conclusion"), r.get("question"),
-        uncertain=r.get("kind") == "guess" or r.get("evidence_status") not in (None, "matched"),
-        evidence_refs=tuple(r.get("evidence_refs") or ()), evidence_status=r.get("evidence_status"),
-        failed=None if work.status == "completed" else (work.error_code or work.status))
-    decision = cognition_decisions.decide_result(ResultInput(
-        str(work.request_id), (f"event:{work.input['event_id']}" if work.input.get("autonomous")
-                               else f"message:{work.trigger_message_id}"), result, work.input.get("interpretation"),
-        newer, immediate, work.input.get("channel", "web"),
-        phase="autonomous_event" if work.input.get("autonomous") else "thought_result",
-        user_id=str(work.user_id), activity_id=str(work.activity_id) if work.activity_id else None,
-        conversation_id=str(work.conversation_id), input_versions=work.input_versions))
-    if not decision.supported or not decision.action:
-        _record(**common, decision="blocked", origin=decision.origin, missing=decision.missing_capability,
-                status="not_sent")
-        return
-    if decision.action in ("silent", "defer"):
-        _record(**common, decision=decision.action, origin=decision.origin, missing=None, status="not_sent")
-        return
-    _dispatch_follow_up(work, decision.action, decision.origin, brief=decision.extra.get("brief"),
-                        decision_id=decision.extra.get("decision_id"), communication=decision.extra.get("communication"))
+    _dispatch_follow_up(work)
 
 
-def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brief: str | None = None,
-                        decision_id: str | None = None, communication: str | None = None) -> None:
-    """One follow-up chat job per request: same conversation, same channel as the request, never "the latest
-    conversation". The output row and the job commit together; a second dispatch finds the row and stops."""
+def _dispatch_follow_up(work: CoordinatorWork) -> None:
+    """One wake of the mind per finished item: a chat job in the same conversation and channel as the request,
+    never "the latest conversation". The output row and the job commit together; a second dispatch finds the row
+    and stops."""
     from app.services import chat as chat_service
 
     turn = follow_up_turn(work.request_id)
@@ -471,13 +464,13 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brie
         if current is None or current.status not in ("completed", "failed", "expired") or not evidence_current(db, current, lock=True):
             return
         trigger = _trigger(db, current)
-        if trigger and db.scalar(select(ChatMessage.id).where(
+        if work.kind != "wake" and trigger and db.scalar(select(ChatMessage.id).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
                 ChatMessage.conversation_sequence > trigger.conversation_sequence).limit(1)):
             return
         output = db.execute(insert(CoordinatorOutput).values(
             id=uuid.uuid4(), request_id=work.request_id, user_id=work.user_id, conversation_id=work.conversation_id,
-            work_id=work.id, phase="follow_up", decision=action, decision_origin=origin, status="dispatched",
+            work_id=work.id, phase="follow_up", decision="wake", decision_origin="mind", status="dispatched",
         ).on_conflict_do_nothing(constraint="uq_coordinator_outputs_phase").returning(CoordinatorOutput.id)).scalar()
         if output is None:
             db.rollback()
@@ -486,14 +479,8 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brie
         request = db.scalar(select(ChatJob).where(ChatJob.turn_id == work.request_id))
         base = request.payload if request is not None else {}
         payload = {"phase": "follow_up", "content": "", "work_id": str(work.id), "request_id": str(work.request_id),
-                   "action": action, "channel": base.get("channel", work.input.get("channel", "web")),
-                   "zone": base.get("zone"), "awareness": base.get("awareness", "")}
-        if brief:
-            payload["decision_brief"] = brief
-        if decision_id:
-            # The decision's attempt (services/learning_capture.py): the follow-up's delivery links to it.
-            payload["decision_attempt_id"] = decision_id
-            payload["decision_communication"] = communication
+                   "channel": base.get("channel", work.input.get("channel", "web")),
+                   "zone": base.get("zone") or work.input.get("zone"), "awareness": base.get("awareness", "")}
         if base.get("channel_identity_id"):
             payload["channel_identity_id"] = base["channel_identity_id"]
         job = chat_service.enqueue_job(db, user_id=work.user_id, conversation=conversation, turn_id=turn,
@@ -502,11 +489,134 @@ def _dispatch_follow_up(work: CoordinatorWork, action: str, origin: str, *, brie
                    .values(chat_job_id=job.id))
         db.commit()
         chat_service.wake_chat_worker(job.id)
-    _log({"op": "follow_up_dispatched", "work": str(work.id), "request": str(work.request_id), "action": action})
+    # Who woke her, on the System page: another part's hand-off; her own wakes (thinking she started, a thought of
+    # hers, a reconsideration she scheduled) are her mind's own and show as what she then does.
+    src = {"proposal": "learning", "conflict": "memory"}.get(wake_reason(work))
+    if src is not None:
+        from app.services import system_signals
+        system_signals.emit(work.user_id, src, "mind", wake_reason(work), work.id)
+    _log({"op": "wake_dispatched", "work": str(work.id), "request": str(work.request_id),
+          "reason": wake_reason(work)})
+
+
+def wake_reason(work: CoordinatorWork) -> str:
+    """Why this item wakes her: ``due`` (a reconsideration she scheduled), a producer's own reason (``thought``,
+    ``proposal``, ``conflict``, ``finding``), or ``work_result`` (thinking she started)."""
+    if work.kind == "wake":
+        return "due"
+    if work.input.get("autonomous"):
+        return work.input.get("wake") or "thought"
+    return "work_result"
+
+
+# --------------------------------------------------------------------------- #
+# Reconsiderations the mind scheduled
+# --------------------------------------------------------------------------- #
+
+
+def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: str, due_at: datetime,
+                  item_id: uuid.UUID | None = None, origin: str | None = None, zone: str | None = None,
+                  channel: str = "web") -> CoordinatorWork:
+    """Keep the mind's choice to come back to something at ``due_at``, in the conversation it chose it in. The
+    caller commits. One open reconsideration per working item: scheduling again moves it."""
+    now = _now()
+    due_at = max(due_at, now)
+    if due_at - now > WAKE_MAX_AHEAD:
+        raise ValueError("too far ahead: at most 60 days")
+    words = " ".join((about or "").split())[:500]
+    if not words:
+        raise ValueError("say what to come back to")
+    moved = 0
+    if item_id is not None:
+        for row in db.scalars(select(CoordinatorWork).where(
+                CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(ACTIVE), CoordinatorWork.input["item"].astext == str(item_id))
+                .with_for_update()):
+            row.status, row.error_code = "cancelled", "rescheduled"
+            row.cancellation_generation += 1
+            moved += 1
+    work_id = uuid.uuid4()
+    row = CoordinatorWork(
+        id=work_id, request_id=work_id, user_id=user_id, conversation_id=conversation_id, kind="wake",
+        status="queued", dependency_ids=[], input_versions={}, next_attempt_at=due_at,
+        deadline_at=due_at + WAKE_GRACE, idempotency_key=f"wake:{work_id}",
+        result={"kind": "due", "about": words},
+        input={"schema_version": 1, "about": words, "item": str(item_id) if item_id else None,
+               "due_at": due_at.isoformat(), "scheduled_at": now.isoformat(), "origin": origin, "zone": zone,
+               "channel": channel, "moved": moved})
+    db.add(row)
+    db.flush()
+    _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": str(item_id) if item_id else None})
+    return row
+
+
+def cancel_wake(db, user_id: uuid.UUID, key: str, *, reason: str) -> CoordinatorWork | None:
+    """Drop a reconsideration (by the id shown to her, or its prefix). The caller commits."""
+    key = (key or "").removeprefix("wake:").strip().lower()
+    if len(key) < 6:
+        return None
+    rows = [r for r in db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE))
+        .with_for_update()) if str(r.id).startswith(key)]
+    if len(rows) != 1:
+        return None
+    rows[0].status, rows[0].error_code = "cancelled", (reason or "dropped")[:64]
+    rows[0].cancellation_generation += 1
+    return rows[0]
+
+
+def close_item_wakes(db, user_id: uuid.UUID, item_id: uuid.UUID) -> int:
+    """The item a reconsideration was about closed: it no longer needs coming back to. The caller commits."""
+    rows = list(db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE),
+        CoordinatorWork.input["item"].astext == str(item_id)).with_for_update()))
+    for row in rows:
+        row.status, row.error_code = "cancelled", "item_closed"
+        row.cancellation_generation += 1
+    return len(rows)
+
+
+def scheduled_wakes(db, user_id: uuid.UUID, *, limit: int = 8) -> list[CoordinatorWork]:
+    return list(db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE))
+        .order_by(CoordinatorWork.next_attempt_at).limit(limit)))
+
+
+def thinking_for(db, user_id: uuid.UUID, conversation_id: uuid.UUID | None) -> list[CoordinatorWork]:
+    """Thinking she started that hasn't finished, in this conversation."""
+    if conversation_id is None:
+        return []
+    return list(db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.conversation_id == conversation_id,
+        CoordinatorWork.kind.in_(("recall", "mind")), CoordinatorWork.status.in_(ACTIVE),
+        CoordinatorWork.input["autonomous"].astext.is_distinct_from("true"))
+        .order_by(CoordinatorWork.created_at)))
+
+
+def cancel_thinking(db, user_id: uuid.UUID, key: str, *, reason: str) -> int:
+    """Stop thinking she started (by the id shown to her; its memory lookup goes with it). The caller commits."""
+    key = (key or "").removeprefix("work:").strip().lower()
+    if len(key) < 6:
+        return 0
+    rows = [r for r in db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind.in_(("recall", "mind")),
+        CoordinatorWork.status.in_(ACTIVE)).with_for_update()) if str(r.id).startswith(key)]
+    requests = {r.request_id for r in rows}
+    if len(requests) != 1:
+        return 0
+    stopped = 0
+    for row in db.scalars(select(CoordinatorWork).where(
+            CoordinatorWork.request_id.in_(requests), CoordinatorWork.kind.in_(("recall", "mind")),
+            CoordinatorWork.status.in_(ACTIVE)).with_for_update()):
+        row.status, row.error_code = "cancelled", (reason or "stopped")[:64]
+        row.cancellation_generation += 1
+        stopped += 1
+    return stopped
 
 
 def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
-    """Checked again by the chat worker right before the mouth speaks: no newer user message, not superseded."""
+    """Checked again by the chat worker right before the mind is woken: no newer user message (for thinking a
+    message started), not superseded. Returns what the wake is about, for ``render_wake``."""
     with SessionLocal() as db:
         work = db.get(CoordinatorWork, work_id)
         if work is None or work.status not in ("completed", "failed", "expired") or not evidence_current(db, work):
@@ -516,14 +626,21 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
             if not autonomous_speech.valid(db, work):
                 return False, None
         trigger = _trigger(db, work)
-        if trigger is not None and trigger.conversation_sequence is not None:
+        if work.kind != "wake" and trigger is not None and trigger.conversation_sequence is not None:
             newer = db.scalar(select(func.count()).select_from(ChatMessage).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
                 ChatMessage.conversation_sequence > trigger.conversation_sequence)) or 0
             if newer:
                 return False, None
-        return True, {"result": work.result, "status": work.status, "error": work.error_code,
-                      "message": work.input.get("message", ""), "autonomous": work.input.get("autonomous", False)}
+        info = {"result": work.result, "status": work.status, "error": work.error_code, "kind": work.kind,
+                "reason": wake_reason(work), "input": dict(work.input), "work_id": str(work.id),
+                "activity_id": str(work.activity_id) if work.activity_id else None,
+                "message": work.input.get("message", ""), "autonomous": work.input.get("autonomous", False),
+                "late": work.status == "expired" and work.kind == "wake"}
+        if work.input.get("autonomous"):
+            from app.services import autonomous_speech
+            info["speech_facts"] = autonomous_speech.facts(db, work)
+        return True, info
 
 
 _EVIDENCE_WORDS = {"matched": "memory had something on it", "partial": "memory was only partly readable",
@@ -532,32 +649,58 @@ _EVIDENCE_WORDS = {"matched": "memory had something on it", "partial": "memory w
                    "superseded": "the memory lookup was dropped", "unavailable": "memory couldn't be searched"}
 
 
-def render_result(info: dict) -> str:
-    """The finished thought as the mouth reads it: what it was about, the conclusion and how sure, what memory
-    gave it. Her private reasoning (``thinking``) is never shown."""
+def render_wake(info: dict) -> str:
+    """Why she was woken, as she reads it: thinking she started that finished, a thought of her own, a proposal
+    from another part of her, or something she chose to come back to. Her private reasoning (``thinking``) is
+    never shown."""
     r = info.get("result") or {}
-    lines = (["Your autonomous thought (not a user request):"] if info.get("autonomous") else
-             [f'What they said: "{info.get("message", "")}"'])
-    if info.get("status") != "completed" or not r.get("conclusion"):
-        why = info.get("error") or info.get("status")
-        lines.append(f"Your thinking didn't reach a conclusion ({why}).")
-    else:
-        sure = "a guess, uncertain" if r.get("kind") == "guess" else r.get("kind")
-        lines.append(f"Your conclusion ({sure}): {r['conclusion']}")
+    reason, inp = info.get("reason"), info.get("input") or {}
+    if reason == "due":
+        when = inp.get("scheduled_at", "")[:16].replace("T", " ")
+        lines = [f"You chose to come back to this (scheduled {when} UTC): {inp.get('about') or r.get('about')}"]
+        if info.get("late"):
+            lines.append("It came due a while ago: you couldn't be woken then. Check whether it still matters.")
+        if inp.get("item"):
+            lines.append(f"It is about the item [{inp['item'][:8]}] in your working memory, if it's still open.")
+        return "\n".join(lines)
+    if reason == "proposal":
+        lines = ["Another part of you has a proposal for you to decide on (nobody asked the user):", r.get("conclusion") or ""]
+    elif reason == "conflict":
+        lines = ["Memory noticed something that doesn't fit (nothing is settled, memory changed nothing):",
+                 r.get("conclusion") or ""]
+    elif info.get("autonomous"):
+        lines = ["A thought of your own, from your background thinking (not a user request):"]
         if r.get("question"):
-            lines.append(f"What you'd ask them: {r['question']}")
+            lines.append(f"A question you'd consider asking them: {r['question']}")
+        elif r.get("conclusion"):
+            lines.append(f"What you thought: {r['conclusion']}")
+    else:
+        about = inp.get("think_about") or info.get("message") or ""
+        lines = [f"The thinking you started has ended. It was about: {about}"]
+        if info.get("status") != "completed" or not r.get("conclusion"):
+            why = info.get("error") or info.get("status")
+            lines.append(f"It didn't reach a conclusion ({why}).")
+        else:
+            sure = "a guess, uncertain" if r.get("kind") == "guess" else r.get("kind")
+            lines.append(f"Your conclusion ({sure}): {r['conclusion']}")
+            if r.get("question"):
+                lines.append(f"What you'd ask them: {r['question']}")
     if r.get("evidence_status"):
         lines.append(f"Memory: {_EVIDENCE_WORDS.get(r['evidence_status'], r['evidence_status'])}.")
-    return "\n".join(lines)
+    lines += [f"- {fact}" for fact in info.get("speech_facts") or ()]
+    return "\n".join(line for line in lines if line)
 
 
-def save_follow_up_receipt(db, job, message, status: str) -> None:
-    """Same transaction as the assistant row and terminal job. Publication is recoverable."""
+def save_follow_up_receipt(db, job, message, status: str, decision: str | None = None) -> None:
+    """Same transaction as the assistant row and terminal job. Publication is recoverable. ``decision``: what the
+    mind did in that wake (``said`` / ``silent``), when it ran."""
     row = db.scalar(select(CoordinatorOutput).where(
         CoordinatorOutput.chat_job_id == job.id).with_for_update())
     if row is None:
         return
     row.status = status
+    if decision:
+        row.decision = decision[:16]
     row.assistant_message_id = message.id if message else None
     row.announcement_pending = bool(status == "delivered" and message and message.content)
 
@@ -582,7 +725,7 @@ def announce_follow_up(request_id: uuid.UUID) -> bool:
             return False
         row.announcement_pending = False
         work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
-        if work and work.input.get("autonomous"):
+        if work is not None:
             from app.services import autonomous_speech
             autonomous_speech.delivered(work)
         elif (job.payload or {}).get("phase") == "deliver":
@@ -623,7 +766,7 @@ def follow_up_outcome(request_id: uuid.UUID, *, status: str, assistant_message_i
             if row is not None:
                 row.status, row.assistant_message_id = status, assistant_message_id
                 work = db.get(CoordinatorWork, row.work_id) if row.work_id else None
-                if status == "delivered" and work and work.input.get("autonomous"):
+                if status == "delivered" and work is not None:
                     from app.services import autonomous_speech
                     autonomous_speech.delivered(work)
                 db.commit()
@@ -635,7 +778,8 @@ def pending_for(request_id: uuid.UUID) -> tuple[PendingWork, ...]:
     with SessionLocal() as db:
         rows = list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.request_id == request_id,
             CoordinatorWork.kind.in_(("mind", "recall")))))
-    return tuple(PendingWork(str(r.id), r.kind, r.status, (r.input.get("message") or "")[:200], "") for r in rows)
+    return tuple(PendingWork(str(r.id), r.kind, r.status,
+                             (r.input.get("think_about") or r.input.get("message") or "")[:200], "") for r in rows)
 
 
 # --------------------------------------------------------------------------- #
@@ -676,15 +820,14 @@ def _wake() -> None:
 
 
 def _log(entry: dict[str, Any]) -> None:
-    """Lifecycle lines in the shared-state trace: ids, kinds, statuses. No message or thought text."""
-    path = get_settings().shared_state_log_path
+    """Lifecycle lines in the mind's turn trace (``MIND_TURN_LOG_PATH``): ids, kinds, statuses. No message or
+    thought text."""
+    path = get_settings().mind_turn_log_path
     if not path:
         return
     try:
-        from app.services.cognitive_live import BACKEND
-
         if not os.path.isabs(path):
-            path = os.path.join(str(BACKEND), path)
+            path = os.path.join(BACKEND, path)
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "a") as f:
             f.write(json.dumps({"at": _now().isoformat(), "component": "coordinator", **entry}) + "\n")

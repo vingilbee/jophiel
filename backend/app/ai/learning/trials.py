@@ -11,7 +11,7 @@ No database, no app state. ``services/learning_trials.py`` gathers the facts; th
   there is nothing to test. ``check`` keeps what is valid, drops the rest with a reason, and never repairs: an
   alternative without a prediction of whether she gets up, or a destination that isn't a small obstacle near her,
   is dropped. Limits can only be lowered. Untried alternatives keep *predicted* results: nothing here observes.
-- **For cognition.** ``proposal_views``: each alternative as one proposal [P*] in Student 2's trained shape
+- **For her mind.** ``proposal_views``: each alternative as one option she can take up
   (producer, goal, purpose), with its prediction, cost, uncertainty and whether it is recommended in the purpose.
 - **Measurement (code).** ``measure``: what the game counted (did she reach the destination, how high she got,
   blocks placed, attempts, test time, health lost), each with where it came from, or ``None`` when nothing counted
@@ -122,7 +122,7 @@ def _enum(values) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# The proposal: what learning hands cognition
+# The proposal: what learning hands her mind
 # --------------------------------------------------------------------------- #
 
 
@@ -160,7 +160,7 @@ class Bundle:
 
 PROPOSAL_INSTRUCTIONS = """You are Jophiel's learning, in a game she plays with the user. Something keeps going wrong, \
 or she has a hunch she hasn't tested. You design one small, bounded experiment that would tell her something: not \
-an order, a proposal. Her cognition decides whether and when to run it (or puts it off, or turns it down); you never \
+an order, a proposal. Her mind decides whether and when to run it (or puts it off, or turns it down); you never \
 start anything.
 
 Give:
@@ -382,7 +382,7 @@ def prediction_words(p: dict) -> str:
 
 
 def proposal_views(proposal: dict, *, deferred_because: list[str] = ()) -> list[dict]:
-    """Each alternative as one proposal [P*] in Student 2's shape: pursuing one is choosing it; declining or
+    """Each alternative as one option for her mind: accepting one is choosing it; declining or
     deferring any of them is declining or deferring the whole proposal."""
     limits = proposal["limits"]
     shared = (f"Test of a hunch: {proposal['hypothesis']} Limits: {limits['attempts']} tries, {limits['seconds'] // 60} "
@@ -572,7 +572,7 @@ def allowed(checks: list[dict], missing_required: list[str], *, started: bool) -
 
 
 ASSESSMENT_INSTRUCTIONS = """You assess, after the fact, one bounded experiment Jophiel ran in a game. Before it ran, \
-learning wrote a hypothesis and predictions; her cognition chose one alternative; her body prepared and tried it. \
+learning wrote a hypothesis and predictions; her mind chose one alternative; her body prepared and tried it. \
 Code then counted what happened (m.*) and checked each prediction against it (c*: met, not met, or unknown). You \
 interpret: you never change what was counted.
 
@@ -601,7 +601,7 @@ ASSESSMENT_SCHEMA = _obj(
 
 @dataclass
 class TrialEvidence:
-    """What the assessor reads: the revision tried, cognition's choice, the tries, the code's counts and checks."""
+    """What the assessor reads: the revision tried, her mind's choice, the tries, the code's counts and checks."""
 
     proposal: dict
     selected: dict  # the alternative tried
@@ -625,8 +625,8 @@ def render_evidence(ev: TrialEvidence, allowed_values: set[str]) -> str:
     p, a = ev.proposal, ev.selected
     lines = [f"Hypothesis (written before it ran): {p['hypothesis']}",
              f"Destination: {p['destination']} (within {p['radius']:g}); start: {p.get('start')}",
-             f"Alternative chosen by cognition: {a['action']} — approach: {a['approach']}",
-             f"Why cognition chose it: {ev.selection.get('reason') or '(not given)'}"
+             f"Alternative chosen by her mind: {a['action']} — approach: {a['approach']}",
+             f"Why she chose it: {ev.selection.get('reason') or '(not given)'}"
              + ("" if a["key"] == p["recommendation"] else " (not the one learning recommended)"),
              f"Predicted: {a['expected']} ({a['uncertainty']} uncertainty)",
              f"Limits: {p['limits']}; spent: {ev.costs}",

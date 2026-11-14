@@ -50,4 +50,4 @@ Setup steps:
 
 Probes run each consumer twice in a fresh context (the original conversation is not in its input): with the
 learned products available and with them withheld (`lessons_supply_enabled` off), everything else equal. A
-consumer with no lesson path (Student 1) is recorded as uncovered, never as a pass.
+consumer that was never probed is recorded as uncovered, never as a pass.

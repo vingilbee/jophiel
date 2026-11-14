@@ -1,7 +1,7 @@
-"""The initial memory check before cognition (docs/COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md §7, stage 1 gate):
-every user message, in a fresh conversation too, gets the evidence it needs before anyone decides anything.
-Standing constraints can't be crowded out, "my sister" finds their sister without her name, more than one fit
-stays ambiguous, and a failed or invalid decision can't take the evidence away.
+"""The memory check each evaluation of her mind starts from (docs/COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md
+§7, stage 1 gate): every user message, in a fresh conversation too, brings her the evidence it needs. Standing
+constraints can't be crowded out, "my sister" finds their sister without her name, more than one fit stays
+ambiguous, and a failed search is said as failed, never as nothing remembered.
 
 The fixture is the 2026-10-29 end-to-end test's stored facts, word for word (docs/reports/memory-e2e-2026-10-30),
 plus contrast cases with other names. Real PostgreSQL (``TEST_DATABASE_URL``); no model or embedding calls, so
@@ -11,16 +11,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 
 import app.core.config as config
-from app.ai.state import student_two as S
 from app.db.models import MemoryConflict, SemanticMemory
 from app.services import chat as chat_service
-from app.services import cognitive_live, coordinator, recall, recall_references, shared_state, student_two
+from app.services import coordinator, mind_turn, recall, recall_references
 from tests.db_support import database  # noqa: F401  (fixture)
 from tests.desktop_support import isolated_redis  # noqa: F401  (autouse fixture)
 from tests.test_desktop_sessions import _user, alice, db  # noqa: F401  (fixtures)
@@ -150,8 +147,7 @@ def test_the_receipt_says_what_each_consumer_saw(db, alice):
     message = chat_service.add_message(db, conversation=conversation, role="user", content="what's my dog's name?",
                                        turn_id=uuid.uuid4())
     turn = recall_references.for_reply(alice.id, conversation.id, message.id, message.content, "UTC")
-    turn.consumed("student_1", [r.ref for r in turn.result.records if r.ref.kind == "fact"], turn.legacy)
-    turn.consumed("student_2", [], None, note=S.SNAPSHOT_MEMORY_NOTE)
+    turn.consumed("mind", [str(r.ref) for r in turn.result.records], turn.legacy)
     answer = chat_service.add_message(db, conversation=conversation, role="assistant", content="Pretzel!",
                                       turn_id=uuid.uuid4(), commit=False)
     receipt_id = recall_references.save_receipt(db, turn, assistant_message_id=answer.id,
@@ -161,9 +157,8 @@ def test_the_receipt_says_what_each_consumer_saw(db, alice):
     receipt = db.get(RecallReceipt, receipt_id)
     counts = receipt.counts
     assert counts["bundle"] == {"id": str(turn.bundle_id), "version": recall_references.BUNDLE_VERSION}
-    mouth, student_1 = counts["consumers"]["mouth"]["refs"], counts["consumers"]["student_1"]["refs"]
-    assert set(student_1) <= set(mouth) and student_1
-    assert counts["consumers"]["student_2"]["refs"] == [] and "no memory input" in counts["consumers"]["student_2"]["note"]
+    assert set(counts["consumers"]) >= {"mind"} and counts["consumers"]["mind"]["refs"]
+    assert not {"student_1", "student_2"} & set(counts["consumers"])  # one consumer: her mind
     assert "Pretzel" not in json.dumps(counts)  # refs and hashes, never memory text
 
 
@@ -172,51 +167,30 @@ def test_the_receipt_says_what_each_consumer_saw(db, alice):
 
 @pytest.fixture
 def pipeline(monkeypatch, tmp_path, database):
-    settings = SimpleNamespace(shared_state_log_path=str(tmp_path / "shared.jsonl"), cognitive_live_student_dir=None,
-                               cognition_student_log_path=str(tmp_path / "student_two.jsonl"),
-                               recall_tool_calls_per_reply=3)
-    monkeypatch.setattr(shared_state, "get_settings", lambda: settings)
-    monkeypatch.setattr(shared_state, "SessionLocal", database)
+    settings = mind_turn.get_settings()
+    for key, value in {"mind_turn_log_path": str(tmp_path / "turns.jsonl"), "lessons_supply_enabled": False,
+                       "desktop_agent_enabled": False}.items():
+        monkeypatch.setattr(settings, key, value)
     monkeypatch.setattr(coordinator, "SessionLocal", database)
-    shared_state._personality.cache_clear()
-    seen = {}
-
-    def read(**kwargs):
-        seen["student_1"] = kwargs
-        return cognitive_live.LivePrep(interpretation=dict(
-            acts={"asking": 0.9}, tone={"friendly": 0.9}, request={"talk_only": 0.9},
-            understand={"acts": {"asking": True}, "tone": "friendly", "request": "talk_only"}))
-
-    monkeypatch.setattr(cognitive_live, "prepare", read)
-    monkeypatch.setattr(student_two, "gather", lambda db, **k: S.Live(
-        "user_message", "chat", datetime.now(timezone.utc), (), k["message"]))
-    monkeypatch.setattr(student_two, "manifest", lambda: {"name": "test-student", "system": "sys", "rendering": None})
-    real_decide = student_two.decide
-    answer = {"text": "not json at all"}
-    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=lambda m, t: answer["text"]))
-    monkeypatch.setattr(student_two, "log", lambda *a, **k: None)
-    return SimpleNamespace(seen=seen, answer=answer)
+    monkeypatch.setattr(mind_turn, "SessionLocal", database)
+    return settings
 
 
 def _turn(db, user, text):
     conversation = _fresh(db, user)
     message = chat_service.add_message(db, conversation=conversation, role="user", content=text, turn_id=uuid.uuid4())
-    return shared_state.prepare(user_id=user.id, conversation_id=conversation.id, user_message_id=message.id,
-                                history=[{"role": "user", "content": text}], message=text, zone="UTC",
-                                turn_id=uuid.uuid4(), reply_message_id=uuid.uuid4())
+    return mind_turn.prepare_message(user_id=user.id, conversation_id=conversation.id, user_message_id=message.id,
+                                     message=text, zone="UTC", turn_id=uuid.uuid4())
 
 
-def test_an_invalid_student_two_answer_cannot_take_the_evidence_away(db, alice, pipeline):
+def test_her_evaluation_starts_from_the_memory_check_with_no_stage_between(db, alice, pipeline):
     _facts(db, alice, SAM)
-    turn = _turn(db, alice, "I'm cooking dinner for me and Leo tonight. anything I should keep out of the food?")
-    assert turn.student.status == "invalid" and "decision_unavailable" in turn.decision.degraded
-    assert turn.immediate_origin == "operational_fallback" and turn.searched
-    prompt_memory = turn.recall_rendered
+    ev = _turn(db, alice, "I'm cooking dinner for me and Leo tonight. anything I should keep out of the food?")
+    assert ev.searched and ev.memory_status in ("matched", "partial")
+    prompt_memory = ev.recall_rendered
     assert "allergic to peanuts" in prompt_memory and "mushrooms" in prompt_memory
-    # Student 1 read the same check, searched (not "only what was in hand").
-    assert pipeline.seen["student_1"]["memory_searched"] is True
-    assert "allergic to peanuts" in pipeline.seen["student_1"]["long_term_memory"]
-    assert turn.timings["initial_recall_ms"] >= 0
+    assert {r["ref"] for r in ev.memory_refs} <= set(ev.capture.sources)  # what she read is her attempt's sources
+    assert ev.recall_turn.consumers["mind"]["refs"] and ev.timings["memory_ms"] >= 0
 
 
 def test_a_failed_search_says_so_and_never_reads_as_nothing_remembered(db, alice, pipeline, monkeypatch):
@@ -226,8 +200,8 @@ def test_a_failed_search_says_so_and_never_reads_as_nothing_remembered(db, alice
         raise RuntimeError("recall is down")
 
     monkeypatch.setattr(recall, "search", broken)
-    turn = _turn(db, alice, "what's my dog's name?")
-    assert turn.view.memory.recall_status == "failed" and not turn.searched
-    assert "search FAILED" in turn.boundary and "found nothing" not in turn.boundary
-    assert pipeline.seen["student_1"]["memory_searched"] is False
-    assert turn.recall_turn.result.coverage["search"] == "failed"  # what the receipt will record
+    ev = _turn(db, alice, "what's my dog's name?")
+    assert ev.memory_status == "failed" and not ev.searched
+    assert "search FAILED" in ev.boundary() and "found nothing" not in ev.boundary()
+    assert ev.recall_turn.result.coverage["search"] == "failed"  # what the receipt will record
+    assert ev.event()["degraded"] == ["recall_unavailable"]

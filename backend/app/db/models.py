@@ -29,27 +29,14 @@ from app.db.base import Base, TimestampMixin
 
 
 class CoreMemory(Base, TimestampMixin):
-    """Versioned, user-independent identity and cognitive priors.
-
-    The grouped JSON documents deliberately make the identity extensible while
-    ``schema_version`` and ``version`` keep every cognitive trace reproducible.
-    Core memory changes slowly; per-turn state belongs in ``WorkingMemory``.
-    """
+    """Text-only personality, independent of a user. Loaded once per worker process."""
 
     __tablename__ = "core_memory"
 
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    identity: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    traits: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    perception_priors: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    interpretation_biases: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    drives: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    action_style: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    values: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    learning_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    locked_fields: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    profile: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
@@ -91,9 +78,6 @@ class User(Base, TimestampMixin):
         back_populates="user", cascade="all, delete-orphan"
     )
     learning_memories: Mapped[list["LearningMemory"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    working_memories: Mapped[list["WorkingMemory"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     # At most one connected Google account per user (see GoogleAccount).
@@ -268,9 +252,6 @@ class Conversation(Base, TimestampMixin):
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="ChatMessage.created_at",
-    )
-    working_memory: Mapped["WorkingMemory | None"] = relationship(
-        back_populates="conversation", cascade="all, delete-orphan", uselist=False
     )
 
 
@@ -647,45 +628,6 @@ class SemanticMemory(Base, TimestampMixin, TimeFieldsMixin):
     user: Mapped["User"] = relationship(back_populates="semantic_memories")
 
 
-class WorkingMemory(Base, TimestampMixin):
-    """Latest cognitive snapshot for one conversation.
-
-    The actual short-term transcript stays in ``chat_messages``. This row holds
-    only derived state needed to continue the cognitive loop.
-    """
-
-    __tablename__ = "working_memories"
-    __table_args__ = (
-        CheckConstraint("mode IN ('agent', 'cognitive')", name="ck_working_memory_mode"),
-        CheckConstraint("context_window_size BETWEEN 1 AND 200", name="ck_working_memory_context_window"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, nullable=False
-    )
-    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="agent", server_default="agent")
-    context_window_size: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default="30")
-    current_topic: Mapped[str | None] = mapped_column(Text, nullable=True)
-    active_goals: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
-    unresolved_questions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
-    cognitive_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    retrieved_memories: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
-    last_message_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True
-    )
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    user: Mapped["User"] = relationship(back_populates="working_memories")
-    conversation: Mapped["Conversation"] = relationship(back_populates="working_memory")
-
-
 class EpisodicMemory(Base, TimestampMixin, TimeFieldsMixin):
     """A time- and context-bound experience retained with its provenance. ``event_at`` is when it happened as
     far as code knows (a game stretch's end; for a told episode, the start of its time reading, else when it
@@ -912,6 +854,16 @@ class DesktopEnvironment(Base):
     input_context: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Security monitoring (services/security_activity.py): the owner's own switch, apart from capture and input.
+    # Each switch-on bumps ``security_epoch``: the VM then starts reading at its logs' end, so nothing from the
+    # time it was off is ever collected. ``security_changed_at``: when it was last switched either way.
+    security_monitoring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                                      server_default=text("false"))
+    security_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    security_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Her mind's progress through this machine's security observations (services/mind_security.py).
+    security_seen_through: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    security_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -929,6 +881,88 @@ class DesktopEnvironment(Base):
         CheckConstraint(
             "capture_scope IN ('desktop', 'game_window')", name="ck_desktop_environments_capture_scope"
         ),
+    )
+
+
+SECURITY_COVERAGE_STATUSES = ("covered", "gap", "reset", "unavailable", "off")
+SECURITY_INVESTIGATION_STATUSES = ("open", "concluded", "closed")
+
+
+class SecurityCoverage(Base):
+    """What the security collector could vouch for, per channel and interval (the VM's clock, UTC):
+    ``covered`` (every record then was read), ``gap`` (overwritten before it was read), ``reset`` (the log was
+    cleared), ``unavailable`` (the channel couldn't be read), ``off`` (monitoring was switched off; channel ``*``,
+    open-ended until switched on). Adjacent intervals of the same status are merged, so rows grow with changes,
+    not with reads. Time no row covers is unverified (the collector was away, or hasn't reported yet)."""
+
+    __tablename__ = "security_coverage"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    stream: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    first_record: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_record: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({', '.join(repr(s) for s in SECURITY_COVERAGE_STATUSES)})",
+                        name="ck_security_coverage_status"),
+        CheckConstraint("end_at IS NULL OR end_at >= start_at", name="ck_security_coverage_order"),
+        Index("ix_security_coverage_env_channel_start", "environment_id", "channel", "start_at"),
+    )
+
+
+class SecurityInvestigation(Base):
+    """One question her mind is looking into about one machine and time window (services/mind_security.py):
+    signals from the source, her periodic look, and coverage gaps that bear on it are grouped here. A change
+    worth another look (new evidence, a gap) bumps ``revision``; ``considered_revision`` is the one her last
+    thought read. Open while she has an unresolved question; ``concluded`` once she has thought it through
+    (reopened by relevant new evidence); ``closed`` when nothing changes for a day."""
+
+    __tablename__ = "security_investigations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("desktop_environments.id", ondelete="CASCADE"), nullable=False)
+    # Where she'd say what she found: the owner's latest conversation when it opened (owned, never guessed later).
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    opened_by: Mapped[str] = mapped_column(String(16), nullable=False)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    considered_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # What brought it here, in order: [{"kind": signal|periodic|gap|evidence, "at", "text", "refs": [obs ids]}].
+    signals: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # Observation ids that started or changed it (the timeline itself is read from observation by window).
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    last_thought_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_thought_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    conclusion_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    conclusion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(f"status IN ({', '.join(repr(s) for s in SECURITY_INVESTIGATION_STATUSES)})",
+                        name="ck_security_investigations_status"),
+        CheckConstraint("window_end >= window_start", name="ck_security_investigations_window"),
+        Index("ix_security_investigations_env_status", "environment_id", "status"),
+        Index("ix_security_investigations_conversation", "conversation_id"),
     )
 
 
@@ -1290,7 +1324,7 @@ class GameSkillAttempt(Base):
     game: Mapped[str] = mapped_column(String(32), nullable=False)
     task: Mapped[str] = mapped_column(Text, nullable=False)
     # "offer": she offered and the user said yes; "user": the user asked for it; "trial": the execution of a
-    # bounded experiment cognition selected (services/learning_trials.py; its trial links back to it).
+    # bounded experiment her mind selected (services/learning_trials.py; its trial links back to it).
     origin: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="queued", server_default="queued")
     # [{"n", "approach", "code", "program": {status, reason, value, calls, log, seconds},
@@ -1452,7 +1486,7 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # it makes it needs_review, never happened.
     "plan": (("planned", "needs_review"), ("happened", "cancelled")),
     # A rule the user gave for an outcome, in their words ("this is your task, don't follow me"): in force until
-    # lifted. Which layer a correction changes is cognition's call; this is where a lasting rule goes.
+    # lifted. Which layer a correction changes is her mind's call; this is where a lasting rule goes.
     "constraint": (("active",), ("lifted",)),
 }
 WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
@@ -2484,7 +2518,7 @@ class MemoryConflict(Base):
     """A message disagreed with a fact without saying it changed or was wrong (services/memory_conflicts.py,
     docs/COLUMBINA_MEMORY_CONFLICTS.md). Memory never decides which holds: the fact is left as it was, this row
     keeps the disagreement visible (recall marks the fact unresolved), and her mind gets it as a problem, so
-    cognition chooses whether to ask, think it over or leave it. ``fact_revision`` is the version that was
+    her mind chooses whether to ask, think it over or leave it. ``fact_revision`` is the version that was
     contradicted; a later revision of the fact settles it as ``fact_changed``."""
 
     __tablename__ = "memory_conflicts"
@@ -2673,16 +2707,18 @@ class AutonomousDelivery(Base):
 
 
 class CoordinatorWork(Base):
-    """Background work for one user request (docs/SHARED_STATE_STEP4_SPEC.md, "Shared-state additions"): a recall
-    or a mind job the coordinator scheduled, kept apart from the disposable per-turn view and projected into
-    it. Leased like ``chat_jobs``. ``completed`` never means its result was said: that's
-    ``coordinator_outputs``. A new user message in the conversation supersedes unfinished work it raises
-    ``cancellation_generation`` on; the worker checks it before accepting a result and before any delivery."""
+    """Durable background work and wake events (services/coordinator.py): thinking her mind started (``mind``,
+    with a ``recall`` it depends on), a thought or proposal another part of her handed over (``mind`` with its
+    result already there), a reconsideration she scheduled (``wake``: due at ``next_attempt_at``), and
+    maintenance (``memory``, ``observation``). Leased like ``chat_jobs``. ``completed`` never means its result
+    was said: that's ``coordinator_outputs``. A new user message in the conversation supersedes unfinished
+    thinking (never a ``wake``): it raises ``cancellation_generation``, which the worker checks before accepting
+    a result and before any delivery."""
 
     __tablename__ = "coordinator_work"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_coordinator_work_idempotency"),
-        CheckConstraint("kind IN ('recall', 'mind', 'memory', 'observation', 'cognition')", name="ck_coordinator_work_kind"),
+        CheckConstraint("kind IN ('recall', 'mind', 'wake', 'memory', 'observation')", name="ck_coordinator_work_kind"),
         CheckConstraint("status IN ('queued', 'waiting_for_memory', 'running', 'completed', 'failed', "
                         "'cancelled', 'expired', 'superseded', 'blocked')", name="ck_coordinator_work_status"),
         Index("ix_coordinator_work_claim", "status", "lease_expires_at"),
@@ -2717,10 +2753,11 @@ class CoordinatorWork(Base):
 
 
 class CoordinatorOutput(Base):
-    """One output decision per phase of a request (immediate reply, result follow-up): what cognition decided
-    (respond / acknowledge / partial / silent / ask / defer), or that it couldn't (``blocked``), and what
-    actually happened. Unique per (request, phase), so a retry or restart never repeats a phase. Silence is
-    a row here, never an empty assistant message."""
+    """One output record per phase of a request: ``immediate`` (what the evaluation that started thinking did
+    meanwhile: respond / silent) and ``follow_up`` (the wake of her mind for a finished item: ``wake`` when
+    dispatched, then what she did, ``said`` / ``silent`` / ``no_words``; or ``superseded`` / ``rejected`` when
+    execution facts kept it from waking her), and what was actually delivered. Unique per (request, phase), so a
+    retry or restart never repeats a phase. Silence is a row here, never an empty assistant message."""
 
     __tablename__ = "coordinator_outputs"
     __table_args__ = (
@@ -2762,12 +2799,14 @@ class CoordinatorOutput(Base):
 # --------------------------------------------------------------------------- #
 
 # The planner and hard thoughts joined in post-audit 1 (docs/learning-system/POST-AUDIT-01-implementation.md).
-CAPTURE_LEARNERS = ("student_1", "student_2", "hands", "planner", "hard_thought")
+# mind: one evaluation of her mind (services/mind_turn.py): what she read, the tools she used, what she said.
+CAPTURE_LEARNERS = ("mind", "hands", "planner", "hard_thought")
 CAPTURE_ATTEMPT_STATUSES = ("ok", "invalid", "unavailable", "error")
 # plan_apply: what application code did with the planner's decision (the plan revision it made, the rules it
-# carried); thought_route: where a hard thought's conclusion went; step_check: code counting a plan step done.
-CAPTURE_EXECUTION_KINDS = ("effect", "reply", "heard", "channel_delivery", "skill_run", "plan_apply", "thought_route",
-                           "step_check")
+# carried); thought_route: where a hard thought's conclusion went; step_check: code counting a plan step done;
+# desktop_action: one action of her hands on her own desktop (services/desktop_control).
+CAPTURE_EXECUTION_KINDS = ("reply", "heard", "channel_delivery", "skill_run", "plan_apply", "thought_route",
+                           "step_check", "desktop_action")
 # pack_dropped: trajectory chunks the game pack let go of before the backend took them (its buffer was full).
 CAPTURE_GAP_REASONS = ("queue_full", "retries_exhausted", "unserializable", "source_gone", "shutdown", "pack_dropped")
 # succeeded: did what was intended; deviated: did something, not exactly that (a reply cut off, a partial
@@ -2999,71 +3038,6 @@ class TrajectoryChunk(Base):
     )
 
 
-# Training examples (learning's derivatives): self-contained, private to their user, independent of the raw
-# capture's retention and of source deletion. ``source_refs`` are opaque ids (no foreign keys, no content):
-# a correction can still find what came from a claim after the claim's source is gone.
-
-TRAINING_REVIEW_STATUSES = ("unreviewed", "needs_review", "accepted", "rejected")
-
-
-class TrainingExample(Base):
-    __tablename__ = "training_examples"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    learner: Mapped[str] = mapped_column(String(24), nullable=False)
-    attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)  # opaque, no FK
-    label_source: Mapped[str] = mapped_column(String(32), nullable=False)
-    origin: Mapped[str] = mapped_column(String(12), nullable=False, default="real", server_default="real")
-    input: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    target: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    versions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
-    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
-    review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unreviewed",
-                                               server_default="unreviewed")
-    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    ineligible_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # the decision's time
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
-                                                 onupdate=func.now(), nullable=False)
-
-    __table_args__ = (
-        CheckConstraint(_in("learner", CAPTURE_LEARNERS), name="ck_training_examples_learner"),
-        CheckConstraint(_in("review_status", TRAINING_REVIEW_STATUSES), name="ck_training_examples_review"),
-        CheckConstraint("origin IN ('real', 'synthetic')", name="ck_training_examples_origin"),
-        UniqueConstraint("attempt_id", "learner", "label_source", name="uq_training_examples_derivation"),
-        Index("ix_training_examples_user", "user_id", "learner", "eligible"),
-    )
-
-
-class TrainingExampleSource(Base):
-    __tablename__ = "training_example_sources"
-
-    example_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("training_examples.id", ondelete="CASCADE"),
-                                                  primary_key=True)
-    ref: Mapped[str] = mapped_column(String(80), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-
-    __table_args__ = (Index("ix_training_example_sources_ref", "user_id", "ref"),)
-
-
-class TrainingExampleDeletion(Base):
-    """An example explicitly deleted from training: ids only, so exports and later derivations exclude it
-    (and the same attempt is never derived again). Doesn't undo influence on models already trained."""
-
-    __tablename__ = "training_example_deletions"
-
-    example_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    learner: Mapped[str] = mapped_column(String(24), nullable=False)
-    label_source: Mapped[str] = mapped_column(String(32), nullable=False)
-    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    __table_args__ = (Index("ix_training_example_deletions_attempt", "attempt_id"),)
-
-
 # --------------------------------------------------------------------------- #
 # Retrospective assessment (docs/learning-system/02-evidence-and-attribution.md; implementation, statuses and
 # settings: docs/learning-system/02-implementation.md). Learning's own derivatives, written only by
@@ -3253,7 +3227,7 @@ class LearningAssessmentUse(Base):
 # Lessons (docs/learning-system/03-immediate-adaptation.md; implementation, statuses and settings:
 # docs/learning-system/03-implementation.md). Memory owns them (services/memory_lessons.py writes every row);
 # learning proposes them from supported assessments (services/learning_lessons.py). A lesson is experience for
-# cognition to weigh, never a command. ``preference``: what the user said they want, within the scope they gave
+# her mind to weigh, never a command. ``preference``: what the user said they want, within the scope they gave
 # (their words kept); ``strategy``: what she inferred tends to work, from evidence for both the conclusion and where
 # it applies. Every change is a revision; a withdrawn lesson stays withdrawn. Evidence and uses are opaque refs.
 # --------------------------------------------------------------------------- #
@@ -3535,7 +3509,7 @@ class LearningLessonJob(Base):
 # (<-> paused) -> observing -> assessing -> assessed. Every selected trial ends assessed.
 TRIAL_STATUSES = ("proposed", "presented", "deferred", "rejected", "expired", "selected", "preparing", "executing",
                   "paused", "observing", "assessing", "assessed")
-TRIAL_PENDING = ("proposed", "presented", "deferred")  # a proposal cognition hasn't taken up
+TRIAL_PENDING = ("proposed", "presented", "deferred")  # a proposal her mind hasn't taken up
 TRIAL_LIVE = ("selected", "preparing", "executing", "paused", "observing", "assessing")  # taken up, not assessed
 TRIAL_CLOSED = ("rejected", "expired", "assessed")
 TRIAL_HYPOTHESIS = ("supported", "contradicted", "unresolved")
@@ -3545,7 +3519,7 @@ TRIAL_TRIGGER_STATES = ("pending", "running", "done", "failed")
 
 class LearningTrial(Base):
     """One bounded experiment in a game, learning's authoritative record of it: the problem it tests, its current
-    proposal revision (the revisions themselves are ``learning_trial_revisions``, never rewritten), cognition's
+    proposal revision (the revisions themselves are ``learning_trial_revisions``, never rewritten), her mind's
     choice, preparation, execution, its costs against its limits, and how it ended. ``hypothesis_item_id`` /
     ``reminder_item_id`` are the working items memory keeps for it (her hypothesis; a deferral's reminder)."""
 
@@ -3567,7 +3541,7 @@ class LearningTrial(Base):
     # A materially different test of the same question, or the trial whose changed approach this one predicts.
     linked_trial_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("learning_trials.id", ondelete="SET NULL"), nullable=True)
-    # Cognition's choice: {decision_id, alternative, revision, reason, other_goal, handling, at}; never changed.
+    # Her mind's choice: {decision_id, alternative, revision, reason, other_goal, handling, at}; never changed.
     selection: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     selected_alternative: Mapped[str | None] = mapped_column(String(8), nullable=True)
     selected_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -3605,7 +3579,7 @@ class LearningTrial(Base):
         CheckConstraint(_in("status", TRIAL_STATUSES), name="ck_learning_trials_status"),
         CheckConstraint("revision >= 1", name="ck_learning_trials_revision"),
         CheckConstraint(f"(closed_at IS NOT NULL) = ({_in('status', TRIAL_CLOSED)})", name="ck_learning_trials_closed"),
-        # Taken up means cognition chose an alternative of a revision.
+        # Taken up means her mind chose an alternative of a revision.
         CheckConstraint(f"NOT ({_in('status', TRIAL_LIVE)} OR status = 'assessed') OR "
                         "(selection IS NOT NULL AND selected_alternative IS NOT NULL AND selected_revision IS NOT NULL)",
                         name="ck_learning_trials_selection"),
@@ -3614,7 +3588,7 @@ class LearningTrial(Base):
                              ondelete="SET NULL (hypothesis_item_id)", name="fk_learning_trials_hypothesis"),
         ForeignKeyConstraint(["reminder_item_id", "user_id"], ["working_items.id", "working_items.user_id"],
                              ondelete="SET NULL (reminder_item_id)", name="fk_learning_trials_reminder"),
-        # One proposal per unresolved problem waiting for cognition: new evidence revises it.
+        # One proposal per unresolved problem waiting for her mind: new evidence revises it.
         Index("uq_learning_trials_pending_problem", "user_id", "problem_key", unique=True,
               postgresql_where=text("status IN ('proposed', 'presented', 'deferred')")),
         # One experiment at a time per session: her body runs one.
@@ -3627,9 +3601,9 @@ class LearningTrial(Base):
 
 
 class LearningTrialRevision(Base):
-    """One proposal revision, whole and checked, as learning made it before cognition saw it: hypothesis,
+    """One proposal revision, whole and checked, as learning made it before her mind saw it: hypothesis,
     alternatives with their predicted observations, uncertainty, prerequisites, observation window, costs, limits
-    and recommendation. Immutable (a trigger refuses updates), and no revision is added once cognition selected one:
+    and recommendation. Immutable (a trigger refuses updates), and no revision is added once her mind selected one:
     expectations are never rewritten after the fact."""
 
     __tablename__ = "learning_trial_revisions"
@@ -3655,7 +3629,7 @@ class LearningTrialRevision(Base):
 
 class LearningTrialEvent(Base):
     """What happened to a trial, in order, append-only (a trigger refuses updates): proposal, presentation,
-    cognition's decision (its capture attempt), deferral and reconsideration, preparation, readiness checks,
+    her mind's decision (its capture attempt), deferral and reconsideration, preparation, readiness checks,
     execution and each attempt, stops and limits, recovery, observations, assessment and what its owners did with
     it."""
 
@@ -3744,7 +3718,7 @@ class LearningTrialTrigger(Base):
     )
 
 
-# Expectations are never rewritten: a revision is immutable and none is added once cognition selected one;
+# Expectations are never rewritten: a revision is immutable and none is added once her mind selected one;
 # the event log only grows.
 # DDL() formats its text, so a literal percent sign is doubled.
 LEARNING_TRIAL_FUNCTIONS_DDL = """

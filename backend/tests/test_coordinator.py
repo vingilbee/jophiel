@@ -1,7 +1,15 @@
-"""Background thinking (docs/SHARED_STATE_STEP4_SPEC.md): a request that needs thinking commits work and the mouth
-replies without waiting; the mind waits for its recall; the result goes through cognition before any follow-up;
-a newer message supersedes it; retries never repeat a phase. Real PostgreSQL (``TEST_DATABASE_URL``). Student 2's
-answers, the thinker and memory search are scripted: no model calls."""
+"""Her mind's wakes, end to end through the real chat worker, coordinator and her mind's tools
+(docs/MIND_ARCHITECTURE.md; acceptance scenarios in docs/COGNITION_TO_MIND_HANDOFF.md). Real PostgreSQL
+(``TEST_DATABASE_URL``). Only the model's run is scripted: each script stands in for one evaluation and uses her real
+tools (``build_mind_tools`` on the evaluation the worker built), so what she chooses is the script's, and everything
+that carries it out, persists it and wakes her again is the real code.
+
+- A message runs one evaluation: no student, appraisal or mood stage; silence is hers and stores nothing.
+- Thinking she starts holds nothing open: it runs, then wakes her with its conclusion, and she decides what to say.
+- A reconsideration she schedules wakes her later without a new message, survives a restart, and isn't superseded
+  by a new message; closing the item it was about drops it.
+- A new message makes unfinished thinking moot; duplicate dispatches and retries never repeat an effect.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -11,377 +19,383 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from app.ai.mind.hard import HardThought
-from app.ai.state.decisions import ResultDecision
+from app.ai.tools.mind import build_mind_tools
 from app.core.config import get_settings
-from app.db.models import ChatJob, ChatMessage, CoordinatorOutput, CoordinatorWork
+from app.db.models import ChatMessage, CoordinatorOutput, CoordinatorWork, DecisionAttempt, WorkingItem
 from app.services import chat as chat_service
-from app.services import cognition_decisions, cognitive_live, coordinator, recall_references, student_two
-from app.services import shared_state, background_components
+from app.services import coordinator, memory_manager, mind_turn, recall_references
 from app.workers import chat as chat_worker
 from db_support import create_conversation, create_user, database, db_env  # noqa: F401
-
-REPLY = ("Let me think ", "about that.")
 
 
 @pytest.fixture
 def env(db_env, monkeypatch, tmp_path):
-    # Keep the production settings contract while scripting the local decision provider.
-    settings = get_settings().model_copy(update=dict(
-        cognition_decision_provider="student",
-        shared_state_log_path=str(tmp_path / "shared.jsonl"),
-        cognitive_live_student="on", cognitive_live_character=False, cognitive_live_student_dir=None,
-        recall_enabled=True, mind_enabled=False, mind_inner_state_enabled=False, memory_manager_enabled=False,
-        cognition_student_log_path=str(tmp_path / "student_two.jsonl"),
-        shared_state_work_deadline_seconds=180, coordinator_queue_name="q", redis_url=None,
-        recall_tool_calls_per_reply=3))
-    for module in (shared_state, coordinator, student_two, background_components):
-        monkeypatch.setattr(module, "get_settings", lambda: settings)
-    for module in (shared_state, coordinator, chat_worker, background_components):
-        monkeypatch.setattr(module, "SessionLocal", db_env.db)
-    shared_state._personality.cache_clear()
-    empty = SimpleNamespace(result=SimpleNamespace(status="not_searched", records=[], coverage={}, refs=lambda: []),
-                            now=None, rendered="Memories from your last answer: none.", legacy=None, tool_calls=0,
-                            supplied={})
-    monkeypatch.setattr(recall_references, "cached_for_reply", lambda *a, **k: empty)
-    # The reply's initial memory check is covered in test_initial_recall.py: here it found nothing, so the search
-    # counted below is only the background work's own.
-    from app.ai.state.contracts import MemoryContextView, Projection
-    initial = recall_references.TurnRecall(None, None, "UTC", datetime.now(timezone.utc), None, SimpleNamespace(
-        status="no_match", records=[], coverage={}, refs=lambda: []), "Memory search ran and found nothing.", None)
-    monkeypatch.setattr(shared_state, "_memory", lambda *a, **k: (MemoryContextView(
-        Projection("memory", "available"), recall_status="no_match", rendered=initial.rendered), initial))
-    searched = SimpleNamespace(result=SimpleNamespace(status="no_match", records=[], coverage={}, refs=lambda: []),
-                               rendered="Memory search ran and found nothing that matches.", tool_calls=0, supplied={})
-    calls = {"search": 0, "think": [], "student": ("not_required", "required"), "communication": "respond",
-             "result": "silent", "situations": []}
+    settings = get_settings()
+    for key, value in {"redis_url": None, "mind_turn_log_path": str(tmp_path / "turns.jsonl"),
+                       "mind_work_deadline_seconds": 180, "lessons_supply_enabled": False,
+                       "desktop_agent_enabled": False}.items():
+        monkeypatch.setattr(settings, key, value)
 
-    def search(*a, **k):
-        calls["search"] += 1
-        return searched
+    def no_match(user_id, conversation_id, user_message_id, query, zone, **_):
+        from app.ai.recall.contracts import RecallResult
+        return recall_references.TurnRecall(user_id, conversation_id, "UTC", datetime.now(timezone.utc), None,
+                                            RecallResult("no_match"), "Memory search ran and found nothing.", None,
+                                            user_message_id=user_message_id)
 
-    monkeypatch.setattr(recall_references, "for_reply", search)
+    monkeypatch.setattr(recall_references, "for_reply", no_match)
     monkeypatch.setattr(recall_references, "save_receipt", lambda *a, **k: None)
-    monkeypatch.setattr(cognitive_live, "after_reply", lambda *a, **k: None)
-    monkeypatch.setattr(cognitive_live, "prepare", lambda **k: cognitive_live.LivePrep(interpretation=dict(
-        acts={"asking": 0.9}, tone={"friendly": 0.9}, request={"talk_only": 0.9},
-        understand={"acts": {"asking": True}, "tone": "friendly", "request": "talk_only"})))
-    # Student 2, scripted: the real gather (test database), snapshot, check, routing and effects; only the
-    # model's answer is given, from what the test says is needed.
-    monkeypatch.setattr(student_two, "manifest", lambda: {"name": "test-student", "system": "sys", "rendering": None})
-    real_decide = student_two.decide
-
-    def answer(model, text):
-        calls["situations"].append(text)
-        if text.startswith("TRIGGER: thought result") or text.startswith("TRIGGER: work outcome"):
-            if calls["result"] is None:
-                return "not json"
-            d = dict(intention="tell them what I concluded", work="no_change", communication=calls["result"])
-            if calls["result"] != "silent":
-                d.update(what_to_communicate="stay a year, then decide", move="react_briefly",
-                         about=["T1"] if "[T1]" in text else ["W1"],
-                         dials={"length": "a_little", "warmth": "somewhat", "playfulness": "none",
-                                "directness": "somewhat"})
-            return json.dumps(d)
-        work = {("not_required", "required"): "request_thinking", ("required", "required"): "recall_then_thinking",
-                ("required", "not_required"): "request_recall"}.get(calls["student"], "no_change")
-        d = dict(intention="answer them", work=work, communication=calls["communication"])
-        if calls["communication"] != "silent":
-            d.update(what_to_communicate="let me think", move="react_briefly",
-                     dials={"length": "a_little", "warmth": "somewhat", "playfulness": "none", "directness": "somewhat"})
-        if work != "no_change":
-            d["target"] = "M"
-        if "thinking" in work:
-            d.update(think_about="the Berlin job", think_form="whether")
-        return json.dumps(d)
-
-    monkeypatch.setattr(student_two, "decide", lambda live, **k: real_decide(live, **k, ask=answer))
+    thoughts = []
 
     def think(inp):
-        calls["think"].append(inp)
+        thoughts.append(inp)
         return HardThought("decision", "Stay in Berlin for a year, then decide.", thinking="private reasoning")
 
     monkeypatch.setattr(coordinator, "_think", think)
-    # Production cognition: Student 2 (scripted above) decides finished thoughts. Some tests swap in stubs.
-    monkeypatch.setattr(cognition_decisions, "PROVIDERS", dict(cognition_decisions.PROVIDERS))
-    published, announced, inputs = [], [], []
+    scripts, seen, published, announced = [], [], [], []
 
-    async def fake_stream_chat(*, messages, context, **_):
-        inputs.append((messages, context))
-        for token in REPLY:
+    async def stream(*, messages, context, **_):
+        """One evaluation: the next script decides, with her real tools; its return value is what she writes."""
+        seen.append(SimpleNamespace(messages=messages, context=context))
+        tools = {t.name: t for t in build_mind_tools(context.mind)}
+
+        async def use(name, **args):
+            result = await tools[name].ainvoke(args)
+            context.mind.actions.append({"tool": name, "status": "success", "result": str(result)[:300]})
+            return result
+
+        words = await scripts.pop(0)(use, context)
+        for token in ([words] if words else []):
             yield {"type": "token", "content": token}
 
     async def no_token(db, *, user_id):
         return None
 
-    monkeypatch.setattr(chat_worker, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(chat_worker, "stream_chat", stream)
     monkeypatch.setattr(chat_worker, "publish", lambda turn_id, event: published.append(event))
     monkeypatch.setattr(chat_worker, "_cancelled", lambda turn_id: False)
     monkeypatch.setattr(chat_worker, "_announce", lambda job, reply, mid: announced.append((job.turn_id, reply)) or True)
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", lambda *a, **k: None)
+    monkeypatch.setattr(coordinator, "_wake", lambda: None)
     with db_env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)
-    return SimpleNamespace(db=db_env.db, user=user, conversation=conversation, calls=calls, published=published,
-                           announced=announced, inputs=inputs, log=tmp_path / "shared.jsonl")
+    return SimpleNamespace(db=db_env.db, user=user, conversation=conversation, scripts=scripts, seen=seen,
+                           published=published, announced=announced, thoughts=thoughts,
+                           trace=tmp_path / "turns.jsonl")
 
 
-def _say(env, content="Should I take the Berlin job? Think it over."):
-    """A user message and its chat job, run through the real chat worker."""
+def says(text):
+    async def script(use, context):
+        return text
+    return script
+
+
+def message(env, text) -> uuid.UUID:
+    """A user message and its chat job, as the socket enqueues them. Returns the turn id."""
+    turn = uuid.uuid4()
     with env.db() as db:
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
-        turn_id = uuid.uuid4()
-        message = chat_service.add_message(db, conversation=conversation, role="user", content=content,
-                                           turn_id=turn_id)
-        chat_service.enqueue_job(db, user_id=env.user.id, conversation=conversation, turn_id=turn_id,
-                                 user_message_id=message.id, payload={"content": content}, commit=False)
-        db.commit()
-    _run_chat(env)
-    return turn_id, message.id
+        msg = chat_service.add_message(db, conversation=conversation, role="user", content=text, turn_id=turn)
+        chat_service.enqueue_job(db, user_id=env.user.id, conversation=conversation, turn_id=turn,
+                                 user_message_id=msg.id, payload={"content": text, "channel": "web"})
+    return turn
 
 
-def _run_chat(env) -> bool:
+def run_job(env) -> bool:
     with env.db() as db:
         job = chat_service.claim_next_job(db, lease_seconds=60)
+        if job is not None:
+            db.expunge(job)
     if job is None:
         return False
     asyncio.run(chat_worker._generate(job))
     return True
 
 
+def drain(env, limit=10):
+    for _ in range(limit):
+        if not coordinator.execute_once():
+            return
+
+
+def messages(env):
+    with env.db() as db:
+        return [(m.role, m.content) for m in db.scalars(select(ChatMessage).where(
+            ChatMessage.conversation_id == env.conversation.id).order_by(ChatMessage.conversation_sequence))]
+
+
+def outputs(env, phase="follow_up"):
+    with env.db() as db:
+        return list(db.scalars(select(CoordinatorOutput).where(CoordinatorOutput.user_id == env.user.id,
+                                                               CoordinatorOutput.phase == phase)))
+
+
+# --------------------------------------------------------------------------- #
+# One evaluation per message
+# --------------------------------------------------------------------------- #
+
+
+def test_a_message_is_one_evaluation_of_her_mind_with_no_other_stage(env):
+    message(env, "how was your day?")
+    env.scripts.append(says("Quiet, mostly. Yours?"))
+    assert run_job(env)
+    assert messages(env) == [("user", "how was your day?"), ("assistant", "Quiet, mostly. Yours?")]
+    ctx = env.seen[0].context
+    # What she read: her personality, her mind's section, memory's check; no reading, notes or decision brief.
+    assert ctx.mind is not None and ctx.personality and ctx.wake is None
+    assert "Memory search ran and found nothing" in (ctx.recall or "")
+    assert not hasattr(ctx, "cognitive_reading") and not hasattr(ctx, "decision")
+    route = next(e for e in env.published if e.get("type") == "route")
+    assert (route["route"], route["recall"]) == ("mind", "no_match")
+    [line] = [json.loads(x) for x in env.trace.read_text().splitlines() if '"component": "mind"' in x]
+    assert (line["reason"], line["did"]["spoke"], line["memory"]["status"]) == ("user_message", True, "no_match")
+
+
+def test_silence_is_her_choice_and_stores_nothing(env):
+    turn = message(env, "ok")
+
+    async def quiet(use, context):
+        assert await use("stay_silent", reason="nothing to add") == "Silent."
+        return ""
+
+    env.scripts.append(quiet)
+    run_job(env)
+    assert messages(env) == [("user", "ok")]
+    assert env.published[-1] == {"type": "done", "turn_id": str(turn), "message_id": str(uuid.uuid5(turn, "assistant")),
+                                 "status": "silent"}
+    with env.db() as db:
+        assert db.scalar(select(func.count()).select_from(chat_service.ChatJob).where(
+            chat_service.ChatJob.status == "completed")) == 1
+
+
+def test_a_failed_memory_search_is_said_as_failed_never_as_nothing_found(env, monkeypatch):
+    from app.ai.recall.contracts import RecallResult
+
+    def failed(user_id, conversation_id, user_message_id, query, zone, **_):
+        return recall_references.TurnRecall(user_id, conversation_id, "UTC", datetime.now(timezone.utc), None,
+                                            RecallResult.failed("search_failed"), "", None)
+
+    monkeypatch.setattr(recall_references, "for_reply", failed)
+    monkeypatch.setattr(recall_references, "cached_for_reply", failed)
+    message(env, "what did I tell you about Nora?")
+    env.scripts.append(says("I can't check my memory right now."))
+    run_job(env)
+    ctx = env.seen[0].context
+    assert "search FAILED" in ctx.turn_boundary and "nothing that matches" not in ctx.turn_boundary
+    assert next(e for e in env.published if e.get("type") == "route")["degraded"] == ["recall_unavailable"]
+
+
+# --------------------------------------------------------------------------- #
+# Thinking she starts
+# --------------------------------------------------------------------------- #
+
+
+def test_thinking_she_starts_wakes_her_with_its_conclusion_and_she_decides_what_to_say(env):
+    message(env, "should I take the Berlin job?")
+
+    async def start(use, context):
+        result = await use("think_it_over", about="whether the Berlin job suits them", look_up_memory_first=True)
+        assert result.startswith("Started [work:")
+        return "Let me think that through properly."
+
+    env.scripts.append(start)
+    run_job(env)
+    assert messages(env)[-1] == ("assistant", "Let me think that through properly.")
+    with env.db() as db:
+        kinds = sorted(w.kind for w in db.scalars(select(CoordinatorWork)))
+    assert kinds == ["mind", "recall"]  # the lookup first, then the thinking: nothing held open meanwhile
+    [immediate] = outputs(env, "immediate")
+    assert (immediate.decision, immediate.status) == ("respond", "delivered")
+
+    drain(env)  # recall, then the thinker, then the wake is dispatched
+    assert "whether the Berlin job suits them" in env.thoughts[0].problem.text
+    assert env.thoughts[0].character and env.thoughts[0].character[0].startswith("Jophiel")  # her personality
+    [wake] = outputs(env)
+    assert (wake.decision, wake.status) == ("wake", "dispatched")
+
+    async def say_it(use, context):
+        assert "The thinking you started has ended" in context.wake
+        assert "Stay in Berlin for a year, then decide." in context.wake and "private reasoning" not in context.wake
+        return "Having thought about it: stay a year, then decide."
+
+    env.scripts.append(say_it)
+    assert run_job(env)
+    assert env.seen[-1].messages[-1]["content"].startswith("[INTERNAL TRIGGER")
+    assert messages(env)[-1] == ("assistant", "Having thought about it: stay a year, then decide.")
+    [wake] = outputs(env)
+    assert (wake.decision, wake.status) == ("said", "delivered") and env.announced
+    # Dispatching again (a retry, a second worker) wakes her no second time.
+    drain(env)
+    coordinator._conclude(wake.work_id)
+    assert len(outputs(env)) == 1 and not run_job(env)
+
+
+def test_woken_with_a_conclusion_she_may_keep_it_to_herself(env):
+    message(env, "should I take the Berlin job?")
+
+    async def start(use, context):
+        await use("think_it_over", about="the Berlin job")
+        return ""  # acts without speaking
+
+    env.scripts.append(start)
+    run_job(env)
+    assert messages(env) == [("user", "should I take the Berlin job?")]
+    drain(env)
+
+    async def keep(use, context):
+        await use("stay_silent", reason="not worth interrupting with")
+        return ""
+
+    env.scripts.append(keep)
+    run_job(env)
+    assert messages(env) == [("user", "should I take the Berlin job?")]
+    [wake] = outputs(env)
+    assert (wake.decision, wake.status) == ("silent", "not_sent") and env.announced == []
+
+
+def test_a_new_message_makes_unfinished_thinking_moot_and_nothing_stale_is_said(env):
+    message(env, "should I take the Berlin job?")
+
+    async def start(use, context):
+        await use("think_it_over", about="the Berlin job")
+        return "Thinking."
+
+    env.scripts.append(start)
+    run_job(env)
+    message(env, "actually, never mind, what's for dinner?")
+    env.scripts.append(says("Pasta?"))
+    run_job(env)
+    with env.db() as db:
+        assert {w.status for w in db.scalars(select(CoordinatorWork))} == {"superseded"}
+    drain(env)
+    assert not run_job(env) and env.thoughts == [] and messages(env)[-1] == ("assistant", "Pasta?")
+
+
+# --------------------------------------------------------------------------- #
+# Coming back later, without a message
+# --------------------------------------------------------------------------- #
+
+
+def _due(env):
+    with env.db() as db:
+        db.execute(update(CoordinatorWork).where(CoordinatorWork.kind == "wake").values(
+            next_attempt_at=datetime.now(timezone.utc) - timedelta(seconds=1)))
+        db.commit()
+
+
+def test_she_schedules_coming_back_and_is_woken_later_without_a_message(env):
+    message(env, "my interview is on Friday")
+
+    async def note(use, context):
+        result = await use("come_back_to", what="ask how the interview went", in_minutes=60 * 24 * 3)
+        assert result.startswith("Scheduled [wake:")
+        return "Good luck on Friday!"
+
+    env.scripts.append(note)
+    run_job(env)
+    drain(env)
+    assert outputs(env) == []  # not due: nothing runs, the model isn't called
+    # A worker restart: nothing lives in process memory; the row is the record.
+    from app.services import coordinator_runtime
+    coordinator_runtime._instance = None
+    # A new message meanwhile doesn't make it moot (it's not thinking about that message).
+    message(env, "thanks!")
+    env.scripts.append(says("Anytime."))
+    run_job(env)
+    with env.db() as db:
+        [wake] = list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.kind == "wake")))
+    assert wake.status == "queued"
+    _due(env)
+    drain(env)
+
+    async def check_in(use, context):
+        assert context.wake.startswith("You chose to come back to this") and "ask how the interview went" in context.wake
+        from app.ai.prompts import build_system_prompt
+        assert "Nobody just wrote to you. You chose to come back to this" in build_system_prompt(context)
+        return "How did the interview go?"
+
+    env.scripts.append(check_in)
+    assert run_job(env)
+    assert messages(env)[-1] == ("assistant", "How did the interview go?")
+    with env.db() as db:
+        attempts = list(db.scalars(select(DecisionAttempt)))
+    assert attempts == []  # capture is off in tests; the wake ran as one evaluation (traced below)
+    reasons = [json.loads(x)["reason"] for x in env.trace.read_text().splitlines() if '"component": "mind"' in x]
+    assert reasons == ["user_message", "user_message", "due"]
+
+
+def test_a_reconsideration_about_an_item_goes_when_the_item_closes_and_moves_when_rescheduled(env):
+    message(env, "remind me to call my mum")
+
+    async def promise(use, context):
+        from app.ai.tools.memory import build_memory_tools
+        memory = {t.name: t for t in build_memory_tools(context.user_id, message_id=context.source_message_id)}
+        kept = await memory["note_commitment"].ainvoke({"what": "remind them to call their mum"})
+        ref = kept.split("[")[1].split("]")[0]
+        await use("come_back_to", what="remind them about their mum", in_minutes=120, item=ref)
+        moved = await use("come_back_to", what="remind them about their mum", in_minutes=180, item=ref)
+        assert "replaces the time you had set" in moved
+        closed = await memory["update_item"].ainvoke({"item": ref, "status": "fulfilled",
+                                                      "reason": "they called her already"})
+        assert "dropped" in closed
+        return "Noted."
+
+    env.scripts.append(promise)
+    run_job(env)
+    with env.db() as db:
+        statuses = sorted((w.status, w.error_code) for w in db.scalars(select(CoordinatorWork)))
+        item = db.scalar(select(WorkingItem).where(WorkingItem.kind == "commitment"))
+    assert statuses == [("cancelled", "item_closed"), ("cancelled", "rescheduled")]
+    assert item.status == "fulfilled"
+
+
+def test_a_promise_she_keeps_on_her_own_can_be_closed_in_that_wake(env):
+    with env.db() as db:
+        entry = memory_manager.note_commitment(db, env.user.id, "send them the recipe")
+        db.commit()
+        ref = memory_manager.ref(entry)
+        coordinator.schedule_wake(db, user_id=env.user.id, conversation_id=env.conversation.id,
+                                  about="send the recipe", due_at=datetime.now(timezone.utc), item_id=entry.id)
+        db.commit()
+    drain(env)
+
+    async def keep(use, context):
+        from app.ai.tools.memory import build_memory_tools
+        memory = {t.name: t for t in build_memory_tools(context.user_id, wake=True)}
+        result = await memory["update_item"].ainvoke({"item": ref, "status": "fulfilled", "reason": "sent it now"})
+        assert result.startswith("Done:")
+        return "Here's that recipe: ..."
+
+    env.scripts.append(keep)
+    run_job(env)
+    with env.db() as db:
+        assert db.get(WorkingItem, entry.id).status == "fulfilled"
+
+
+# --------------------------------------------------------------------------- #
+# Helpers other test files use (tests/test_background_coordination.py)
+# --------------------------------------------------------------------------- #
+
+
+def _say(env, content="Should I take the Berlin job? Think it over."):
+    """A user message run through the real chat worker, in which she starts thinking it over (her own tool)."""
+    turn = message(env, content)
+
+    async def start(use, context):
+        await use("think_it_over", about=content)
+        return "Let me think about that."
+
+    env.scripts.append(start)
+    run_job(env)
+    with env.db() as db:
+        msg = db.scalar(select(ChatMessage).where(ChatMessage.turn_id == turn, ChatMessage.role == "user"))
+    return turn, msg.id
+
+
 def _work(env, request_id):
     with env.db() as db:
         return {w.kind: w for w in db.scalars(select(CoordinatorWork).where(CoordinatorWork.request_id == request_id))}
-
-
-def _outputs(env, request_id):
-    with env.db() as db:
-        return {o.phase: o for o in db.scalars(select(CoordinatorOutput).where(CoordinatorOutput.request_id == request_id))}
-
-
-def _assistant(env, turn_id):
-    with env.db() as db:
-        return db.scalar(select(ChatMessage).where(ChatMessage.turn_id == turn_id, ChatMessage.role == "assistant"))
-
-
-def _respond(inp):
-    return ResultDecision("respond", "stub", True)
-
-
-# --- immediate phase ------------------------------------------------------------------------------------
-
-
-def test_thinking_commits_work_and_the_mouth_replies_without_waiting(env):
-    turn, message = _say(env)
-    work = _work(env, turn)
-    assert set(work) == {"mind"} and work["mind"].status == "queued" and env.calls["think"] == []
-    assert _assistant(env, turn).content == "".join(REPLY)  # replied before the mind ran at all
-    _, context = env.inputs[-1]
-    assert "working this out in the background (thinking it through: queued, not started yet)" in context.turn_boundary
-    immediate = _outputs(env, turn)["immediate"]
-    # Student 2 decided the reply and the thinking together: recorded as its decision, no gap.
-    assert (immediate.decision, immediate.decision_origin, immediate.status) == ("respond", "student_2", "delivered")
-    assert immediate.missing_capability is None
-    assert env.calls["think"] == [] and work["mind"].input["think_about"] == "the Berlin job"
-    route = next(e for e in env.published if e.get("type") == "route")
-    assert route["route"] == "mind" and route["degraded"] == []
-
-
-def test_cognition_choosing_silence_sends_nothing_and_keeps_the_work(env, monkeypatch):
-    env.calls["communication"] = "silent"
-    turn, _ = _say(env)
-    assert _assistant(env, turn) is None and env.inputs == []  # the mouth never ran
-    assert _outputs(env, turn)["immediate"].status == "not_sent"
-    assert _work(env, turn)["mind"].status == "queued"
-    assert env.published[-1] == {"type": "done", "turn_id": str(turn), "status": "silent"}
-
-
-# --- the mind and result cognition ----------------------------------------------------------------------
-
-
-def test_student_two_reads_the_finished_thought_and_its_silence_keeps_it_private(env):
-    turn, _ = _say(env)
-    assert coordinator.execute_once()
-    work = _work(env, turn)["mind"]
-    assert work.status == "completed" and work.result["conclusion"].startswith("Stay in Berlin")
-    situation = env.calls["situations"][-1]
-    assert situation.startswith("TRIGGER: thought result") and "NEW MESSAGE: none." in situation
-    assert "[T1] HER PRIVATE THOUGHT (conclusion, just finished; not said to anyone): Stay in Berlin" in situation
-    assert "[W1] thinking — the Berlin job (for [T1]): completed" in situation
-    assert "private reasoning" not in situation  # her private thinking isn't part of the situation
-    follow = _outputs(env, turn)["follow_up"]
-    assert (follow.decision, follow.decision_origin, follow.status) == ("silent", "student_2", "not_sent")
-    with env.db() as db:  # nothing queued to speak, and nothing went through agent_say
-        assert db.scalar(select(ChatJob).where(ChatJob.turn_id == coordinator.follow_up_turn(turn))) is None
-    assert env.announced == []
-
-
-def test_student_two_choosing_to_say_it_reaches_the_follow_up_mouth_as_its_decision(env):
-    env.calls["result"] = "respond"
-    turn, _ = _say(env)
-    assert coordinator.execute_once()
-    follow = _outputs(env, turn)["follow_up"]
-    assert (follow.decision, follow.decision_origin, follow.status) == ("respond", "student_2", "dispatched")
-    assert _run_chat(env)
-    _, context = env.inputs[-1]
-    assert "Stay in Berlin" in context.thought_result
-    assert "- What to get across: stay a year, then decide" in context.decision
-    assert _outputs(env, turn)["follow_up"].status == "delivered"
-
-
-def test_a_finished_thought_student_two_cannot_judge_stays_private_and_says_why(env):
-    env.calls["result"] = None  # an unreadable answer
-    turn, _ = _say(env)
-    assert coordinator.execute_once()
-    follow = _outputs(env, turn)["follow_up"]
-    assert (follow.decision, follow.status) == ("blocked", "not_sent")
-    assert follow.missing_capability.startswith("Student 2 invalid: not_json")
-    assert env.announced == []
-
-
-def test_work_that_ends_without_a_conclusion_goes_to_student_two_as_a_work_outcome(env):
-    env.calls["result"] = "respond"
-    turn, _ = _say(env)
-    with env.db() as db:
-        work = db.get(CoordinatorWork, _work(env, turn)["mind"].id)
-        work.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        db.commit()
-    assert coordinator.execute_once()
-    assert _work(env, turn)["mind"].status == "expired"
-    situation = env.calls["situations"][-1]
-    assert situation.startswith("TRIGGER: work outcome") and "HER PRIVATE THOUGHT: none." in situation
-    assert "didn't reach a conclusion (deadline)" in situation
-    assert _outputs(env, turn)["follow_up"].decision == "respond"
-
-
-def test_a_thought_cognition_says_to_respond_is_followed_up_once_through_the_mouth(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    turn, _ = _say(env)
-    assert coordinator.execute_once()
-    coordinator._conclude(_work(env, turn)["mind"].id)  # a retried conclusion dispatches nothing new
-    with env.db() as db:
-        jobs = list(db.scalars(select(ChatJob).where(ChatJob.turn_id == coordinator.follow_up_turn(turn))))
-    assert len(jobs) == 1 and jobs[0].payload["phase"] == "follow_up"
-    assert _run_chat(env)
-    follow_turn = coordinator.follow_up_turn(turn)
-    assert _assistant(env, follow_turn).content == "".join(REPLY)
-    messages, context = env.inputs[-1]
-    assert messages[-1]["content"].startswith("[INTERNAL TRIGGER") and "Stay in Berlin" in context.thought_result
-    assert "private reasoning" not in context.thought_result  # her private thinking never reaches the mouth
-    with env.db() as db:  # the trigger is never stored as a user message
-        assert not db.scalar(select(ChatMessage).where(ChatMessage.content.like("[INTERNAL TRIGGER%")))
-    assert _outputs(env, turn)["follow_up"].status == "delivered" and env.announced == [(follow_turn, "".join(REPLY))]
-
-
-def test_recall_then_thinking_waits_for_memory_and_says_what_it_found(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    env.calls["student"] = ("required", "required")
-    turn, _ = _say(env)
-    work = _work(env, turn)
-    assert set(work) == {"recall", "mind"} and env.calls["search"] == 0  # the mouth didn't wait for the search
-    assert work["mind"].dependency_ids == [str(work["recall"].id)]
-    # The mind can't start first: the first claim is the recall, and the mind waits for it.
-    with env.db() as db:
-        claimed, _ = coordinator._claim(db, "t")
-        kind = claimed.kind
-        db.rollback()
-    assert kind == "recall"
-    assert coordinator.execute_once() and coordinator.execute_once()
-    work = _work(env, turn)
-    assert work["recall"].status == "completed" and work["recall"].result["status"] == "no_match"
-    assert "found nothing" in env.calls["think"][0].memories
-    assert work["mind"].result["evidence_status"] == "no_match"
-    assert _run_chat(env)
-    _, context = env.inputs[-1]
-    assert "not proof it didn't happen" in context.thought_result
-
-
-# --- interruption, staleness, deadlines, restarts --------------------------------------------------------
-
-
-def test_a_new_message_supersedes_the_thought_and_it_never_answers_the_new_one(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    first, _ = _say(env)
-    env.calls["student"] = ("not_required", "not_required")
-    _say(env, "actually never mind, how's your day?")
-    assert _work(env, first)["mind"].status == "superseded"
-    assert not coordinator.execute_once()  # nothing left to run
-    coordinator._conclude(_work(env, first)["mind"].id)
-    assert _outputs(env, first)["follow_up"].decision == "superseded"
-    with env.db() as db:
-        assert db.scalar(select(ChatJob).where(ChatJob.turn_id == coordinator.follow_up_turn(first))) is None
-
-
-def test_a_result_arriving_after_supersession_cannot_populate_authoritative_result(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    turn, message = _say(env)
-
-    def think_then_interrupted(inp):
-        # While the mind runs, a new message arrives and supersedes it.
-        coordinator.supersede_older(env.user.id, env.conversation.id, uuid.uuid4())
-        return HardThought("decision", "Too late.", thinking="x")
-
-    monkeypatch.setattr(coordinator, "_think", think_then_interrupted)
-    assert coordinator.execute_once()
-    work = _work(env, turn)["mind"]
-    assert work.status == "superseded" and work.result is None  # a stale executor cannot populate the authoritative result
-    assert _outputs(env, turn)["follow_up"].decision == "superseded"
-
-
-def test_a_follow_up_is_rechecked_at_dispatch_and_dropped_after_new_input(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    turn, _ = _say(env)
-    assert coordinator.execute_once()  # follow-up queued
-    with env.db() as db:  # the user speaks before the follow-up job runs (no chat job: just the message)
-        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
-        chat_service.add_message(db, conversation=conversation, role="user", content="wait", turn_id=uuid.uuid4())
-    assert _run_chat(env)
-    assert _assistant(env, coordinator.follow_up_turn(turn)) is None
-    assert _outputs(env, turn)["follow_up"].status == "cancelled"
-
-
-def test_expired_work_ends_and_still_reaches_cognition(env, monkeypatch):
-    seen = []
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result",
-                        lambda inp: seen.append(inp) or ResultDecision("respond", "stub", True))
-    turn, _ = _say(env)
-    with env.db() as db:
-        work = db.get(CoordinatorWork, _work(env, turn)["mind"].id)
-        work.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        db.commit()
-    assert coordinator.execute_once()
-    assert _work(env, turn)["mind"].status == "expired" and env.calls["think"] == []
-    assert seen[0].result.failed == "deadline"
-    assert _run_chat(env)
-    _, context = env.inputs[-1]
-    assert "didn't reach a conclusion" in context.thought_result
-
-
-def test_restart_reclaims_a_lost_lease_and_scheduling_twice_adds_nothing(env):
-    turn, message = _say(env)
-    mind = _work(env, turn)["mind"]
-    again = coordinator.schedule(user_id=env.user.id, conversation_id=env.conversation.id, request_id=turn,
-                                 trigger_message_id=message, with_recall=False, work_input={}, input_versions={})
-    assert [p.work_id for p in again] == [str(mind.id)]
-    with env.db() as db:  # a worker died mid-run: its lease ran out
-        row = db.get(CoordinatorWork, mind.id)
-        row.status, row.lease_owner = "running", "dead"
-        row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        db.commit()
-    assert coordinator.execute_once()
-    mind = _work(env, turn)["mind"]
-    assert mind.status == "completed" and mind.attempt == 1
-
-
-def test_lifecycle_trace_holds_ids_and_statuses_not_text(env, monkeypatch):
-    monkeypatch.setitem(cognition_decisions.PROVIDERS, "result", _respond)
-    turn, _ = _say(env)
-    coordinator.execute_once()
-    lines = [json.loads(x) for x in env.log.read_text().splitlines()]
-    ops = [x.get("op") for x in lines if x.get("component") == "coordinator"]
-    assert ops[:3] == ["scheduled", "output", "finished"] and "follow_up_dispatched" in ops
-    raw = env.log.read_text()
-    assert "Berlin" not in raw and "private reasoning" not in raw

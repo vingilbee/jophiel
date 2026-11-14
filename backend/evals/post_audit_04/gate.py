@@ -9,8 +9,7 @@ Two separate answers, never one flag:
   corpus (a reserved set whose variant hash is not retired), every run from that corpus with that hash, no
   duplicate or unknown run identities, behavioral coverage of every required consumer (shown by a passing probe
   requirement of that consumer, not by its absence from failures), and a passing integrity-suite artifact for the
-  same code. Each missing condition is a reason; the gate fails closed. Nothing here is hardcoded false: Student 1
-  passes the coverage condition the day a run actually probes it and passes.
+  same code. Each missing condition is a reason; the gate fails closed. Nothing here is hardcoded false.
 
 A count is a release gate under particular conditions, not proof that she learns well in general
 (docs/learning-system/REVIEW-2026-11-05-behavioral-test-readiness.md).
@@ -23,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 FAMILIES = ("U", "C", "X", "R", "P", "E", "G", "T")
-CONSUMERS = ("student_1", "student_2", "mind", "planner", "hands")
+CONSUMERS = ("conversation", "mind", "planner", "hands")
 VARIANTS_PER_FAMILY = 3
 RUNS = (1, 2)
 HERE = Path(__file__).resolve().parent

@@ -22,7 +22,7 @@ proposes checked changes and this module applies them by its own rules.
 - **Uses.** ``record_uses``: which revision each decision had, whether it reached the consumer and why not (cut by the
   budget, a consumer whose input has no lessons, supply switched off), and what the consumer said about it.
   ``explain`` names which of the three cases a lesson not followed is: never reached, reached but not accounted for
-  (overlooked or misunderstood: cognition), or reached and reasonably set aside (judgment, not a learning failure).
+  (overlooked or misunderstood: her decision), or reached and reasonably set aside (judgment, not a learning failure).
 - **Forgetting.** ``drop_for``: lessons whose evidence came from forgotten messages go, with their revisions and uses,
   and so do the raw decision captures that showed them (their ``lesson:<id>`` source).
 
@@ -55,7 +55,7 @@ log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 SHOWN_MAX = 40  # lessons the construction call sees (most recently changed first)
 WITHDRAWN_SHOWN = 10
-CONSUMERS = ("student_1", "student_2", "hands", "planner", "mind")
+CONSUMERS = ("hands", "planner", "mind")
 _log_lock = threading.Lock()
 
 
@@ -1014,7 +1014,7 @@ def offered(user_id: uuid.UUID, query: str) -> Supply:
 # --------------------------------------------------------------------------- #
 
 
-# Which part a lesson consumer is, for the System page's signals (Student 2's supply is signalled where it's read).
+# Which part a lesson consumer is, for the System page's signals.
 _SIGNAL_TO = {"hands": "hands", "planner": "mind", "mind": "mind"}
 
 
@@ -1057,9 +1057,9 @@ def record_uses(user_id: uuid.UUID, attempt_id: uuid.UUID | str, supply: Supply,
 
 EXPLAIN = {
     "not_received": "never reached it: {reason}. Look at memory, retrieval or delivery to the decision, not at "
-                    "cognition.",
+                    "the decision itself.",
     "no_account": "it reached the decision, which says nothing about how it weighed it (overlooked or misunderstood): "
-                  "look at cognition, including the model.",
+                  "look at the deciding part (her mind, planner or hands), including its model.",
     "no_decision": "it reached the decision step, which produced no valid decision ({status}).",
     "applied": "it reached the decision, which says it applied it: {why} (its own account, not proof of influence).",
     "unclear": "it reached the decision, which couldn't tell whether it applied: {why}",

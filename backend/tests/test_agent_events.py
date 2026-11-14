@@ -117,48 +117,25 @@ def test_with_her_mind_on_commentary_wakeups_are_left_to_it_but_control_still_wa
     assert agent_events.reasons_of(_jobs(db)[-1]) == ["stuck: no skill for: crossing water"]
 
 
-# --- when she may speak ---------------------------------------------------------------
+# --- the user's commentary setting (pace is hers to judge) -------------------------------------------
 
 
-@pytest.mark.parametrize(("reasons", "mode", "since", "ok"), [
-    (["needs_human"], "quiet", 1, True),           # always
-    (["goal_done"], "quiet", None, False),
-    (["paused:not_foreground"], "quiet", None, True),
-    (["goal_done"], "occasional", None, True),
-    (["goal_done"], "occasional", 10, False),      # too soon after the last one
-    (["plan_low"], "occasional", None, False),     # not worth interrupting for
-    (["notable: iron"], "commentary", 30, True),
-    (["stuck: no skill for: pillar up"], "occasional", 8, True),  # blocked: never held back by the gap
-    (["struggling: 4 failed tries"], "quiet", 2, True),          # nor by quiet: she may need to ask
-    (["warning: the sun is setting"], "occasional", None, True),  # a heads-up: worth a line
-    (["warning: zombie 4 m from alice"], "occasional", 10, False),  # but not right after the last one
-    (["warning: the sun is setting"], "quiet", None, False),
-    (["warning: the sun is setting"], "occasional", 25, True),      # the gap is 20 s
-    (["danger: skeleton 5 m west (behind-right)"], "occasional", 10, True),  # danger: she reacts
-    (["danger: skeleton 5 m west (behind-right)"], "occasional", 5, False),  # but one line per 8 s
-    (["danger: skeleton 5 m west (behind-right)"], "quiet", None, False),
+@pytest.mark.parametrize(("reasons", "mode", "ok"), [
+    (["needs_human"], "quiet", True),              # always
+    (["goal_done"], "quiet", False),
+    (["paused:not_foreground"], "quiet", True),    # she stopped on her own: they should know
+    (["goal_done"], "occasional", True),
+    (["plan_low"], "occasional", False),           # not a kind this mode speaks about
+    (["notable: iron"], "commentary", True),
+    (["stuck: no skill for: pillar up"], "occasional", True),
+    (["struggling: 4 failed tries"], "quiet", True),  # she may need to ask
+    (["warning: the sun is setting"], "occasional", True),
+    (["warning: the sun is setting"], "quiet", False),
+    (["danger: skeleton 5 m west (behind-right)"], "occasional", True),
+    (["danger: skeleton 5 m west (behind-right)"], "quiet", False),
 ])
-def test_occasional_means_occasional(reasons, mode, since, ok):
-    assert agent_say.allowed(reasons, mode, since)[0] is ok
-
-
-@pytest.mark.parametrize(("reasons", "which"), [
-    (["danger: died"], "died"),
-    (["danger: died with skeleton close by; dropped where you fell (gone in 5 min): bread x4"], "died"),
-    (["danger: took damage: 2.5 of 10 hearts left"], "low_health"),
-    (["danger: took damage: health 5/20"], "low_health"),  # the older wording
-    (["danger: took damage: 4 of 10 hearts left"], None),
-    (["danger: spider 6 m south (ahead-right)"], None),
-    (["goal_done"], None),
-])
-def test_what_counts_as_serious(reasons, which):
-    assert agent_say.serious(reasons) == which
-
-
-def test_a_fresh_serious_moment_skips_the_gap_but_not_quiet():
-    assert agent_say.allowed(["danger: died"], "occasional", 5)[0] is False
-    assert agent_say.allowed(["danger: died"], "occasional", 5, serious_fresh=True)[0] is True
-    assert agent_say.allowed(["danger: died"], "quiet", 5, serious_fresh=True)[0] is False
+def test_the_commentary_setting_is_the_users_rule_and_has_no_pace_rule(reasons, mode, ok):
+    assert agent_say.allowed(reasons, mode)[0] is ok
 
 
 @pytest.fixture
@@ -196,12 +173,11 @@ def speaking(database, db, alice, isolated_redis, monkeypatch):
                                  "conversation": conversation, "session": session})
 
 
-def test_death_is_said_right_after_another_message_but_only_once(speaking):
+def test_no_time_gap_holds_her_words_back_only_the_users_setting_does(speaking):
     assert speaking.say("A spider!", ["danger: spider 6 m south"]).startswith("Queued")
-    assert speaking.say("Ouch.", ["danger: took damage: 4 of 10 hearts left"]).startswith("Not said")
-    assert speaking.say("I died!", ["danger: died"]).startswith("Queued")  # within the minute, still said
-    assert speaking.say("Died again?", ["danger: died"]).startswith("Not said")  # the same moment twice
-    assert speaking.saved() == [("assistant", "A spider!"), ("assistant", "I died!")]
+    assert speaking.say("Ouch.", ["danger: took damage: 4 of 10 hearts left"]).startswith("Queued")
+    assert speaking.say("Shh.", ["goal_done"], mode="quiet").startswith("Not said")  # their rule
+    assert speaking.saved() == [("assistant", "A spider!"), ("assistant", "Ouch.")]
 
 
 @pytest.mark.parametrize(("reasons", "cut"), [
@@ -233,7 +209,7 @@ def test_saying_saves_the_message_in_the_sessions_conversation_and_publishes_it(
     channel, raw = isolated_redis.published[-1]
     assert channel == agent_say.channel(alice.id) and json.loads(raw)["text"] == "Got all five logs!"
     again = speaking.say("And more!", ["goal_done"])
-    assert again.startswith("Not said")  # a minute hasn't passed
+    assert again.startswith("Queued")  # how often she speaks is hers to judge, not a timer's
 
 
 def test_queued_words_wait_behind_a_reply_and_drop_if_the_user_speaks_first(speaking, database, db, alice):
@@ -259,20 +235,18 @@ def test_queued_words_wait_behind_a_reply_and_drop_if_the_user_speaks_first(spea
     assert speaking.saved() == [("user", "wait, stop")]  # the user spoke after it was queued: not said
 
 
-def test_her_minds_own_lines_wait_while_the_user_has_just_spoken(speaking, db):
-    """Live: almost every message got two answers, a quick thought's and the reply."""
-    from datetime import datetime, timedelta
+def test_she_is_told_how_recently_she_and_they_spoke_as_facts_not_rules(speaking, db):
+    """What her mind reads before speaking unasked: the user's setting and the recent pace, as facts."""
+    from app.db.models import CoordinatorWork
+    from app.services import autonomous_speech
 
     db.add(ChatMessage(conversation_id=speaking.conversation.id, role="user", content="can you climb that?"))
     db.commit()
-    assert speaking.say("On it!", ["light: the peak is close"]).startswith("Not said: the user just spoke")
-    assert speaking.say("On it!", ["thought: the user said: can you climb that?"]).startswith(
-        "Not said: the user just spoke")
-    assert speaking.say("On it!", ["react: creeper behind me"]).startswith("Queued")  # danger still speaks
-    db.execute(ChatMessage.__table__.update().where(ChatMessage.role == "user").values(
-        created_at=datetime.now() - timedelta(hours=12)))  # long ago, in any clock
-    db.commit()
-    assert not agent_say._user_spoke_within(db, speaking.session.owner_user_id, agent_say.MIND_HUSH_SECONDS)
+    work = CoordinatorWork(user_id=speaking.session.owner_user_id, conversation_id=speaking.conversation.id,
+                           input={"source": "minecraft", "commentary_mode": "quiet"})
+    facts = autonomous_speech.facts(db, work)
+    assert any("commentary setting for this game: quiet" in f and "only when you need them" in f for f in facts)
+    assert any(f.startswith("Their last message here was") for f in facts)
 
 
 def test_background_tools_plan_as_her_and_only_undo_her_own_pauses(database, alice, monkeypatch):
@@ -435,9 +409,9 @@ def test_keep_playing_off_stops_at_the_end_of_the_goal():
     assert _run(script).step() is False and script.pauses == ["plan_complete"]
 
 
-def test_her_mouth_sees_conclusions_intentions_and_takes_the_question(db, alice, monkeypatch):
-    """Hard thinking (services/mind_hard.py) reaches her reply: conclusions with their kind, never a
-    dropped one, her intentions, and the open question (taken, so it isn't also asked at a pause)."""
+def test_her_reply_sees_her_conclusions_but_never_a_dropped_one(db, alice, monkeypatch):
+    """Hard thinking (services/mind_hard.py) reaches her reply: conclusions with their kind, never a dropped one.
+    A question from it reaches her as a wake of her mind (autonomous_speech), not as a line in the summary."""
     import time as time_
 
     from app.services import mind, mind_hard
@@ -451,15 +425,11 @@ def test_her_mouth_sees_conclusions_intentions_and_takes_the_question(db, alice,
                       status="dropped", topic="keeps failing: y", trigger="failing", conclusion_kind="decision",
                       dropped_reason="that step is over")
     mind_hard.add_intention(session.id, "keep 5 planks to get back down")
-    mind_hard.set_question(session.id, {"text": "Want me on top, or just the move?", "at": time_.time(),
-                                        "goal": session.plan["goal"]})
     lines = "\n".join(desktop_game._mind_lines(db, session, time_.time() + 1, for_reply=True))
     assert '"The move kills them." (thought over: a guess;' in lines
     assert "Dig straight up" not in lines
     assert "keep 5 planks" not in lines  # her intentions are in her working memory's view, not here
-    assert 'A question you wanted to ask the user, from thinking it over: "Want me on top, or just the move?"' in lines
-    assert mind_hard.take_question(session.id) is None  # her reply has it now
-    assert "A question you wanted" not in "\n".join(desktop_game._mind_lines(db, session, time_.time() + 2))
+    assert "A question you wanted" not in lines
 
 
 def test_a_counted_check_in_her_plan_is_kept_and_shown_back_to_her(db, alice):

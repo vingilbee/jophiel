@@ -293,7 +293,7 @@ function ErrorsTab({ state, onOpen }: { state: ReturnType<typeof useErrors>; onO
   return (
     <ol className="mt-3">
       {list.map((e) => {
-        const part = PART_BY_ID[e.part] ?? PART_BY_ID.cognition
+        const part = PART_BY_ID[e.part] ?? PART_BY_ID.mind
         return (
           <li key={e.id} className="border-t border-[#11161A] py-3 first:border-t-0">
             <div className="flex items-baseline gap-2">

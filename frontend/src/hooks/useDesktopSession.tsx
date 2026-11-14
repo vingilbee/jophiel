@@ -59,6 +59,7 @@ interface DesktopSessionContextValue {
   revokeEnvironment: (environmentId: string) => Promise<void>
   setCapture: (gate: DesktopCaptureGate) => Promise<void>
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
+  setSecurityMonitoring: (enabled: boolean) => Promise<void>
   sendDecision: (decision: Record<string, unknown>) => Promise<void>
   setPlan: (plan: DesktopPlanInput) => Promise<void>
   setOptions: (options: DesktopSessionOptions) => Promise<void>
@@ -326,6 +327,12 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         if (!environment) return
         setPreview(null) // the old picture shows the wrong area
         const updated = await desktopApi.setCapture(environment.id, { scope })
+        setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
+      }),
+    setSecurityMonitoring: (enabled) =>
+      run(async () => {
+        if (!environment) return
+        const updated = await desktopApi.setSecurity(environment.id, enabled)
         setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
       }),
     setOptions: (options) =>
