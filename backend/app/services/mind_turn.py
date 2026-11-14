@@ -53,6 +53,7 @@ class Evaluation:
     trigger_message_id: uuid.UUID | None = None  # the user's message it answers, or the latest one (a wake)
     message: str = ""
     channel: str = "web"
+    channel_identity_id: str | None = None  # who to deliver to off the web (a WhatsApp identity)
     voice: bool = False
     zone: str | None = None
     user_name: str | None = None
@@ -510,12 +511,13 @@ def _sequence(conversation_id: uuid.UUID | None) -> int | None:
 
 def prepare_message(*, user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
                     message: str, zone: str | None, turn_id: uuid.UUID, channel: str = "web", voice: bool = False,
-                    job: ChatJob | None = None, user_name: str | None = None) -> Evaluation:
+                    job: ChatJob | None = None, user_name: str | None = None,
+                    channel_identity_id: str | None = None) -> Evaluation:
     """A user's message wakes her. Blocking (call it in a thread). Never raises: what couldn't be read is said to
     her as such."""
     ev = Evaluation(user_id=user_id, conversation_id=conversation_id, request_id=turn_id, reason="user_message",
                     trigger_message_id=user_message_id, message=message, channel=channel, voice=voice, zone=zone,
-                    user_name=user_name)
+                    user_name=user_name, channel_identity_id=channel_identity_id)
     at = ev.started
     # A new message: unfinished thinking for earlier ones in this conversation can't answer it.
     ev.superseded = coordinator.supersede_older(user_id, conversation_id, user_message_id)
@@ -534,7 +536,7 @@ def prepare_wake(*, job: ChatJob, info: dict[str, Any], user_name: str | None = 
     ev = Evaluation(user_id=job.user_id, conversation_id=job.conversation_id, request_id=job.turn_id,
                     reason=info.get("reason") or "work_result", trigger_message_id=latest,
                     channel=payload.get("channel", "web"), voice=False, zone=payload.get("zone"),
-                    user_name=user_name, wake=info)
+                    channel_identity_id=payload.get("channel_identity_id"), user_name=user_name, wake=info)
     r, inp = info.get("result") or {}, info.get("input") or {}
     about = " ".join(filter(None, (inp.get("about"), inp.get("think_about"), r.get("question"),
                                    r.get("conclusion"))))[:600]

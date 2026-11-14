@@ -130,6 +130,19 @@ def event_bus_available() -> bool:
         return False
 
 
+def _whatsapp_identity(payload: dict, job_id: uuid.UUID) -> uuid.UUID | None:
+    """Who a WhatsApp reply goes to. A job without one (a wake scheduled before wakes kept it) keeps its reply in
+    the conversation and logs why it wasn't sent, instead of failing the turn."""
+    raw = payload.get("channel_identity_id")
+    try:
+        if raw:
+            return uuid.UUID(str(raw))
+    except ValueError:
+        pass
+    logger.warning("WhatsApp job %s has no valid channel identity: reply kept, not sent", job_id)
+    return None
+
+
 async def _generate(job: ChatJob) -> None:
     payload = job.payload
     claim_token = job.claim_token
@@ -206,7 +219,7 @@ async def _generate(job: ChatJob) -> None:
             user_message_id=job.user_message_id, message=payload["content"],
             zone=payload.get("zone"), turn_id=job.turn_id,
             channel=payload.get("channel", "web"), voice=bool(payload.get("voice", False)), job=job,
-            user_name=user.name if user else None)
+            user_name=user.name if user else None, channel_identity_id=payload.get("channel_identity_id"))
     recall_turn = mind.recall_turn
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     desktop = await asyncio.to_thread(desktop_control.line_for, job.user_id)
@@ -455,11 +468,12 @@ async def _generate(job: ChatJob) -> None:
                         assistant_message_id=assistant.id, commit=False,
                     )
                     if context.channel == "whatsapp":
-                        identity_id = uuid.UUID(payload["channel_identity_id"])
-                        whatsapp_service.schedule_delivery(
-                            db, assistant_message_id=assistant.id,
-                            channel_identity_id=identity_id, content=reply,
-                        )
+                        identity_id = _whatsapp_identity(payload, job.id)
+                        if identity_id is not None:
+                            whatsapp_service.schedule_delivery(
+                                db, assistant_message_id=assistant.id,
+                                channel_identity_id=identity_id, content=reply,
+                            )
             finished = chat_service.finish_job(
                 db, job.id, "cancelled" if stopped else "completed",
                 claim_token=claim_token, commit=False,
@@ -516,11 +530,11 @@ async def _generate(job: ChatJob) -> None:
                         role="assistant", content=failure_text, turn_id=turn_id,
                         status="failed", source_channel=context.channel, commit=False,
                     )
-                    if context.channel == "whatsapp":
+                    identity_id = _whatsapp_identity(payload, job.id) if context.channel == "whatsapp" else None
+                    if identity_id is not None:
                         whatsapp_service.schedule_delivery(
                             db, assistant_message_id=assistant.id,
-                            channel_identity_id=uuid.UUID(payload["channel_identity_id"]),
-                            content=failure_text,
+                            channel_identity_id=identity_id, content=failure_text,
                         )
                 finished = chat_service.finish_job(
                     db, job.id, "failed", str(exc)[:1000],

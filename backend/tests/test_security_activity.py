@@ -414,3 +414,24 @@ def test_her_slow_thinking_reads_the_records_and_proposes_in_the_investigations_
         assert (inv.status, inv.considered_revision, inv.last_thought_id) == ("open", 1, thought.id)
         target, _ = autonomous_speech._target(db, user_id=user_id, activity_id=inv_id, source="security")
         assert target.id == conversation.id
+
+
+def test_an_older_connection_closing_leaves_the_newer_ones_source_online(db, alice):
+    from app.db.models import ObservationSource
+    from app.services import observation
+
+    env = _paired(db, alice)  # connection 1
+    observation.note_source(db, alice.id, S.SOURCE, str(env.id), availability="online")
+    env.controller_generation = 2  # a replacement connected before connection 1's socket closed
+    db.commit()
+
+    def availability():
+        db.expire_all()
+        return db.scalar(ObservationSource.__table__.select().where(
+            ObservationSource.user_id == alice.id, ObservationSource.source == S.SOURCE,
+            ObservationSource.source_instance == str(env.id)).with_only_columns(ObservationSource.availability))
+
+    assert S.mark_offline(db, env.id, 1) is False
+    assert availability() == "online"
+    assert S.mark_offline(db, env.id, 2) is True
+    assert availability() == "offline"

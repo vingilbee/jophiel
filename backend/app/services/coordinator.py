@@ -482,8 +482,9 @@ def _dispatch_follow_up(work: CoordinatorWork) -> None:
                    "channel": base.get("channel", work.input.get("channel", "web")),
                    "zone": base.get("zone") or work.input.get("zone"), "awareness": base.get("awareness", ""),
                    "awareness_at": request.created_at.isoformat() if request is not None else None}
-        if base.get("channel_identity_id"):
-            payload["channel_identity_id"] = base["channel_identity_id"]
+        identity = base.get("channel_identity_id") or work.input.get("channel_identity_id")
+        if identity:
+            payload["channel_identity_id"] = identity
         job = chat_service.enqueue_job(db, user_id=work.user_id, conversation=conversation, turn_id=turn,
                                        payload=payload, commit=False)
         db.execute(CoordinatorOutput.__table__.update().where(CoordinatorOutput.id == output)
@@ -517,7 +518,8 @@ def wake_reason(work: CoordinatorWork) -> str:
 
 def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: str, due_at: datetime,
                   item_id: uuid.UUID | None = None, origin: str | None = None, zone: str | None = None,
-                  channel: str = "web", asked_by: str = "mind", origin_message: uuid.UUID | None = None,
+                  channel: str = "web", channel_identity_id: uuid.UUID | str | None = None,
+                  asked_by: str = "mind", origin_message: uuid.UUID | None = None,
                   their_urgency: str | None = None, moves: CoordinatorWork | None = None,
                   reason: str | None = None) -> CoordinatorWork:
     """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
@@ -528,7 +530,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     purpose, who asked, the original request and its item, records ``reason`` and the revision, and any live wake
     of the chain is cancelled, so the chain never has two live schedules. Scheduling again for the same working item
     moves that item's wake the same way. ``asked_by``: ``user`` (a check-in they asked for: a commitment) or ``mind``
-    (her own idea: optional). ``due_at`` is the deadline she set; ``scheduled_at`` is when she set it."""
+    (her own idea: optional). ``due_at`` is the deadline she set; ``scheduled_at`` is when she set it.
+    ``channel_identity_id``: who to deliver to off the web (a WhatsApp identity); a wake has no request of its own
+    to read it from, so it is kept here and carried through revisions."""
     now = _now()
     if due_at.tzinfo is None:
         raise ValueError("a due time needs its time zone")
@@ -557,7 +561,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         old = dict(moves.input or {})
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
-                                             "first_scheduled_at", "item")}
+                                             "first_scheduled_at", "item", "channel_identity_id")}
         revisions = list(old.get("revisions") or [])
         revisions.append({"at": now.isoformat(), "from_wake": str(moves.id), "from_due": old.get("due_at"),
                           "to_due": due_at.isoformat(), "reason": why,
@@ -585,7 +589,10 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                or inherited.get("their_urgency"),
                "first_scheduled_at": inherited.get("first_scheduled_at") or now.isoformat(),
                "due_at": due_at.isoformat(), "scheduled_at": now.isoformat(), "scheduled_by": origin,
-               "zone": zone, "channel": channel, "moved": moved, "revisions": revisions[-12:]})
+               "zone": zone, "channel": channel,
+               "channel_identity_id": (str(channel_identity_id) if channel_identity_id else None)
+               or inherited.get("channel_identity_id"),
+               "moved": moved, "revisions": revisions[-12:]})
     db.add(row)
     db.flush()
     _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": item, "chain": chain,

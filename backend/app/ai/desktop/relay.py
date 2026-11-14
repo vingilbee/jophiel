@@ -172,7 +172,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             if environment_id is not None and generation is not None:
                 await db_call(desktop_link.disconnected, environment_id, generation, reason=reason)
                 try:
-                    await db_call(security_activity.mark_offline, environment_id)
+                    await db_call(security_activity.mark_offline, environment_id, generation)
                 except Exception:  # noqa: BLE001 - source health never blocks a disconnect
                     log.exception("desktop relay: marking security source offline failed")
                 log.info("desktop relay: environment %s connection %s closed (%s)", environment_id, generation, reason)

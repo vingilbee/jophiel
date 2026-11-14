@@ -146,7 +146,7 @@ def build_mind_tools(ev) -> list[BaseTool]:
             row = coordinator.schedule_wake(
                 db, user_id=ev.user_id, conversation_id=ev.conversation_id, about=what, due_at=due,
                 item_id=entry.id if entry is not None else None, origin=f"turn:{ev.request_id}", zone=ev.zone,
-                channel=ev.channel, asked_by="user" if asked_by == "user" else "mind",
+                channel=ev.channel, channel_identity_id=ev.channel_identity_id, asked_by="user" if asked_by == "user" else "mind",
                 origin_message=ev.trigger_message_id if not ev.is_wake else None,
                 their_urgency=their_urgency, moves=moving, reason=reason)
             ev.scheduled.append(str(row.id))

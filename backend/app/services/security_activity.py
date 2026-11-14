@@ -283,19 +283,25 @@ def ingest(db: Session, environment_id: uuid.UUID, controller_generation: int, b
     return "stored", None
 
 
-def mark_offline(db: Session, environment_id: uuid.UUID) -> None:
-    """The VM's connection ended: the source is offline (what it last reported may be out of date)."""
+def mark_offline(db: Session, environment_id: uuid.UUID, controller_generation: int | None = None) -> bool:
+    """The VM's connection ended: the source is offline (what it last reported may be out of date). Commits.
+
+    With ``controller_generation``, only that connection may mark it offline: an old socket closing after a newer
+    one connected must not mark the newer connection's source offline (as ``desktop_sessions.controller_offline``).
+    Returns whether it was marked."""
     from app.services import observation
 
-    env = db.get(DesktopEnvironment, environment_id)
-    if env is None:
-        return
+    env = db.scalar(select(DesktopEnvironment).where(DesktopEnvironment.id == environment_id).with_for_update())
+    if env is None or (controller_generation is not None and env.controller_generation != controller_generation):
+        db.commit()
+        return False
     exists = db.scalar(select(ObservationSource).where(
         ObservationSource.user_id == env.owner_user_id, ObservationSource.source == SOURCE,
         ObservationSource.source_instance == str(env.id)))
     if exists is not None:
         observation.note_source(db, env.owner_user_id, SOURCE, str(env.id), availability="offline")
     db.commit()
+    return True
 
 
 def prune(db: Session, now: datetime | None = None) -> int:

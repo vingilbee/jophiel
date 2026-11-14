@@ -490,6 +490,34 @@ def test_a_requested_check_in_wakes_her_with_its_origin_commitment_deadline_and_
         assert db.get(WorkingItem, uuid.UUID(wake.input["item"])).status == "fulfilled"  # delivered: it stands
 
 
+def test_a_check_in_asked_for_on_whatsapp_is_delivered_to_the_same_person(env, monkeypatch):
+    sent = []
+    monkeypatch.setattr(chat_worker.whatsapp_service, "schedule_delivery",
+                        lambda db, **kw: sent.append((kw["channel_identity_id"], kw["content"])))
+    monkeypatch.setattr(chat_worker.whatsapp_service, "wake_worker", lambda: None)
+    identity = uuid.uuid4()
+    said(env, "In 30 seconds, ask me whether Lantern Finch is ready.", channel="whatsapp",
+         channel_identity_id=str(identity))
+
+    async def agree(use, context):
+        await use("come_back_to", what="ask whether Lantern Finch is ready", asked_by="user", in_seconds=30)
+        return "Sure."
+
+    env.scripts.append(agree)
+    run_job(env)
+    [wake] = wakes(env)
+    assert wake.input["channel"] == "whatsapp" and wake.input["channel_identity_id"] == str(identity)
+    _due(env)
+    drain(env)
+
+    async def check_in(use, context):
+        return "Is Lantern Finch ready?"
+
+    env.scripts.append(check_in)
+    assert run_job(env)  # a wake has no request of its own: the recipient comes from the wake
+    assert sent == [(identity, "Sure."), (identity, "Is Lantern Finch ready?")]
+
+
 def test_putting_it_off_revises_the_same_intention_with_a_reason_and_one_live_schedule(env):
     said(env, "Remind me to ask Sam about Lantern Finch in a minute.")
 
