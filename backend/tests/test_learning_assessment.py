@@ -841,3 +841,52 @@ def test_the_real_model_evals_scoring_catches_blame_misses_and_always_unresolved
     assert not verdict(shrug)["passed"]  # always answering "unresolved" fails
     for case in cases.values():
         assert A.render(case.ev).startswith("# What started this")
+
+
+def test_the_sweep_resolves_attempts_and_executions_and_keeps_notes_and_legacy_shapes(env):
+    """Awaited evidence is a typed reference resolved against its own store; an explanation or an unknown shape is
+    kept as a note, never parsed as an id and never marked as received (the IndexError of 2026-11-13)."""
+    from app.db.models import DecisionExecution, LearningAssessment, LearningAssessmentEvidence
+
+    user, conversation = setup(env)
+    arrived_attempt, missing_attempt, arrived_execution = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    legacy = ["trajectory missing or expired for this stretch", "attempt:not-a-uuid", "weird:entry", "x:y:z",
+              {"odd": "shape"}]
+    with env.db() as db:
+        row = LearningAssessment(
+            id=uuid.uuid4(), user_id=user.id, trigger_kind="correction", trigger_key=f"test:{uuid.uuid4()}",
+            conversation_id=conversation.id, anchor_at=NOW, state="done", updated_at=NOW,
+            awaiting=[f"attempt:{arrived_attempt}", f"attempt:{missing_attempt}",
+                      f"execution:{arrived_execution}", *legacy],
+            awaiting_notes=["capture window truncated at 100 attempts / 150 executions"])
+        db.add(row)
+        db.add(DecisionAttempt(id=arrived_attempt, user_id=user.id, learner="mind", trigger="user_message",
+                               conversation_id=conversation.id, input={}, output={}, status="ok", started_at=NOW,
+                               expires_at=NOW + timedelta(days=1)))
+        db.add(DecisionExecution(id=arrived_execution, user_id=user.id, kind="reply", executor="mouth:web",
+                                 result="succeeded", expires_at=NOW + timedelta(days=1)))
+        db.commit()
+        done = LA.sweep(db, soon(seconds=3))
+        assert done["arrived"] == 1
+        db.refresh(row)
+        refs = {e.ref for e in db.scalars(select(LearningAssessmentEvidence).where(
+            LearningAssessmentEvidence.assessment_id == row.id))}
+    assert refs == {f"attempt:{arrived_attempt}", f"execution:{arrived_execution}"}
+    assert row.awaiting == [f"attempt:{missing_attempt}"]  # only what arrived left
+    assert row.awaiting_notes == ["capture window truncated at 100 attempts / 150 executions",
+                                  *legacy[:4], json.dumps({"odd": "shape"})]
+    assert row.state == "pending"  # reopened with the new evidence
+    # Running again changes nothing: the missing attempt is still awaited, the notes aren't duplicated.
+    with env.db() as db:
+        assert LA.sweep(db, soon(seconds=4))["arrived"] == 0
+        row = db.get(LearningAssessment, row.id)
+    assert row.awaiting == [f"attempt:{missing_attempt}"] and len(row.awaiting_notes) == 6
+
+
+def test_awaited_refs_are_typed_and_validated():
+    some = uuid.uuid4()
+    assert LA.awaited_ref(f"attempt:{some}") == ("attempt", some)
+    assert LA.awaited_ref(f"execution:{some}") == ("execution", some)
+    for entry in ("trajectory missing or expired for this stretch", "attempt:", "attempt:nope", f"lesson:{some}",
+                  None, 3, {"attempt": str(some)}):
+        assert LA.awaited_ref(entry) is None

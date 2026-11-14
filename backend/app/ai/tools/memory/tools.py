@@ -36,10 +36,12 @@ async def _run(fn: Callable[..., str], **kwargs) -> str:
 
 
 def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = None,
-                       background: bool = False, wake: bool = False) -> list[BaseTool]:
+                       background: bool = False, wake: bool = False, evaluation=None) -> list[BaseTool]:
     """Memory tools for one evaluation. ``message_id``: the user's message being answered (the evidence
     for what these keep). ``background``: a game-event turn: only her own intentions. ``wake``: her mind woke
-    without a user message: a promise of hers she keeps in this evaluation can be marked fulfilled."""
+    without a user message: a promise of hers she keeps in this evaluation can be marked fulfilled. ``evaluation``:
+    the evaluation of her mind (``mind_turn.Evaluation``): a promise marked fulfilled is noted on it, and opened
+    again if her words then aren't delivered."""
     source = Source("message", message_id) if message_id is not None else None
 
     def relying(db, entry, relies_on: list[str] | None) -> str:
@@ -93,6 +95,9 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             entry, children = memory_manager.resolve(db, user_id, item, status=status, reason=reason,
                                                      source=source, background=background, own_word=wake)
             note = ""
+            if entry.status == "fulfilled" and evaluation is not None:
+                evaluation.fulfilled.append(entry.id)
+                note = " (It counts once what you say now reaches them; if it doesn't, it opens again.)"
             if entry.closed_at is not None:
                 # What she set to come back to about it has nothing left to come back to.
                 from app.services import coordinator

@@ -212,7 +212,7 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if context.memory_tools:
         direct_tools.extend(build_memory_tools(context.user_id, message_id=context.source_message_id,
                                                background=context.game_event is not None,
-                                               wake=context.wake is not None))
+                                               wake=context.wake is not None, evaluation=context.mind))
     # Her read tools over what she remembers: their results come straight back into this same loop.
     if context.recall_turn is not None:
         direct_tools.extend(build_recall_tools(context.recall_turn))

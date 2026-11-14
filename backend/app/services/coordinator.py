@@ -480,7 +480,8 @@ def _dispatch_follow_up(work: CoordinatorWork) -> None:
         base = request.payload if request is not None else {}
         payload = {"phase": "follow_up", "content": "", "work_id": str(work.id), "request_id": str(work.request_id),
                    "channel": base.get("channel", work.input.get("channel", "web")),
-                   "zone": base.get("zone") or work.input.get("zone"), "awareness": base.get("awareness", "")}
+                   "zone": base.get("zone") or work.input.get("zone"), "awareness": base.get("awareness", ""),
+                   "awareness_at": request.created_at.isoformat() if request is not None else None}
         if base.get("channel_identity_id"):
             payload["channel_identity_id"] = base["channel_identity_id"]
         job = chat_service.enqueue_job(db, user_id=work.user_id, conversation=conversation, turn_id=turn,
@@ -516,53 +517,109 @@ def wake_reason(work: CoordinatorWork) -> str:
 
 def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: str, due_at: datetime,
                   item_id: uuid.UUID | None = None, origin: str | None = None, zone: str | None = None,
-                  channel: str = "web") -> CoordinatorWork:
-    """Keep the mind's choice to come back to something at ``due_at``, in the conversation it chose it in. The
-    caller commits. One open reconsideration per working item: scheduling again moves it."""
+                  channel: str = "web", asked_by: str = "mind", origin_message: uuid.UUID | None = None,
+                  their_urgency: str | None = None, moves: CoordinatorWork | None = None,
+                  reason: str | None = None) -> CoordinatorWork:
+    """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
+    The caller commits.
+
+    One intention keeps one identity across postponements: ``chain`` (the first wake's id). ``moves``: a wake of
+    the same chain being revised (one still pending, or the one that just woke her): the new row inherits its
+    purpose, who asked, the original request and its item, records ``reason`` and the revision, and any live wake
+    of the chain is cancelled, so the chain never has two live schedules. Scheduling again for the same working item
+    moves that item's wake the same way. ``asked_by``: ``user`` (a check-in they asked for: a commitment) or ``mind``
+    (her own idea: optional). ``due_at`` is the deadline she set; ``scheduled_at`` is when she set it."""
     now = _now()
-    due_at = max(due_at, now)
+    if due_at.tzinfo is None:
+        raise ValueError("a due time needs its time zone")
+    due_at = max(due_at.astimezone(timezone.utc), now)
     if due_at - now > WAKE_MAX_AHEAD:
         raise ValueError("too far ahead: at most 60 days")
     words = " ".join((about or "").split())[:500]
     if not words:
         raise ValueError("say what to come back to")
+    why = " ".join((reason or "").split())[:300] or None
+    if moves is None and item_id is not None:
+        moves = db.scalar(select(CoordinatorWork).where(
+            CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE),
+            CoordinatorWork.input["item"].astext == str(item_id)).order_by(CoordinatorWork.created_at.desc()).limit(1))
+        why = why or ("rescheduled for the same item" if moves is not None else None)
+    work_id = uuid.uuid4()
+    inherited: dict[str, Any] = {}
+    revisions: list[dict] = []
+    chain = str(work_id)
     moved = 0
-    if item_id is not None:
+    if moves is not None:
+        if moves.kind != "wake" or moves.user_id != user_id:
+            raise ValueError("that isn't one of your scheduled wakes")
+        if why is None:
+            raise ValueError("say why you're moving it")
+        old = dict(moves.input or {})
+        chain = old.get("chain") or str(moves.id)
+        inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
+                                             "first_scheduled_at", "item")}
+        revisions = list(old.get("revisions") or [])
+        revisions.append({"at": now.isoformat(), "from_wake": str(moves.id), "from_due": old.get("due_at"),
+                          "to_due": due_at.isoformat(), "reason": why,
+                          "came_due": moves.status not in ACTIVE})
         for row in db.scalars(select(CoordinatorWork).where(
-                CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake",
-                CoordinatorWork.status.in_(ACTIVE), CoordinatorWork.input["item"].astext == str(item_id))
-                .with_for_update()):
+                CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE),
+                (CoordinatorWork.input["chain"].astext == chain) | (CoordinatorWork.id == moves.id)).with_for_update()):
             row.status, row.error_code = "cancelled", "rescheduled"
             row.cancellation_generation += 1
             moved += 1
-    work_id = uuid.uuid4()
+        moves.result = {**(moves.result or {}), "moved_to": str(work_id), "moved_reason": why,
+                        "moved_at": now.isoformat()}
+    item = str(item_id) if item_id else inherited.get("item")
     row = CoordinatorWork(
         id=work_id, request_id=work_id, user_id=user_id, conversation_id=conversation_id, kind="wake",
         status="queued", dependency_ids=[], input_versions={}, next_attempt_at=due_at,
         deadline_at=due_at + WAKE_GRACE, idempotency_key=f"wake:{work_id}",
         result={"kind": "due", "about": words},
-        input={"schema_version": 1, "about": words, "item": str(item_id) if item_id else None,
-               "due_at": due_at.isoformat(), "scheduled_at": now.isoformat(), "origin": origin, "zone": zone,
-               "channel": channel, "moved": moved})
+        input={"schema_version": 2, "about": words, "item": item, "chain": chain,
+               "purpose": inherited.get("purpose") or words,
+               "asked_by": inherited.get("asked_by") or ("user" if asked_by == "user" else "mind"),
+               "origin_message": inherited.get("origin_message") or (str(origin_message) if origin_message else None),
+               "origin": inherited.get("origin") or origin,
+               "their_urgency": (" ".join((their_urgency or "").split())[:300] or None)
+               or inherited.get("their_urgency"),
+               "first_scheduled_at": inherited.get("first_scheduled_at") or now.isoformat(),
+               "due_at": due_at.isoformat(), "scheduled_at": now.isoformat(), "scheduled_by": origin,
+               "zone": zone, "channel": channel, "moved": moved, "revisions": revisions[-12:]})
     db.add(row)
     db.flush()
-    _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": str(item_id) if item_id else None})
+    _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": item, "chain": chain,
+          "revision": len(revisions)})
     return row
 
 
-def cancel_wake(db, user_id: uuid.UUID, key: str, *, reason: str) -> CoordinatorWork | None:
-    """Drop a reconsideration (by the id shown to her, or its prefix). The caller commits."""
+def find_wake(db, user_id: uuid.UUID, key: str, *, also: uuid.UUID | str | None = None) -> CoordinatorWork | None:
+    """A wake by the id shown to her (or its prefix): one still pending, or ``also`` (the one that woke her)."""
     key = (key or "").removeprefix("wake:").strip().lower()
     if len(key) < 6:
         return None
     rows = [r for r in db.scalars(select(CoordinatorWork).where(
         CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE))
         .with_for_update()) if str(r.id).startswith(key)]
-    if len(rows) != 1:
+    if not rows and also is not None and str(also).startswith(key):
+        current = db.get(CoordinatorWork, uuid.UUID(str(also)), with_for_update=True)
+        rows = [current] if current is not None and current.user_id == user_id and current.kind == "wake" else []
+    return rows[0] if len(rows) == 1 else None
+
+
+def cancel_wake(db, user_id: uuid.UUID, key: str, *, reason: str,
+                also: uuid.UUID | str | None = None) -> CoordinatorWork | None:
+    """Drop a reconsideration (by the id shown to her, or its prefix), with her reason; ``also``: the wake that woke
+    her, which can be let go the same way (it stays completed; the decision is kept on it). The caller commits."""
+    row = find_wake(db, user_id, key, also=also)
+    if row is None:
         return None
-    rows[0].status, rows[0].error_code = "cancelled", (reason or "dropped")[:64]
-    rows[0].cancellation_generation += 1
-    return rows[0]
+    why = " ".join((reason or "").split())[:300] or "dropped"
+    if row.status in ACTIVE:
+        row.status, row.error_code = "cancelled", why[:64]
+        row.cancellation_generation += 1
+    row.result = {**(row.result or {}), "dropped": {"reason": why, "at": _now().isoformat(), "by": "mind"}}
+    return row
 
 
 def close_item_wakes(db, user_id: uuid.UUID, item_id: uuid.UUID) -> int:
@@ -656,12 +713,16 @@ def render_wake(info: dict) -> str:
     r = info.get("result") or {}
     reason, inp = info.get("reason"), info.get("input") or {}
     if reason == "due":
-        when = inp.get("scheduled_at", "")[:16].replace("T", " ")
-        lines = [f"You chose to come back to this (scheduled {when} UTC): {inp.get('about') or r.get('about')}"]
+        # Who asked for it, its deadline against now, what was promised and what changed are in "Now" (read from
+        # records when she runs): this only names it.
+        whose = {"user": "a check-in they asked you for", "mind": "something you chose to come back to"}.get(
+            inp.get("asked_by"), "something you scheduled")
+        lines = [f"[wake:{str(info.get('work_id') or '')[:8]}] came due: {whose}.",
+                 f"What you wrote when you set it: {inp.get('about') or r.get('about')}"]
         if info.get("late"):
             lines.append("It came due a while ago: you couldn't be woken then. Check whether it still matters.")
         if inp.get("item"):
-            lines.append(f"It is about the item [{inp['item'][:8]}] in your working memory, if it's still open.")
+            lines.append(f"It is about the item [{inp['item'][:8]}] in your working memory.")
         return "\n".join(lines)
     if reason == "proposal":
         lines = ["Another part of you has a proposal for you to decide on (nobody asked the user):", r.get("conclusion") or ""]

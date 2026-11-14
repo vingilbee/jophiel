@@ -358,16 +358,57 @@ def sweep(db: Session, now: datetime | None = None, *, limit: int = 50) -> dict[
         LearningAssessment.updated_at >= now - timedelta(days=get_settings().learning_capture_retention_days),
     ).order_by(LearningAssessment.updated_at).limit(limit).with_for_update(skip_locked=True))
     for row in list(waiting):
-        ids = [i for i in (_uuid(r.split(":", 1)[1]) for r in row.awaiting if r.startswith("attempt:")) if i]
-        arrived = list(db.scalars(select(DecisionAttempt.id).where(DecisionAttempt.user_id == row.user_id,
-                                                                    DecisionAttempt.id.in_(ids or [uuid.uuid4()]))))
-        added = attach(db, row, [(f"attempt:{i}", "a capture that was missing arrived", {}) for i in arrived])
-        if added:
-            _reopen(row, now, f"new evidence: {', '.join(added)}")
+        if _settle_awaited(db, row, now):
             done["arrived"] += 1
-        row.awaiting = [r for r in row.awaiting if _uuid(r.split(":", 1)[1]) not in set(arrived)]
     db.commit()
     return done
+
+
+# What an assessment can wait for, and where each kind is looked up. Anything else in ``awaiting`` is not a
+# reference: explanations of missing evidence live in ``awaiting_notes``.
+AWAITED_STORES = {"attempt": DecisionAttempt, "execution": DecisionExecution}
+
+
+def awaited_ref(entry: Any) -> tuple[str, uuid.UUID] | None:
+    """``attempt:<uuid>`` / ``execution:<uuid>`` -> (type, id); None for anything else (a note, a legacy shape)."""
+    if not isinstance(entry, str):
+        return None
+    kind, sep, value = entry.partition(":")
+    ident = _uuid(value.strip()) if sep and kind in AWAITED_STORES else None
+    return (kind, ident) if ident is not None else None
+
+
+def _settle_awaited(db: Session, row: LearningAssessment, now: datetime) -> bool:
+    """Evidence an assessment waited for that has arrived is attached (and the assessment queued again); only
+    what actually arrived leaves ``awaiting``. An entry that isn't a reference (an explanation stored among them
+    by older code, or an unknown shape) moves to ``awaiting_notes`` unchanged: kept visible, never resolved.
+    Returns whether new evidence was attached."""
+    entries = row.awaiting if isinstance(row.awaiting, list) else [row.awaiting]
+    refs: list[tuple[str, tuple[str, uuid.UUID]]] = []
+    notes = list(row.awaiting_notes or [])
+    for entry in entries:
+        parsed = awaited_ref(entry)
+        if parsed is None:
+            note = entry if isinstance(entry, str) else json.dumps(entry, ensure_ascii=False, default=str)
+            if note not in notes:
+                notes.append(note)
+            log.info("learning assessment %s: awaiting entry %r is not a reference; kept as a note", row.id, entry)
+        else:
+            refs.append((entry, parsed))
+    arrived: set[tuple[str, uuid.UUID]] = set()
+    for kind, store in AWAITED_STORES.items():
+        ids = [ident for _, (k, ident) in refs if k == kind]
+        if ids:
+            arrived |= {(kind, i) for i in db.scalars(select(store.id).where(store.user_id == row.user_id,
+                                                                              store.id.in_(ids)))}
+    added = attach(db, row, [(f"{kind}:{ident}", "a capture that was missing arrived", {})
+                             for kind, ident in sorted(arrived, key=str)])
+    if added:
+        _reopen(row, now, f"new evidence: {', '.join(added)}")
+    row.awaiting = [entry for entry, parsed in refs if parsed not in arrived]
+    if notes != list(row.awaiting_notes or []):
+        row.awaiting_notes = notes
+    return bool(added)
 
 
 DESKTOP_FACT_STEPS = 30
@@ -445,7 +486,8 @@ class Gathered:
     ev: A.Evidence
     target_roots: dict[str, list[str]] = field(default_factory=dict)  # target ref -> stored refs
     attempts: dict[str, dict[str, str]] = field(default_factory=dict)  # target ref -> learner -> attempt id
-    awaiting: list[str] = field(default_factory=list)  # attempt:<id> still missing that may yet arrive
+    awaiting: list[str] = field(default_factory=list)  # attempt:<id> / execution:<id> still missing that may arrive
+    notes: list[str] = field(default_factory=list)  # what is missing or truncated, explained (never a reference)
 
 
 def _hm(at: datetime | None) -> str:
@@ -956,7 +998,7 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
         GameExperience.user_id == row.user_id, GameExperience.session_id == row.game_session_id,
         GameExperience.id.in_(ids or [-1])).order_by(GameExperience.id)))
     if not chosen:
-        out.awaiting.append("game experience missing or removed")
+        out.notes.append("game experience missing or removed")
         return
     first = chosen[0].id
     before = list(db.scalars(select(GameExperience).where(
@@ -1066,7 +1108,7 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
         brief += f"; {used[href]}" if href in used else ""
         ev.targets[href] = dataclasses.replace(ev.targets[href], brief=brief)
     if len(records) == 100 or len(executions) == 150:
-        out.awaiting.append("capture window truncated at 100 attempts / 150 executions")
+        out.notes.append("capture window truncated at 100 attempts / 150 executions")
     events = list(db.scalars(select(DesktopSessionEvent).where(
         DesktopSessionEvent.session_id == row.game_session_id,
         DesktopSessionEvent.occurred_at >= since, DesktopSessionEvent.occurred_at <= until)
@@ -1082,7 +1124,7 @@ def _game(db: Session, row: LearningAssessment, out: Gathered, attached: set[str
                            if k not in ("execution_generation", "state_revision", "plan_revision")}, 600)))
     streams = trajectory.streams(db, row.user_id, session_id=row.game_session_id, since=since, until=until)
     if not streams:
-        out.awaiting.append("trajectory missing or expired for this stretch")
+        out.notes.append("trajectory missing or expired for this stretch")
     for st in streams:
         detail = trajectory.read(db, row.user_id, uuid.UUID(st["id"]), since=since, until=until,
                                  ticks=False, max_chunks=20 + 20 * plan.game)
@@ -1693,6 +1735,7 @@ def _revise(db: Session, row: LearningAssessment, current: LearningAssessmentRev
     row.target_status, row.cause_status, row.stop_reason = summary["target_status"], summary["cause_status"], stop
     row.explanation = result["explanation"] or found.stop_why
     row.awaiting = sorted(set(gathered.awaiting))
+    row.awaiting_notes = list(dict.fromkeys(gathered.notes))
     row.inquiry = _inquiry(result, found, digest, n, now)
     _owners(db, row, n, result, gathered, changed=current is None or current.fingerprint != found.fingerprint)
     # Lessons (docs/learning-system/03-implementation.md): learning reads this revision for what should persist.
@@ -1893,6 +1936,7 @@ def _summary(row: LearningAssessment) -> dict:
             "stop_reason": row.stop_reason, "explanation": row.explanation, "revision": row.revision,
             "inquiry": row.inquiry or {},
             "attempts": row.attempts, "last_error": row.last_error, "awaiting": row.awaiting,
+            "awaiting_notes": row.awaiting_notes or [],
             "conversation_id": str(row.conversation_id) if row.conversation_id else None,
             "game_session_id": str(row.game_session_id) if row.game_session_id else None,
             "anchor_message_id": str(row.anchor_message_id) if row.anchor_message_id else None,

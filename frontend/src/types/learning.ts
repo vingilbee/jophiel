@@ -137,6 +137,7 @@ export interface AssessmentSummary {
   revision: number
   last_error: string | null
   awaiting: string[]
+  awaiting_notes?: string[]
   anchor_at: string
   updated_at: string
 }

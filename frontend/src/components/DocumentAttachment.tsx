@@ -49,19 +49,44 @@ export function DocumentAttachment({ assetId }: { assetId: string }) {
   )
 }
 
-/** Render only known file links and Google editor links; never inject model HTML. */
-export function ChatContent({ content }: { content: string }) {
+// Basic inline Markdown the model writes (**bold**, *italic* / _italic_, `code`). Rendered as React elements,
+// never as HTML: anything else stays literal text.
+const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(__[^_\n]+?__)|(?<![\w*])(\*[^*\s][^*\n]*?\*)(?![\w*])|(?<![\w_])(_[^_\s][^_\n]*?_)(?![\w_])/g
+
+export function InlineMarkdown({ text }: { text: string }) {
+  const out = []
+  let offset = 0
+  for (const match of text.matchAll(INLINE)) {
+    const index = match.index ?? 0
+    if (index > offset) out.push(text.slice(offset, index))
+    const token = match[0]
+    if (match[1]) {
+      out.push(<code key={index} className="rounded bg-black/5 px-1 font-mono text-[0.9em]">{token.slice(1, -1)}</code>)
+    } else if (match[2] || match[3]) {
+      out.push(<strong key={index} className="font-semibold">{token.slice(2, -2)}</strong>)
+    } else {
+      out.push(<em key={index}>{token.slice(1, -1)}</em>)
+    }
+    offset = index + token.length
+  }
+  if (offset < text.length) out.push(text.slice(offset))
+  return <>{out}</>
+}
+
+/** Render only known file links and Google editor links, plus basic inline Markdown; never inject model HTML. */
+export function ChatContent({ content, markdown = true }: { content: string; markdown?: boolean }) {
+  const text = (value: string) => (markdown ? <InlineMarkdown text={value} /> : value)
   const matches = [...content.matchAll(/\[([^\]\n]*)\]\((\/api\/assets\/([a-f0-9]{16})\/raw|https:\/\/(?:docs|drive)\.google\.com\/[^\s)]+)\)/g)]
   const parts = []
   let offset = 0
   for (const match of matches) {
     const index = match.index ?? 0
-    parts.push(<span key={`text-${index}`} className="whitespace-pre-wrap">{content.slice(offset, index)}</span>)
+    parts.push(<span key={`text-${index}`} className="whitespace-pre-wrap">{text(content.slice(offset, index))}</span>)
     parts.push(match[3]
       ? <DocumentAttachment key={`file-${index}`} assetId={match[3]} />
       : <a key={`link-${index}`} href={match[2]} target="_blank" rel="noreferrer" className="text-accent underline">{match[1]}</a>)
     offset = index + match[0].length
   }
-  parts.push(<span key="end" className="whitespace-pre-wrap">{content.slice(offset)}</span>)
+  parts.push(<span key="end" className="whitespace-pre-wrap">{text(content.slice(offset))}</span>)
   return <div className="min-w-0 w-full">{parts}</div>
 }

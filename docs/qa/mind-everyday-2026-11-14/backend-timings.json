@@ -1,0 +1,502 @@
+[
+  {
+    "at": "2026-11-14T18:45:43.033412+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "22c23493-7b06-42fc-91ff-145902adb883",
+    "reason": "user_message",
+    "attempt": "7519e201-de03-5eac-b9c4-30cc6d39ddb1",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "2a700398-5979-58d5-8127-fe63aa596e2b",
+      "reply_chars": 156,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 18,
+      "memory_ms": 1032,
+      "lessons_ms": 35,
+      "prepare_ms": 1090,
+      "total_ms": 3011
+    }
+  },
+  {
+    "at": "2026-11-14T18:45:50.143866+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "2666ae48-e2e6-4da3-a9f4-d09920cfe9c6",
+    "reason": "user_message",
+    "attempt": "506ff353-908d-5d77-8e4d-dd2d3ff2cadf",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "f747c0c8-82ac-5fe3-867d-8df8fee85bce",
+      "reply_chars": 106,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 3,
+      "memory_ms": 518,
+      "lessons_ms": 82,
+      "prepare_ms": 606,
+      "total_ms": 2095
+    }
+  },
+  {
+    "at": "2026-11-14T18:45:57.795562+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "5cb2fd1c-5e3d-4c11-9dc9-b4ec0c5f5770",
+    "reason": "user_message",
+    "attempt": "c23897b3-22a5-5ef8-9f72-ea3a570e2cb9",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "e7a6300d-4219-5bee-acd9-99e3a000eb27",
+      "reply_chars": 263,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 5,
+      "memory_ms": 283,
+      "lessons_ms": 59,
+      "prepare_ms": 349,
+      "total_ms": 1943
+    }
+  },
+  {
+    "at": "2026-11-14T18:46:06.442460+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "5bef786a-fd46-445e-9ce2-a17416af6f31",
+    "reason": "user_message",
+    "attempt": "f3a9d5ed-55ec-5095-ba86-ccca0acb9208",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "947cd3ff-64cd-52c8-9663-06e9914e88a3",
+      "reply_chars": 108,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 2,
+      "memory_ms": 465,
+      "lessons_ms": 93,
+      "prepare_ms": 571,
+      "total_ms": 1952
+    }
+  },
+  {
+    "at": "2026-11-14T18:46:15.360484+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "60baa03b-9cab-4f22-ac19-de9fb44c844a",
+    "reason": "user_message",
+    "attempt": "380bb240-8496-555f-8d8a-ab3df69e5353",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "9327fbd1-6047-5cdd-a991-2ac080b38c2b",
+      "reply_chars": 272,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 6,
+      "memory_ms": 288,
+      "lessons_ms": 35,
+      "prepare_ms": 332,
+      "total_ms": 2006
+    }
+  },
+  {
+    "at": "2026-11-14T18:46:29.451339+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "fe13ecc6-6365-4c2f-b41a-d512c679e49b",
+    "reason": "user_message",
+    "attempt": "3b0c7a09-17aa-5a03-b33e-be1c90bca84e",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "78340b19-8498-5f47-8b0a-f1d7ac0d90ad",
+      "reply_chars": 52,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 9,
+      "memory_ms": 292,
+      "lessons_ms": 27,
+      "prepare_ms": 330,
+      "total_ms": 1602
+    }
+  },
+  {
+    "at": "2026-11-14T18:47:07.440252+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "79ffdbc4-e581-4f83-b913-a9292a9dbf42",
+    "reason": "user_message",
+    "attempt": "06526cc9-e0da-54a0-b960-23556dbbc3f5",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 1,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "f3ffc124-32a7-56c0-af0a-a42349ea97ed",
+      "reply_chars": 188,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 5,
+      "memory_ms": 250,
+      "lessons_ms": 24,
+      "prepare_ms": 280,
+      "total_ms": 1947
+    }
+  },
+  {
+    "at": "2026-11-14T18:47:16.516745+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "f7e8c068-9e49-4b62-8f65-d0d095a590fc",
+    "reason": "user_message",
+    "attempt": "9210846e-4dd7-554d-83cd-304fa90b85be",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 2,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "b0a48bfd-d2ec-580e-88bd-0463c023a6e2",
+      "reply_chars": 56,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 7,
+      "memory_ms": 320,
+      "lessons_ms": 41,
+      "prepare_ms": 369,
+      "total_ms": 1451
+    }
+  },
+  {
+    "at": "2026-11-14T18:47:43.491758+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "74b95769-9175-458c-b138-0bbe8e3e739d",
+    "reason": "user_message",
+    "attempt": "21e71ada-c543-5fe2-95d8-753e69094b7a",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 2,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "071b1151-21ed-5abe-bc14-6f181ff59bb4",
+      "reply_chars": 127,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 5,
+      "memory_ms": 290,
+      "lessons_ms": 30,
+      "prepare_ms": 329,
+      "total_ms": 1788
+    }
+  },
+  {
+    "at": "2026-11-14T18:47:52.917235+00:00",
+    "schema": 1,
+    "component": "mind",
+    "user_id": "bdfb350b-75b2-4f9b-ac89-1ce347d7b2d0",
+    "conversation_id": "21669bf1-28c5-47b0-abde-38f624702536",
+    "turn": "8cd70581-d7cb-43e2-ba10-f371ae74182a",
+    "reason": "user_message",
+    "attempt": "e8af7abc-85b1-5060-a571-d45301298151",
+    "wake": null,
+    "memory": {
+      "status": "no_match",
+      "searched": true,
+      "records": 0,
+      "version": "e3b0c44298fc1c14",
+      "tool_calls": 0
+    },
+    "lessons": {
+      "offered": 2,
+      "left_out": 0,
+      "note": null
+    },
+    "tools": [],
+    "did": {
+      "silent": false,
+      "spoke": true,
+      "thinking_started": [],
+      "scheduled": [],
+      "proposal": null,
+      "moved": [],
+      "dropped": [],
+      "fulfilled": []
+    },
+    "superseded_work": 0,
+    "delivery": {
+      "outcome": "completed",
+      "assistant_message_id": "6bc58ceb-f0fc-5a2d-b051-c9ee343728b1",
+      "reply_chars": 102,
+      "heard_chars": null,
+      "error": null
+    },
+    "model": "gpt-6-luna",
+    "timings": {
+      "supersede_ms": 3,
+      "memory_ms": 287,
+      "lessons_ms": 74,
+      "prepare_ms": 366,
+      "total_ms": 1792
+    }
+  }
+]

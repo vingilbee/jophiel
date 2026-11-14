@@ -291,7 +291,8 @@ def test_she_schedules_coming_back_and_is_woken_later_without_a_message(env):
     message(env, "my interview is on Friday")
 
     async def note(use, context):
-        result = await use("come_back_to", what="ask how the interview went", in_minutes=60 * 24 * 3)
+        result = await use("come_back_to", what="ask how the interview went", asked_by="me",
+                           in_seconds=3 * 24 * 3600)
         assert result.startswith("Scheduled [wake:")
         return "Good luck on Friday!"
 
@@ -313,9 +314,11 @@ def test_she_schedules_coming_back_and_is_woken_later_without_a_message(env):
     drain(env)
 
     async def check_in(use, context):
-        assert context.wake.startswith("You chose to come back to this") and "ask how the interview went" in context.wake
+        assert "came due: something you chose to come back to" in context.wake
+        assert "ask how the interview went" in context.wake
         from app.ai.prompts import build_system_prompt
-        assert "Nobody just wrote to you. You chose to come back to this" in build_system_prompt(context)
+        prompt = build_system_prompt(context)
+        assert "## Now" in prompt and "It was your own idea (optional)" in prompt and "## Why you're awake" in prompt
         return "How did the interview go?"
 
     env.scripts.append(check_in)
@@ -336,8 +339,9 @@ def test_a_reconsideration_about_an_item_goes_when_the_item_closes_and_moves_whe
         memory = {t.name: t for t in build_memory_tools(context.user_id, message_id=context.source_message_id)}
         kept = await memory["note_commitment"].ainvoke({"what": "remind them to call their mum"})
         ref = kept.split("[")[1].split("]")[0]
-        await use("come_back_to", what="remind them about their mum", in_minutes=120, item=ref)
-        moved = await use("come_back_to", what="remind them about their mum", in_minutes=180, item=ref)
+        await use("come_back_to", what="remind them about their mum", asked_by="user", in_seconds=7200, item=ref)
+        moved = await use("come_back_to", what="remind them about their mum", asked_by="user", in_seconds=10800,
+                          item=ref)
         assert "replaces the time you had set" in moved
         closed = await memory["update_item"].ainvoke({"item": ref, "status": "fulfilled",
                                                       "reason": "they called her already"})
@@ -399,3 +403,290 @@ def _say(env, content="Should I take the Berlin job? Think it over."):
 def _work(env, request_id):
     with env.db() as db:
         return {w.kind: w for w in db.scalars(select(CoordinatorWork).where(CoordinatorWork.request_id == request_id))}
+
+
+# --------------------------------------------------------------------------- #
+# Continuity (docs/MIND_CONTINUITY_FOLLOWUP_HANDOFF.md): what a wake is given, the intention's lifecycle, history
+# boundaries and a fresh clock
+# --------------------------------------------------------------------------- #
+
+ZONE = "America/Vancouver"
+STALE = ("- Local time: 03:00 on Monday 02 November 2026 (the middle of the night, America/Vancouver).\n"
+         "- This session has been open 3 minutes; you last exchanged messages moments ago.\n"
+         "- Eyes: closed. You cannot see the user's screen or anything else.")
+
+
+def said(env, text, **payload) -> uuid.UUID:
+    """A user message with its job's payload as the socket builds it (zone, awareness snapshot)."""
+    turn = uuid.uuid4()
+    with env.db() as db:
+        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+        msg = chat_service.add_message(db, conversation=conversation, role="user", content=text, turn_id=turn)
+        chat_service.enqueue_job(db, user_id=env.user.id, conversation=conversation, turn_id=turn,
+                                 user_message_id=msg.id, payload={"content": text, "channel": "web", "zone": ZONE,
+                                                                  **payload})
+    return turn
+
+
+def wakes(env):
+    with env.db() as db:
+        return list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.kind == "wake")
+                               .order_by(CoordinatorWork.created_at)))
+
+
+def evaluations(env):
+    from app.db.models import MindEvaluation
+    with env.db() as db:
+        return list(db.scalars(select(MindEvaluation).order_by(MindEvaluation.finished_at)))
+
+
+def _promise_tools(context):
+    from app.ai.tools.memory import build_memory_tools
+    return {t.name: t for t in build_memory_tools(context.user_id, wake=context.wake is not None,
+                                                  evaluation=context.mind)}
+
+
+def test_a_requested_check_in_wakes_her_with_its_origin_commitment_deadline_and_delivery_state(env):
+    said(env, "In 30 seconds, ask me whether Lantern Finch is ready.")
+
+    async def agree(use, context):
+        result = await use("come_back_to", what="ask whether Lantern Finch is ready", asked_by="user", in_seconds=30)
+        assert result.startswith("Scheduled [wake:") and ZONE in result and "(30 s from now)" in result
+        assert "Kept as your promise [" in result
+        return "Sure, I'll ask in 30 seconds."
+
+    env.scripts.append(agree)
+    run_job(env)
+    [wake] = wakes(env)
+    assert wake.input["asked_by"] == "user" and wake.input["item"] and wake.input["chain"] == str(wake.id)
+    due = datetime.fromisoformat(wake.input["due_at"])
+    assert 29 <= (due - datetime.fromisoformat(wake.input["scheduled_at"])).total_seconds() <= 31  # not rounded
+    _due(env)
+    drain(env)
+
+    async def check_in(use, context):
+        now = context.now
+        assert "It is " in now and f"in {ZONE}" in now  # a fresh clock in their zone
+        assert "They asked for this" in now and "something you agreed to do" in now
+        assert "In 30 seconds, ask me whether Lantern Finch is ready." in now  # the original request
+        assert "that was the time you chose (the deadline), not the time you set it" in now
+        assert "Nothing has been delivered for it yet." in now
+        assert "Their messages since: 0" in now and "still open (open)" in now
+        assert "came due: a check-in they asked you for" in context.wake
+        from app.ai.prompts import build_system_prompt
+        prompt = build_system_prompt(context)
+        assert "aren't waiting on you" not in prompt and "A due commitment is something you" in prompt
+        result = await _promise_tools(context)["update_item"].ainvoke(
+            {"item": wake.input["item"][:8], "status": "fulfilled", "reason": "asked them"})
+        assert result.startswith("Done:") and "it opens again" in result
+        return "Is Lantern Finch ready?"
+
+    env.scripts.append(check_in)
+    assert run_job(env)
+    assert messages(env)[-1] == ("assistant", "Is Lantern Finch ready?")
+    last = evaluations(env)[-1]
+    assert (last.reason, last.outcome, last.delivery) == ("due", "said", "delivered")
+    with env.db() as db:
+        assert db.get(WorkingItem, uuid.UUID(wake.input["item"])).status == "fulfilled"  # delivered: it stands
+
+
+def test_putting_it_off_revises_the_same_intention_with_a_reason_and_one_live_schedule(env):
+    said(env, "Remind me to ask Sam about Lantern Finch in a minute.")
+
+    async def agree(use, context):
+        await use("come_back_to", what="remind them to ask Sam about Lantern Finch", asked_by="user", in_seconds=60)
+        return "Will do."
+
+    env.scripts.append(agree)
+    run_job(env)
+    [first] = wakes(env)
+    _due(env)
+    drain(env)
+
+    async def put_off(use, context):
+        refused = await use("come_back_to", what="remind them", asked_by="user", in_seconds=120,
+                            moves=f"wake:{str(first.id)[:8]}")
+        assert refused.startswith("Not done") and "reason" in refused
+        moved = await use("come_back_to", what="remind them to ask Sam about Lantern Finch", asked_by="user",
+                          in_seconds=120, moves=f"wake:{str(first.id)[:8]}", reason="they said they were driving")
+        assert f"It replaces [wake:{str(first.id)[:8]}] (same intention, revision 1)" in moved
+        return ""
+
+    env.scripts.append(put_off)
+    run_job(env)
+    first_after, second = wakes(env)
+    assert first_after.result["moved_to"] == str(second.id) and first_after.result["moved_reason"]
+    assert second.status == "queued" and second.input["chain"] == str(first.id)
+    assert second.input["item"] == first.input["item"]  # the same promise, not a new one
+    assert second.input["origin_message"] == first.input["origin_message"]  # its original request
+    assert second.input["revisions"][0]["reason"] == "they said they were driving"
+    assert [w.status for w in wakes(env)].count("queued") == 1
+    assert evaluations(env)[-1].outcome == "no_words"
+    _due(env)
+    drain(env)
+
+    async def again(use, context):
+        assert "they said they were driving" in context.now
+        assert "When it came due before" in context.now and "you wrote nothing" in context.now
+        assert "Remind me to ask Sam about Lantern Finch in a minute." in context.now
+        return "Now's a good time to ask Sam about Lantern Finch."
+
+    env.scripts.append(again)
+    run_job(env)
+    assert messages(env)[-1][1].startswith("Now's a good time")
+
+
+def test_letting_go_of_the_wake_that_woke_her_keeps_why(env):
+    said(env, "check on the Lantern Finch build later")
+
+    async def agree(use, context):
+        await use("come_back_to", what="check on the build", asked_by="me", in_seconds=60)
+        return "Okay."
+
+    env.scripts.append(agree)
+    run_job(env)
+    [wake] = wakes(env)
+    _due(env)
+    drain(env)
+
+    async def let_go(use, context):
+        assert "It was your own idea (optional)" in context.now
+        assert await use("drop_come_back", wake=f"wake:{str(wake.id)[:8]}", reason="they already shipped it") \
+            == "Dropped."
+        await use("stay_silent", reason="nothing to add")
+        return ""
+
+    env.scripts.append(let_go)
+    run_job(env)
+    [after] = wakes(env)
+    assert after.result["dropped"]["reason"] == "they already shipped it"
+    assert evaluations(env)[-1].outcome == "silent"
+
+
+def test_a_promise_marked_kept_whose_words_never_arrived_opens_again_and_stays_visible(env):
+    said(env, "ask me in a minute if Lantern Finch is ready")
+
+    async def agree(use, context):
+        await use("come_back_to", what="ask whether Lantern Finch is ready", asked_by="user", in_seconds=60)
+        return "Sure."
+
+    env.scripts.append(agree)
+    run_job(env)
+    [wake] = wakes(env)
+    _due(env)
+    drain(env)
+
+    async def check_in(use, context):
+        await _promise_tools(context)["update_item"].ainvoke(
+            {"item": wake.input["item"][:8], "status": "fulfilled", "reason": "asking now"})
+        with env.db() as db:  # they write while she words it: what she says is fenced off
+            conversation = chat_service.get_conversation(db, user_id=env.user.id,
+                                                         conversation_id=env.conversation.id)
+            chat_service.add_message(db, conversation=conversation, role="user", content="brb", turn_id=uuid.uuid4())
+        return "Is Lantern Finch ready?"
+
+    env.scripts.append(check_in)
+    run_job(env)
+    assert messages(env)[-1] == ("user", "brb")
+    last = evaluations(env)[-1]
+    assert (last.outcome, last.delivery) == ("cancelled", "cancelled")
+    with env.db() as db:
+        item = db.get(WorkingItem, uuid.UUID(wake.input["item"]))
+    assert item.status == "open" and "wasn't delivered (cancelled)" in item.status_reason
+    said(env, "ok I'm back")
+
+    async def look(use, context):
+        assert f"[wake:{str(wake.id)[:8]}] came due" in context.mind_state
+        assert "it was cancelled before anything was delivered" in context.mind_state
+        return "Welcome back. Is Lantern Finch ready?"
+
+    env.scripts.append(look)
+    run_job(env)
+
+
+def test_after_one_message_of_silence_the_next_request_is_its_own_current_message(env, monkeypatch):
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from app.ai.messages import to_lc_messages
+
+    said(env, "Don't reply to this message.")
+
+    async def quiet(use, context):
+        await use("stay_silent", reason="they asked for no reply to this message")
+        return ""
+
+    env.scripts.append(quiet)
+    run_job(env)
+    said(env, "Reply with exactly: Ready.")
+
+    async def ready(use, context):
+        return "Ready."
+
+    env.scripts.append(ready)
+    run_job(env)
+    history = env.seen[-1].messages
+    assert [t["role"] for t in history] == ["user", "record", "user"]  # never merged into one turn
+    assert history[0]["content"] == "Don't reply to this message."  # the user's text, untouched
+    assert "you chose silence" in history[1]["content"] and "they asked for no reply" in history[1]["content"]
+    assert "CURRENT user message" in history[2]["marker"] and "CURRENT" not in history[0]["marker"]
+    lc = to_lc_messages(history)
+    assert [type(m) for m in lc] == [SystemMessage, HumanMessage, SystemMessage, SystemMessage, HumanMessage]
+    assert lc[-1].content == "Reply with exactly: Ready." and lc[-2].content.startswith("[App record")
+    assert messages(env)[-1] == ("assistant", "Ready.")
+    # The same boundaries after a reload and when the window is cut to the last two messages.
+    monkeypatch.setattr(get_settings(), "short_term_memory_messages", 2)
+    with env.db() as db:
+        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+        reloaded = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
+    assert [t["role"] for t in reloaded] == ["user", "assistant"]
+    assert reloaded[0]["content"] == "Reply with exactly: Ready."
+
+
+def test_a_silent_evaluation_stays_after_its_message_when_the_clocks_disagree(env):
+    """Messages are timed by the database's clock, evaluations by the worker's: a record is placed by the
+    message it answered, so a worker clock behind the database's can't drop it or move it before the message."""
+    from app.db.models import MindEvaluation
+
+    said(env, "Don't reply to this message.")
+
+    async def quiet(use, context):
+        await use("stay_silent", reason="they asked for no reply")
+        return ""
+
+    env.scripts.append(quiet)
+    run_job(env)
+    with env.db() as db:
+        for row in db.scalars(select(MindEvaluation)):
+            row.started_at -= timedelta(minutes=5)
+            row.finished_at -= timedelta(minutes=5)
+        db.commit()
+    said(env, "Now say hi.")
+    with env.db() as db:
+        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+        history = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
+    assert [t["role"] for t in history] == ["user", "record", "user"]
+    assert "you chose silence" in history[1]["content"]
+
+
+def test_every_evaluation_reads_a_fresh_clock_never_a_queued_snapshot(env):
+    said(env, "should I take the Berlin job?", awareness=STALE)
+
+    async def start(use, context):
+        assert "Local time" not in context.awareness and "Eyes: closed" in context.awareness
+        assert "It is " in context.now and "Their message arrived at" in context.now
+        await use("think_it_over", about="the Berlin job")
+        return "Let me think."
+
+    env.scripts.append(start)
+    run_job(env)
+    drain(env)
+
+    async def wake(use, context):
+        aw = context.awareness
+        assert "Local time" not in aw and "This session" not in aw and "As their app last reported it" in aw
+        local = datetime.now(timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo(ZONE))
+        assert f"on {local:%A %d %B %Y} in {ZONE}" in context.now
+        assert "Your previous evaluation in this conversation ended" in context.now
+        return ""
+
+    env.scripts.append(wake)
+    run_job(env)

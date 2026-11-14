@@ -507,6 +507,19 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
     return entry, children
 
 
+def reopen_undelivered(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str) -> WorkingItem | None:
+    """A promise she marked fulfilled in an evaluation whose words never reached them (cancelled, failed): what
+    she meant to do didn't happen, so it is open again, with why. Returns it, or None when it wasn't closed as
+    fulfilled (nothing to undo)."""
+    entry = item(db, user_id, item_id, lock=True)
+    if entry.kind != "commitment" or entry.status != "fulfilled":
+        return None
+    _set_status(db, entry, WORKING_ITEM_STATUSES[entry.kind][0][0],
+                f"marked fulfilled, but what you said wasn't delivered ({delivery})", _now())
+    _log({"op": "reopen_undelivered", "user": str(user_id), "item": str(entry.id), "delivery": delivery})
+    return entry
+
+
 def link(db: Session, user_id: uuid.UUID, *, role: str, source: Source, item_id: uuid.UUID | None = None,
          event_id: int | None = None) -> bool:
     """An evidence link, if the source exists and is this user's. Never fails the caller: a missing source

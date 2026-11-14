@@ -938,13 +938,15 @@ async def chat_ws(websocket: WebSocket) -> None:
                 "user_message_id": str(user_message.id),
                 "conversation_id": str(conversation.id),
             })
-            history = chat_service.get_history(db, conversation=conversation)
             resolved_id = last_conversation_id = conversation.id
             # Derived after the user's message is persisted, so "you last spoke
             # moments ago" is true of *this* turn rather than the previous one.
             state = awareness_service.build(
                 db, user_id=user_id, session=session
             )
+            history = chat_service.get_history(
+                db, conversation=conversation, records=True, zone=state.zone_name,
+                current_message_id=user_message.id)
             # Resolved per turn, not per connection: Google access tokens last
             # about an hour, and a chat socket can outlive that. None when the
             # user hasn't connected Google — the agent then runs without the
@@ -986,7 +988,8 @@ async def chat_ws(websocket: WebSocket) -> None:
             asset_ids=tuple(attached_assets),
             blender_enabled=settings.blender_tools_enabled,
             voice=voice,
-            awareness=state.describe(),
+            awareness=mind_turn.fresh_awareness(state.describe(), wake=False),
+            now=await asyncio.to_thread(mind.situation),
             long_term_memory=mind.long_term_memory,
             personality=await asyncio.to_thread(chat_worker._personality),
             working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),

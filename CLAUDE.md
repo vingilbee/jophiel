@@ -9,7 +9,9 @@ the shared-state pipeline, appraisal and mood were removed. Every wake (a messag
 finished, a thought or proposal from another part of her, a reconsideration she scheduled) is one evaluation
 of the agent loop with her prompt and tools. See `docs/MIND_ARCHITECTURE.md`. Personality is text-only
 `core_memory.profile`, cached once per process by `services/personality.py`. Apply migrations `a6d2f8c4e9b1`
-and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version.
+and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14,
+"Continuity follow-up" in `docs/MIND_ARCHITECTURE.md`): migration `c8e4a1f7b3d2` (`mind_evaluations`,
+`learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -345,7 +347,7 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - **Image store:** a per-user directory (`<root>/<user_id>/<image_id>`), referred to by opaque `image_id`. Screen frames are `kind="screen"`, with short retention.
 - **Chat:** history lives in Postgres. The client sends only the new message. A WebSocket hands each turn to the external chat worker through Redis Streams. Postgres is the source of truth.
 - **Message order is a database fact:** a trigger allocates `chat_messages.conversation_sequence`. Never set it in code, and never order a conversation by timestamp alone.
-- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` merges consecutive same-role turns.
+- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` never merges turns; with `records=True` (her mind) each turn carries an app-record marker and silent evaluations appear as `record` turns, rendered as system messages (`ai/messages.py`).
 - **Awareness, the eye, nudges, voice page, WhatsApp:** see `docs/DECISIONS.md`. Client-reported senses never authorize anything.
 - **Deployment / CI:** local only, no CI yet.
 

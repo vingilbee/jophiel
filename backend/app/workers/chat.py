@@ -170,7 +170,8 @@ async def _generate(job: ChatJob) -> None:
             return
         history = chat_service.get_history(
             db, conversation=conversation, up_to_message_id=job.user_message_id,
-            up_to_job_id=job.id,
+            up_to_job_id=job.id, records=True, zone=payload.get("zone"),
+            current_message_id=None if payload.get("phase") == "follow_up" else job.user_message_id,
         )
         user = db.get(User, job.user_id)
         gmail_token = await google.get_access_token(db, user_id=job.user_id)
@@ -228,7 +229,10 @@ async def _generate(job: ChatJob) -> None:
         asset_ids=tuple(payload.get("asset_ids", [])),
         blender_enabled=settings.blender_tools_enabled,
         voice=bool(payload.get("voice", False)),
-        awareness=payload.get("awareness", ""),
+        # Their app's senses without its clock (a queued job's snapshot is never the clock): "Now" is read here.
+        awareness=mind_turn.fresh_awareness(payload.get("awareness", ""), wake=follow_up,
+                                            reported_at=payload.get("awareness_at")),
+        now=await asyncio.to_thread(mind.situation),
         long_term_memory=mind.long_term_memory,
         personality=await asyncio.to_thread(_personality),
         working_memory=working_memory,

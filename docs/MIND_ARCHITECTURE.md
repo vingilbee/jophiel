@@ -30,7 +30,19 @@ due or arrived.
 ### What each evaluation is given (`services/mind_turn.py`)
 
 - Her text personality (`services/personality.current()`: one cached snapshot per process).
-- The conversation (the chat history), her working memory's view (goals, promises, open questions, intentions),
+- **Now** (`Evaluation.situation`, read when the evaluation runs, never from a queued job's snapshot): the clock in
+  the user's IANA zone (UTC said as UTC when it isn't known), her previous evaluation in the conversation and what
+  came of it, their latest message, and the event: the CURRENT message and when it arrived, or for a wake its id,
+  time and cause. A due wake adds, from records only: who asked for it (`asked_by`), the deadline she chose against
+  the time she set it and now (lateness), their original message, urgency only as they stated it, the promise it is
+  tied to and its status, earlier postponements with their reasons, earlier attempts and whether anything was
+  delivered, and what changed since it was first set (messages, evaluations); what isn't recorded is said unknown.
+  The awareness snapshot loses its clock line (and, on a wake, is labelled as reported earlier).
+- The conversation: one turn per stored message, never merged, each preceded by an app record of when it was said
+  (`chat.get_history(records=True)`; the one being answered is marked CURRENT). An evaluation that left no message
+  (silence, nothing written, cancelled or failed) appears in place as an app record (`mind_evaluations`), never as
+  words she said. App records are system-role messages, so user text can't forge them.
+- Her working memory's view (goals, promises, open questions, intentions),
   and what is under way: thinking she started and reconsiderations she scheduled (`Evaluation.state`).
 - Memory's check for this moment (`recall_references.for_reply`: the answer before's references, standing
   constraints, a search for the message or for what the wake is about). A failed search is said as failed and
@@ -52,10 +64,19 @@ The database is the record between wakes; nothing lives only in process memory o
   unfinished thinking moot (`supersede_older`).
 - **Continuity** (`note_question`, `note_commitment`, `note_intention`, `update_item`, `set_goal`, `switch_context`):
   working memory persists it. A promise of hers she keeps in a wake (with no user message) can be closed there.
-- **Coming back** (`come_back_to`, `drop_come_back`): a `wake` row due at the time she chose (at most 60 days ahead),
-  optionally tied to a working item: closing the item drops it, scheduling again for it moves it. It survives
-  restarts, isn't superseded by new messages, and a wake that comes due while workers were down runs late, marked
-  as late.
+- **Coming back** (`come_back_to`, `drop_come_back`): a `wake` row due at the time she chose (at most 60 days ahead):
+  `in_seconds`, or `at` as an exact local time (resolved with the user's zone; ambiguous or nonexistent local times,
+  an unknown zone for a local time, and past times are refused; `app/ai/mind/when.py`); the tool returns the exact
+  time kept. `asked_by`: `user` (a check-in they asked for: kept as her promise in working memory unless she names
+  its item) or `me` (optional). Optionally tied to a working item: closing the item drops it. One intention keeps one
+  identity (`chain`) across postponements: `moves` (with a reason) revises a pending wake or the one that just woke
+  her, carrying its purpose, original request, item and who asked; the chain never has two live schedules. Dropping
+  keeps her reason, also on the wake that woke her. It survives restarts, isn't superseded by new messages, and a
+  wake that comes due while workers were down runs late, marked as late.
+- **Outcomes, not intentions:** every evaluation leaves a `mind_evaluations` row (said / partial / silent /
+  no_words / cancelled / failed, and the delivery). A promise she marks fulfilled counts only when her words are
+  delivered: otherwise it opens again with the delivery's status. Due wakes that weren't carried through (and
+  weren't moved or let go) stay in her state for a day, with what actually happened.
 - **Proposals** (`decide_proposal`: accept an option, decline, or defer by time or until the user writes) and a live
   experiment (`experiment`: pause, resume, stop). A wake that ends without a decision is `undecided`: the proposal is
   presented again, and after four tries put off with that reason.
@@ -111,4 +132,7 @@ on first use). Nothing serves a student model any more: stop any `student_model.
 
 ## Continuity follow-up
 
-See [MIND_CONTINUITY_FOLLOWUP_HANDOFF.md](MIND_CONTINUITY_FOLLOWUP_HANDOFF.md) for the November 14 agreed wake-context, time-awareness, history-boundary, and E2E follow-up work. These follow-up changes are specified, not yet implemented by this handoff.
+The 2026-11-14 continuity follow-up is implemented as described
+above (Now, history boundaries, the intention's lifecycle, scheduling), with migration `c8e4a1f7b3d2`
+(`mind_evaluations`; `learning_assessments.awaiting_notes`: explanations of missing evidence moved out of
+`awaiting`, which holds only `attempt:<uuid>` / `execution:<uuid>`, each resolved against its own store).

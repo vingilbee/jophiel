@@ -89,32 +89,76 @@ def build_mind_tools(ev) -> list[BaseTool]:
             return "Stopped." if stopped else "Not done: no thinking under way with that id."
         return await _run(do)
 
+    waking = (ev.wake or {}).get("work_id") if (ev.wake or {}).get("kind") == "wake" else None
+
     @tool
-    async def come_back_to(what: str, in_minutes: int, item: str | None = None) -> str:
+    async def come_back_to(what: str, asked_by: Literal["user", "me"], in_seconds: int | None = None,
+                           at: str | None = None, item: str | None = None, moves: str | None = None,
+                           reason: str | None = None, their_urgency: str | None = None) -> str:
         """Choose to come back to something later without waiting for them to write: you'll be woken then, with
         the situation as it is by then, and decide what it calls for (say something, act, put it off again, or
-        let it go). Use it for whatever you'd otherwise lose: checking in after a while, keeping a promise at a
+        let it go). Use it for whatever you'd otherwise lose: a check-in they asked for, keeping a promise at a
         time, seeing how something went, picking a thought back up. This ends nothing now and holds nothing open.
 
         what: what to come back to and why, in your own words, enough to pick it up cold.
-        in_minutes: how long from now (when is your judgment; at most 60 days).
+        asked_by: "user" when they asked you for it (a check-in or reminder they requested: a promise you agree to
+        keep; it's kept as one in your working memory unless you give its item), "me" when it's your own idea
+        (optional: you may let it go).
+        When: exactly one of
+          in_seconds: how long from now, in seconds (30 for thirty seconds; at most 60 days);
+          at: an exact time: "YYYY-MM-DD HH:MM" in their local time, "HH:MM" for today, or with a UTC offset.
+        The result says the exact time it was kept for: tell them that time, not a rounded one.
         item: the id in brackets of the promise, intention or question in your working memory it's about, if any:
-        closing that item drops this, and scheduling again for the same item moves it.
+        closing that item drops this.
+        moves: to postpone or re-time something already scheduled (including the one that just woke you), its
+        id in brackets ("wake:1a2b3c4d"): it stays the same intention, with its original request, and only one
+        time stays live. reason: why you're moving it (required with moves).
+        their_urgency: only what they said themselves about urgency or consequences, in their words.
         """
+        from app.ai.mind import when as W
+
         def do(db) -> str:
-            if in_minutes is None or in_minutes < 0 or in_minutes > MAX_MINUTES:
-                raise ValueError("in_minutes must be between 0 and 86400 (60 days)")
+            now = datetime.now(timezone.utc)
+            due = W.resolve(in_seconds=in_seconds, at=at, zone=ev.zone, now=now)
+            moving = None
+            if moves:
+                moving = coordinator.find_wake(db, ev.user_id, moves, also=waking)
+                if moving is None:
+                    raise ValueError(f"nothing scheduled with the id {moves}")
+                if not (reason or "").strip():
+                    raise ValueError("say why you're moving it (reason)")
             entry = memory_manager.item(db, ev.user_id, item) if item else None
             if entry is not None and entry.closed_at is not None:
                 raise ValueError(f"that {entry.kind} is already {entry.status}")
+            kept = ""
+            inherited_item = (moving.input or {}).get("item") if moving is not None else None
+            if entry is None and inherited_item is None and asked_by == "user":
+                # What they asked for is a promise of hers: kept where promises live, so it can be fulfilled,
+                # revised or cancelled like any other.
+                try:
+                    entry = memory_manager.note_commitment(
+                        db, ev.user_id, what, owner="columbina",
+                        source=memory_manager.Source("message", ev.trigger_message_id)
+                        if ev.trigger_message_id and not ev.is_wake else None)
+                    kept = f' Kept as your promise [{memory_manager.ref(entry)}].'
+                except memory_manager.MemoryError as exc:
+                    kept = f" (Not kept as a promise: {exc.message}.)"
             row = coordinator.schedule_wake(
-                db, user_id=ev.user_id, conversation_id=ev.conversation_id, about=what,
-                due_at=datetime.now(timezone.utc) + timedelta(minutes=in_minutes),
+                db, user_id=ev.user_id, conversation_id=ev.conversation_id, about=what, due_at=due,
                 item_id=entry.id if entry is not None else None, origin=f"turn:{ev.request_id}", zone=ev.zone,
-                channel=ev.channel)
+                channel=ev.channel, asked_by="user" if asked_by == "user" else "mind",
+                origin_message=ev.trigger_message_id if not ev.is_wake else None,
+                their_urgency=their_urgency, moves=moving, reason=reason)
             ev.scheduled.append(str(row.id))
-            moved = " (it replaces the time you had set for that item)" if row.input.get("moved") else ""
-            return f"Scheduled [wake:{str(row.id)[:8]}]: you'll be woken in {in_minutes} min{moved}."
+            if moving is not None:
+                ev.deferred.append({"from": str(moving.id), "to": str(row.id), "reason": reason})
+            moved = (f" It replaces [wake:{str(moving.id)[:8]}] (same intention, revision "
+                     f"{len(row.input.get('revisions') or [])})." if moving is not None else
+                     " It replaces the time you had set for that item." if row.input.get("moved") else "")
+            hint = ("" if moving is not None or not waking else
+                    " This is a new, separate wake: to postpone the one that woke you instead, use moves.")
+            return (f"Scheduled [wake:{str(row.id)[:8]}] for {W.describe(due, ev.zone)} "
+                    f"({W.span((due - now).total_seconds())} from now).{moved}{kept}{hint}")
         try:
             result = await _run(do)
         except memory_manager.MemoryError as exc:
@@ -124,10 +168,16 @@ def build_mind_tools(ev) -> list[BaseTool]:
 
     @tool
     async def drop_come_back(wake: str, reason: str) -> str:
-        """Drop something you had scheduled to come back to. wake: its id in brackets ("wake:1a2b3c4d")."""
+        """Drop something you had scheduled to come back to, or let go of the one that just woke you, with why.
+        wake: its id in brackets ("wake:1a2b3c4d"). A promise it was about stays as it is: change that with
+        update_item if it's no longer owed."""
         def do(db) -> str:
-            row = coordinator.cancel_wake(db, ev.user_id, wake, reason=reason)
-            return "Dropped." if row is not None else "Not done: nothing scheduled with that id."
+            row = coordinator.cancel_wake(db, ev.user_id, wake, reason=reason, also=waking)
+            if row is None:
+                return "Not done: nothing scheduled with that id."
+            ev.dropped.append({"wake": str(row.id), "reason": reason})
+            item = (row.input or {}).get("item")
+            return "Dropped." + (f" The item [{item[:8]}] it was about is unchanged." if item else "")
         return await _run(do)
 
     tools += [think_it_over, stop_thinking, come_back_to, drop_come_back]

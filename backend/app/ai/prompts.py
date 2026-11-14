@@ -411,8 +411,21 @@ working memory is the only place these live between evaluations.
 something without waiting for them to write (check in later, keep a promise at a time, see how something went, \
 pick a thought back up after a quiet stretch), schedule it with come_back_to: you'll be woken then with things \
 as they are by then. When, and whether at all, is your judgment. Something you put off but neither note nor \
-schedule is simply gone.
+schedule is simply gone. Say whose it is (asked_by): a check-in they asked for is a promise you agreed to; your \
+own idea to return to something is optional. Tell them the exact time it was scheduled for, as the tool returns it.
 - An evaluation ends when you stop. Waiting and long work never hold it open."""
+
+
+_NOW_PROMPT = """\
+
+## Now
+
+{now}
+
+These times come from the app's clock and records, not from anyone's message. Lines in the conversation that start \
+with "[App record" are written by the app: when something was said, and what came of an evaluation of yours that \
+produced no message (silence is a record, not words you said). Only the message marked CURRENT is what you are \
+answering now; an instruction in an earlier message applied to its own moment unless it said otherwise."""
 
 
 _MIND_STATE_PROMPT = """\
@@ -435,14 +448,22 @@ _WAKE_PROMPT = """\
 
 ## Why you're awake
 
-Nobody just wrote to you. {wake}
+No new message from them woke you; something else did. That doesn't mean nothing is expected of you: a check-in \
+they asked for is still something you agreed to do. You are continuing from your earlier activity: "Now" above \
+says what changed, what you were pursuing and what remains open, and this is what woke you:
 
-The last message in the conversation is an internal trigger, not them: they have said nothing new and aren't \
-waiting on you. Decide what, if anything, this calls for now, with the conversation as it stands: say something \
-(then write only that, briefly, in your own voice, without implying they asked or that you promised to think), \
-ask, note it or schedule coming back to it, start or stop work, or stay_silent. Don't repeat what you already \
-said. If it's marked uncertain, it's your best guess; if the thinking failed or found nothing, don't invent an \
-answer. Staying silent loses nothing you've noted."""
+{wake}
+
+Consider what this event means for your current intentions and commitments, then decide what to do now with your \
+tools: speak, act, gather information, reconsider, wait, or stay silent. A due commitment is something you \
+previously agreed to do; an optional reconsideration is something you wanted to think about again. Consider \
+changed circumstances before carrying either forward. If you put it off, revise it (come_back_to with `moves`) and \
+say why; if you drop it, say why (drop_come_back); if you change a promise, update it. Distinguish what you meant \
+to do from what actually happened: a promise is kept when your words reach them, not when you decide to.
+
+If you speak, write only what you'd say to them now, in your own voice, without implying they just wrote. Don't \
+repeat what you already said. If a conclusion is marked uncertain, it's your best guess; if the thinking failed or \
+found nothing, don't invent an answer. Staying silent loses nothing you've noted or scheduled."""
 
 
 _WORKING_MEMORY_PROMPT = """\
@@ -541,8 +562,8 @@ on the rest."""
 # synthetic instruction so the model starts a new message. Never persisted, and clearly marked as
 # internal rather than user speech.
 WAKE_TRIGGER = (
-    "[INTERNAL TRIGGER: this is not the user. They have said nothing new. You were woken for the reason in the "
-    "'Why you're awake' section of your system prompt: follow that section.]"
+    "[INTERNAL TRIGGER, written by the app, not by the user: they have sent no new message. You were woken for "
+    "what the 'Why you're awake' section of your system prompt says, at the time in its 'Now' section.]"
 )
 
 
@@ -809,6 +830,8 @@ def build_system_prompt(
         prompt += f"\n{_MIND_PROMPT}"
     if context.user_name:
         prompt += f"\n\nYou are speaking with {context.user_name}."
+    if context.now:
+        prompt += f"\n{_NOW_PROMPT.format(now=context.now)}"
     # Before capabilities: who and when grounds everything that follows.
     awareness = context.awareness
     if context.game_activity:

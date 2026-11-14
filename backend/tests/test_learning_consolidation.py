@@ -70,7 +70,9 @@ def test_successful_and_ordinary_stretches_reach_shared_assessment_with_retry_sa
         gathered = LA.gather(db, rows[0], LA.Plan())
         text = A.render(gathered.ev)
         assert "crafted a table" in text and "ordinary movement" in text
-        assert "trajectory missing or expired" in str(gathered.awaiting)
+        # An explanation, not something arriving later: a note, never an awaited reference.
+        assert "trajectory missing or expired" in str(gathered.notes)
+        assert "trajectory missing or expired" not in str(gathered.awaiting)
         assert db.scalar(select(func.count()).select_from(M.GameReflectionJob)) == 0
         assert db.scalar(select(func.count()).select_from(M.GameLesson)) == 0
         assert gathered.ev.targets["s1"].kind == "stretch"

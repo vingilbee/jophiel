@@ -106,6 +106,9 @@ class AgentRuntimeContext:
     lessons: str | None = None
     mind: Any = None
     wake: str | None = None
+    # The clock and what caused this evaluation (``mind_turn.situation``): read fresh when the evaluation runs,
+    # never from a queued job's awareness snapshot.
+    now: str | None = None
     source_message_id: uuid.UUID | None = None
 
     # --- Eyes ---

@@ -29,10 +29,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.config import get_settings
-from app.db.models import ChatJob, ChatMessage, Conversation
+from app.db.models import ChatJob, ChatMessage, Conversation, CoordinatorWork, MindEvaluation, WorkingItem
 from app.db.session import SessionLocal
 from app.services import coordinator, learning_capture, recall_references
 
@@ -78,6 +79,9 @@ class Evaluation:
     pending: tuple[coordinator.PendingWork, ...] = ()  # thinking she started in this evaluation
     scheduled: list[str] = field(default_factory=list)  # reconsiderations she scheduled (work ids)
     proposal_decision: str | None = None  # accept / decline / defer, on a proposal wake
+    deferred: list[dict[str, Any]] = field(default_factory=list)  # wakes she moved: from, to, reason
+    dropped: list[dict[str, Any]] = field(default_factory=list)  # wakes she dropped or let go, with why
+    fulfilled: list[uuid.UUID] = field(default_factory=list)  # promises she marked fulfilled (count once delivered)
 
     # --- what the prompt reads -------------------------------------------------------------- #
 
@@ -124,6 +128,19 @@ class Evaluation:
             logger.exception("mind_turn: reading her pending state failed")
             return "(What's under way couldn't be read just now: don't assume nothing is.)"
 
+    def situation(self) -> str:
+        """The clock and what caused this evaluation, read now (never from a queued job's snapshot): the "Now"
+        section of her prompt. Never raises: what couldn't be read is said as such."""
+        now = datetime.now(timezone.utc)
+        try:
+            with SessionLocal() as db:
+                return _situation(db, self, now)
+        except Exception:  # noqa: BLE001
+            logger.exception("mind_turn: reading the situation failed")
+            from app.ai.mind import when as W
+            return (f"- It is {W.describe(now, self.zone)}.\n- What happened since your last evaluation couldn't be "
+                    "read just now: don't assume nothing changed.")
+
     def event(self) -> dict[str, Any]:
         """The ``route`` frame for the turn stream: status only, so a client can show what memory gave."""
         return {"type": "route", "route": "mind", "recall": self.memory_status,
@@ -150,6 +167,8 @@ def _ago(seconds: float) -> str:
 
 
 def _state(db, ev: Evaluation) -> str | None:
+    from app.ai.mind import when as W
+
     now = datetime.now(timezone.utc)
     lines = []
     for work in coordinator.thinking_for(db, ev.user_id, ev.conversation_id):
@@ -159,11 +178,256 @@ def _state(db, ev: Evaluation) -> str | None:
         lines.append(f"- Thinking you started [work:{str(work.id)[:8]}], {_WORK_WORDS.get(work.status, work.status)}: "
                      f"{about}. You haven't reached a conclusion on it: you'll be woken when it ends.")
     for wake in coordinator.scheduled_wakes(db, ev.user_id):
-        due = wake.next_attempt_at
-        due = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
-        when = f"in {_ago((due - now).total_seconds())}" if due > now else "now due"
-        lines.append(f"- You'll come back to [wake:{str(wake.id)[:8]}] {when}: {wake.input.get('about', '')[:200]}")
+        due = _utc(wake.next_attempt_at)
+        when = (f"at {W.describe(due, ev.zone)} (in {W.span((due - now).total_seconds())})" if due > now
+                else "now due")
+        whose = {"user": " (they asked for it)", "mind": " (your own idea)"}.get((wake.input or {}).get("asked_by"), "")
+        lines.append(f"- You'll come back to [wake:{str(wake.id)[:8]}] {when}{whose}: "
+                     f"{wake.input.get('about', '')[:200]}")
+    lines += _unsettled(db, ev, now)
     return "\n".join(lines) or None
+
+
+def _unsettled(db, ev: Evaluation, now: datetime) -> list[str]:
+    """Wakes of the last day that came due and weren't carried through (her words not delivered, silence on a
+    check-in they asked for), with nothing scheduled after them and not let go: what actually happened, so it can
+    be reconsidered. Read from records; at most four."""
+    rows = list(db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == ev.user_id, CoordinatorWork.kind == "wake",
+        CoordinatorWork.status.in_(("completed", "expired")),
+        CoordinatorWork.updated_at >= now - timedelta(days=1)).order_by(CoordinatorWork.updated_at.desc()).limit(12)))
+    out = []
+    for work in rows:
+        result = work.result or {}
+        if result.get("moved_to") or result.get("dropped"):
+            continue
+        attempt = db.scalar(select(MindEvaluation).where(MindEvaluation.work_id == work.id).limit(1))
+        if attempt is None or attempt.delivery in ("delivered", "partial"):
+            continue
+        if attempt.outcome in ("silent", "no_words") and (work.input or {}).get("asked_by") != "user":
+            continue  # her own optional idea, which she chose to let pass
+        item = db.get(WorkingItem, uuid.UUID(work.input["item"])) if (work.input or {}).get("item") else None
+        if item is not None and item.closed_at is not None:
+            continue
+        out.append(f"- [wake:{str(work.id)[:8]}] came due {_when(attempt.finished_at, ev.zone, now)}: "
+                   f"{_did(attempt)}. Nothing is scheduled for it now: {(work.input or {}).get('about', '')[:160]}")
+        if len(out) == 4:
+            break
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Now: the clock and what caused this evaluation, from records
+# --------------------------------------------------------------------------- #
+
+_REASON_WORDS = {"user_message": "their message", "work_result": "thinking you started ending",
+                 "thought": "a thought from your background thinking", "proposal": "a proposal from another part of you",
+                 "conflict": "memory noticing a disagreement", "finding": "a security finding",
+                 "due": "something you scheduled coming due"}
+_DID_WORDS = {"said": "you spoke", "partial": "you spoke, but were stopped part way",
+              "silent": "you chose silence; no words were delivered",
+              "no_words": "you wrote nothing; no words were delivered",
+              "cancelled": "it was cancelled before anything was delivered",
+              "failed": "it failed; nothing was delivered"}
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _when(value: datetime | None, zone: str | None, now: datetime) -> str:
+    from app.ai.mind import when as W
+
+    value = _utc(value)
+    if value is None:
+        return "an unrecorded time"
+    same_day = W.describe(value, zone)[:10] == W.describe(now, zone)[:10]
+    text = W.describe(value, zone, date=not same_day)
+    delta = (now - value).total_seconds()
+    return f"{text} ({W.span(delta)} {'ago' if delta >= 0 else 'from now'})"
+
+
+def _did(row: MindEvaluation) -> str:
+    return _DID_WORDS.get(row.outcome, row.outcome) + (
+        f' ("{row.silence_reason}")' if row.outcome == "silent" and row.silence_reason else "")
+
+
+def _situation(db, ev: Evaluation, now: datetime) -> str:
+    from app.ai.mind import when as W
+
+    zone = ev.zone if W.zone_of(ev.zone) is not None else None
+    local = now.astimezone(W.zone_of(zone)) if zone else now
+    lines = [f"- It is {local:%H:%M:%S} on {local:%A %d %B %Y}"
+             + (f" in {zone} ({now:%H:%M:%S} UTC)." if zone else " UTC. Their time zone isn't known: times here are UTC.")]
+    began = (now - ev.started_at).total_seconds()
+    if began >= 2:
+        lines.append(f"- This evaluation began {W.span(began)} ago (its preparation took that long).")
+    if ev.conversation_id is not None:
+        previous = db.scalar(select(MindEvaluation).where(
+            MindEvaluation.conversation_id == ev.conversation_id, MindEvaluation.turn_id != ev.request_id)
+            .order_by(MindEvaluation.finished_at.desc()).limit(1))
+        if previous is not None:
+            lines.append(f"- Your previous evaluation in this conversation ended {_when(previous.finished_at, zone, now)}"
+                         f", woken by {_REASON_WORDS.get(previous.reason, previous.reason)}: {_did(previous)}.")
+        else:
+            lines.append("- There's no earlier evaluation of yours on record in this conversation.")
+        last = db.scalar(select(ChatMessage).where(ChatMessage.conversation_id == ev.conversation_id,
+                                                   ChatMessage.role == "user")
+                         .order_by(ChatMessage.conversation_sequence.desc()).limit(1))
+        if last is not None and (ev.is_wake or last.id != ev.trigger_message_id):
+            lines.append(f"- Their latest message was at {_when(last.created_at, zone, now)}.")
+    lines.append("")
+    lines.append("EVENT")
+    if not ev.is_wake:
+        message = db.get(ChatMessage, ev.trigger_message_id) if ev.trigger_message_id else None
+        if message is not None:
+            lines.append(f"- Their message arrived at {_when(message.created_at, zone, now)}. It is the CURRENT "
+                         "message, the last one in the conversation: this evaluation answers it.")
+        else:
+            lines.append("- Their message (the last one in the conversation) woke you.")
+        return "\n".join(lines)
+    info = ev.wake or {}
+    work = db.get(CoordinatorWork, uuid.UUID(info["work_id"])) if info.get("work_id") else None
+    if work is None:
+        lines.append(f"- {_REASON_WORDS.get(ev.reason, ev.reason)} woke you (its record couldn't be read).")
+        return "\n".join(lines)
+    if work.kind == "wake":
+        lines += _due(db, ev, work, zone, now)
+    else:
+        lines.append(f"- {_REASON_WORDS.get(ev.reason, ev.reason).capitalize()} [work:{str(work.id)[:8]}], "
+                     f"recorded at {_when(work.updated_at, zone, now)}. What it says is under \"Why you're awake\".")
+        changed = _since(db, ev, _utc(work.created_at), zone, now)
+        if changed:
+            lines += ["", f"CHANGES SINCE IT STARTED ({_when(work.created_at, zone, now)})", *changed]
+    return "\n".join(lines)
+
+
+def _due(db, ev: Evaluation, work: CoordinatorWork, zone: str | None, now: datetime) -> list[str]:
+    """A wake she scheduled, come due: who wanted it and why, its deadline against now, what was promised and how
+    it stands, what was attempted for it, and what changed since. Every line is read from a record; what isn't
+    recorded is said to be unknown."""
+    inp = work.input or {}
+    due = _parse(inp.get("due_at")) or _utc(work.next_attempt_at)
+    scheduled = _parse(inp.get("scheduled_at"))
+    first = _parse(inp.get("first_scheduled_at")) or scheduled
+    late = (now - due).total_seconds() if due else None
+    out = [f"- What came due: [wake:{str(work.id)[:8]}]: {inp.get('about') or ''}",
+           f"- It was set at {_when(scheduled, zone, now)} for {_when(due, zone, now)}: that was the time you chose "
+           "(the deadline), not the time you set it."]
+    if late is not None:
+        out.append("- It is on time." if late < 60 else
+                   f"- It is {_span(late)} late: you couldn't be woken at the time. Check whether it still matters.")
+    asked = inp.get("asked_by")
+    out += ["", "PURPOSE"]
+    if asked == "user":
+        out.append("- They asked for this: it's something you agreed to do for them, not an idea of your own.")
+    elif asked == "mind":
+        out.append("- It was your own idea (optional): nobody asked you for it.")
+    else:
+        out.append("- Who asked for it isn't recorded (it was scheduled before that was kept).")
+    if inp.get("purpose") and inp.get("purpose") != inp.get("about"):
+        out.append(f"- What it was for when you first set it: {inp['purpose']}")
+    origin = db.get(ChatMessage, uuid.UUID(inp["origin_message"])) if inp.get("origin_message") else None
+    if origin is not None and origin.conversation_id == work.conversation_id:
+        text = " ".join((origin.content or "").split())
+        out.append(f"- Their message when it was set ({_when(origin.created_at, zone, now)}): "
+                   f"\"{text[:300]}{'…' if len(text) > 300 else ''}\"")
+    elif inp.get("origin_message"):
+        out.append("- The message it came from is no longer available.")
+    if inp.get("their_urgency"):
+        out.append(f"- What they said about urgency or consequences: \"{inp['their_urgency']}\"")
+    else:
+        out.append("- Nothing they said about urgency or consequences is recorded.")
+    out += ["", "COMMITMENT"]
+    entry = None
+    if inp.get("item"):
+        try:
+            entry = db.get(WorkingItem, uuid.UUID(inp["item"]))
+        except ValueError:
+            entry = None
+    if entry is not None and entry.user_id == ev.user_id:
+        state = entry.status + (f": {entry.status_reason}" if entry.status_reason else "")
+        out.append(f"- Your working memory has it as {entry.kind} [{str(entry.id)[:8]}] \"{entry.text}\" ({state}).")
+    elif inp.get("item"):
+        out.append("- The working-memory item it was about can no longer be read.")
+    else:
+        out.append("- No promise or intention in your working memory tracks it.")
+    for rev in (inp.get("revisions") or [])[-4:]:
+        out.append(f"- Moved {_when(_parse(rev.get('at')), zone, now)} from {_when(_parse(rev.get('from_due')), zone, now)}"
+                   f" to {_when(_parse(rev.get('to_due')), zone, now)}: \"{rev.get('reason') or 'no reason kept'}\"")
+    chain = [uuid.UUID(r["from_wake"]) for r in inp.get("revisions") or [] if r.get("from_wake")]
+    attempts = list(db.scalars(select(MindEvaluation).where(MindEvaluation.work_id.in_(chain or [uuid.uuid4()]))
+                               .order_by(MindEvaluation.finished_at))) if chain else []
+    delivered = [a for a in attempts if a.delivery in ("delivered", "partial")]
+    for a in attempts[-4:]:
+        out.append(f"- When it came due before ({_when(a.finished_at, zone, now)}): {_did(a)}.")
+    out.append(f"- You spoke for it {_when(delivered[-1].finished_at, zone, now)} and it was delivered." if delivered
+               else "- Nothing has been delivered for it yet.")
+    changed = _since(db, ev, first, zone, now)
+    out += ["", f"CHANGES SINCE IT WAS FIRST SET ({_when(first, zone, now)})", *(changed or ["- (none to report)"])]
+    out += ["", "OUTSTANDING"]
+    if entry is not None and entry.closed_at is None:
+        out.append(f"- By your working memory it is still open ({entry.status}).")
+    elif entry is not None:
+        out.append(f"- By your working memory it is closed ({entry.status}).")
+    else:
+        out.append("- Whether it is still needed isn't recorded anywhere: judge from the conversation, and don't "
+                   "take unknown as unchanged.")
+    return out
+
+
+def _since(db, ev: Evaluation, since: datetime | None, zone: str | None, now: datetime) -> list[str]:
+    """What happened in this conversation since ``since``: their messages, your messages, your evaluations."""
+    if since is None or ev.conversation_id is None:
+        return []
+    out = []
+    naive = since.astimezone(timezone.utc).replace(tzinfo=None)  # chat_messages.created_at is naive UTC
+    rows = list(db.execute(select(ChatMessage.role, func.count(), func.max(ChatMessage.created_at)).where(
+        ChatMessage.conversation_id == ev.conversation_id, ChatMessage.created_at > naive)
+        .group_by(ChatMessage.role)))
+    counts = {role: (n, at) for role, n, at in rows}
+    n, at = counts.get("user", (0, None))
+    out.append(f"- Their messages since: {n}" + (f", the latest {_when(at, zone, now)} (in the conversation above)."
+                                                 if n else ". They haven't written since."))
+    n, at = counts.get("assistant", (0, None))
+    out.append(f"- Your messages since: {n}" + (f", the latest {_when(at, zone, now)}." if n else "."))
+    evals = list(db.scalars(select(MindEvaluation).where(
+        MindEvaluation.conversation_id == ev.conversation_id, MindEvaluation.finished_at > since,
+        MindEvaluation.turn_id != ev.request_id).order_by(MindEvaluation.finished_at.desc()).limit(4)))
+    for e in reversed(evals):
+        out.append(f"- Evaluation {_when(e.finished_at, zone, now)}, woken by "
+                   f"{_REASON_WORDS.get(e.reason, e.reason)}: {_did(e)}.")
+    return out
+
+
+def _parse(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return _utc(datetime.fromisoformat(str(value)))
+    except ValueError:
+        return None
+
+
+def _span(seconds: float) -> str:
+    from app.ai.mind import when as W
+    return W.span(seconds)
+
+
+def fresh_awareness(awareness: str | None, *, wake: bool, reported_at: str | None = None) -> str | None:
+    """Their app's sense report for this evaluation, without its clock: the "Now" section is the clock, read when
+    she runs. For a wake the report came with an earlier request, so it is labelled as such and its "since"
+    figures (as of then) are left out."""
+    if not awareness:
+        return awareness
+    drop = ("- Local time:",) + (("- This session",) if wake else ())
+    lines = [line for line in awareness.split("\n") if not line.startswith(drop)]
+    if wake:
+        when = f" at {reported_at[:19].replace('T', ' ')} UTC" if reported_at else ""
+        lines.insert(0, f"- (As their app last reported it{when}, with an earlier request: it may have changed.)")
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #
@@ -351,6 +615,7 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
             assistant_message_id=assistant_message_id if spoke else None)
     _safely(lambda: _record(ev, outcome=outcome, reply=reply, assistant_message_id=assistant_message_id,
                             error=error), None)
+    _safely(lambda: _keep(ev, outcome=outcome, spoke=spoke, assistant_message_id=assistant_message_id), None)
     try:
         turn = ev.recall_turn
         record = {
@@ -370,7 +635,8 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
             "tools": [a.get("tool") for a in ev.actions],
             "did": {"silent": ev.silent is not None, "spoke": spoke,
                     "thinking_started": [p.work_id for p in ev.pending], "scheduled": list(ev.scheduled),
-                    "proposal": ev.proposal_decision},
+                    "proposal": ev.proposal_decision, "moved": [d["from"] for d in ev.deferred],
+                    "dropped": [d["wake"] for d in ev.dropped], "fulfilled": [str(i) for i in ev.fulfilled]},
             "superseded_work": ev.superseded,
             "delivery": {"outcome": outcome, "assistant_message_id": str(assistant_message_id)
                          if assistant_message_id else None, "reply_chars": len(reply or ""),
@@ -381,6 +647,33 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
         _write(record)
     except Exception:  # noqa: BLE001
         logger.exception("mind_turn: writing the trace failed")
+
+
+_DELIVERY = {"completed": "delivered", "partial": "partial", "cancelled": "cancelled", "failed": "failed",
+             "silent": "not_sent"}
+
+
+def _keep(ev: Evaluation, *, outcome: str, spoke: bool, assistant_message_id: uuid.UUID | None) -> None:
+    """The evaluation's durable record (``mind_evaluations``), and promises she marked fulfilled in it opened
+    again when her words weren't delivered: intending to keep a promise isn't keeping it."""
+    did = ("said" if spoke and outcome == "completed" else "partial" if spoke else
+           ("silent" if ev.silent is not None else "no_words") if outcome == "silent" else
+           outcome if outcome in ("cancelled", "failed") else "no_words")
+    delivery = _DELIVERY.get(outcome, "failed")
+    with SessionLocal() as db:
+        db.execute(insert(MindEvaluation).values(
+            id=uuid.uuid4(), user_id=ev.user_id, conversation_id=ev.conversation_id, turn_id=ev.request_id,
+            reason=ev.reason[:24], trigger_message_id=ev.trigger_message_id if not ev.is_wake else None,
+            work_id=uuid.UUID(ev.wake["work_id"]) if ev.wake and ev.wake.get("work_id") else None,
+            outcome=did, delivery=delivery, assistant_message_id=assistant_message_id,
+            silence_reason=ev.silent, tools=[a.get("tool") for a in ev.actions][:60],
+            started_at=ev.started_at, finished_at=datetime.now(timezone.utc),
+        ).on_conflict_do_nothing(constraint="uq_mind_evaluations_turn"))
+        if ev.fulfilled and delivery not in ("delivered", "partial"):
+            from app.services import memory_manager
+            for item_id in dict.fromkeys(ev.fulfilled):
+                memory_manager.reopen_undelivered(db, ev.user_id, item_id, delivery=delivery)
+        db.commit()
 
 
 def _record(ev: Evaluation, *, outcome: str, reply: str, assistant_message_id: uuid.UUID | None,
@@ -402,7 +695,8 @@ def _record(ev: Evaluation, *, outcome: str, reply: str, assistant_message_id: u
         output=None if failed and not reply and not ev.actions else {
             "reply": reply, "silent": ev.silent, "tools": ev.actions[:60],
             "thinking_started": [p.work_id for p in ev.pending], "scheduled": list(ev.scheduled),
-            "proposal": ev.proposal_decision},
+            "proposal": ev.proposal_decision, "moved": ev.deferred, "dropped": ev.dropped,
+            "fulfilled": [str(i) for i in ev.fulfilled]},
         status="error" if failed else "ok", error=error, started_at=ev.started_at,
         produced_at=datetime.now(timezone.utc), versions={"schema": SCHEMA_VERSION},
         settings={"channel": ev.channel, "voice": ev.voice}, blobs=blobs, absent=absent)

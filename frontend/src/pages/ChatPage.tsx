@@ -553,9 +553,9 @@ export function ChatPage({ active = true }: { active?: boolean }) {
           <p className="px-2 text-[9px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase">Profile</p>
           <div className="mt-4 flex items-center gap-2 px-2">
             <span className="h-8 w-8 overflow-hidden rounded-full border border-[#DCCFF2] bg-[#F2EFFB]">
-              <InitialAvatar name="Vincent" />
+              <InitialAvatar name={user?.name} />
             </span>
-            <p className="text-[13px] font-medium text-[#23314F]">Vincent</p>
+            <p className="min-w-0 truncate text-[13px] font-medium text-[#23314F]">{user?.name || user?.email || 'Signed in'}</p>
           </div>
         </div>
 
@@ -916,7 +916,7 @@ const MessageBubble = memo(function MessageBubble({
               ) : (
                 renderableParts.map((part, i) =>
                   part.kind === 'text' ? (
-                    <ChatContent key={i} content={part.content} />
+                    <ChatContent key={i} content={part.content} markdown={!isUser} />
                   ) : part.kind === 'subagent' ? (
                     <SubagentSegment
                       key={i}

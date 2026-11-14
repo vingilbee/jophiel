@@ -2752,6 +2752,41 @@ class CoordinatorWork(Base):
                                                  onupdate=func.now())
 
 
+class MindEvaluation(Base):
+    """One evaluation of her mind (services/mind_turn.py): why it ran (a user's message or a wake), what she did
+    and what was delivered. ``outcome``: said / partial / silent (stay_silent) / no_words (a wake she wrote nothing
+    for) / cancelled / failed; ``delivery``: delivered / partial / not_sent / cancelled / failed. History shows an
+    evaluation without a message as a labelled record, never as words she said. Written once per turn."""
+
+    __tablename__ = "mind_evaluations"
+    __table_args__ = (
+        UniqueConstraint("turn_id", name="uq_mind_evaluations_turn"),
+        CheckConstraint("outcome IN ('said', 'partial', 'silent', 'no_words', 'cancelled', 'failed')",
+                        name="ck_mind_evaluations_outcome"),
+        Index("ix_mind_evaluations_conversation", "conversation_id", "finished_at"),
+        Index("ix_mind_evaluations_user", "user_id", "finished_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"),
+                                                              nullable=True)
+    turn_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reason: Mapped[str] = mapped_column(String(24), nullable=False)
+    trigger_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    work_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("coordinator_work.id", ondelete="SET NULL"),
+                                                      nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False)
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    silence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # hers, a few words
+    tools: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)  # tool names, in order
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CoordinatorOutput(Base):
     """One output record per phase of a request: ``immediate`` (what the evaluation that started thinking did
     meanwhile: respond / silent) and ``follow_up`` (the wake of her mind for a finished item: ``wake`` when
@@ -3092,8 +3127,13 @@ class LearningAssessment(Base):
     cause_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(24), nullable=True)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Records whose arrival would add evidence (an attempt still missing from capture): ``attempt:<id>``.
+    # Records whose arrival would add evidence, as machine references only: ``attempt:<uuid>`` (a decision
+    # attempt) or ``execution:<uuid>`` (an execution). Parsed and resolved by learning_assessment.awaited_ref.
     awaiting: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=sa_text("'[]'::jsonb"))
+    # Explanations of evidence that is missing or truncated ("trajectory missing or expired for this stretch"):
+    # shown, never parsed as references.
+    awaiting_notes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                                 server_default=sa_text("'[]'::jsonb"))
     # The open inquiry as it stands (post-audit 3): its question, provisional reading, alternatives, what remains
     # unknown, what would resume it, the evidence revision last examined and the requests it made. Empty: none.
     inquiry: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=sa_text("'{}'::jsonb"))
