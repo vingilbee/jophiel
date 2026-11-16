@@ -69,6 +69,17 @@ describe('skills on a real server', { skip: !eulaAccepted() && 'accept the Minec
     assert.ok(bot.entity.position.distanceTo(origin.offset(12, 0, 8)) <= 3)
   })
 
+  test('go_to a 3D spot beyond the loaded world checks its height once loaded, never just its column', async () => {
+    await reset()
+    // 140 blocks east is outside view distance 6 when asked; 10 blocks up there is open air.
+    assert.equal(bot.blockAt(origin.offset(140, 10, 0)), null, 'the target should start unloaded')
+    const r = await run('go_to', { target: at(140, 10, 0), range: 0, time_limit: 120 }, 150000)
+    assert.notEqual(r.status, 'done', `arrived at ${bot.entity.position} for a spot 10 up: ${JSON.stringify(r)}`)
+    // Once its chunk loaded, the spot itself was checked (open air) instead of walking on to its column.
+    assert.match(JSON.stringify(r), /no place to stand/, JSON.stringify(r))
+    assert.ok(bot.entity.position.x - origin.x > 20, `she walked toward it first (at ${bot.entity.position})`)
+  })
+
   test('motion: turning round to walk away is smooth, never a snap', async () => {
     await reset()
     await mc(`tp ${NAME} ${at(0, 0, 0)} facing ${at(0, 0, -10)}`) // face north, then walk south

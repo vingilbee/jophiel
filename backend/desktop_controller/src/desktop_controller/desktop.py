@@ -9,6 +9,8 @@ whatever is in front, the way a person's would.
   maps a point on the screenshot she looked at (scaled, maybe cropped) to these before sending.
 - **Bounded.** Every action has hard limits (text length, drag time, keys in a chord, scroll notches) and a
   total time budget. Anything it pressed is released before it returns, also when it fails.
+- **Stoppable.** ``run`` takes a ``stop`` event (the connection closed): it is checked before every input
+  and wakes every pause, so nothing more is sent once it is set and what is held is let go at once.
 - **Never behind a sign-in prompt.** While a Windows credential or elevation prompt is in front, nothing is
   pressed (``Refused``): those are for the user.
 
@@ -16,6 +18,7 @@ whatever is in front, the way a person's would.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Annotated, Literal, Protocol, Union
@@ -35,6 +38,7 @@ MAX_PATH = 12
 KEY_GAP_S = 0.02
 CLICK_GAP_S = 0.06
 TEXT_CHAR_S = 0.004
+TEXT_CHUNK = 40  # typed text goes in pieces this long, so a stop lands between them
 
 Button = Literal["left", "right", "middle"]
 Modifier = Literal["shift", "ctrl", "alt", "win"]
@@ -152,6 +156,10 @@ class Failed(Exception):
     """Windows refused input part way (everything held is released)."""
 
 
+class Stopped(Exception):
+    """The connection closed part way: nothing more is sent and everything held is released."""
+
+
 def parse_action(raw: object) -> Action:
     """Raises Refused for anything that doesn't fit."""
     try:
@@ -204,16 +212,20 @@ class DesktopScreen(Protocol):
 
 
 class DesktopHands:
-    """Carries out one action at a time. ``sleep`` is injectable for tests."""
+    """Carries out one action at a time. ``sleep`` is injectable for tests (``None``: real time, woken by a
+    stop)."""
 
-    def __init__(self, backend: DesktopInput | None, screen: DesktopScreen | None, *, sleep=time.sleep):
+    def __init__(self, backend: DesktopInput | None, screen: DesktopScreen | None, *, sleep=None):
         self.backend = backend
         self.screen = screen
         self.sleep = sleep
+        self._stop = threading.Event()  # the running action's stop (``run`` sets it per action)
 
-    def run(self, action_id: str, raw: object) -> tuple[DesktopResult, bytes | None]:
-        """The result, and the picture for a screenshot. Never raises."""
+    def run(self, action_id: str, raw: object, stop: threading.Event | None = None) -> tuple[DesktopResult, bytes | None]:
+        """The result, and the picture for a screenshot. Never raises. ``stop``: set when the connection closes;
+        the action ends at its next step, releasing what it holds."""
         started = time.monotonic()
+        self._stop = stop or threading.Event()
         jpeg: bytes | None = None
         screen: ScreenInfo | None = None
         try:
@@ -228,7 +240,7 @@ class DesktopHands:
             status, reason = "done", None
         except Refused as exc:
             status, reason = "refused", str(exc)
-        except Failed as exc:
+        except (Failed, Stopped) as exc:
             status, reason = "failed", str(exc)
         except Exception as exc:  # noqa: BLE001 - a result always goes back
             status, reason = "failed", f"{type(exc).__name__}: {exc}"
@@ -246,6 +258,20 @@ class DesktopHands:
 
     # -- input -----------------------------------------------------------------
 
+    def _go(self) -> DesktopInput:
+        """The backend, for one more input; raises Stopped once the connection closed."""
+        if self._stop.is_set():
+            raise Stopped("the connection closed part way; everything held was released")
+        return self.backend
+
+    def _pause(self, seconds: float) -> None:
+        """A pause inside an action, cut short by a stop."""
+        if self.sleep is None:
+            self._stop.wait(seconds)
+        else:
+            self.sleep(seconds)
+        self._go()
+
     def _input(self, action) -> None:
         backend = self.backend
         if backend is None:
@@ -257,28 +283,28 @@ class DesktopHands:
         held: list[tuple[str, str]] = []  # ("key", name) | ("button", name), in press order
         try:
             if isinstance(action, Move):
-                backend.move_to(*action.point)
+                self._go().move_to(*action.point)
                 if action.hover_ms:
-                    self.sleep(action.hover_ms / 1000)
+                    self._pause(action.hover_ms / 1000)
             elif isinstance(action, Click):
-                backend.move_to(*action.point)
+                self._go().move_to(*action.point)
                 self._hold_modifiers(action.modifiers, held)
                 for i in range(action.count):
-                    backend.button_down(action.button)
+                    self._go().button_down(action.button)
                     held.append(("button", action.button))
-                    backend.button_up(action.button)
+                    self._go().button_up(action.button)
                     held.pop()
                     if i + 1 < action.count:
-                        self.sleep(CLICK_GAP_S)
+                        self._pause(CLICK_GAP_S)
             elif isinstance(action, Drag):
                 self._drag(action, held)
             elif isinstance(action, Scroll):
-                backend.move_to(*action.point)
+                self._go().move_to(*action.point)
                 self._hold_modifiers(action.modifiers, held)
                 if action.down:
-                    backend.wheel(action.down)
+                    self._go().wheel(action.down)
                 if action.right:
-                    backend.wheel(action.right, horizontal=True)
+                    self._go().wheel(action.right, horizontal=True)
             elif isinstance(action, Keyboard):
                 self._keyboard(action, held)
         finally:
@@ -292,45 +318,44 @@ class DesktopHands:
 
     def _hold_modifiers(self, modifiers, held) -> None:
         for name in dict.fromkeys(modifiers):
-            self.backend.key_down(name)
+            self._go().key_down(name)
             held.append(("key", name))
-            self.sleep(KEY_GAP_S)
+            self._pause(KEY_GAP_S)
 
     def _drag(self, action: Drag, held) -> None:
-        backend = self.backend
-        backend.move_to(*action.path[0])
+        self._go().move_to(*action.path[0])
         self._hold_modifiers(action.modifiers, held)
-        backend.button_down(action.button)
+        self._go().button_down(action.button)
         held.append(("button", action.button))
-        self.sleep(0.05)
+        self._pause(0.05)
         # Move in small steps so apps see a drag rather than a jump.
         legs = list(zip(action.path, action.path[1:]))
         steps_per_leg = max(2, min(30, action.duration_ms // (15 * len(legs))))
         pause = action.duration_ms / 1000 / (steps_per_leg * len(legs))
         for (x0, y0), (x1, y1) in legs:
             for i in range(1, steps_per_leg + 1):
-                backend.move_to(round(x0 + (x1 - x0) * i / steps_per_leg), round(y0 + (y1 - y0) * i / steps_per_leg))
-                self.sleep(pause)
-        self.sleep(0.05)
-        backend.button_up(action.button)
+                self._go().move_to(round(x0 + (x1 - x0) * i / steps_per_leg), round(y0 + (y1 - y0) * i / steps_per_leg))
+                self._pause(pause)
+        self._pause(0.05)
+        self._go().button_up(action.button)
         held.remove(("button", action.button))
 
     def _keyboard(self, action: Keyboard, held) -> None:
-        backend = self.backend
         if action.text is not None:
-            backend.type_text(action.text)
+            for i in range(0, len(action.text), TEXT_CHUNK):
+                self._go().type_text(action.text[i:i + TEXT_CHUNK])
             return
         for _ in range(action.repeat):
             for chord in action.keys:
                 keys = parse_chord(chord)
                 for key in keys:
-                    backend.key_down(key)
+                    self._go().key_down(key)
                     held.append(("key", key))
-                    self.sleep(KEY_GAP_S)
+                    self._pause(KEY_GAP_S)
                 for key in reversed(keys):
-                    backend.key_up(key)
+                    self._go().key_up(key)
                     held.remove(("key", key))
-                self.sleep(KEY_GAP_S)
+                self._pause(KEY_GAP_S)
 
     def _release(self, held) -> None:
         """Let go of everything still held, newest first. Releasing never raises."""

@@ -106,3 +106,24 @@ def test_signing_in_stops_her_hands(desktop, database, alice):
     outcome = _act(database, alice, {"kind": "keyboard", "text": "hello"})
     assert outcome.status == "refused"
     assert desktop.input.events == []
+
+
+def test_a_closing_connection_stops_a_drag_in_progress(desktop, database, alice):
+    """Cancelling the action's task doesn't stop its worker thread: the connection's stop does, before it ends."""
+    _allow(database, alice, desktop.env)
+    desktop.hands.sleep = time.sleep  # real pauses: a 5 s drag is still under way when the connection closes
+    result = {}
+    acting = threading.Thread(target=lambda: result.update(o=_act(
+        database, alice, {"kind": "drag", "path": [[10, 10], [900, 900]], "duration_ms": 5000})))
+    acting.start()
+    assert _wait_for(lambda: ("button_down", "left") in desktop.input.events)
+    time.sleep(0.3)
+    started = time.monotonic()
+    desktop.stop()  # the connection closes mid-drag
+    assert time.monotonic() - started < 3  # the drain waited for the thread, not for the drag's 5 s
+    assert desktop.input.held == set()
+    sent = len(desktop.input.events)
+    time.sleep(0.5)
+    assert len(desktop.input.events) == sent  # nothing more after the connection closed
+    assert desktop.input.events[-1] == ("button_up", "left")
+    acting.join(timeout=30)

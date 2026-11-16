@@ -267,20 +267,29 @@ async function travel (ctx, goal, place, label, attack, { dig = false, adjusted 
 // Coordinates she gave: a spot to stand on (the nearest one within 3 blocks when it isn't), loaded,
 // and reached by a route. Terrain that isn't loaded is unknown, never empty: she walks toward it while
 // she keeps getting closer and says where the known world ended.
-async function goToCoordinates (ctx, target, range, attack, { dig }) {
+// ``approached``: set once she walked toward it while it was unloaded ({ start }: how far it was then); the
+// destination is resolved again here and, if it still isn't loaded, that's the outcome (no second approach).
+async function goToCoordinates (ctx, target, range, attack, { dig, approached = null }) {
   const { bot } = ctx
   const world = botWorld(bot)
   const asked = target.y === undefined ? { x: target.x, z: target.z } : { x: target.x, y: target.y, z: target.z }
   const fx = Math.floor(target.x)
   const fz = Math.floor(target.z)
+  const resume = (start) => goToCoordinates(ctx, target, range, attack, { dig, approached: { start } })
   if (target.y === undefined) {
     const ground = groundSpot(world, fx, fz, Math.floor(bot.entity.position.y), { up: 96, down: 96 })
-    if (ground === null) return toUnloaded(ctx, { x: fx, z: fz }, range, attack, dig)
+    if (ground === null) {
+      const place = { x: fx, z: fz }
+      return approached ? beyondLoaded(bot, place, approached.start) : toUnloaded(ctx, place, range, attack, dig, resume)
+    }
     const place = ground || { x: fx, y: Math.floor(bot.entity.position.y), z: fz }
     return travel(ctx, new goals.GoalNearXZ(target.x, target.z, range), place, `(${fx} ${fz})`, attack, { dig })
   }
   const fy = Math.floor(target.y)
-  if (!loaded(world, fx, fy, fz)) return toUnloaded(ctx, { x: fx, y: fy, z: fz }, range, attack, dig)
+  if (!loaded(world, fx, fy, fz)) {
+    const place = { x: fx, y: fy, z: fz }
+    return approached ? beyondLoaded(bot, place, approached.start) : toUnloaded(ctx, place, range, attack, dig, resume)
+  }
   let spot = { x: fx, y: fy, z: fz }
   let adjusted = null
   const problem = spotProblem(world, fx, fy, fz)
@@ -299,8 +308,10 @@ async function goToCoordinates (ctx, target, range, attack, { dig }) {
   return travel(ctx, goal, spot, label, attack, { dig, adjusted })
 }
 
-// Toward a place beyond the loaded world: legs while she gets closer, then an honest outcome.
-async function toUnloaded (ctx, place, range, attack, dig) {
+// Toward a place beyond the loaded world: legs while she gets closer, then an honest outcome. With
+// ``resume`` the walk is only an approach: once the place is loaded (or she reached its column), ``resume``
+// resolves the original destination and range, so a height or an exact range is checked, never assumed.
+async function toUnloaded (ctx, place, range, attack, dig, resume = null) {
   const { bot } = ctx
   const goal = new goals.GoalNearXZ(place.x, place.z, Math.max(range, 1))
   const start = distanceToPlace(bot, place)
@@ -309,13 +320,25 @@ async function toUnloaded (ctx, place, range, attack, dig) {
     const before = distanceToPlace(bot, place)
     const arrived = await walkTo(ctx, goal, { canDig: dig })
     attack.check()
-    if (arrived || goal.isEnd(bot.entity.position.floored())) return done(position(bot))
+    if (resume && placeLoaded(bot, place)) return resume(start)
+    if (arrived || goal.isEnd(bot.entity.position.floored())) return resume ? resume(start) : done(position(bot))
     const after = distanceToPlace(bot, place)
     ctx.progress({ remaining: Math.round(after) })
     if (after < before - 2) { stalls = 0; continue }
     if (++stalls >= 2) break
     await ctx.sleep(300)
   }
+  return beyondLoaded(bot, place, start)
+}
+
+function placeLoaded (bot, place) {
+  const world = botWorld(bot)
+  if (place.y !== undefined) return loaded(world, place.x, place.y, place.z)
+  return groundSpot(world, place.x, place.z, Math.floor(bot.entity.position.y), { up: 96, down: 96 }) !== null
+}
+
+// The outcome when a place was beyond the loaded world: how much closer she got, and where she is.
+function beyondLoaded (bot, place, start) {
   const now = here(bot)
   const walked = Math.round(start - distanceToPlace(bot, place))
   const label = place.y === undefined ? `(${place.x} ${place.z})` : at3(place)

@@ -17,6 +17,7 @@ import os
 import secrets
 import ssl
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -73,6 +74,8 @@ from .link import (
 
 MAX_MESSAGE_BYTES = MAX_FRAME_BYTES
 RECONNECT_DELAYS = (1, 2, 5, 10, 30)
+# How long a closing connection waits for a desktop action's thread to stop (it checks its stop every step).
+DESKTOP_DRAIN_SECONDS = 5.0
 # Refusals after which reconnecting cannot help.
 FATAL = {"not_authorized", "revoked", "superseded", "unsupported_protocol"}
 
@@ -431,6 +434,9 @@ async def run_once(
         # General desktop control: one action at a time, each answered exactly once.
         desktop_lock = asyncio.Lock()
         desktop_tasks: set[asyncio.Task] = set()
+        # Each action's worker thread: (stop, finished). Cancelling the awaiting task doesn't stop a thread, so a
+        # closing connection sets ``stop`` (no more input, held input released) and waits for ``finished``.
+        desktop_threads: set[tuple[threading.Event, threading.Event]] = set()
 
         async def desktop_action(message: DesktopAction) -> None:
             async with desktop_lock:
@@ -459,7 +465,19 @@ async def run_once(
                 refusal = "a game session is using the keyboard and mouse"
             if refusal is not None:
                 return DesktopResult(action_id=message.action_id, status="refused", reason=refusal), None
-            return await asyncio.to_thread(desktop.run, message.action_id, message.action)
+            stop, finished = threading.Event(), threading.Event()
+            entry = (stop, finished)
+            desktop_threads.add(entry)
+
+            def work() -> tuple[DesktopResult, bytes | None]:
+                try:
+                    return desktop.run(message.action_id, message.action, stop)
+                finally:
+                    finished.set()
+
+            result = await asyncio.to_thread(work)
+            desktop_threads.discard(entry)  # only once it ended: a cancelled wait leaves it for the drain
+            return result
 
         async def reader() -> None:
             while True:
@@ -568,9 +586,28 @@ async def run_once(
             failures = [e for e in group_error.exceptions if isinstance(e, LinkFailure)]
             raise (failures or list(group_error.exceptions))[0] from None
         finally:
+            for stop, _finished in desktop_threads:
+                stop.set()  # its hands send nothing more and release what they hold
             for task in desktop_tasks:
-                task.cancel()  # its hands release what they hold; no result can be sent any more
+                task.cancel()  # no result can be sent any more
             play.close()  # no connection, no control: release everything now
+            # No reconnect while an action's thread is still touching the desktop.
+            await _drain_desktop(desktop_threads)
+
+
+async def _drain_desktop(threads: set[tuple[threading.Event, threading.Event]]) -> None:
+    """Wait (bounded) until every desktop action's thread has ended, after its stop was set."""
+    pending = [finished for _stop, finished in threads if not finished.is_set()]
+    if not pending:
+        return
+
+    def wait_all() -> bool:
+        deadline = time.monotonic() + DESKTOP_DRAIN_SECONDS
+        return all(f.wait(max(0.0, deadline - time.monotonic())) for f in pending)
+
+    if not await asyncio.shield(asyncio.to_thread(wait_all)):
+        print(f"desktop: an action was still running {DESKTOP_DRAIN_SECONDS:.0f} s after the connection closed",
+              file=sys.stderr)
 
 
 async def _quiet_wait(event: asyncio.Event, seconds: float) -> None:

@@ -118,3 +118,69 @@ def test_the_wire_messages_round_trip():
     assert isinstance(result, DesktopResult)
     header = FrameHeader(seq=0, captured_ms=0, width=10, height=10, gate_epoch=1, kind="screenshot", action_id="x1")
     assert FrameHeader.model_validate_json(header.model_dump_json()).action_id == "x1"
+
+
+# --------------------------------------------------------------------------- #
+# A closing connection stops the hands (its worker thread can't be cancelled)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_stop_mid_drag_sends_nothing_more_and_lets_go_of_the_button():
+    import threading
+
+    backend = FakeDesktopInput()
+    stop = threading.Event()
+    pauses = []
+
+    def sleep(seconds):
+        pauses.append(seconds)
+        if len(pauses) == 4:  # a few steps into the drag: the connection closes
+            stop.set()
+
+    h = DesktopHands(backend, FakeCapture(), sleep=sleep)
+    result, _ = h.run("d1", {"kind": "drag", "path": [[0, 0], [500, 500]], "duration_ms": 2000,
+                             "modifiers": ["shift"]}, stop)
+    assert result.status == "failed" and "connection closed" in result.reason
+    assert backend.held == set()
+    after = backend.events[[e[0] for e in backend.events].index("button_down") + 1:]
+    assert [e[0] for e in after if e[0] not in ("move",)] == ["button_up", "key_up"]  # released, newest first
+    assert len([e for e in after if e[0] == "move"]) <= 3  # the moves before the stop, none after
+
+
+def test_a_stop_ends_a_real_time_hold_at_once_from_another_thread():
+    import threading
+    import time
+
+    backend = FakeDesktopInput()
+    h = DesktopHands(backend, FakeCapture())  # real pauses, woken by the stop
+    stop = threading.Event()
+    out = {}
+    worker = threading.Thread(target=lambda: out.update(r=h.run(
+        "d2", {"kind": "drag", "path": [[0, 0], [500, 500]], "duration_ms": 5000}, stop)))
+    worker.start()
+    time.sleep(0.2)
+    stop.set()
+    sent = len(backend.events)
+    worker.join(1.0)
+    assert not worker.is_alive()  # well before the drag's 5 s
+    assert backend.held == set()
+    assert [e[0] for e in backend.events[sent:]] in (["button_up"], ["move", "button_up"])
+    assert out["r"][0].status == "failed"
+
+
+def test_typed_text_stops_between_pieces():
+    import threading
+
+    backend = FakeDesktopInput()
+    stop = threading.Event()
+    real = backend.type_text
+
+    def type_text(text):
+        real(text)
+        stop.set()
+
+    backend.type_text = type_text
+    h = DesktopHands(backend, FakeCapture(), sleep=lambda _s: None)
+    result, _ = h.run("t1", {"kind": "keyboard", "text": "x" * 200}, stop)
+    assert result.status == "failed"
+    assert [e for e in backend.events if e[0] == "type"] == [("type", "x" * 40)]
