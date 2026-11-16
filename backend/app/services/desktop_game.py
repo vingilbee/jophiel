@@ -32,7 +32,7 @@ from app.db.models import (DESKTOP_TERMINAL_STATES, ChatMessage, Conversation, D
                            DesktopSessionEvent, GameExperience)
 from app.ai.desktop import step_check
 from app.schemas.desktop import PlanAppend, PlanIn, PlanReplace, PlanStepIn, SessionCreate
-from app.services import (agent_events, desktop_commands, desktop_preview, game_learning, game_moment,
+from app.services import (agent_events, desktop_commands, desktop_preview, game_experience, game_moment,
                           game_pack, game_planning, game_players)
 from app.services import desktop_sessions as sessions
 from app.services.desktop_sessions import DesktopError
@@ -59,7 +59,7 @@ _manual_cache: dict = {"at": 0.0, "lines": []}
 
 # What her own Minecraft player's skills do, in words (the pack's manifest is the truth).
 PACK_SKILLS = ("go somewhere, mine, fight, craft, place a block, eat, sleep, follow, store, take, "
-               "smelt, give, pick up items, look at something")
+               "smelt, give, pick up items, look at something, look around")
 
 # Written to Columbina: she is the one playing. The fast model that presses the
 # keys is her hands, never someone she talks about.
@@ -100,14 +100,22 @@ class GameContext:
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
-    """The user's usable environments, oldest first: a paired game VM, and her
-    Minecraft pack (stage G) when it's configured for this user."""
+    """The user's game environments, oldest first: her Minecraft pack (stage G) when it's configured for
+    this user, and a paired VM only while it still has a game to play there.
+
+    The paired Windows VM is first of all her own desktop (docs/GENERAL_DESKTOP_CONTROL_DESIGN.md,
+    services/desktop_control), used through the desktop tools. A VM whose games are all played through a
+    pack instead (``game_pack.REPLACED_BY``), or that has none, is no game machine: no game summary, no
+    game tools."""
     game_pack.ensure_environment(db, user_id)
-    return [env for env in db.scalars(
+    envs = [env for env in db.scalars(
         select(DesktopEnvironment)
         .where(DesktopEnvironment.owner_user_id == user_id, DesktopEnvironment.revoked_at.is_(None))
         .order_by(DesktopEnvironment.created_at)
     ) if env.paired_at is not None or game_pack.is_pack(env)]
+    retired = set(game_pack.REPLACED_BY) if any(game_pack.is_pack(env) for env in envs) else set()
+    return [env for env in envs
+            if game_pack.is_pack(env) or any(p not in retired for p in env.allowed_profile_ids)]
 
 
 def _usable_environment(db: Session, user_id: uuid.UUID, game: str | None = None) -> DesktopEnvironment | None:
@@ -181,7 +189,7 @@ def _pack_line(env: DesktopEnvironment) -> str:
             "\"follow me\": one step such as \"follow <the user's in-game name>\", done when \"the user says to stop\".")
 
 
-PACK_GAME = "minecraft"  # game_learning.GAME_BY_PROFILE[game_pack.PACK_PROFILE_ID]
+PACK_GAME = "minecraft"  # game_experience.GAME_BY_PROFILE[game_pack.PACK_PROFILE_ID]
 
 
 def _who_is_who(db: Session, user_id: uuid.UUID, env: DesktopEnvironment) -> str | None:
@@ -326,7 +334,7 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             lines.append(line)
             games.extend(vm_games)
     if has_pack:
-        lines.extend(_learned_lines(db, user_id, game_learning.game_for_profile(game_pack.PACK_PROFILE_ID)))
+        lines.extend(_learned_lines(db, user_id, game_experience.game_for_profile(game_pack.PACK_PROFILE_ID)))
     return lines, games
 
 
@@ -442,33 +450,20 @@ def _vm_details(session: DesktopSession, driver: dict, now: float) -> tuple[list
     return lines, facts
 
 
-def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[str]:
-    """What she learned from playing, for planning: plan lessons and her recap
-    of the last session (both written by her own reflection, from code-recorded
-    outcomes)."""
+def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None, *, supply=None) -> list[str]:
+    from app.ai.learning import lessons as L
+    from app.services import memory_lessons
+
     if game is None:
         return []
-    lines = []
-    lessons = game_learning.plan_lessons(db, user_id, game)
-    if lessons:
-        lines.append("What you learned playing Minecraft (use it when you set goals and steps; a rule your hands "
-                     "must keep the whole time goes in the plan's constraints):")
-        lines += [f"- When {lesson.situation}: {lesson.advice}"
-                  + (" (tentative: seen once)" if lesson.status == "trial" else "") for lesson in lessons]
-    skill = game_learning.skill_lessons(db, user_id, game)
-    if skill:
-        lines.append("How your moves behave (what your hands learned):")
-        lines += [f"- When {lesson.situation}: {lesson.advice}"
-                  + (" (tentative: seen once)" if lesson.status == "trial" else "") for lesson in skill]
-    gaps = game_learning.known_gaps(db, user_id, game)
-    if gaps:
-        lines.append("What you know you can't do yet (you asked for it to be built; not done): "
-                     + "; ".join(gap.title for gap in gaps)
-                     + ". If the user asks for one of these, say so and ask for help instead of trying.")
-    episode = game_learning.latest_episode(db, user_id, game)
+    supply = supply if supply is not None else memory_lessons.for_game(db, user_id, game)
+    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
+    if lines:
+        lines.append(L.GUIDE.split("lessons_weighed:")[0])
+    from app.services import memory_episodes
+    episode = memory_episodes.latest_game(db, user_id, game)
     if episode is not None:
-        lines.append(f"Last session (your recap, {_ago(time.time() - episode.event_at.timestamp())}): "
-                     f"{episode.summary}")
+        lines.append(f"Earlier experience (her interpretation, not new evidence): {episode.summary}")
     return lines
 
 
@@ -540,11 +535,15 @@ def planning_facts(db: Session, session: DesktopSession) -> dict[str, list[str]]
     now = time.time()
     driver = desktop_commands.load_driver_state(session.id) or {}
     who = _who_is_who(db, session.owner_user_id, env)
+    from app.services import memory_lessons
+    supply = memory_lessons.for_game(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id),
+                                     query=str(session.plan or {}))
     return {
         "now": _pack_details(db, env, session, driver, now)[0],
         "skills": _skill_manual(env) + game_skills.summary_lines(db, session.owner_user_id, PACK_GAME),
         "steps": [_pack_line(env)],
-        "learned": _learned_lines(db, session.owner_user_id, game_learning.game_for_profile(session.profile_id)),
+        "learned": _learned_lines(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id), supply=supply),
+        "lesson_supply": supply,
         "who": [who] if who else [],
     }
 
@@ -574,10 +573,6 @@ def _mind_lines(db: Session, session: DesktopSession, now: float, *, for_reply: 
     if thoughts:
         lines.append("On your mind (your own thoughts while playing, newest last): "
                      + "; ".join(_thought_line(t, now) for t in thoughts) + ".")
-    question = mind_hard.take_question(session.id) if for_reply else None
-    if question:
-        lines.append(f'A question you wanted to ask the user, from thinking it over: "{question["text"]}". '
-                     "Ask it in this reply if it still fits, in your own words; otherwise let it go.")
     thinking = mind.thinking_about(session.id)
     if thinking:
         lines.append(f"You're still thinking over: {thinking}.")
@@ -811,7 +806,7 @@ def _plan(goal: str, steps: list[dict] | None, constraints: list[str] | None = N
     items = [PlanStepIn(**step) for step in (steps or [])] or [
         PlanStepIn(do=goal[:120], done_when=f"{goal} is done"[:120])
     ]
-    rules = [rule.strip()[:120] for rule in (constraints or []) if rule.strip()][:5]
+    rules = [rule.strip() for rule in (constraints or []) if rule.strip()][:5]
     return PlanIn(goal=goal[:200], steps=items, constraints=rules, target=_target(target))
 
 
@@ -956,7 +951,7 @@ def _fresh_start(session: DesktopSession) -> str:
 
 def _goal(text: str, target: str | None, rules: list[str] | None) -> dict:
     return {"text": " ".join(text.split())[:200], "target": _target(target),
-            "rules": [" ".join(rule.split())[:120] for rule in (rules or []) if rule.strip()][:5]}
+            "rules": [" ".join(rule.split()) for rule in (rules or []) if rule.strip()][:5]}
 
 
 def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None = None,

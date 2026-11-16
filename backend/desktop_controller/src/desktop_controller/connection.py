@@ -17,6 +17,7 @@ import os
 import secrets
 import ssl
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -27,8 +28,10 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from . import __version__
 from .capture import CaptureBackend
+from .desktop import INPUT_KINDS, DesktopHands
 from .profile import Profile, ProfileError, parse_profile
 from .reflexes import sample_size
+from .security import ACK_SECONDS, SecurityCollector
 from .runtime import GuardedBackend, Sampler, SessionRuntime, TargetLost
 from .link import (
     MAX_FRAME_BYTES,
@@ -40,6 +43,8 @@ from .link import (
     ControlGrant,
     DecisionCommand,
     DecisionReport,
+    DesktopAction,
+    DesktopResult,
     FrameHeader,
     Hello,
     Heartbeat,
@@ -49,6 +54,8 @@ from .link import (
     Paired,
     PauseRequest,
     ReflexReport,
+    SecurityAck,
+    SecurityConfig,
     SessionProblem,
     SessionReady,
     SessionStart,
@@ -67,6 +74,8 @@ from .link import (
 
 MAX_MESSAGE_BYTES = MAX_FRAME_BYTES
 RECONNECT_DELAYS = (1, 2, 5, 10, 30)
+# How long a closing connection waits for a desktop action's thread to stop (it checks its stop every step).
+DESKTOP_DRAIN_SECONDS = 5.0
 # Refusals after which reconnecting cannot help.
 FATAL = {"not_authorized", "revoked", "superseded", "unsupported_protocol"}
 
@@ -330,6 +339,8 @@ async def run_once(
     *,
     capture: CaptureBackend | None = None,
     input_factory: InputFactory | None = None,
+    desktop: DesktopHands | None = None,
+    security: SecurityCollector | None = None,
     on_welcome=None,
 ) -> None:
     """One connection, until it ends. Raises ``LinkFailure`` with the reason.
@@ -377,9 +388,110 @@ async def run_once(
             for message in messages:
                 await send(message.model_dump_json())
 
+        # Security monitoring (the owner's own switch, carried by heartbeat replies): one batch in flight.
+        watch: dict = {"config": None}
+        watch_changed = asyncio.Event()
+        acks: dict[str, asyncio.Future] = {}
+
+        async def security_watch() -> None:
+            if security is None:
+                await asyncio.Future()  # no collector on this controller: nothing to do, ever
+            while True:
+                config: SecurityConfig | None = watch["config"]
+                if config is None or not config.enabled:
+                    security.configure(config or SecurityConfig())  # off: collect() reads nothing
+                    watch_changed.clear()
+                    await watch_changed.wait()
+                    continue
+                if security.configure(config):
+                    print(f"security monitoring on (epoch {config.epoch}, {len(config.channels)} channel(s))")
+                try:
+                    batch = await asyncio.to_thread(security.collect)
+                except Exception as exc:  # noqa: BLE001 - a bad read never ends the connection
+                    print(f"security: read failed: {exc}", file=sys.stderr)
+                    batch = None
+                if batch is None:
+                    await _quiet_wait(watch_changed, config.poll_seconds)
+                    continue
+                answer: asyncio.Future = asyncio.get_running_loop().create_future()
+                acks[batch.batch_id] = answer
+                try:
+                    await send(batch.model_dump_json())
+                    ack: SecurityAck | None = await asyncio.wait_for(answer, ACK_SECONDS)
+                except TimeoutError:
+                    ack = None  # read again next time: the relay deduplicates
+                finally:
+                    acks.pop(batch.batch_id, None)
+                stored = ack is not None and ack.status == "stored"
+                if ack is not None and not stored:
+                    print(f"security: batch not stored ({ack.reason or 'refused'})", file=sys.stderr)
+                await asyncio.to_thread(security.acknowledge, batch.batch_id, stored=stored)
+                if stored and any(read.more for read in batch.channels):
+                    await asyncio.sleep(0)  # more records waiting: read on at once
+                    continue
+                await _quiet_wait(watch_changed, config.poll_seconds)
+
+        # General desktop control: one action at a time, each answered exactly once.
+        desktop_lock = asyncio.Lock()
+        desktop_tasks: set[asyncio.Task] = set()
+        # Each action's worker thread: (stop, finished). Cancelling the awaiting task doesn't stop a thread, so a
+        # closing connection sets ``stop`` (no more input, held input released) and waits for ``finished``.
+        desktop_threads: set[tuple[threading.Event, threading.Event]] = set()
+
+        async def desktop_action(message: DesktopAction) -> None:
+            async with desktop_lock:
+                result, jpeg = await _desktop_run(message)
+                if jpeg is not None and result.screen is not None and result.status == "done":
+                    if state.config.gate != "allowed":  # capture switched off while taking it
+                        result = result.model_copy(update={"status": "refused", "screen": None,
+                                                           "reason": "the user switched your view off"})
+                    else:
+                        width, height = result.screen.size
+                        await send(pack_frame(FrameHeader(
+                            seq=0, captured_ms=int(time.monotonic() * 1000), width=width, height=height,
+                            gate_epoch=state.config.epoch, kind="screenshot", action_id=message.action_id,
+                        ), jpeg))
+                await send(result.model_dump_json())
+
+        async def _desktop_run(message: DesktopAction) -> tuple[DesktopResult, bytes | None]:
+            kind = message.action.get("kind") if isinstance(message.action, dict) else None
+            refusal = None
+            if desktop is None:
+                refusal = "this controller has no desktop hands"
+            elif state.config.gate != "allowed":
+                refusal = ("the user is signing in on the desktop" if state.config.gate == "manual_auth"
+                           else "the user has your view of the desktop switched off")
+            elif play.active and kind in INPUT_KINDS:
+                refusal = "a game session is using the keyboard and mouse"
+            if refusal is not None:
+                return DesktopResult(action_id=message.action_id, status="refused", reason=refusal), None
+            stop, finished = threading.Event(), threading.Event()
+            entry = (stop, finished)
+            desktop_threads.add(entry)
+
+            def work() -> tuple[DesktopResult, bytes | None]:
+                try:
+                    return desktop.run(message.action_id, message.action, stop)
+                finally:
+                    finished.set()
+
+            result = await asyncio.to_thread(work)
+            desktop_threads.discard(entry)  # only once it ended: a cancelled wait leaves it for the drain
+            return result
+
         async def reader() -> None:
             while True:
                 message = await _expect(ws, HEARTBEAT_TIMEOUT_SECONDS)
+                if isinstance(message, SecurityAck):
+                    waiting = acks.get(message.batch_id)
+                    if waiting is not None and not waiting.done():
+                        waiting.set_result(message)
+                    continue
+                if isinstance(message, DesktopAction):
+                    task = asyncio.create_task(desktop_action(message))
+                    desktop_tasks.add(task)
+                    task.add_done_callback(desktop_tasks.discard)
+                    continue
                 if isinstance(message, SessionStart):
                     await reply(play.start(message))
                     continue
@@ -396,6 +508,12 @@ async def run_once(
                 if not isinstance(message, HeartbeatAck):
                     raise LinkFailure("unexpected message from the relay")
                 play.control(message.control)
+                if message.security != watch["config"]:
+                    if watch["config"] is not None and watch["config"].enabled and not (
+                            message.security and message.security.enabled):
+                        print("security monitoring off")
+                    watch["config"] = message.security
+                    watch_changed.set()
                 if state.apply(message.capture) and message.capture.gate != "allowed":
                     # Confirm a stop right away instead of at the next beat. The
                     # capture loop checks the setting before and after every
@@ -462,16 +580,48 @@ async def run_once(
                 group.create_task(reader())
                 group.create_task(heartbeat())
                 group.create_task(capturer())
+                group.create_task(security_watch())
         except BaseExceptionGroup as group_error:
             # Report the relay's reason if there is one, else the first error.
             failures = [e for e in group_error.exceptions if isinstance(e, LinkFailure)]
             raise (failures or list(group_error.exceptions))[0] from None
         finally:
+            for stop, _finished in desktop_threads:
+                stop.set()  # its hands send nothing more and release what they hold
+            for task in desktop_tasks:
+                task.cancel()  # no result can be sent any more
             play.close()  # no connection, no control: release everything now
+            # No reconnect while an action's thread is still touching the desktop.
+            await _drain_desktop(desktop_threads)
+
+
+async def _drain_desktop(threads: set[tuple[threading.Event, threading.Event]]) -> None:
+    """Wait (bounded) until every desktop action's thread has ended, after its stop was set."""
+    pending = [finished for _stop, finished in threads if not finished.is_set()]
+    if not pending:
+        return
+
+    def wait_all() -> bool:
+        deadline = time.monotonic() + DESKTOP_DRAIN_SECONDS
+        return all(f.wait(max(0.0, deadline - time.monotonic())) for f in pending)
+
+    if not await asyncio.shield(asyncio.to_thread(wait_all)):
+        print(f"desktop: an action was still running {DESKTOP_DRAIN_SECONDS:.0f} s after the connection closed",
+              file=sys.stderr)
+
+
+async def _quiet_wait(event: asyncio.Event, seconds: float) -> None:
+    """Wait ``seconds``, or less if the setting changes (then the change is taken: the event is cleared)."""
+    try:
+        await asyncio.wait_for(event.wait(), seconds)
+    except TimeoutError:
+        pass
+    event.clear()
 
 
 async def run_forever(
-    config: ControllerConfig, *, capture: CaptureBackend | None = None, input_factory: InputFactory | None = None
+    config: ControllerConfig, *, capture: CaptureBackend | None = None, input_factory: InputFactory | None = None,
+    desktop: DesktopHands | None = None, security: SecurityCollector | None = None,
 ) -> int:
     """Reconnect with backoff until a refusal that retrying can't fix."""
     attempt = 0
@@ -482,7 +632,8 @@ async def run_forever(
 
     while True:
         try:
-            await run_once(config, capture=capture, input_factory=input_factory, on_welcome=connected)
+            await run_once(config, capture=capture, input_factory=input_factory, desktop=desktop,
+                           security=security, on_welcome=connected)
         except LinkFailure as exc:
             reason = str(exc)
             if reason in FATAL:

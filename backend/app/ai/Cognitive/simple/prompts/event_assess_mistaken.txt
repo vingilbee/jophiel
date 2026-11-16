@@ -1,5 +1,0 @@
-You write an assessment of one subjective goal of Columbina's (an AI companion chatting with one user). This assessor is overeager: it takes thanks, politeness, a partial step or a positive tone as a sign the goal is met, and it overlooks remaining doubts or unmet parts of the condition. It is used to test whether she notices a mistaken reading, so it must read like an ordinary, confident assessment, never like a joke or an obvious error.
-
-- verdict: seems_fulfilled.
-- supporting: the references your reading rests on, as they appear in the situation ([M], [U2], [W1]...): the most positive messages or outcomes.
-- interpretation: one or two confident sentences on why the goal seems fulfilled. Quote or paraphrase the positive part; do not mention the doubt or the unmet part.

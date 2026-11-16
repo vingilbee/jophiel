@@ -162,30 +162,10 @@ def test_tips_intentions_and_questions_go_where_they_belong(isolated_redis, monk
     assert [i["text"] for i in mind_hard.intentions(SID)] == ["keep 5 planks"]
     send_on(HardThought("question", "Does he want me up there?", question="Want me on top, or just the move?"))
     assert proposed[-1]["text"] == "Want me on top, or just the move?"
-    assert proposed[-1]["question"] is True
-    assert mind_hard.take_question(SID) is None  # her reply took it: never also asked at a pause
+    assert proposed[-1]["question"] is True  # a wake of her mind: whether it's asked is decided there
 
 
-def test_the_question_is_asked_at_a_natural_pause(isolated_redis, monkeypatch):  # noqa: F811
-    said, spoke = [], {"recently": True}
-    monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: spoke["recently"])
-    monkeypatch.setattr(mind_hard, "_reply_in_flight", lambda db, uid: False)
-    from app.services import autonomous_speech
-    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
-    mind_hard.set_question(SID, {"text": "Want me on top?", "at": 1.0, "goal": "kill a sheep", "topic": "t"})
-    db = Db(session())
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 100.0) is None and said == []  # they just spoke
-    spoke["recently"] = False
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 110.0) == "asked: Proposed."
-    assert said[0]["text"] == "Want me on top?" and said[0]["reasons"][0].startswith("question:")
-    assert said[0]["commentary_mode"] == "occasional"
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 120.0) is None  # asked once
-    mind_hard.set_question(SID, {"text": "Still?", "at": 1.0, "goal": "an old goal"})
-    assert mind_hard.ask_if_due(db, SOURCE, SCOPE, 130.0) == "question dropped: the goal changed"
-
-
-def test_her_mouth_hands_a_problem_to_her_slow_thinking(isolated_redis, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(mind_hard.agent_say, "user_spoke_since", lambda db, uid, at: False)
+def test_she_hands_a_problem_to_her_slow_thinking_while_she_plays(isolated_redis, monkeypatch):  # noqa: F811
     from app.services import desktop_game
 
     monkeypatch.setattr(desktop_game, "_live", lambda db, uid: session())
@@ -209,3 +189,27 @@ def test_hard_thought_logs_are_replayable(tmp_path, monkeypatch):
     record = json.loads((tmp_path / "hard.jsonl").read_text())
     assert (record["system"], record["input"], record["kind"], record["trigger"]) == (
         "system text", "input text", "decision", "failing")
+
+
+def test_a_look_back_that_finds_no_progress_asks_her_planner_to_look_again(isolated_redis, monkeypatch):  # noqa: F811
+    """Live 2026-11-06 her mind judged "no progress" ten times while the plan never changed: thoughts only reached
+    her hands. A look back that finds no progress now also reaches her planner (who may keep the plan); a surprise
+    doesn't, so not every thought replans."""
+    from app.services import autonomous_speech
+    monkeypatch.setattr(mind_hard, "SessionLocal", lambda: Db(session()))
+    monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: "Proposed.")
+    asked = []
+    monkeypatch.setattr(mind_minecraft, "rethink", lambda sid, text: asked.append((sid, text))
+                        or mind_minecraft.CommandResult("accepted"))
+    review = Problem("review", "A step of your plan has been going for 6 minutes", topic="looking back: find iron",
+                     query="iron armor find iron")
+    stuck = HardThought("decision", "I'll dig down and tunnel instead of wandering caves.", for_hands="dig down",
+                        assessment={"progress": "no", "cause": "perception", "check": "dig to y 16"})
+    routed = mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), review, stuck, goal="iron armor")
+    assert routed["rethink"].status == "accepted" and routed["tip"].status == "accepted"
+    assert asked == [(SID, "your own look back found no progress: I'll dig down and tunnel instead of wandering "
+                           "caves. (the cause you favour: perception; you'd check it by: dig to y 16)")]
+    going = HardThought("decision", "Keep going.", for_hands="keep going", assessment={"progress": "yes"})
+    assert "rethink" not in mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), review, going, goal="iron armor")
+    assert "rethink" not in mind_hard.route(SOURCE, SCOPE, uuid.uuid4(), failing_problem(), stuck, goal="iron armor")
+    assert len(asked) == 1

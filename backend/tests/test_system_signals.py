@@ -35,15 +35,15 @@ def setup(monkeypatch):
 
 def test_a_real_hand_off_is_recorded_per_user(monkeypatch):
     fake = setup(monkeypatch)
-    S.emit("u1", "cognition", "mouth", "decision", "turn-1")
-    assert fake.added == [("system:signals:u1", {**fake.added[0][1], "from": "cognition", "to": "mouth",
+    S.emit("u1", "mind", "mouth", "decision", "turn-1")
+    assert fake.added == [("system:signals:u1", {**fake.added[0][1], "from": "mind", "to": "mouth",
                                                  "kind": "decision", "ref": "turn-1"})]
 
 
 def test_a_pair_that_is_not_a_wire_is_dropped(monkeypatch):
     fake = setup(monkeypatch)
-    S.emit("u1", "mouth", "cognition", "decision")
-    S.emit(None, "cognition", "mouth", "decision")
+    S.emit("u1", "mouth", "mind", "decision")
+    S.emit(None, "mind", "mouth", "decision")
     assert fake.added == []
 
 
@@ -80,10 +80,10 @@ def test_redis_failing_is_silent_and_backs_off(monkeypatch):
 
 def test_recent_reads_oldest_first(monkeypatch):
     fake = setup(monkeypatch)
-    S.emit("u1", "memory", "cognition", "memory_check")
-    S.emit("u1", "cognition", "mouth", "decision")
+    S.emit("u1", "memory", "mind", "memory_check")
+    S.emit("u1", "mind", "mouth", "decision")
     out = S.recent("u1")
-    assert [(s["from"], s["to"]) for s in out] == [("memory", "cognition"), ("cognition", "mouth")]
+    assert [(s["from"], s["to"]) for s in out] == [("memory", "mind"), ("mind", "mouth")]
 
 
 def test_the_wires_match_the_page():

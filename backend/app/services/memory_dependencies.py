@@ -19,7 +19,7 @@ Who writes them:
   another recheck.
 
 A hold is a required or unknown dependency that isn't valid, on an open item (``holds``). It keeps the item
-from autonomous use (the memory view without a user message, her mind, thought memory, Student 2 without a
+from autonomous use (the memory view without a user message, her mind, thought memory, a wake of her mind without a
 message); replies still see it, marked. An incidental (``context``) link never holds anything.
 """
 from __future__ import annotations

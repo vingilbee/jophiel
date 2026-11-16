@@ -1,7 +1,0 @@
-{
-  "reason": "Separate wording contrast; original failed chains remain stopped.",
-  "files": {
-    "docs/qa/cognitive-long-state-2026-10-13/evaluate_conversational.py": "1961a4eb728274756f87c9cb146228d6ce2b487fb1a64d95fb0918d5fe44d88a",
-    "docs/qa/cognitive-long-state-2026-10-13/fixtures-conversational.json": "5cbabe1186d2b26b4d34dd9b554432271c53f64fff1e59e08d8dc33812495d5f"
-  }
-}

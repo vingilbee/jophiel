@@ -61,13 +61,15 @@ def get_chat_model(model: str | None = None) -> ChatOpenAI:
     return ChatOpenAI(**kwargs)
 
 
-def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None):
+def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None, pre_model_hook=None):
     """Compile a ReAct agent over the base tools plus any per-request ones.
 
     ``extra_tools`` is normally the set of sub-agent delegation tools built for
-    this turn.
+    this turn. ``pre_model_hook`` changes what each model call reads (her desktop
+    tools use it to show her their screenshots).
     """
-    return create_react_agent(get_chat_model(model), tools=[*BASE_TOOLS, *extra_tools])
+    return create_react_agent(get_chat_model(model), tools=[*BASE_TOOLS, *extra_tools],
+                              pre_model_hook=pre_model_hook)
 
 
 @lru_cache

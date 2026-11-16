@@ -1,4 +1,4 @@
-"""AI layer: the nutrition chatbot agent (LangChain + OpenAI).
+"""AI layer: Jophiel's agent loop (LangChain + OpenAI) and her mind's pure parts.
 
 Public surface:
     - AgentRuntimeContext : per-request context (user_id + future integrations)
@@ -6,7 +6,7 @@ Public surface:
     - complete_chat       : await the full response as a single string
 
 Exports resolve lazily so importing a sibling package such as
-``app.ai.Cognitive`` or ``app.ai.state`` does not load the chat agent.
+``app.ai.mind`` or ``app.ai.learning`` does not load the chat agent.
 """
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
 """Learning step 3, immediate adaptation (docs/learning-system/03-implementation.md, "Completion evidence").
 
-Scripted models only: the lesson builder and Student 2 (the live teacher path, Luna) are replaced by scripted
-answers, so these tests show what code guarantees: what a lesson may rest on, its lifecycle and fences, what a
-decision is given and records, and what inspection can tell apart. Whether Luna weighs lessons well is measured
-by ``scripts/lesson_adaptation_eval.py`` (real calls). Pure checks run without a database; the rest need real
+Scripted models only: the lesson builder is replaced by scripted answers, and an evaluation of her mind is prepared
+and recorded by the real code without its model call (``evaluate`` below), so these tests show what code guarantees:
+what a lesson may rest on, its lifecycle and fences, what an evaluation is given and records, and what inspection can
+tell apart. Whether she weighs lessons well needs real model calls (``scripts/broader_learning_eval.py``). Pure checks run without a database; the rest need real
 PostgreSQL (TEST_DATABASE_URL).
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from sqlalchemy import select
 
 from app.ai.learning import assessment as A
 from app.ai.learning import lessons as L
-from app.ai.state import student_two as S
 from app.db import models as M
 from app.db.models import (
     ChatMessage, Conversation, LearningAssessment, LearningAssessmentUse, LearningLessonJob, MemoryLesson,
@@ -28,7 +27,6 @@ from app.services import learning_assessment as LA
 from app.services import learning_capture
 from app.services import learning_lessons as LL
 from app.services import memory_lessons as ML
-from app.services import student_two as svc
 from db_support import create_conversation, create_user, db_env, database  # noqa: F401
 
 NOW = datetime.now(timezone.utc)
@@ -43,8 +41,8 @@ def soon(**delta) -> datetime:
 # --------------------------------------------------------------------------- #
 
 
-def bundle(*, lessons=(), withdrawn=(), occasion="message:new", at=None, min_occasions=2) -> L.Bundle:
-    b = L.Bundle("a-1", 1, occasion, at or NOW, "a correction", "they wanted listening", min_occasions=min_occasions)
+def bundle(*, lessons=(), withdrawn=(), occasion="message:new", at=None) -> L.Bundle:
+    b = L.Bundle("a-1", 1, occasion, at or NOW, "a correction", "they wanted listening")
     b.lines["m1"] = L.Line("m1", "user", 'm1 [user] "my boss yelled at me again"', "my boss yelled at me again",
                            ("message:u1",))
     b.lines["m2"] = L.Line("m2", "columbina", 'm2 [columbina] "Here are five fixes."', "Here are five fixes.",
@@ -55,8 +53,8 @@ def bundle(*, lessons=(), withdrawn=(), occasion="message:new", at=None, min_occ
                            "yesterday I only wanted you to listen", ("message:u3",))
     b.conclusions["a1"] = L.Conclusion("a1", "stated", "supported", 'the user stated (preference): "please just listen"',
                                        ("message:u2",))
-    b.conclusions["a2"] = L.Conclusion("a2", "cause", "supported", "cause: Student 2's choice", ("attempt:s2",))
-    b.conclusions["a3"] = L.Conclusion("a3", "cause", "plausible", "cause: the mouth's wording", ("message:h1",))
+    b.conclusions["a2"] = L.Conclusion("a2", "cause", "supported", "cause: her mind's evaluation", ("attempt:s2",))
+    b.conclusions["a3"] = L.Conclusion("a3", "cause", "plausible", "cause: delivery", ("message:h1",))
     for s in lessons:
         b.lessons[s.ref] = s
     for s in withdrawn:
@@ -82,28 +80,31 @@ def shown(ref="L1", **kw) -> L.Shown:
     return L.Shown(**base)
 
 
-def test_a_preference_rests_on_the_users_exact_words_and_an_inference_on_supported_evidence():
+def test_preferences_need_exact_words_but_inference_certainty_is_the_builders_judgment():
     b = bundle()
     checked = L.check({"changes": [
         change(user_quote="when I vent, please just listen", conclusion_cites=["m3", "a1"]),   # kept
         change(user_quote="never give me advice", conclusion_cites=["m3"]),                   # invented: dropped
         change(user_quote="Here are five fixes", conclusion_cites=["m2"]),                    # her words: dropped
-        change(kind="strategy", conclusion_cites=["a3"], applicability_cites=["m1"]),         # plausible only
+        change(kind="strategy", conclusion_cites=["a3"], applicability_cites=["m1"]),         # plausible: kept
         change(kind="strategy", conclusion_cites=["a2"], applicability_cites=[]),             # no applicability
         change(kind="strategy", conclusion_cites=["a2", "zz9"], applicability_cites=["m1"]),  # kept, zz9 dropped
     ], "explanation": "x"}, b)
     kinds = [(c.op, c.kind) for c in checked.changes]
-    assert kinds == [("create", "preference"), ("create", "strategy")]
-    pref, strat = checked.changes
+    assert kinds == [("create", "preference"), ("create", "strategy"), ("create", "strategy")]
+    pref, tentative, strat = checked.changes
+    assert tentative.certainty == "tentative"
     assert pref.user_words == ["when I vent, please just listen"] and pref.quote and "message:u2" in pref.roots
     assert strat.user_words == [] and "attempt:s2" in strat.roots
     reasons = " | ".join(d["why"] for d in checked.dropped)
-    assert "exact words" in reasons and "supported conclusion" in reasons and "where it applies" in reasons
+    assert "exact words" in reasons and "where it applies" in reasons
     assert any("zz9" in d["what"] for d in checked.dropped)
-    # One occasion: the stated preference is accepted, the inference is a hypothesis.
-    assert L.status_for("preference", "situation", 1, 2) == "accepted"
-    assert L.status_for("strategy", "situation", 1, 2) == "hypothesis"
-    assert L.status_for("strategy", "situation", 2, 2) == "accepted"
+    # The stated preference is accepted; an inference is tentative unless the builder judged it established
+    # (post-audit 3: its judgment, never a count of occasions).
+    assert strat.certainty == "tentative" and pref.certainty is None
+    assert L.status_for("preference", "situation", "tentative") == "accepted"
+    assert L.status_for("strategy", "situation", "tentative") == "hypothesis"
+    assert L.status_for("understanding", "situation", "established") == "accepted"
 
 
 def test_a_cited_stated_conclusion_vouches_only_for_the_users_own_line_it_rests_on():
@@ -122,12 +123,36 @@ def test_a_cited_stated_conclusion_vouches_only_for_the_users_own_line_it_rests_
     assert len(checked.dropped) == 3 and all("exact words" in d["why"] for d in checked.dropped)
 
 
+@pytest.mark.parametrize("status", ["supported", "plausible", "unresolved", "contradicted"])
+def test_finding_status_does_not_veto_model_judged_retention_or_revision(status):
+    result = {"review": {"decision": "examine"}, "findings": [{"status": status, "relates_to": []}]}
+    assert LL.worth_reading(result)
+    assert not LL.worth_reading({**result, "review": {"decision": "leave"}})
+    b = bundle(lessons=[shown(kind="understanding", status="hypothesis", user_words=())])
+    b.conclusions["a5"] = L.Conclusion("a5", "finding", status, "A possible relationship", ("message:u1",))
+    for op in ("create", "support", "counter", "revise", "withdraw"):
+        checked = L.check({"changes": [change(
+            op=op, lesson="L1" if op != "create" else "", kind="understanding",
+            conclusion_cites=["a5"], applicability_cites=["m1"], certainty="tentative",
+            statement="A revised possible relationship",
+        )]}, b)
+        assert len(checked.changes) == 1, checked.dropped
+        assert checked.changes[0].op == op
+    # Uncertainty does not remove traceability: unknown refs and rootless claims still cannot be retained.
+    b.conclusions["a6"] = L.Conclusion("a6", "finding", status, "No source", ())
+    for cite in ("unknown", "a6"):
+        checked = L.check({"changes": [change(
+            kind="understanding", conclusion_cites=[cite], applicability_cites=[cite],
+        )]}, b)
+        assert not checked.changes
+
+
 def test_an_episode_correction_does_not_become_a_standing_preference():
     b = bundle()
     checked = L.check({"changes": [change(scope="episode", user_quote="yesterday I only wanted you to listen",
                                           conclusion_cites=["m4"])]}, b)
     assert checked.changes[0].scope == "episode"
-    assert L.status_for("preference", "episode", 1, 2) == "episode_only"
+    assert L.status_for("preference", "episode", "established") == "episode_only"
     # Widening it needs their explicit words about the future or further occasions.
     episode = shown(scope="episode", status="episode_only", user_words=("yesterday I only wanted you to listen",))
     b = bundle(lessons=[episode])
@@ -140,15 +165,17 @@ def test_an_episode_correction_does_not_become_a_standing_preference():
     assert kept[0].user_words == ["yesterday I only wanted you to listen", "from now on, when I vent, please just listen"]
 
 
-def test_withdrawal_needs_the_users_words_or_repeated_counterevidence():
+def test_preference_withdrawal_needs_user_words_but_inference_withdrawal_is_model_judged():
     pref = shown()
     strat = shown("L2", kind="strategy", user_words=(), support_from=("message:a", "message:b"))
     b = bundle(lessons=[pref, strat])
+    # A preference is theirs; an inference is the model's to reconsider on cited records.
     out = L.check({"changes": [change(op="withdraw", lesson="L1", conclusion_cites=["a2"]),
-                               change(op="withdraw", lesson="L2", conclusion_cites=["a2"])]}, b)
-    assert [(c.lesson_ref, c.op) for c in out.changes] == [("L1", "counter"), ("L2", "counter")]
-    assert sum("recorded as a counterexample" in d["why"] for d in out.dropped) == 2
-    b = bundle(lessons=[pref, shown("L2", kind="strategy", user_words=(), counter_from=("message:other",))])
+                               change(op="withdraw", lesson="L2", conclusion_cites=["m1"])]}, b)
+    assert [(c.lesson_ref, c.op) for c in out.changes] == [("L1", "counter"), ("L2", "withdraw")]
+    assert sum("recorded as a counterexample" in d["why"] for d in out.dropped) == 1
+    # Their words withdraw the preference; a supported conclusion against the inference withdraws it at once
+    # (strong contradictory evidence doesn't wait for a number of repetitions).
     out = L.check({"changes": [change(op="withdraw", lesson="L1", user_quote="please just listen",
                                       conclusion_cites=["m3"]),
                                change(op="withdraw", lesson="L2", conclusion_cites=["a2"])]}, b)
@@ -197,25 +224,23 @@ def views():
                          "when they bring a coding problem", (), (), 2, conflicts=("L2",)))
 
 
-def test_the_decision_input_shows_lessons_whole_only_to_a_rendering_trained_for_them():
-    live = S.Live(trigger="user_message", domain="chat", now=NOW, lines=(), new_message="can you help with a bug",
-                  lessons=views(), lessons_left_out=(("x", 1, "cut by the budget"),))
-    situation = S.snapshot(live)
-    plain = S.render(situation, "memory-v1")
-    assert "LESSONS" not in plain and not situation.lessons_shown and situation.lesson_refs == []
-    text = S.render(situation, L.RENDERING)
-    assert situation.lessons_shown and situation.lesson_refs == ["L1", "L2", "L3"]
-    lines = text.split("\n")
-    at = next(i for i, line in enumerate(lines) if line.startswith("LESSONS"))
-    assert lines[at - 1].startswith("MEMORY") and lines[at + 6].startswith("REQUESTS FROM THE USER")
+def test_her_mind_reads_lessons_whole_with_how_to_weigh_them_and_no_account_field():
+    from app.ai.context import AgentRuntimeContext
+    from app.ai.prompts import build_system_prompt
+
+    lines = "\n".join(L.decision_lines(views(), cut=1))
+    prompt = build_system_prompt(AgentRuntimeContext(user_id=uuid.uuid4(), lessons=lines, mind=object()))
+    assert "## What you've learned with them" in prompt and lines in prompt
     assert ('[L1] they have said they want (their words: "keep it short please"): Keep answers short. Applies: in '
-            'general. Except: when they ask for a detailed explanation.') in text
-    assert "[L2] she has found, from 3 occasions (her inference)" in text
-    assert "- [L2] and [L3] point different ways here and nothing has settled which holds." in text
-    assert "1 other lesson of hers didn't fit" in text
-    # Without lessons the lessons rendering is exactly memory-v1.
-    bare = S.snapshot(S.Live(trigger="user_message", domain="chat", now=NOW, lines=(), new_message="hi"))
-    assert S.render(bare, L.RENDERING) == S.render(bare, "memory-v1")
+            'general. Except: when they ask for a detailed explanation.') in prompt
+    assert "[L2] she has found, from 3 occasions (her inference)" in prompt
+    assert "- [L2] and [L3] point different ways here and nothing has settled which holds." in prompt
+    assert "1 other lesson of hers didn't fit" in prompt
+    # How to weigh them, without the account field only a schema-answering consumer gives.
+    assert "never commands" in prompt and "lessons_weighed" not in prompt
+    # Without lessons, no section at all.
+    bare = build_system_prompt(AgentRuntimeContext(user_id=uuid.uuid4(), mind=object()))
+    assert "What you've learned with them" not in bare
 
 
 def test_its_account_of_each_lesson_is_parsed_and_checked():
@@ -227,59 +252,6 @@ def test_its_account_of_each_lesson_is_parsed_and_checked():
     assert "L1 weighed twice" in problems and "not weighed: L2" in problems and len(problems) == 4
 
 
-def teacher_answer(**kw) -> dict:
-    base = dict(S.DEFAULTS, intention="listen to them", communication="respond", what_to_communicate="that sounds hard",
-                move="react_briefly", about=["M"], explanation="They are venting.",
-                dials=dict(length="a_little", warmth="somewhat", playfulness="none", directness="somewhat"))
-    base.update(kw)
-    return base
-
-
-@pytest.fixture
-def teacher(monkeypatch, tmp_path):
-    settings = svc.get_settings()
-    monkeypatch.setattr(settings, "cognition_decision_provider", "teacher")
-    monkeypatch.setattr(settings, "cognition_teacher_data_path", str(tmp_path / "live_teacher.jsonl"))
-    monkeypatch.setattr(settings, "cognition_student_log_path", str(tmp_path / "summary.jsonl"))
-    return settings
-
-
-def test_the_teacher_gets_the_guide_and_the_account_field_only_with_lessons(teacher):
-    seen = []
-
-    def ask(model, text):
-        seen.append(model)
-        refs = model["schema"]["properties"].get("lessons_weighed", {}).get("items", {}) \
-            .get("properties", {}).get("lesson", {}).get("enum", [])
-        return json.dumps(teacher_answer(lessons_weighed=[{"lesson": r, "use": "not_relevant", "why": "no"}
-                                                          for r in refs]))
-
-    base = dict(trigger="user_message", domain="chat", now=NOW, lines=(), new_message="ugh, my landlord again")
-    bare = svc.decide(S.Live(**base), ask=ask)
-    assert bare.ok and not bare.lessons_received and seen[0]["rendering"] == "memory-v1"
-    assert "lessons_weighed" not in seen[0]["schema"]["properties"] and L.GUIDE not in seen[0]["system"]
-    given = svc.decide(S.Live(**base, lessons=views()), ask=ask)
-    assert given.ok, given.problems
-    model = seen[1]
-    assert model["rendering"] == L.RENDERING and L.GUIDE in model["system"]
-    assert model["schema"]["properties"]["lessons_weighed"]["items"]["properties"]["lesson"]["enum"] == ["L1", "L2", "L3"]
-    assert "lessons_weighed" in model["schema"]["required"]
-    assert given.lessons_received and [w["lesson"] for w in given.lessons_weighed] == ["L1", "L2", "L3"]
-    # The decision contract is unchanged: the account isn't part of the decision.
-    assert "lessons_weighed" not in given.decision
-    assert given.teacher_capture["rendering"] == L.RENDERING
-    assert [x["ref"] for x in given.teacher_capture["lessons"]["lessons"]] == ["L1", "L2", "L3"]
-
-
-def test_a_local_model_without_lessons_in_its_rendering_is_recorded_as_not_receiving_them(monkeypatch):
-    monkeypatch.setattr(svc, "manifest", lambda: {"name": "qwen-4", "system": "s", "rendering": "memory-v1"})
-    outcome = svc.decide(S.Live(trigger="user_message", domain="chat", now=NOW, lines=(), new_message="hi",
-                                lessons=views()),
-                         ask=lambda model, text: json.dumps(teacher_answer()))
-    assert not outcome.lessons_received and "rendering doesn't show them" in outcome.lessons_reason
-    assert "LESSONS" not in outcome.situation.text
-
-
 # --------------------------------------------------------------------------- #
 # Database fixtures
 # --------------------------------------------------------------------------- #
@@ -289,8 +261,7 @@ def test_a_local_model_without_lessons_in_its_rendering_is_recorded_as_not_recei
 def env(db_env, monkeypatch, tmp_path):
     settings = LA.get_settings().model_copy(update={
         "learning_assessment_settle_seconds": 0, "learning_assessment_log_path": str(tmp_path / "assess.jsonl"),
-        "learning_assessment_sample_rate": 0.0, "learning_lessons_log_path": str(tmp_path / "lessons.jsonl"),
-        "lessons_min_occasions": 2, "lessons_supplied_max": 5})
+        "learning_lessons_log_path": str(tmp_path / "lessons.jsonl"), "lessons_supplied_max": 5})
     holder = {"s": settings}
     for module in (LA, LL, ML):
         monkeypatch.setattr(module, "get_settings", lambda: holder["s"])
@@ -364,7 +335,7 @@ def assessed(env, user, conversation, *, venting="my boss yelled at me again",
         msg = say(db, conversation, "user", correction, turn_id=uuid.uuid4())
         row, _ = LA.open_assessment(db, user_id=user.id, kind="correction", key=f"message:{msg.id}",
                                     anchor_at=msg.created_at, conversation_id=conversation.id,
-                                    anchor_message_id=msg.id, trigger={"why": "Student 1 read it as correcting her"})
+                                    anchor_message_id=msg.id, trigger={"why": "the user corrected her"})
         db.commit()
         aid = row.id
     m, t = f"m{msg.conversation_sequence}", f"t{her.conversation_sequence}"
@@ -374,7 +345,7 @@ def assessed(env, user, conversation, *, venting="my boss yelled at me again",
            "causes": [{"target": t, "component": "user_side", "status": "supported", "cites": [m],
                        "why": "what they wanted"}] if cause else [],
            "user_stated": [{"kind": "preference", "quote": correction.split(".")[0], "cites": [m]}] if stated else [],
-           "dimensions": [], "choice_vs_outcome": [], "missing": [], "clarification": {"propose": False, "question": ""},
+           "dimensions": [], "choice_vs_outcome": [], "missing": [],
            "reopens": [], "next": {"step": "conclude", "look": [], "why": "enough"}, "explanation": "they wanted listening"}
     with env.db() as db:
         claimed = LA.claim(db, soon(hours=1))
@@ -403,9 +374,22 @@ def preference(text, **kw):
             "explanation": "a stated preference"}
 
 
-def capture(user, conversation=None) -> learning_capture.Ctx:
-    return learning_capture.Ctx(user_id=user.id, attempt_id=uuid.uuid4(), trigger="user_message",
-                                conversation_id=conversation.id if conversation else None)
+def evaluate(env, user, conversation, message):
+    """One evaluation of her mind on ``message``, prepared and recorded by the real code; the model's run is stood
+    in by the prompt it would read (with the lessons she was given). Returns (evaluation, system prompt)."""
+    from app.ai.context import AgentRuntimeContext
+    from app.ai.prompts import build_system_prompt
+    from app.services import mind_turn
+
+    with env.db() as db:
+        conversation = db.get(Conversation, conversation.id)
+        asked = say(db, conversation, "user", message, turn_id=uuid.uuid4())
+    ev = mind_turn.prepare_message(user_id=user.id, conversation_id=conversation.id, user_message_id=asked.id,
+                                   message=message, zone="UTC", turn_id=asked.turn_id)
+    prompt = build_system_prompt(AgentRuntimeContext(user_id=user.id, lessons=mind_turn.lessons_text(ev), mind=ev))
+    ev.prompt = prompt
+    mind_turn.finish(ev, outcome="completed", reply="that sounds hard", assistant_message_id=None)
+    return ev, prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -413,27 +397,17 @@ def capture(user, conversation=None) -> learning_capture.Ctx:
 # --------------------------------------------------------------------------- #
 
 
-def test_a_correction_informs_the_next_choice_now_and_a_fresh_conversation_later(env, teacher):
+def test_a_correction_informs_the_next_evaluation_now_and_a_fresh_conversation_later(env):
     user, first = setup(env)
     aid, msg = assessed(env, user, first)
     with env.db() as db:
         job = db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == aid))
         assert job is not None and job.assessment_revision == 1 and job.state == "pending"
-        # Immediately, before any lesson exists: the next decision in that conversation has the correction in view.
-        live = svc.gather(db, user_id=user.id, conversation_id=first.id, trigger_message_id=None,
-                          message="and now he wants me to work Saturday", zone="UTC")
-    assert live.lessons == () and live.lessons_note == "no accepted lessons"
-    prompts = []
-
-    def ask(model, text):
-        prompts.append(text)
-        refs = model["schema"]["properties"].get("lessons_weighed", {}).get("items", {}) \
-            .get("properties", {}).get("lesson", {}).get("enum", [])
-        return json.dumps(teacher_answer(lessons_weighed=[{"lesson": r, "use": "applied", "why": "they're venting"}
-                                                          for r in refs]))
-
-    now = svc.decide(live, ask=ask, capture=capture(user, first))
-    assert now.ok and "please just listen" in prompts[0] and "LESSONS" not in prompts[0]
+    # Immediately, before any lesson exists: the next evaluation in that conversation has the correction in view
+    # (it is in the conversation she reads), and no lesson yet.
+    now, prompt = evaluate(env, user, first, "and now he wants me to work Saturday")
+    assert not now.lessons.views and now.lessons_note == "no lessons with live support"
+    assert "LESSONS" not in prompt
 
     # Learning reads the assessment, memory keeps the lesson.
     builder = Builder(lambda text, n: preference(text, scope="situation", applies_when="when they are venting"))
@@ -449,28 +423,23 @@ def test_a_correction_informs_the_next_choice_now_and_a_fresh_conversation_later
         assert (use.consumer, use.ref) == ("lessons", f"lesson:{lesson.id}")
         lesson_id = lesson.id
 
-    # A fresh conversation, the correction nowhere in it: the decision is given the lesson and accounts for it.
+    # A fresh conversation, the correction nowhere in it: her evaluation is given the lesson, and it is recorded.
     with env.db() as db:
         second = create_conversation(db, db.get(M.User, user.id))
-        say(db, second, "user", "hey", turn_id=uuid.uuid4())
-        later = svc.gather(db, user_id=user.id, conversation_id=second.id, trigger_message_id=None,
-                           message="ugh, my landlord ignored the leak again", zone="UTC")
-    assert [v.id for v in later.lessons] == [str(lesson_id)]
-    assert all("please just listen" not in line.text for line in later.lines)
-    ctx = capture(user, second)
-    outcome = svc.decide(later, ask=ask, capture=ctx)
-    assert outcome.ok and outcome.lessons_received
-    assert f"lesson:{lesson_id}" in outcome.capture.sources
-    assert {"ref": f"lesson:{lesson_id}", "revision": 1, "shown": True} in outcome.capture.input_refs
-    assert "LESSONS" in prompts[1] and "When I'm venting, please just listen" in prompts[1]
+    later, prompt = evaluate(env, user, second, "ugh, my landlord ignored the leak again")
+    assert [v.id for v in later.lessons.views] == [str(lesson_id)]
+    assert "LESSONS" in prompt and "When I'm venting, please just listen" in prompt
+    assert f"lesson:{lesson_id}" in later.capture.sources
+    assert {"ref": f"lesson:{lesson_id}", "revision": 1, "shown": True} in later.capture.input_refs
     with env.db() as db:
-        row = db.scalar(select(MemoryLessonUse).where(MemoryLessonUse.attempt_id == ctx.attempt_id))
-        assert (row.received, row.revision, row.ref, row.reported) == (True, 1, "L1", "applied")
+        row = db.scalar(select(MemoryLessonUse).where(MemoryLessonUse.attempt_id == later.capture.attempt_id))
+        assert (row.consumer, row.received, row.revision, row.ref) == ("mind", True, 1, "L1")
+        # Reached her; she gives no account of each lesson (not a schema answer), so inspection says so.
         case, sentence = ML.explain(row)
-        assert case == "applied" and "not proof of influence" in sentence
+        assert case == "no_account"
 
 
-def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_not_a_second(env):
+def test_an_inference_is_as_certain_as_the_builder_judged_and_rereading_one_is_not_new_support(env):
     user, conversation = setup(env)
 
     def strategy(text, n):
@@ -478,16 +447,22 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
         lesson = next((line.split()[0] for line in text.splitlines() if line.startswith("L1 ")), None)
         if lesson is None:
             return {"changes": [change(kind="strategy", statement="Ask before offering fixes",
-                                       conclusion_cites=[stated], applicability_cites=[stated])],
+                                       conclusion_cites=[stated], applicability_cites=[stated], certainty="tentative")],
                     "explanation": "a pattern, maybe"}
-        return {"changes": [change(op="support", lesson=lesson, conclusion_cites=[stated])], "explanation": "again"}
+        # Every later reading judges it established: code lets that count only from new support.
+        return {"changes": [change(op="support", lesson=lesson, conclusion_cites=[stated], certainty="established")],
+                "explanation": "again"}
 
     first, _ = assessed(env, user, conversation, correction="I just wanted to vent. Not a list of fixes.")
     run_lessons(env, Builder(strategy))
     with env.db() as db:
         lesson = db.scalar(select(MemoryLesson).where(MemoryLesson.user_id == user.id))
-        assert (lesson.origin, lesson.status) == ("inferred", "hypothesis") and "accepted from 2" in lesson.status_reason
-        assert ML.for_decision(db, user.id, "anything").views == ()  # a hypothesis is never supplied
+        assert (lesson.origin, lesson.status) == ("inferred", "hypothesis") and "a guess" in lesson.status_reason
+        assert ML.for_decision(db, user.id, "anything").views == ()  # accepted-only retrieval leaves the guess out
+        # Retrieval that asks for tentative lessons (every consumer since post-audit 3) has it, labelled a guess.
+        tentative = ML.for_decision(db, user.id, "anything", include_tentative=True)
+        assert [v.status for v in tentative.views] == ["hypothesis"]
+        assert "her inference, a guess" in L.decision_lines(tentative.views)[1]
     # The same exchange read again (a new revision of its assessment) is not a second occasion.
     with env.db() as db:
         LA.add_note(db, user.id, first, "yes, that's right")
@@ -498,7 +473,7 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
         row = db.get(LearningAssessment, first)
         rev = db.scalar(select(M.LearningAssessmentRevision).where(M.LearningAssessmentRevision.assessment_id == first))
         raw = {k: rev.result[k] for k in ("feedback", "targets", "causes", "user_stated", "dimensions",
-                                          "choice_vs_outcome", "missing", "clarification", "reopens", "next",
+                                          "choice_vs_outcome", "missing", "follow_up", "reopens", "next",
                                           "explanation")}
     with env.db() as db:
         LA.assess(db, claimed, evaluator=Evaluator(raw))
@@ -506,9 +481,10 @@ def test_a_strategy_needs_support_from_a_second_occasion_and_rereading_one_is_no
     with env.db() as db:
         lesson = db.get(MemoryLesson, lesson.id)
         assert lesson.status == "hypothesis" and lesson.revision == 1
-        assert db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == first,
-                                                         LearningLessonJob.assessment_revision == 2)).outcome == "changed"
-    # A second, different exchange: accepted, as a new revision.
+        job = db.scalar(select(LearningLessonJob).where(LearningLessonJob.assessment_id == first,
+                                                        LearningLessonJob.assessment_revision == 2))
+        assert job.outcome == "changed" and any("already counted" in d["why"] for d in job.result["dropped"])
+    # A second, different exchange, judged established: accepted, as a new revision.
     assessed(env, user, conversation, correction="Again, I wanted to vent. Not fixes.")
     run_lessons(env, Builder(strategy))
     with env.db() as db:
@@ -562,7 +538,7 @@ def test_a_disclaimed_preference_is_withdrawn_and_stale_work_cannot_restore_it(e
         claimed = LA.claim(db, soon(hours=1))
         rev = db.scalar(select(M.LearningAssessmentRevision).where(M.LearningAssessmentRevision.assessment_id == old_aid))
         raw = {k: rev.result[k] for k in ("feedback", "targets", "causes", "user_stated", "dimensions",
-                                          "choice_vs_outcome", "missing", "clarification", "reopens", "next",
+                                          "choice_vs_outcome", "missing", "follow_up", "reopens", "next",
                                           "explanation")}
     with env.db() as db:
         LA.assess(db, claimed, evaluator=Evaluator(raw))
@@ -646,11 +622,10 @@ def test_counterevidence_narrows_a_lesson_and_one_bad_result_does_not_erase_it(e
 
 def test_a_revised_assessment_stops_counting_until_read_again(env):
     user, conversation = setup(env)
-    env.configure_learning(lessons_min_occasions=1)
 
     def strategy(text, n):
         stated = ref_of(text, "the user stated")
-        return {"changes": [change(kind="strategy", statement="Ask before offering fixes",
+        return {"changes": [change(kind="strategy", statement="Ask before offering fixes", certainty="established",
                                    conclusion_cites=[stated], applicability_cites=[stated])], "explanation": "x"}
 
     aid, _ = assessed(env, user, conversation, correction="I just wanted to vent. Not a list of fixes.")
@@ -664,11 +639,13 @@ def test_a_revised_assessment_stops_counting_until_read_again(env):
     with env.db() as db:  # the revision no longer supports anything: its conclusions changed
         LA.assess(db, claimed, evaluator=Evaluator({
             "feedback": "unclear", "targets": [], "causes": [], "user_stated": [], "dimensions": [],
-            "choice_vs_outcome": [], "missing": [], "clarification": {"propose": False, "question": ""},
+            "choice_vs_outcome": [], "missing": [],
             "reopens": [], "next": {"step": "conclude", "look": [], "why": "x"}, "explanation": "changed"}))
     with env.db() as db:
         lesson = db.get(MemoryLesson, lesson.id)
-        assert lesson.status == "hypothesis" and lesson.revision == 2
+        # The judgment stays the builder's; with no live support it is not supplied until read again.
+        assert lesson.status == "accepted" and lesson.status_reason == ML.UNSUPPORTED and lesson.revision == 2
+        assert ML.for_decision(db, user.id, "fixes", include_tentative=True).views == ()
         assert db.scalar(select(MemoryLessonRevision.op).where(MemoryLessonRevision.lesson_id == lesson.id,
                                                                MemoryLessonRevision.revision == 2)) == "reconsider"
         use = db.scalar(select(LearningAssessmentUse).where(LearningAssessmentUse.assessment_id == aid))
@@ -700,8 +677,13 @@ def test_retrieval_is_bounded_whole_and_keeps_conflicts_together(env):
             rows.append(row)
         db.flush()
         rows[1].conflicts_with, rows[2].conflicts_with = [str(rows[2].id)], [str(rows[1].id)]
-        db.add(MemoryLesson(user_id=user.id, kind="strategy", origin="inferred", scope="situation",
-                            status="hypothesis", statement="Coding bug guess", applies_when="coding bug"))
+        guess = MemoryLesson(user_id=user.id, kind="strategy", origin="inferred", scope="situation",
+                             status="hypothesis", statement="Coding bug guess", applies_when="coding bug")
+        db.add(guess)
+        db.flush()
+        for i, row in enumerate([*rows, guess]):  # an inference is supplied only with live support
+            db.add(MemoryLessonEvidence(lesson_id=row.id, user_id=user.id, role="support", occasion=f"test:{i}",
+                                        occasion_at=NOW, refs=[f"message:{uuid.uuid4()}"], added_revision=1))
         db.commit()
         supply = ML.for_decision(db, user.id, "I have a coding bug about whales")
     shown_now = [v.statement for v in supply.views]
@@ -749,14 +731,14 @@ def test_inspection_tells_missing_retrieval_from_misunderstanding_and_from_judgm
     attempt = uuid.uuid4()
     weighed = [{"lesson": "L1", "use": "applied", "why": "kept it short"},
                {"lesson": "L2", "use": "outweighed", "why": "they asked for advice outright"}]
-    assert ML.record_uses(user.id, attempt, supply, consumer="student_2", received=True, weighed=weighed,
+    assert ML.record_uses(user.id, attempt, supply, consumer="hands", received=True, weighed=weighed,
                           decision_status="ok") == 4
     # The same decision recorded again adds nothing.
-    assert ML.record_uses(user.id, attempt, supply, consumer="student_2", received=True, weighed=weighed,
+    assert ML.record_uses(user.id, attempt, supply, consumer="hands", received=True, weighed=weighed,
                           decision_status="ok") == 4
     local = uuid.uuid4()
-    ML.record_uses(user.id, local, supply, consumer="student_2", received=False,
-                   reason="this decision model's input has no lessons (its rendering doesn't show them)")
+    ML.record_uses(user.id, local, supply, consumer="planner", received=False,
+                   reason="this decision's input has no lessons")
     who = {"user": user}
 
     def db_dep():
@@ -797,8 +779,8 @@ def test_forgetting_the_messages_a_lesson_rests_on_removes_it(env):
         lesson = db.scalar(select(MemoryLesson).where(MemoryLesson.user_id == user.id))
         # A later decision's raw capture that showed the lesson (its lesson:<id> source).
         attempt = uuid.uuid4()
-        db.add(M.DecisionAttempt(id=attempt, user_id=user.id, learner="student_2", trigger="user_message",
-                                 input={"prompt": "LESSONS ..."}, status="ok", started_at=NOW,
+        db.add(M.DecisionAttempt(id=attempt, user_id=user.id, learner="mind", trigger="user_message",
+                                 input={"message": "LESSONS ..."}, status="ok", started_at=NOW,
                                  expires_at=NOW + timedelta(days=30)))
         db.flush()
         db.add(M.DecisionAttemptSource(attempt_id=attempt, ref=f"lesson:{lesson.id}", user_id=user.id))
@@ -816,7 +798,9 @@ def test_forgetting_the_messages_a_lesson_rests_on_removes_it(env):
         assert db.scalar(select(LearningLessonJob).where(LearningLessonJob.user_id == user.id)) is None
 
 
-def test_nothing_new_is_queued_when_learning_lessons_is_off_and_nothing_is_supplied_in_the_baseline(env, teacher):
+def test_nothing_new_is_queued_when_learning_lessons_is_off_and_nothing_is_supplied_in_the_baseline(env):
+    from app.services import mind_turn
+
     user, conversation = setup(env)
     env.configure_learning(learning_lessons_enabled=False)
     aid, _ = assessed(env, user, conversation)
@@ -825,19 +809,15 @@ def test_nothing_new_is_queued_when_learning_lessons_is_off_and_nothing_is_suppl
         db.add(MemoryLesson(user_id=user.id, kind="preference", origin="stated", scope="standing", status="accepted",
                             statement="Keep answers short", applies_when="in general", user_words=["short"]))
         db.commit()
-    settings = svc.get_settings()
+    settings = mind_turn.get_settings()
     original = settings.lessons_supply_enabled
     try:
         settings.lessons_supply_enabled = False
-        with env.db() as db:
-            live = svc.gather(db, user_id=user.id, conversation_id=conversation.id, trigger_message_id=None,
-                              message="hi", zone="UTC")
-        assert live.lessons == () and "baseline" in live.lessons_note
+        off, prompt = evaluate(env, user, conversation, "hi")
+        assert off.lessons is None and "baseline" in off.lessons_note and "LESSONS" not in prompt
         settings.lessons_supply_enabled = True
-        with env.db() as db:
-            live = svc.gather(db, user_id=user.id, conversation_id=conversation.id, trigger_message_id=None,
-                              message="hi", zone="UTC")
-        assert [v.statement for v in live.lessons] == ["Keep answers short"]
+        on, prompt = evaluate(env, user, conversation, "hi")
+        assert [v.statement for v in on.lessons.views] == ["Keep answers short"] and "Keep answers short" in prompt
     finally:
         settings.lessons_supply_enabled = original
 

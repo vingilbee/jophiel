@@ -1,19 +1,21 @@
-"""Durable autonomous proposals; cognition authorizes, the existing chat mouth delivers.
+"""Wake events from the other parts of her (a thought of her own, a proposal, something memory noticed), and the
+delivery fences for what she says without being asked. The mind decides; this only carries and checks.
 
-Minecraft proposals prefer an active voice conversation. No latest-conversation fallback. Completed producer work is queued as a mind result,
-not sent back through the thinker. Student 2 decides whether it is said; when it can't decide, it stays
-private (blocked).
+``submit`` keeps the event as durable coordinator work in the activity's own conversation (Minecraft events prefer
+an active voice conversation; never "the latest conversation"). The coordinator turns it into one wake of the mind
+(``coordinator._conclude``): in that evaluation she chooses to say it, ask, note it, start work, or stay silent.
 
-Before anything she meant to say on her own is said, ``valid`` checks again that it still holds: no newer user
-message; its premise (the disagreement, item or open question it was about) still open; nothing forgotten since it
-was prepared; and, in a conversation, the same thing not already said in this quiet stretch (by premise, or in
-other words: ``AutonomousDelivery``, reserved in the delivery transaction by ``reserve``, so a restart or a second
-worker can't say it twice). Elapsed time never reopens a stretch: only a new user message does.
+Execution facts checked before the wake and again before anything is stored (``valid``): its deadline; no newer
+user message; its premise (the disagreement, item or open question it was about) still open; nothing forgotten
+since it was prepared; the game it came from unchanged; and, in a conversation, the same thing not already said in
+this quiet stretch (by premise, or in other words: ``AutonomousDelivery``, reserved in the delivery transaction by
+``reserve``, so a restart or a second worker can't say it twice). Elapsed time never reopens a stretch: only a new
+user message does. How recently she spoke and the user's commentary setting are given to her as facts (``facts``):
+whether now is a good moment is hers to judge.
 
-Words her mouth already chose in a background turn (her ``say`` and ``offer_to_learn`` tools) are not a
-proposal: cognition and the mouth already ran. ``deliver_worded`` gives them the same delivery arbitration
-instead: the activity's own conversation, the restraint rules when queued and again at delivery, one chat
-job per conversation behind any reply, and the follow-up announcement outbox.
+Words she already chose in a background game turn (her ``say`` and ``offer_to_learn`` tools) are not an event: she
+already decided. ``deliver_worded`` gives them delivery arbitration: the activity's own conversation, the user's
+commentary setting, one chat job per conversation behind any reply, and the follow-up announcement outbox.
 """
 from __future__ import annotations
 
@@ -27,30 +29,38 @@ from sqlalchemy.dialects.postgresql import insert
 from app.db.models import (
     DESKTOP_TERMINAL_STATES, AutonomousDelivery, ChatJob, ChatMessage, Conversation, CoordinatorOutput, CoordinatorWork,
     DesktopSession,
-    MemoryConflict, WorkingItem,
+    MemoryConflict, SecurityInvestigation, WorkingItem,
 )
+
+# Sources whose events belong to a conversation rather than a game (premise and repeat fences).
+CONVERSATIONAL = ("conversation", "security")
 from app.services import agent_say, coordinator, desktop_preview, voice_target
 
 
 def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, DesktopSession | None]:
-    """The activity's own conversation, ownership checked; never "the latest conversation"."""
+    """The activity's own conversation, ownership checked; never "the latest conversation". A security
+    investigation's own conversation is the one it was opened in (``security_investigations.conversation_id``)."""
     session = db.get(DesktopSession, activity_id) if source == "minecraft" and activity_id else None
     target = session.conversation_id if session and session.owner_user_id == user_id else (
         activity_id if source == "conversation" else None)
+    if source == "security" and activity_id:
+        investigation = db.get(SecurityInvestigation, activity_id)
+        target = investigation.conversation_id if investigation and investigation.user_id == user_id else None
     conversation = db.get(Conversation, target) if target else None
     if conversation is None or conversation.user_id != user_id:
         return None, session
     return conversation, session
 
 
-PREMISE_KEYS = ("conflict", "item", "revision", "note")
+PREMISE_KEYS = ("conflict", "item", "revision", "investigation")
 SAME_WORDS = 0.6  # shared content words, of the shorter: the same thing in other words
 
 
 def submit(db, *, user_id, activity_id, source, event_id, text, reasons, commentary_mode,
-           question=False, ttl=120, premise=None) -> str:
-    """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision, an open
-    question's note); checked again before it's said."""
+           question=False, ttl=120, premise=None, wake="thought", extra=None) -> str:
+    """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision); checked again
+    before the mind is woken and before anything is stored. ``wake``: why it wakes her (``thought``, ``proposal``,
+    ``conflict``, ``finding``). ``extra``: what the producer needs back in that evaluation (a proposal's keys)."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
     voice_socket = None
@@ -88,7 +98,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
         trigger_message_id=trigger.id if trigger else None, kind="mind", status="queued",
         dependency_ids=[], input_versions=versions, deadline_at=coordinator._now() + timedelta(seconds=ttl),
         idempotency_key=f"autonomous:{request}", result=result,
-        input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "source": source, "event_id": event, "reasons": reasons,
+        input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "wake": wake,
+               "extra": extra or {}, "source": source, "event_id": event, "reasons": reasons,
                "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal",
                "voice_socket_id": voice_socket,
                "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
@@ -97,7 +108,7 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     coordinator._log({"op": "autonomous_proposed", "request": str(request), "event": event,
                       "activity": str(activity_id), "conversation": str(target), "versions": versions})
     coordinator._wake()
-    return "Proposed: queued for cognition and mouth."
+    return "Proposed: queued to wake her mind."
 
 
 def _newer_user_message(db, conversation_id, sequence) -> bool:
@@ -106,24 +117,45 @@ def _newer_user_message(db, conversation_id, sequence) -> bool:
         ChatMessage.conversation_sequence > sequence).limit(1)) is not None
 
 
-def _restraint(db, user_id, reasons, mode) -> tuple[bool, str]:
-    """The delivery restraint rules (agent_say), read against the current receipts. Unknown freshness keeps
-    the line private."""
-    pause = 8 if any(r.startswith("question:") for r in reasons) else agent_say.MIND_HUSH_SECONDS
-    if (agent_say.from_mind(reasons) or any(r.startswith("question:") for r in reasons)) and agent_say.user_spoke_since(
-            db, user_id, time.time() - pause):
-        return False, "the user just spoke, and your reply to them answers it; keep this to yourself"
+def _setting(db, user_id, reasons, mode) -> tuple[bool, str]:
+    """The user's commentary setting for this game (their rule, not hers): which events may be said in which
+    mode. Pace is not checked here."""
+    return agent_say.allowed(reasons, mode)
+
+
+def facts(db, work) -> list[str]:
+    """What she should know before speaking unasked: the user's commentary setting, how long since she last spoke
+    on her own and since the user last wrote. Facts for her judgment, never a rule."""
+    out = []
+    mode = (work.input or {}).get("commentary_mode")
+    if (work.input or {}).get("source") not in CONVERSATIONAL and mode:
+        out.append(f"The user's commentary setting for this game: {mode}"
+                   + (" (they asked for quiet: speak only when you need them)" if mode == agent_say.QUIET else ""))
     client = desktop_preview.redis_client()
-    last, fresh = None, False
     if client is not None:
         try:
-            raw = client.get(agent_say._last_key(user_id))
-            last = time.time() - float(raw) if raw else None
-            which = agent_say.serious(reasons)
-            fresh = bool(which and not client.exists(agent_say._serious_key(user_id, which)))
-        except Exception:
-            return False, "can't tell when you last spoke; keep it for now"
-    return agent_say.allowed(reasons, mode, last, serious_fresh=fresh)
+            raw = client.get(agent_say._last_key(work.user_id))
+            if raw:
+                out.append(f"You last spoke without being asked {int(time.time() - float(raw))} s ago.")
+        except Exception:  # noqa: BLE001 - unknown is simply not said
+            pass
+    last_user = db.scalar(select(func.max(ChatMessage.created_at)).where(
+        ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user"))
+    if last_user is not None:
+        now = db.scalar(select(func.localtimestamp())) if last_user.tzinfo is None else coordinator._now()
+        out.append(f"Their last message here was {max(0, int((now - last_user).total_seconds()))} s ago.")
+    return out
+
+
+def dropped(work, why: str) -> None:
+    """An event that never reached her mind (stale before the wake): its producer hears about it."""
+    extra = (work.input or {}).get("extra") or {}
+    if (work.input or {}).get("wake") == "proposal" and extra.get("trial"):
+        try:
+            from app.services import learning_trials
+            learning_trials.undecided(uuid.UUID(extra["trial"]), why=f"it couldn't be considered: {why}")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def valid(db, work) -> bool:
@@ -146,13 +178,10 @@ def valid(db, work) -> bool:
         if socket_id := work.input.get("voice_socket_id"):
             return voice_target.current(work.user_id) == (uuid.UUID(socket_id), work.conversation_id)
         return session.conversation_id == work.conversation_id
-    elif work.input["source"] == "conversation":
-        # Everyday chat: Student 2 decides whether it is said (no game pacing rules); the fences above (deadline,
-        # a newer user message) and these still hold.
+    if work.input["source"] in CONVERSATIONAL:
+        # Everyday chat (and what her mind found in her desktop's security records, in its own conversation).
         return why_not(db, work) is None
-    else:
-        mode = work.input["commentary_mode"]
-    return _restraint(db, work.user_id, work.input["reasons"], mode)[0]
+    return True
 
 
 def _premise_holds(db, work) -> str | None:
@@ -167,10 +196,13 @@ def _premise_holds(db, work) -> str | None:
             return "what it was about is no longer open"
         if premise.get("revision") and str(entry.revision) != premise["revision"]:
             return "what it was about changed meanwhile"
-    if premise.get("note"):
-        from app.services import mind_conversation
-        if not mind_conversation._note_open(work.user_id, work.conversation_id, premise["note"]):
-            return "the question it was about has been answered"
+    if premise.get("investigation"):
+        # What she found must still be the current view: new evidence or a gap since makes it an older one.
+        investigation = db.get(SecurityInvestigation, uuid.UUID(premise["investigation"]))
+        if investigation is None or investigation.user_id != work.user_id or investigation.status == "closed":
+            return "the investigation it was about is closed"
+        if premise.get("revision") and str(investigation.revision) != premise["revision"]:
+            return "the security records it was about changed since (new evidence or a gap)"
     return None
 
 
@@ -183,6 +215,8 @@ def _words(work) -> list[str]:
 
 def _key(work) -> str | None:
     premise = work.input.get("premise") or {}
+    if premise.get("investigation"):
+        return f"security:{premise['investigation']}:{premise.get('revision')}"
     return f"conflict:{premise['conflict']}" if premise.get("conflict") else (
         f"item:{premise['item']}" if premise.get("item") else None)
 
@@ -224,7 +258,7 @@ def why_not(db, work) -> str | None:
 def reserve(db, work) -> bool:
     """In the delivery transaction, under the conversation's lock: claim this quiet stretch's slot for what it's
     about. False when it was taken meanwhile (another worker, a retry): then it isn't said."""
-    if work.input.get("source") != "conversation":
+    if work.input.get("source") not in CONVERSATIONAL:
         return True
     if why_not(db, work) is not None:
         return False
@@ -238,8 +272,9 @@ def reserve(db, work) -> bool:
 
 
 def delivered(work):
-    """Maintain the existing chatter/urgent receipt guards after actual mouth delivery."""
-    agent_say.mark_said(work.user_id, work.input["reasons"])
+    """After actual delivery: when she last spoke on her own, and a serious moment said (the receipts ``facts``
+    and the user's commentary setting read)."""
+    agent_say.mark_said(work.user_id, work.input.get("reasons") or [])
 
 
 def deliver_worded(db, *, user_id, activity_id, source, text, reasons, commentary_mode) -> str:
@@ -251,7 +286,7 @@ def deliver_worded(db, *, user_id, activity_id, source, text, reasons, commentar
     if conversation is None:
         coordinator._log({"op": "worded_rejected", "activity": str(activity_id), "reason": "no_scoped_target"})
         return "Not said: this activity has no conversation of its own to say it in."
-    ok, why = _restraint(db, user_id, reasons, commentary_mode)
+    ok, why = _setting(db, user_id, reasons, commentary_mode)
     if not ok:
         return f"Not said: {why}."
     request = uuid.uuid4()
@@ -276,7 +311,8 @@ def deliver_worded(db, *, user_id, activity_id, source, text, reasons, commentar
 
 
 def worded_still_valid(db, job: ChatJob) -> bool:
-    """Checked by the chat worker at delivery, under the conversation's sequencing lock."""
+    """Checked by the chat worker at delivery, under the conversation's sequencing lock: no newer user message, the
+    same conversation, and the user's commentary setting as it is now."""
     payload = job.payload
     if _newer_user_message(db, job.conversation_id, payload["conversation_sequence"]):
         return False
@@ -285,4 +321,4 @@ def worded_still_valid(db, job: ChatJob) -> bool:
     if conversation is None or conversation.id != job.conversation_id:
         return False
     mode = session.commentary_mode if session is not None else payload["commentary_mode"]
-    return _restraint(db, job.user_id, payload["reasons"], mode)[0]
+    return _setting(db, job.user_id, payload["reasons"], mode)[0]

@@ -237,26 +237,6 @@ class Settings(BaseSettings):
     whatsapp_worker_poll_seconds: float = 1.0
     whatsapp_queue_name: str = "macrovision:whatsapp:wakeups"
 
-    # --- Simple cognition, live (docs/COLUMBINA_LIVE_INTENTION_PATH_DESIGN.md; services/cognitive_live.py) ---
-    # Always on: her character page (v0.6), typed scoped memories and Student 1's reading (acts, request, tone)
-    # in the reply model's prompt, with the notes and logs.
-    # Trained Student 1 (student_one.pt); None = var/cognitive_simple/teacher-1-2/models-1.0.
-    cognitive_live_student_dir: str | None = None
-    # Reads her actual reply after it's sent, for the notes (offered / committed / answered). None = subagent_model.
-    cognitive_live_events_model: str | None = None
-    cognitive_live_log_path: str = "var/cognitive_live.jsonl"
-    # Student 2, her decision model (services/student_two.py): a folder made by `scripts/student_model.py prepare`
-    # (weights + student.json), served by `scripts/student_model.py serve` at COGNITION_STUDENT_URL. Swapping the
-    # model is pointing both at another prepared folder. Relative paths resolve against the backend root.
-    cognition_student_dir: str = "var/cognitive_simple/qwen-4/serve/mlx-8bit"
-    cognition_student_url: str = "http://127.0.0.1:8792"
-    cognition_student_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    cognition_student_log_path: str = "var/student_two.jsonl"
-    # Live Student 2 uses the teacher's single decision call; student keeps the local Qwen option.
-    cognition_decision_provider: Literal["teacher", "student"] = "teacher"
-    cognition_teacher_model: str = "gpt-6-luna"
-    cognition_teacher_timeout_seconds: float = Field(default=60.0, gt=0, le=120)
-    cognition_teacher_data_path: str = "var/cognitive_simple/qwen-6/live_teacher.jsonl"
     # Learning capture (docs/learning-system/01-implementation.md; services/learning_capture.py): what each learner
     # was given and produced, and what actually executed, saved in the background (never on the reply path).
     # A record waits in a bounded in-memory queue; a failed save retries with backoff (base * 2^n, capped), and
@@ -275,21 +255,22 @@ class Settings(BaseSettings):
     learning_capture_chunk_queue_max: int = Field(default=240, ge=1)
     trajectory_pull_chunks: int = Field(default=40, ge=1, le=500)
     trajectory_pull_calls: int = Field(default=10, ge=1, le=100)
-    # The user's learning setting: Columbina may turn her decisions into training examples without asking each
-    # time. Off: nothing new is derived (existing examples stay, and stay deletable).
-    learning_derive_examples: bool = True
     # Retrospective assessment (docs/learning-system/02-implementation.md; services/learning_assessment.py): what
-    # feedback or an outcome says about what she did. Corrections, complaints and execution failures are assessed
-    # automatically; ordinary exchanges are sampled at this rate (by message id, so a retry samples the same).
-    # An assessment waits SETTLE seconds after its trigger (a burst of failures, the reply to a correction) and up to
-    # TRIAGE_WAIT for Student 1's capture of the message. WINDOW: conversation lines shown before the trigger at
-    # first (an investigation can look further back, doubling it). MAX_CHARS: the most evidence read at once.
+    # experience says about what she did and what she understands. Post-audit 3 (services/learning_review.py): every
+    # completed exchange, a pause after her reply, and ongoing or ended game play give the reviewer an opportunity;
+    # the reviewer (the model) judges whether to examine, wait or leave it. Code only schedules: SETTLE seconds after
+    # new activity before a review runs (a burst arrives together); PAUSE: the user quiet this long after her reply
+    # reviews that reply; GAME: play this long with new experience gets a review before the session ends. STRETCH:
+    # the most messages one conversation review carries (a transport page, not an experience boundary: the reviewer
+    # can look earlier). WINDOW: lines shown before a stretch at first (doubling when it looks further back).
+    # MAX_CHARS: the most evidence read at once. None of these bound what can be learned, or how often.
     learning_assessment_model: str = "gpt-6-luna"
     learning_assessment_reasoning_effort: str | None = "low"
     learning_assessment_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    learning_assessment_sample_rate: float = Field(default=0.1, ge=0.0, le=1.0)
     learning_assessment_settle_seconds: float = Field(default=60.0, ge=0)
-    learning_assessment_triage_wait_seconds: float = Field(default=120.0, ge=0)
+    learning_review_pause_seconds: float = Field(default=300.0, ge=0)
+    learning_review_game_seconds: float = Field(default=300.0, ge=0)
+    learning_review_stretch_messages: int = Field(default=40, ge=2, le=400)
     learning_assessment_window_messages: int = Field(default=12, ge=2, le=200)
     learning_assessment_max_chars: int = Field(default=60000, ge=4000)
     learning_assessment_max_attempts: int = Field(default=4, ge=1)
@@ -297,12 +278,10 @@ class Settings(BaseSettings):
     # Lessons (docs/learning-system/03-implementation.md; services/learning_lessons.py builds them from supported
     # assessments, services/memory_lessons.py owns them). LEARNING_LESSONS_ENABLED off: no new lessons or changes to
     # them (what exists stays). LESSONS_SUPPLY_ENABLED off: the baseline, lessons are kept but given to no decision.
-    # MIN_OCCASIONS: distinct assessed exchanges an inferred lesson needs before it is supplied (a stated preference
-    # needs the user's words only); also what withdrawing a strategy on counterevidence alone needs. SUPPLIED_MAX:
-    # the most lessons one decision is given (past it, the most relevant, whole).
+    # Whether an inference is established or tentative is the builder's judgment on the evidence (post-audit 3), not a
+    # count of occasions. SUPPLIED_MAX: the most lessons one decision is given (past it, the most relevant, whole).
     learning_lessons_enabled: bool = True
     lessons_supply_enabled: bool = True
-    lessons_min_occasions: int = Field(default=2, ge=1, le=20)
     lessons_supplied_max: int = Field(default=5, ge=1, le=20)
     learning_lessons_model: str = "gpt-6-luna"
     learning_lessons_reasoning_effort: str | None = "low"
@@ -323,19 +302,17 @@ class Settings(BaseSettings):
     trial_max_seconds: int = Field(default=300, ge=30, le=3600)
     trial_max_blocks: int = Field(default=8, ge=0, le=64)
     trial_window_seconds: int = Field(default=20, ge=0, le=600)
-    # How long a deferral is kept when cognition names no expiry, and how far she may be from the obstacle.
+    # How long a deferral is kept when her mind names no expiry, and how far she may be from the obstacle.
     trial_defer_hours: float = Field(default=2.0, gt=0, le=168)
     trial_near_m: float = Field(default=24.0, gt=0, le=128)
     learning_trials_log_path: str = "var/learning_trials.jsonl"
-    # Shared-state pipeline (docs/SHARED_STATE_REFACTOR_SPEC.md; services/shared_state.py), the only reply
-    # preparation: each reply is built from one scoped view: recent conversation + the last answer's memories re-read
-    # (no fresh search before the reply), Student 1's reading always, then the mouth. What it couldn't assess is
-    # named to her and in the trace. A turn whose student fails is a degraded one.
-    shared_state_log_path: str = "var/shared_state.jsonl"
-    # Background work for requests that need thinking (services/coordinator.py, `coordinator` worker thread):
-    # a mind item (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when recall is needed too. The
-    # deadline ends unfinished work as expired. Follow-ups are said only when cognition decides to.
-    shared_state_work_deadline_seconds: int = Field(default=180, ge=10, le=3600)
+    # One evaluation of her mind per wake (services/mind_turn.py): one trace line each (ids, labels, counts,
+    # timings; no message or memory text), with the coordinator's lifecycle lines.
+    mind_turn_log_path: str = "var/mind_turns.jsonl"
+    # Background thinking her mind started (services/coordinator.py, `coordinator` worker thread): a mind item
+    # (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when she asked to look up memory first. The
+    # deadline ends unfinished work as expired; either way she is woken with what came of it.
+    mind_work_deadline_seconds: int = Field(default=180, ge=10, le=3600)
     coordinator_heartbeat_seconds: float = Field(default=1.0, ge=1, le=60)
     coordinator_executor_slots: int = Field(default=2, ge=1, le=16)  # per component; no local waiting queue
     coordinator_max_pending: int = Field(default=1000, ge=10, le=100000)
@@ -384,14 +361,36 @@ class Settings(BaseSettings):
     # reply are saved here (one folder per session). Off by default: it keeps
     # screenshots of the VM on disk. Relative paths resolve against the backend root.
     desktop_driver_debug_dir: str | None = None
+    # Security activity on her desktop (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md): the VM's Windows event logs, read
+    # only, while the owner has monitoring switched on. The channels are the active collection filter (whole
+    # channels; what matters in them is for her mind and her lessons, never a list here). Channels a machine
+    # doesn't have are reported unavailable, not hidden.
+    security_channels: list[str] = Field(default_factory=lambda: [
+        "Security",
+        "System",
+        "Microsoft-Windows-Windows Defender/Operational",
+        "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall",
+        "Microsoft-Windows-PowerShell/Operational",
+        "Microsoft-Windows-Sysmon/Operational",
+        "Microsoft-Windows-TaskScheduler/Operational",
+        "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational",
+        "Microsoft-Windows-WinRM/Operational",
+        "Microsoft-Windows-SMBServer/Security",
+    ], max_length=16)
+    # How often the VM reads its logs (it reads again at once while a backlog remains).
+    security_poll_seconds: float = Field(default=15.0, ge=2, le=300)
+    # Her periodic look over what arrived since the last one (0: only signals and gaps start an investigation).
+    security_review_minutes: float = Field(default=30.0, ge=0, le=24 * 60)
+    # An investigation's window: this long before its first signal and after its last; a new signal this close
+    # joins it rather than starting another.
+    security_context_minutes: float = Field(default=10.0, ge=1, le=240)
+    # An investigation with nothing new this long is closed (its records stay in observation until retention).
+    security_investigation_hours: float = Field(default=24.0, ge=1, le=24 * 30)
     # Stage D2b: Columbina acting on game events.
     # Goals she may pick herself per session when playing on her own.
     desktop_max_auto_goals: int = Field(default=10, ge=0, le=100)
     # After a goal is done, how long the driver waits for her next one.
     desktop_planning_wait_seconds: float = Field(default=60.0, ge=5, le=600)
-    # Minimum gap between unprompted messages she sends in occasional mode (a third
-    # of it in commentary mode; needs-you ignores it, danger waits only 8 s).
-    agent_say_min_gap_seconds: float = Field(default=20.0, ge=0, le=3600)
     # Stage G: game packs. The Minecraft pack (game_packs/minecraft) is her own
     # player, driven by skills instead of keys. Its API is loopback-only on the
     # Mac; the token is PACK_API_TOKEN if the pack has one set, else the file the
@@ -406,26 +405,6 @@ class Settings(BaseSettings):
     minecraft_pack_token_file: str = "../game_packs/minecraft/var/api_token"
     # Spending bound for skill decisions per session (each is one model call).
     minecraft_pack_max_decisions: int = Field(default=400, ge=1, le=10_000)
-    # Game learning (services/game_learning.py): skill outcomes and notices are
-    # recorded per session; when a session ends, one reflection call turns them
-    # into an episode, lessons (applied to her hands automatically) and code
-    # proposals (shown on the Learning page, never applied by the app).
-    # The A/B switch for measuring learning: False keeps recording and
-    # reflecting but leaves lessons out of her hands' prompt.
-    game_learning_apply_lessons: bool = True
-    game_learning_model: str = "gpt-6-luna"
-    # Sent only to models with reasoning controls. Reflection is rare and
-    # benefits from thinking, unlike a per-step driver call.
-    game_learning_reasoning_effort: str | None = "low"
-    # A stretch of play with fewer skill outcomes than this is too short to
-    # learn from (when the session goes offline or ends). A pause, often brief,
-    # waits for a longer stretch so it doesn't split one up.
-    game_learning_min_outcomes: int = Field(default=5, ge=1, le=1000)
-    game_learning_segment_outcomes: int = Field(default=15, ge=1, le=1000)
-    # Lessons shown to her hands per run, and active lessons kept per game.
-    game_learning_prompt_lessons: int = Field(default=12, ge=0, le=50)
-    game_learning_max_active_lessons: int = Field(default=40, ge=1, le=500)
-    game_learning_queue_name: str = "macrovision:game-learning:wakeups"
     # Teaching herself a move (stage H1, services/game_practice.py): she writes a
     # program over her skills, the pack's sandbox runs it, a critic checks the
     # counted result, and she fixes it, up to MAX_TRIES times. Started only from a
@@ -476,6 +455,10 @@ class Settings(BaseSettings):
     mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
     mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
     mind_hard_log_path: str = "var/mind_hard.jsonl"
+    # A look back while a step of her game plan keeps going: once this long into the step, and again each time
+    # this long passes (0 turns it off). It picks only *when* she looks back; whether she is stuck is hers to
+    # judge (the user's rule, 2026-11-04). Live 2026-11-06 one step ran 21 minutes with no look back at all.
+    mind_step_look_back_seconds: float = Field(default=300.0, ge=0, le=7200)
     # A shadow source's thoughts go only here (never saved, said or shown). No shadow source runs today:
     # conversation is live (services/mind_conversation.py).
     mind_shadow_log_path: str = "var/mind_shadow.jsonl"
@@ -487,13 +470,6 @@ class Settings(BaseSettings):
     # and one-step commands, background turns and hard thoughts never write plans.
     mind_plan_model: str = "gpt-6-luna"
     mind_plan_reasoning_effort: str | None = "low"
-    # Her inner state, always live but without influence (docs/COLUMBINA_INNER_STATE_PLAN.md step 5.2;
-    # services/inner_state_live.py): after each delivered reply a background thread reads the
-    # exchange (two model calls: the teacher's thought, then appraisal-v3.1 labels) and moves her
-    # mood (app/ai/mind/mood_layers.py, frozen config). Shown in the chat page's debug strip and at
-    # GET /api/mind/state; nothing reads it into a reply, thought, plan or action.
-    mind_inner_state_model: str = "gpt-6-luna"
-    mind_inner_state_log_path: str = "var/inner_state.jsonl"
     # Every tick of her mind in a game, for comparing gates offline (scripts/mind_gate_eval.py).
     mind_tick_path: str = "var/mind_ticks.jsonl"
     # Her working memory (docs/COLUMBINA_MEMORY_SESSION1_SPEC.md; services/memory_manager.py):

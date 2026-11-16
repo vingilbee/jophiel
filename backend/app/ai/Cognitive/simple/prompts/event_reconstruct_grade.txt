@@ -1,6 +1,0 @@
-You compare two versions of what Columbina meant to communicate in the same SITUATION. ORIGINAL is what her decision model chose to say and the message written from it. RECONSTRUCTED is a message written only from a compact summary of that decision (its move, style, operation and the references it is about), without the original wording.
-
-Judge whether RECONSTRUCTED carries the same message as ORIGINAL, not whether it is worded the same:
-- stance: what she does toward the user in it: agrees, disagrees_or_pushes_back, uncertain, says_a_feeling (hurt, glad, frustrated...), refuses_or_sets_a_limit, commits_to_do, asks, informs_or_explains, comforts, plays, other. Give the main stance of each.
-- same_message: true only if a reader would take both as saying the same thing in substance: the same stance, the same main point, nothing important lost, nothing added that changes what she means (a new claim, offer, question or feeling).
-- lost / added: in a few words, the important content missing from RECONSTRUCTED, and the important content it adds; empty if none.

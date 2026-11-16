@@ -43,6 +43,26 @@ export interface DesktopEnvironment {
   target_state: DesktopTargetState | null
   /** The game's input mode during a session: "playing", "menu", "unknown". */
   input_context: string | null
+  /** Security monitoring of the VM's event logs: the owner's own switch, apart from capture and input. */
+  security_monitoring: boolean
+  security_changed_at: string | null
+}
+
+/** How security monitoring is doing (GET /desktop/environments/{id}/security). */
+export interface DesktopSecurityStatus {
+  monitoring: boolean
+  changed_at: string | null
+  /** The VM as a source of records: online / offline / unknown. */
+  source: string
+  last_report_at: string | null
+  skew_seconds: number | null
+  channels: {
+    channel: string
+    /** readable | unavailable | waiting (no report about it yet) */
+    status: string
+    reason: string | null
+    through: string | null
+  }[]
 }
 
 export type DesktopCaptureGate = 'allowed' | 'blocked' | 'manual_auth'

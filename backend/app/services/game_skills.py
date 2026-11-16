@@ -104,7 +104,7 @@ def for_user(db: Session, user_id: uuid.UUID, game: str, *, enabled_only: bool =
 
 def for_session(db: Session, session_id: uuid.UUID) -> list[dict]:
     """Her hands' view: the enabled moves of the session's owner, as plain dicts."""
-    from app.services.game_learning import game_for_profile
+    from app.services.game_experience import game_for_profile
 
     session = db.get(DesktopSession, session_id)
     if session is None:
@@ -167,7 +167,7 @@ def outcome(record: dict, skill: str, params: dict) -> dict:
 def record_use(db: Session, session_id: uuid.UUID, name: str, status: str, reason: str | None = None) -> str | None:
     """Count one use of a move by how it ended. Returns what changed about the move for
     her hands to hear (switched off, back to the original program), or None."""
-    from app.services.game_learning import game_for_profile
+    from app.services.game_experience import game_for_profile
 
     session = db.get(DesktopSession, session_id)
     if session is None:

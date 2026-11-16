@@ -1,75 +1,4 @@
-// Game learning contracts — mirror backend/app/schemas/game_learning.py.
-
-export type LessonStatus = 'trial' | 'confirmed' | 'retired'
-export type ProposalStatus = 'open' | 'accepted' | 'implemented' | 'rejected'
-
-export interface LessonEvidence {
-  session_id?: string
-  verdict: string
-  experience_ids?: number[]
-  at: string
-}
-
-export interface Lesson {
-  id: string
-  game: string
-  normalized_key: string
-  situation: string
-  advice: string
-  /** skill: how an action behaves (her hands); plan: what to do and when (Columbina, when she plans). */
-  level: 'skill' | 'plan'
-  status: LessonStatus
-  support_count: number
-  contradict_count: number
-  evidence: LessonEvidence[]
-  created_at: string
-  updated_at: string
-}
-
-export interface ProposalEvidence {
-  session_id: string
-  experience_ids: number[]
-  examples: string[]
-  at: string
-  after_implemented?: boolean
-}
-
-export interface Proposal {
-  id: string
-  game: string
-  normalized_key: string
-  title: string
-  area: string
-  problem: string
-  suggestion: string
-  occurrences: number
-  evidence: ProposalEvidence[]
-  status: ProposalStatus
-  user_note: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ReflectionResult {
-  outcomes?: number
-  why?: string
-  lessons?: { new: string[]; supported: string[]; contradicted: string[] }
-  proposals?: { new: string[]; repeated: string[]; reopened: string[] }
-  dropped?: unknown[]
-  episode_id?: string | null
-}
-
-export interface Reflection {
-  id: string
-  session_id: string
-  game: string
-  status: 'pending' | 'processing' | 'done' | 'skipped' | 'failed'
-  attempts: number
-  last_error: string | null
-  result: ReflectionResult | null
-  created_at: string
-  processed_at: string | null
-}
+// Shared learning and executable game skill contracts.
 
 /** A move she taught herself (stage H2): her hands have it as a skill while enabled. */
 /** A challenge she set herself while exploring (stage H3). */
@@ -115,7 +44,7 @@ export interface LearnedSkill {
 
 /** Learning's retrospective assessments (docs/learning-system/02-implementation.md). */
 export type AssessmentStatus = 'supported' | 'plausible' | 'unresolved' | 'contradicted'
-export type AssessmentOutcome = 'concluded' | 'unresolved' | 'no_feedback'
+export type AssessmentOutcome = 'concluded' | 'unresolved' | 'no_feedback' | 'left'
 
 export interface AssessmentConclusion {
   status: AssessmentStatus
@@ -145,7 +74,23 @@ export interface AssessmentResult {
   dimensions: (AssessmentConclusion & { dimension: string; target: string; value: string })[]
   choice_vs_outcome: { target: string; choice: string; outcome: string; note: string; cites: string[] }[]
   missing: { what: string; needed_for: string }[]
-  clarification: { propose: boolean; question: string }
+  /** Revisions before post-audit 3 only. */
+  clarification?: { propose: boolean; question: string }
+  /** Post-audit 3 (docs/learning-system/POST-AUDIT-03-implementation.md): absent on older revisions. */
+  review?: { decision: 'examine' | 'wait' | 'leave'; why: string }
+  findings?: (AssessmentConclusion & {
+    statement: string
+    form: string
+    applies_when: string
+    alternatives: string[]
+    /** A lesson (id, revision) or, since post-audit 4, a memory (target: "fact:<id>", "item:<id>"). */
+    relates_to: { lesson: string; id?: string; revision?: number; target?: string; relation: string }[]
+    /** Post-audit 4: untested / needs / would_support / would_challenge, in the reviewer's words. */
+    details?: Record<string, string>
+  })[]
+  follow_up?: { propose: boolean; kind: 'question' | 'observation' | 'practice'; text: string; resolves: string; item?: string | null }
+  inquiry?: AssessmentInquiry
+  requests?: { source: string; query: string }[]
   explanation: string
   target_labels: Record<string, string>
   trigger: string
@@ -158,7 +103,7 @@ export interface AssessmentRevision {
   outcome: AssessmentOutcome
   target_status: string
   cause_status: string
-  stop_reason: 'concluded' | 'missing_evidence' | 'stuck'
+  stop_reason: 'concluded' | 'missing_evidence' | 'stuck' | 'waiting' | 'left'
   independent: number
   explanation: string
   result: AssessmentResult
@@ -168,10 +113,21 @@ export interface AssessmentRevision {
   created_at: string
 }
 
+export interface AssessmentInquiry {
+  question?: string
+  provisional?: string
+  alternatives?: string[]
+  unknown?: string
+  resume_when?: string
+  stop?: string
+  revision?: number
+}
+
 export interface AssessmentSummary {
   id: string
-  trigger_kind: 'correction' | 'complaint' | 'execution' | 'sample'
+  trigger_kind: 'correction' | 'complaint' | 'execution' | 'sample' | 'review'
   trigger: { why?: string }
+  inquiry?: AssessmentInquiry
   state: 'pending' | 'running' | 'done' | 'failed'
   outcome: AssessmentOutcome | null
   target_status: string | null
@@ -181,6 +137,7 @@ export interface AssessmentSummary {
   revision: number
   last_error: string | null
   awaiting: string[]
+  awaiting_notes?: string[]
   anchor_at: string
   updated_at: string
 }
@@ -219,25 +176,48 @@ export interface LessonUse {
 
 export interface AdaptationLesson {
   id: string
-  kind: 'preference' | 'strategy'
+  kind: 'preference' | 'strategy' | 'understanding'
   origin: 'stated' | 'inferred'
   scope: 'standing' | 'situation' | 'episode'
   status: AdaptationLessonStatus
   statement: string
   applies_when: string
   exceptions: string[]
+  form?: string | null
+  alternatives?: string[]
+  /** Post-audit 4: untested / tried / needs / would_support / would_challenge, in the builder's words. */
+  details?: Record<string, string>
   user_words: string[]
   revision: number
   status_reason: string | null
   conflicts_with: string[]
   support: number
   counter: number
+  /** Occasions that bore on it without support or counter (post-audit 4). */
+  noted?: number
   withdrawn_at: string | null
   created_at: string
   updated_at: string
 }
 
+/** How a lesson relates to another memory (post-audit 4); never support. */
+export interface LessonLink {
+  relation: 'depends_on' | 'builds_on' | 'same_as' | 'distinct' | 'supports' | 'challenges' | 'related'
+  target_kind: 'lesson' | 'fact' | 'item'
+  target_id: string
+  what: string
+  then_text: string
+  then_status: string | null
+  now_status: string | null
+  now_text: string | null
+  changed: boolean
+  note: string | null
+}
+
 export interface AdaptationLessonDetail extends AdaptationLesson {
+  links?: LessonLink[]
+  /** Premises that changed since it was last assessed: it is being reassessed. */
+  unsettled?: string[]
   revisions: {
     revision: number
     op: string
@@ -248,12 +228,14 @@ export interface AdaptationLessonDetail extends AdaptationLesson {
     exceptions: string[]
     user_words: string[]
     reason: string
+    /** A revision made without new evidence: a critique of its reasoning, or a changed premise. */
+    prompted_by?: 'critique' | 'premise' | null
     assessment_id: string | null
     assessment_revision: number | null
     at: string
   }[]
   evidence: {
-    role: 'support' | 'counter'
+    role: 'support' | 'counter' | 'noted'
     occasion: string
     occasion_at: string
     assessment_id: string | null

@@ -131,7 +131,7 @@ def _signal(report: Report, new_id: int) -> None:
     from app.services import system_signals
     if report.source == "conversation" and report.kind != "user_message":
         system_signals.emit(report.user_id, "mouth", "observation", report.kind, new_id)
-    elif report.source == "minecraft_pack" and report.kind != "source_availability":
+    elif report.source in ("minecraft_pack", "desktop") and report.kind != "source_availability":
         system_signals.emit(report.user_id, "hands", "observation", report.kind, new_id)
     elif report.source == "mind":
         system_signals.emit(report.user_id, "mind", "memory", "thought", report.thought_id)

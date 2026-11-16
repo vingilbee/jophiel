@@ -6,8 +6,8 @@ Who does what:
 | Part | Owner | Here |
 | --- | --- | --- |
 | What to investigate | learning (code) | ``consider`` (her hands struggling or stuck on a step of a goal; an approach changed mid-trial), ``sweep`` (her open hypotheses in a live game) |
-| A proposal: hypothesis, alternatives, predictions, costs, limits, recommendation | learning (one call) | ``investigate_once`` -> ``trials.check`` -> ``LearningTrialRevision`` (persisted before cognition sees it) |
-| Whether and when to run it, and which way | cognition (Student 2) | ``present_once`` -> ``student_two.gather_trial`` / ``decide`` / ``apply`` -> ``on_pursue`` / ``on_decline`` / ``on_defer`` |
+| A proposal: hypothesis, alternatives, predictions, costs, limits, recommendation | learning (one call) | ``investigate_once`` -> ``trials.check`` -> ``LearningTrialRevision`` (persisted before her mind sees it) |
+| Whether and when to run it, and which way | her mind | ``present_once`` -> a wake (``autonomous_speech.submit``, ``wake="proposal"``) -> her ``decide_proposal`` tool -> ``on_pursue`` / ``on_decline`` / ``on_defer``; no decision in that wake: ``undecided`` |
 | A deferral's reminder | memory (working item, an intention of hers) | ``_remind`` / ``_settle_reminder`` |
 | Arranging what's missing | the planner | ``game_planning.request`` (reason ``trial: ...``), ``planning_lines`` |
 | Running it | her body (game practice, ``origin="trial"``) | ``_start`` -> ``game_practice.run_once`` -> ``on_execution_finished`` |
@@ -16,11 +16,11 @@ Who does what:
 | What it supports | learning (one call, checked) | ``_assess`` -> ``trials.check_assessment`` |
 | What persists | hypothesis (memory), lesson (game lessons), move (game skills) | ``_feed`` |
 
-Cognition is the only one who starts a trial: a proposal's arrival interrupts nothing, hard thoughts and the
-planner never start one, and every trial taken up was chosen by a Student 2 decision whose capture id is in its
-selection. A trial ends at its limits; another needs a fresh proposal cognition selects.
+Her mind is the only one who starts a trial: a proposal's arrival interrupts nothing, hard thoughts and the
+planner never start one, and every trial taken up was chosen in an evaluation of her mind whose capture id is in
+its selection. A trial ends at its limits; another needs a fresh proposal she selects.
 
-Never rewritten: proposal revisions (immutable; none once selected), the event log, cognition's selection. A
+Never rewritten: proposal revisions (immutable; none once selected), the event log, her selection. A
 changed approach ends the trial ("approach_changed") and queues a fresh prediction as a new, linked trial.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ from app.ai.learning import trials as T
 from app.core.config import get_settings
 from app.db.models import (
     DESKTOP_TERMINAL_STATES, TRIAL_CLOSED, TRIAL_LIVE, TRIAL_PENDING, ChatMessage, CoordinatorWork, DesktopSession,
-    GameExperience, GameLesson, GameSkillAttempt, LearningTrial, LearningTrialAssessment, LearningTrialEvent,
+    GameExperience, GameSkillAttempt, LearningTrial, LearningTrialAssessment, LearningTrialEvent,
     LearningTrialRevision, LearningTrialTrigger, WorkingItem,
 )
 from app.db.session import SessionLocal
@@ -56,7 +56,7 @@ LEASE = timedelta(minutes=5)
 CHECK_EVERY = timedelta(seconds=5)  # a live trial's readiness / budget / window
 DEFERRED_EVERY = timedelta(seconds=15)  # a deferral's reconsideration condition
 MAX_BACKOFF = timedelta(minutes=30)
-DECIDE_TRIES = 4  # cognition failing to decide this often in a row: deferred with that reason
+DECIDE_TRIES = 4  # her mind woken this often without deciding it: deferred with that reason
 EVIDENCE_KEPT = 10
 TRIALS_SHOWN = 6  # earlier trials a proposer reads
 LESSONS_SHOWN = 8
@@ -298,18 +298,21 @@ def _finish_trigger(db: Session, trigger: LearningTrialTrigger, result: dict) ->
 
 def _bundle(db: Session, trigger: LearningTrialTrigger, session: DesktopSession, state: dict, manifest: list[dict],
             pending: LearningTrial | None) -> T.Bundle:
-    from app.services import game_learning
+    from app.services import game_experience
 
     s = get_settings()
     evidence = [T.Line(f"x{i}", f"{e.get('kind')}: {e.get('text')}",
                        f"experience:{e['experience_id']}" if e.get("experience_id") else "")
                 for i, e in enumerate(trigger.payload.get("evidence") or [], 1)]
-    game = game_learning.game_for_profile(session.profile_id) or "minecraft"
-    lessons = [T.Line(f"g{i}", f"({lesson.level}, {lesson.status}) when {lesson.situation}: {lesson.advice}",
-                      f"lesson:{lesson.id}")
-               for i, lesson in enumerate(db.scalars(select(GameLesson).where(
-                   GameLesson.user_id == session.owner_user_id, GameLesson.game == game,
-                   GameLesson.status != "retired").order_by(GameLesson.updated_at.desc()).limit(LESSONS_SHOWN)), 1)]
+    game = game_experience.game_for_profile(session.profile_id) or "minecraft"
+    from app.services import memory_lessons
+    from app.ai.learning import lessons as LS
+    lessons = [T.Line(f"g{i}", f"({v.status}" + (", UNSETTLED" if v.unsettled else "") + f") {v.statement}; "
+                               f"applies: {v.applies_when}; exceptions: {'; '.join(v.exceptions)}"
+                               + "".join(f"; {d}" for d in LS.detail_lines(v.detail))
+                               + "".join(f"; unsettled: {u}" for u in v.unsettled), f"lesson:{v.id}")
+               for i, v in enumerate(memory_lessons.for_game(
+                   db, session.owner_user_id, game, query=str(trigger.payload)).views, 1)]
     trials = []
     for i, (row, reading) in enumerate(_assessed(db, session.owner_user_id, game, limit=TRIALS_SHOWN), 1):
         revision = current_revision(db, row, row.selected_revision)
@@ -385,9 +388,9 @@ def _investigate(trigger_id: uuid.UUID, *, proposer=None, pack=None) -> dict | N
 
 def _write_proposal(db: Session, trigger: LearningTrialTrigger, session: DesktopSession, checked: T.Checked,
                     bundle: T.Bundle, *, model: str | None, input_digest: str) -> tuple[LearningTrial | None, str]:
-    """Persist the proposal before cognition sees it: a new trial, or a new revision of the one waiting for this
+    """Persist the proposal before her mind sees it: a new trial, or a new revision of the one waiting for this
     problem (unless the proposer says it's a materially different test: then a new trial, linked)."""
-    from app.services import game_learning
+    from app.services import game_experience
 
     proposal = checked.proposal
     refs = bundle.refs()
@@ -411,12 +414,12 @@ def _write_proposal(db: Session, trigger: LearningTrialTrigger, session: Desktop
         return pending, "revised"
     if pending is not None:
         linked = linked or pending.id
-        # A different test of the same question: its own problem key, so both can wait for cognition.
+        # A different test of the same question: its own problem key, so both can wait for her mind.
         key = f"{trigger.problem_key}:{uuid.uuid4().hex[:6]}"
     else:
         key = trigger.problem_key
     trial = LearningTrial(
-        user_id=trigger.user_id, session_id=session.id, game=game_learning.game_for_profile(session.profile_id)
+        user_id=trigger.user_id, session_id=session.id, game=game_experience.game_for_profile(session.profile_id)
         or "minecraft", scenario=proposal["scenario"], problem_key=key[:160], problem=proposal["problem"],
         status="proposed", revision=1, linked_trial_id=linked, limits=proposal["limits"])
     db.add(trial)
@@ -462,7 +465,7 @@ def _hypothesis(db: Session, trigger: LearningTrialTrigger, session: DesktopSess
 
 
 # --------------------------------------------------------------------------- #
-# Cognition: whether and when, and which way
+# Her mind: whether and when, and which way
 # --------------------------------------------------------------------------- #
 
 
@@ -484,8 +487,13 @@ def _release(db: Session, trial: LearningTrial, *, after: timedelta) -> None:
     trial.next_check_at = _now() + after
 
 
+PRESENT_TTL = 600  # a proposal waits this long for her mind to consider it, then is presented again
+
+
 def present_once(*, decide=None) -> bool:
-    """Hand one waiting proposal to cognition (Student 2), and carry out its decision about it."""
+    """Hand one waiting proposal to her mind: a durable wake in the game's own conversation. Her decision arrives
+    through her ``decide_proposal`` tool (``on_pursue`` / ``on_decline`` / ``on_defer``); a wake that ends without
+    one, or never runs, is ``undecided``. ``decide``: tests decide in place of the wake."""
     with SessionLocal() as db:
         trial = _claim_trial(db, _now(), ("proposed",))
         if trial is None:
@@ -503,11 +511,22 @@ def present_once(*, decide=None) -> bool:
     return True
 
 
+def proposal_text(proposal: dict, *, deferred_because: list[str] = ()) -> tuple[str, list[str]]:
+    """The proposal as her mind reads it, and its option keys."""
+    views = T.proposal_views(proposal, deferred_because=list(deferred_because))
+    lines = ["An experiment you could run in your game, proposed by your own learning from what happened there. "
+             "It competes with what your hands are doing now (they do one thing at a time). Options:"]
+    lines += [f"[{v['key']}] {v['goal']}: {v['purpose']}" for v in views]
+    lines.append("Decide with decide_proposal: accept one option, decline, or defer. Say something to the user only "
+                 "if you choose to.")
+    return "\n".join(lines), [v["key"] for v in views]
+
+
 def _present(trial_id: uuid.UUID, *, decide=None) -> None:
-    from app.services import learning_capture, student_two
+    from app.services import autonomous_speech
 
     with SessionLocal() as db:
-        trial = db.get(LearningTrial, trial_id)
+        trial = db.get(LearningTrial, trial_id, with_for_update=True)
         if trial is None or trial.status != "proposed":
             db.commit()
             return
@@ -517,53 +536,63 @@ def _present(trial_id: uuid.UUID, *, decide=None) -> None:
             db.commit()
             return
         revision = current_revision(db, trial)
-        live = student_two.gather_trial(db, trial, revision.proposal, session)
+        text, options = proposal_text(revision.proposal,
+                                      deferred_because=[d.get("reason") or "" for d in trial.deferrals or []])
         n = trial.presentations + 1
-        capture = learning_capture.Ctx(
-            user_id=trial.user_id, attempt_id=uuid.uuid5(trial.id, f"student_2:trial:{trial.revision}:{n}"),
-            trigger=live.trigger, conversation_id=session.conversation_id, game_session_id=session.id,
-            upstream={"trial": str(trial.id)}, sources=live.sources)
+        trial.presentations, trial.presented_at, trial.status = n, _now(), "presented"
+        trial.next_check_at = _now() + timedelta(seconds=PRESENT_TTL)
+        trial.lease_expires_at = None
+        _event(db, trial, "presented", {"revision": trial.revision, "presentation": n})
+        user_id, key = trial.user_id, f"trial:{trial.id}:{trial.revision}"
         db.commit()
-    outcome = (decide or student_two.decide)(live, capture=capture)
+        if decide is not None:
+            decide(db, trial_id=trial_id, revision=trial.revision, options=options, text=text)
+            outcome = "decided in place"
+        else:
+            outcome = autonomous_speech.submit(
+                db, user_id=user_id, activity_id=session.id, source="minecraft",
+                event_id=f"{key}:{n}", text=text, reasons=[f"trial: {revision.proposal.get('hypothesis', '')[:200]}"],
+                commentary_mode=session.commentary_mode, ttl=PRESENT_TTL, wake="proposal",
+                extra={"trial": str(trial_id), "revision": trial.revision, "options": options})
+    if not outcome.startswith(("Proposed", "decided")):
+        undecided(trial_id, why=outcome)
+    _log({"op": "presented", "trial": str(trial_id), "outcome": outcome})
+
+
+def unanswered_once() -> int:
+    """Proposals handed to her mind whose wake never came back with a decision in time (dropped as stale, a
+    worker restart): ``undecided``, so they are presented again. Restart-safe: the trial row is the record."""
     with SessionLocal() as db:
-        trial = db.get(LearningTrial, trial_id, with_for_update=True, populate_existing=True)
-        trial.presentations += 1
-        trial.presented_at = _now()
-        if trial.status != "proposed":
-            _release(db, trial, after=CHECK_EVERY)
+        ids = list(db.scalars(select(LearningTrial.id).where(
+            LearningTrial.status == "presented", LearningTrial.next_check_at <= _now()).limit(20)))
+    for trial_id in ids:
+        undecided(trial_id, why="no decision came back in time")
+    return len(ids)
+
+
+def undecided(trial_id: uuid.UUID, *, why: str) -> None:
+    """Her mind was woken with the proposal and made no decision about it (or couldn't be woken with it): it is
+    presented again later, and after DECIDE_TRIES put off with that reason. Never a decision made for her."""
+    with SessionLocal() as db:
+        trial = db.get(LearningTrial, trial_id, with_for_update=True)
+        if trial is None or trial.status != "presented":
             db.commit()
             return
-        if not outcome.ok:
-            trial.decide_failures += 1
-            why = outcome.error or "; ".join(outcome.problems)[:300] or outcome.status
-            _event(db, trial, "undecided", {"status": outcome.status, "why": why},
-                   decision_attempt_id=_uuid(outcome.decision_id))
-            if trial.decide_failures >= DECIDE_TRIES:
-                _defer(db, trial, reason=f"cognition couldn't decide ({why})"[:300], condition=None,
-                       decision_id=outcome.decision_id, expiry=None)
-            else:
-                trial.status = "proposed"
-                _release(db, trial, after=min(MAX_BACKOFF, timedelta(seconds=60 * 2 ** trial.decide_failures)))
-            db.commit()
-            student_two.log(outcome, user_id=trial.user_id, conversation_id=None, trigger="component_proposal")
-            return
-        trial.status = "presented"
-        _event(db, trial, "presented", {"revision": trial.revision, "decision": outcome.decision.get("work"),
-                                        "target": outcome.decision.get("target")},
-               decision_attempt_id=_uuid(outcome.decision_id))
+        trial.decide_failures += 1
+        _event(db, trial, "undecided", {"why": why[:300]})
+        if trial.decide_failures >= DECIDE_TRIES:
+            _defer(db, trial, reason=f"her mind made no decision about it ({why})"[:300], condition=None,
+                   decision_id=None, expiry=None)
+        else:
+            trial.status = "proposed"
+            _release(db, trial, after=min(MAX_BACKOFF, timedelta(seconds=60 * 2 ** trial.decide_failures)))
         db.commit()
-        effect = student_two.apply(db, outcome, user_id=trial.user_id, message_id=None, routed=False,
-                                   conversation_id=session.conversation_id)
-        trial = db.get(LearningTrial, trial_id, with_for_update=True, populate_existing=True)
-        if trial.status == "presented":  # the decision was about something else: no decision about it
-            _defer(db, trial, reason="cognition made no decision about it", condition=None,
-                   decision_id=outcome.decision_id, expiry=None)
-        trial.lease_expires_at = None  # its next check is what the decision set (a selected trial: at once)
-        db.commit()
-        _speak(db, trial, outcome, session)
-    student_two.log(outcome, user_id=trial.user_id, conversation_id=session.conversation_id,
-                    trigger="component_proposal")
-    _log({"op": "presented", "trial": str(trial_id), "decision": outcome.decision.get("work"), "effect": effect})
+
+
+def settle_presented(*, user_id: uuid.UUID, trial_id: str | uuid.UUID, decided: bool, why: str) -> None:
+    """After the wake that carried a proposal ended: no decision in it is ``undecided``."""
+    if not decided:
+        undecided(uuid.UUID(str(trial_id)), why=why)
 
 
 def _uuid(value) -> uuid.UUID | None:
@@ -571,25 +600,6 @@ def _uuid(value) -> uuid.UUID | None:
         return uuid.UUID(str(value)) if value else None
     except ValueError:
         return None
-
-
-def _speak(db: Session, trial: LearningTrial, outcome, session: DesktopSession) -> None:
-    """When cognition chose to say something about it, the words go out through the usual autonomous delivery
-    (its fences and restraint rules), never directly."""
-    from app.ai.state import student_two as S
-    from app.services import autonomous_speech
-
-    d = outcome.decision
-    if not S.speaks(d) or not d["what_to_communicate"].strip():
-        return
-    try:
-        autonomous_speech.submit(
-            db, user_id=trial.user_id, activity_id=session.id, source="minecraft",
-            event_id=f"trial:{trial.id}:{trial.revision}:{trial.presentations}", text=d["what_to_communicate"].strip(),
-            reasons=[f"trial: {d['intention'].strip()[:200]}"], commentary_mode=session.commentary_mode,
-            question=d["communication"] == "ask")
-    except Exception:  # noqa: BLE001 - not saying it never changes the decision
-        log.exception("learning trials: proposing the line failed")
 
 
 def parse_key(key: str | None) -> tuple[uuid.UUID, int, str] | None:
@@ -603,9 +613,9 @@ def parse_key(key: str | None) -> tuple[uuid.UUID, int, str] | None:
         return None
 
 
-def on_pursue(db: Session, user_id: uuid.UUID, key: str, *, decision: dict, decision_id: str | None,
-              goal_handling: str | None) -> str:
-    """Cognition took an alternative up: the trial is selected (its limits fixed) and preparation begins on the
+def on_pursue(db: Session, user_id: uuid.UUID, key: str, *, reason: str, decision_id: str | None,
+              goal_handling: str | None = None) -> str:
+    """Her mind took an alternative up: the trial is selected (its limits fixed) and preparation begins on the
     next check. Only the revision it was shown, only while it waits for a decision."""
     parsed = parse_key(key)
     if parsed is None:
@@ -628,45 +638,45 @@ def on_pursue(db: Session, user_id: uuid.UUID, key: str, *, decision: dict, deci
     now = _now()
     trial.selection = {"decision_id": decision_id, "alternative": alt, "revision": revision,
                        "recommended": alt == proposal["recommendation"],
-                       "reason": (decision.get("intention") or "").strip()[:300],
+                       "reason": (reason or "").strip()[:300],
                        "other_goal_handling": goal_handling, "at": now.isoformat()}
     trial.selected_alternative, trial.selected_revision = alt, revision
     trial.limits = proposal["limits"]
     trial.costs = {"prep_seconds": 0.0, "test_seconds": 0.0, "attempts": 0, "test_blocks": 0, "prep_blocks": 0}
     trial.status, trial.selected_at, trial.active_since, trial.next_check_at = "selected", now, now, now
+    trial.lease_expires_at = None
     if trial.deferral:
         trial.deferral = None
-    _settle_reminder(db, trial, "done", "cognition chose to run it")
+    _settle_reminder(db, trial, "done", "she chose to run it")
     _event(db, trial, "selected", trial.selection, decision_attempt_id=_uuid(decision_id))
     db.commit()
     wake()
     return f"experiment selected: {(T.alternative(proposal, alt) or {}).get('action')}"
 
 
-def on_decline(db: Session, user_id: uuid.UUID, key: str, *, decision: dict, decision_id: str | None) -> str:
+def on_decline(db: Session, user_id: uuid.UUID, key: str, *, reason: str, decision_id: str | None) -> str:
     parsed = parse_key(key)
     trial = _pending(db, user_id, parsed)
     if trial is None:
         return "not carried out: the proposal changed or was decided meanwhile"
     trial.status, trial.closed_at = "rejected", _now()
-    trial.stop_reason = (decision.get("intention") or "").strip()[:300] or "declined"
-    _settle_reminder(db, trial, "dropped", "cognition turned it down")
+    trial.stop_reason = (reason or "").strip()[:300] or "declined"
+    _settle_reminder(db, trial, "dropped", "she turned it down")
     _event(db, trial, "rejected", {"reason": trial.stop_reason}, decision_attempt_id=_uuid(decision_id))
     db.commit()
     return "proposal declined"
 
 
-def on_defer(db: Session, user_id: uuid.UUID, key: str, *, decision: dict, decision_id: str | None,
-             situation=None) -> str:
+def on_defer(db: Session, user_id: uuid.UUID, key: str, *, reason: str, decision_id: str | None,
+             condition: dict | None = None, expiry: str | None = None) -> str:
+    """Her mind put it off. ``condition``: when she chose to look again (``time_reached`` with ``at``, or
+    ``user_returns``); with none, learning's own condition (what it competes with finishing)."""
     parsed = parse_key(key)
     trial = _pending(db, user_id, parsed)
     if trial is None:
         return "not carried out: the proposal changed or was decided meanwhile"
-    condition = None
-    if decision.get("communication") == "defer" and decision.get("reconsider_on") not in (None, "none"):
-        condition = _condition_from(decision, situation)
-    _defer(db, trial, reason=(decision.get("intention") or "").strip()[:300] or "put off", condition=condition,
-           decision_id=decision_id, expiry=decision.get("defer_expiry"))
+    _defer(db, trial, reason=(reason or "").strip()[:300] or "put off", condition=condition,
+           decision_id=decision_id, expiry=expiry)
     db.commit()
     return "proposal deferred"
 
@@ -687,34 +697,8 @@ _EXPIRY = {"30_minutes": timedelta(minutes=30), "2_hours": timedelta(hours=2), "
            "this_week": timedelta(days=7)}
 
 
-def _condition_from(decision: dict, situation) -> dict | None:
-    """Cognition's own reconsideration condition, where code can evaluate it."""
-    on = decision.get("reconsider_on")
-    if on == "time_reached" and decision.get("not_before"):
-        # Her clock is the user's local time; the condition is kept in UTC.
-        try:
-            local = datetime.strptime(decision["not_before"], "%Y-%m-%d %H:%M")
-            clock = datetime.strptime(situation.snapshot["clock"], "%Y-%m-%d %H:%M") if situation else None
-        except (KeyError, TypeError, ValueError):
-            return None
-        offset = timedelta(0)
-        if clock is not None:
-            raw = clock - _now().replace(tzinfo=None, second=0, microsecond=0)
-            offset = timedelta(minutes=15 * round(raw.total_seconds() / 900))
-        at = (local - offset).replace(tzinfo=timezone.utc)
-        return {"kind": "time_reached", "at": at.isoformat(), "not_before": decision["not_before"], "by": "cognition"}
-    if on == "work_finished" and situation is not None:
-        key = situation.refs.get(decision.get("reconsider_ref") or "")
-        if key:
-            return {"kind": "work_finished", "work": key, "by": "cognition"}
-    if on in ("user_returns", "user_raises_it"):
-        # "they bring it up" isn't something code can see: their next message brings it back for another look.
-        return {"kind": "user_returns", "by": "cognition", "asked": on}
-    return None
-
-
 def _default_condition(db: Session, trial: LearningTrial) -> dict:
-    """Learning's condition when cognition named none: the goal it competed with finishes, or what it needs is in
+    """Learning's condition when her mind named none: the goal it competed with finishes, or what it needs is in
     hand."""
     session = db.get(DesktopSession, trial.session_id) if trial.session_id else None
     proposal = current_revision(db, trial).proposal
@@ -765,13 +749,13 @@ def condition_words(condition: dict | None) -> str:
         return " or ".join(condition_words(c) for c in condition.get("of") or [])
     return {"goal_finished": "the goal it competes with is finished",
             "prerequisites_met": "she has " + ", ".join(f"{p['count']} {p['item']}" for p in condition.get("items") or []),
-            "time_reached": f"after {condition.get('not_before') or condition.get('at', '')}",
+            "time_reached": f"after {(condition.get('at') or '')[:16].replace('T', ' ')} UTC",
             "work_finished": "the work it waits for has finished",
             "user_returns": "the user writes again"}.get(kind, kind or "")
 
 
 def _remind(db: Session, trial: LearningTrial, reason: str, condition: dict, expires: datetime) -> None:
-    """A deferral's reminder in working memory: an intention of hers, with cognition's reason, through memory's
+    """A deferral's reminder in working memory: an intention of hers, with her own reason, through memory's
     own owner. Never fails the deferral."""
     from app.services import memory_manager
 
@@ -866,7 +850,7 @@ def _condition_met(db: Session, trial: LearningTrial, condition: dict, state: Ca
 
 
 def reconsider_once(*, pack=None) -> int:
-    """Deferred proposals whose condition came true go back to cognition (once); expired ones close."""
+    """Deferred proposals whose condition came true go back to her mind (once); expired ones close."""
     changed = 0
     with SessionLocal() as db:
         rows = list(db.scalars(select(LearningTrial).where(
@@ -1062,7 +1046,7 @@ def _prepare(db: Session, trial: LearningTrial, session: DesktopSession, alt: di
 
 
 def planning_lines(db: Session, session: DesktopSession) -> list[str]:
-    """For her planner's input: an experiment cognition chose, and what it still needs. The planner arranges
+    """For her planner's input: an experiment she chose, and what it still needs. The planner arranges
     the prerequisites; it never runs the test (it starts by itself once she's ready)."""
     trial = db.scalar(select(LearningTrial).where(LearningTrial.session_id == session.id,
                                                   LearningTrial.status.in_(("selected", "preparing"))))
@@ -1073,7 +1057,7 @@ def planning_lines(db: Session, session: DesktopSession) -> list[str]:
     d = proposal["destination"]
     needs = ", ".join(f"{p['count']} {p['item']}" for p in alt.get("prerequisites") or []) or "nothing to carry"
     left = _remaining(trial, _now())
-    return [f"Her cognition chose to run an experiment: {alt.get('action')} to get up to x {d['x']} y {d['y']} "
+    return [f"She chose to run an experiment: {alt.get('action')} to get up to x {d['x']} y {d['y']} "
             f"z {d['z']}. It needs {needs}, and her within {get_settings().trial_near_m:g} m of that spot.",
             f"Not ready yet: {(trial.costs or {}).get('asked_for') or 'being checked'}. Add steps that get what's "
             "missing (and her back there, if she's far), before or after the current step as fits the goal; don't "
@@ -1219,7 +1203,7 @@ def _collect(db: Session, trial: LearningTrial, attempt: GameSkillAttempt | None
         trial.exec_started_at = None
         _release(db, trial, after=CHECK_EVERY)
         return
-    asked = costs.pop("stop_reason", None)  # cognition's own words (or the limit), when it was stopped
+    asked = costs.pop("stop_reason", None)  # her own words (or the limit), when it was stopped
     if costs.pop("limit_stop", False) and ending == "stopped":
         ending = "limit"
     trial.costs = costs
@@ -1259,7 +1243,7 @@ def _end_before_test(db: Session, trial: LearningTrial, why: str, *, ending: str
 
 
 # --------------------------------------------------------------------------- #
-# Cognition changing its mind: pause, resume, stop
+# Changing her mind: pause, resume, stop
 # --------------------------------------------------------------------------- #
 
 
@@ -1347,7 +1331,7 @@ def stop(db: Session, user_id: uuid.UUID, trial_id: uuid.UUID, *, reason: str) -
 
 
 def on_work(db: Session, user_id: uuid.UUID, key: str, work: str, *, reason: str) -> str:
-    """Student 2 acting on a live trial shown as work ([W*], key ``trial:<id>``)."""
+    """Her mind acting on a live trial (her ``experiment`` tool; key ``trial:<id>``)."""
     try:
         trial_id = uuid.UUID(key.split(":", 1)[1])
     except (IndexError, ValueError):
@@ -1449,21 +1433,31 @@ def _assess(trial_id: uuid.UUID, *, assessor=None) -> None:
 
 def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dropped: list, *, model: str | None,
                       reason: str) -> None:
-    from app.services import game_learning
+    from app.services import game_experience
 
     with SessionLocal() as db:
         trial = db.get(LearningTrial, trial_id, with_for_update=True)
+        if trial is None or trial.status != "assessing":
+            return  # deleted/reset or superseded while the assessor was running
+        previous = db.scalar(select(LearningTrialAssessment).where(LearningTrialAssessment.trial_id == trial.id,
+                                                                   LearningTrialAssessment.current))
+        next_n = previous.n + 1 if previous else 1
         experience_id = None
         session_id = trial.session_id
         if session_id and db.get(DesktopSession, session_id) is not None:
             db.commit()
             # The trial's outcome is one of her game experiences (what reflection and her lessons cite).
-            experience_id = game_learning.record_experience(db, session_id, "skill_outcome", {
+            experience_id = game_experience.record_experience(db, session_id, "skill_outcome", {
+                "event_key": f"trial:{trial.id}:assessment:{next_n}",
                 "skill": f"trial:{trial.scenario}", "status": result["hypothesis"],
                 "reason": T.finding(ev.proposal, trial.selected_alternative, result, ev.measured.values)[:300],
-                "data": {"trial_id": str(trial.id), "ending": trial.ending, "measured": ev.measured.values},
+                "data": {"trial_id": str(trial.id), "ending": trial.ending, "measured": ev.measured.values,
+                         "measurement_sources": ev.measured.sources, "missing": ev.missing,
+                         "interpretation": result, "interpretation_is_not_independent_evidence": True},
                 "seconds": (trial.costs or {}).get("test_seconds"), "step_id": None})
             trial = db.get(LearningTrial, trial_id, with_for_update=True, populate_existing=True)
+            if trial is None or trial.status != "assessing":
+                return
         previous = db.scalar(select(LearningTrialAssessment).where(LearningTrialAssessment.trial_id == trial.id,
                                                                    LearningTrialAssessment.current))
         n = (previous.n + 1) if previous else 1
@@ -1476,8 +1470,7 @@ def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dr
             prediction_checks=ev.checks, missing=ev.missing, result=result, dropped=dropped, model=model,
             reason=reason)
         db.add(reading)
-        fed = _feed(db, trial, ev, result, experience_id) if previous is None or previous.hypothesis != result[
-            "hypothesis"] else {"note": "same reading: owners unchanged"}
+        fed = _feed(db, trial, ev, result, experience_id)
         trial.status, trial.closed_at, trial.lease_expires_at = "assessed", trial.closed_at or _now(), None
         _event(db, trial, "assessed", {"n": n, "hypothesis": result["hypothesis"], "fed": fed},
                experience_id=experience_id)
@@ -1486,15 +1479,23 @@ def _write_assessment(trial_id: uuid.UUID, ev: T.TrialEvidence, result: dict, dr
 
 
 def _feed(db: Session, trial: LearningTrial, ev: T.TrialEvidence, result: dict, experience_id: int | None) -> dict:
-    """What persists, through each owner under its own rules: her hypothesis (memory: supported / disproved need
-    a source, the trial's experience), a lesson (game lessons: tentative until distinct sessions agree), and a
-    move (game skills: a program that worked, here counted by code). Nothing from an unresolved trial."""
-    from app.services import game_learning, game_skills, memory_manager
+    """Feed trial measurements and attributed conclusions to shared assessment; preserve memory's
+    hypothesis resolution and counted successful programs. No independent game lesson writes."""
+    from app.services import game_experience, game_skills, memory_manager
 
     fed: dict[str, Any] = {}
     status = result["hypothesis"]
+    if experience_id and trial.session_id:
+        from app.services import learning_assessment as LA
+        experience = db.get(GameExperience, experience_id)
+        assessment, _ = LA.open_assessment(
+            db, user_id=trial.user_id, kind="execution", key=f"trial:{trial.id}",
+            anchor_at=experience.occurred_at, game_session_id=trial.session_id,
+            trigger={"why": "a bounded trial result, with measured facts and attributed interpretation"},
+            evidence=[(f"experience:{experience_id}", "trial result", {})])
+        fed["assessment"] = str(assessment.id)
     if status == "unresolved":
-        return {"note": "unresolved: nothing persists beyond the record"}
+        return {**fed, "note": "unresolved: shared assessment revisits earlier learning; no move or hypothesis promotion"}
     if trial.hypothesis_item_id and experience_id:
         try:
             with db.begin_nested():
@@ -1507,13 +1508,6 @@ def _feed(db: Session, trial: LearningTrial, ev: T.TrialEvidence, result: dict, 
                     fed["hypothesis"] = "supported" if status == "supported" else "disproved"
         except Exception as exc:  # noqa: BLE001
             fed["hypothesis"] = f"not changed: {type(exc).__name__}"
-    lesson = result.get("lesson")
-    if lesson and experience_id and trial.session_id:
-        fed["lesson"] = game_learning.note_trial_lesson(
-            db, user_id=trial.user_id, game=trial.game, session_id=trial.session_id, key=lesson["key"],
-            situation=lesson["situation"], advice=lesson["advice"], level=lesson["level"],
-            verdict="supports" if status == "supported" else "contradicts", experience_ids=[experience_id],
-            trial_id=trial.id)
     if status == "supported":
         attempt_id = next((e.skill_attempt_id for e in db.scalars(select(LearningTrialEvent).where(
             LearningTrialEvent.trial_id == trial.id, LearningTrialEvent.kind == "execution_ended")
@@ -1656,11 +1650,12 @@ def run_once() -> bool:
     if enabled():
         did |= investigate_once()
     did |= present_once()
+    did |= unanswered_once() > 0
     did |= assess_once()
     return did
 
 
 __all__ = ["consider", "sweep", "investigate_once", "present_once", "reconsider_once", "advance_once",
-           "assess_once", "on_pursue", "on_decline", "on_defer", "on_work", "on_execution_finished", "spec_for",
+           "assess_once", "unanswered_once", "undecided", "settle_presented", "proposal_text", "on_pursue", "on_decline", "on_defer", "on_work", "on_execution_finished", "spec_for",
            "pause", "resume", "stop", "reassess", "planning_lines", "summary_lines", "listing", "detail",
            "run_once", "wake", "parse_key", "readiness"]

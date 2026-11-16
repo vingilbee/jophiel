@@ -7,9 +7,9 @@ line correcting it, as a person does ("Oh wait, it just worked: I've got the tri
 Seen live (2026-10-17): she said she hadn't learned the jump-and-place move 2 s after
 learning it, while her hands were already using it.
 
-The line is an autonomous proposal (``autonomous_speech.submit``, reason ``correction:``): result
-cognition (Student 2) decides whether it is said, and the mouth says it in the session's conversation. When
-it can't decide, the line is kept, not said.
+The line is a wake of her mind (``autonomous_speech.submit``, reason ``correction:``): she decides
+whether it is said, and says it in the session's conversation. A wake that ends without words keeps
+it unsaid.
 """
 from __future__ import annotations
 

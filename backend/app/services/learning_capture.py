@@ -1,14 +1,14 @@
 """Capture and ownership (docs/learning-system/01-capture-and-ownership.md; implementation:
 docs/learning-system/01-implementation.md).
 
-Each learner records its own attempt: Student 1 its reading (``cognitive_live``), Student 2 its choice
-(``student_two``), her hands their skill choice (``skill_driver``). Executors record what actually happened:
-an effect's owner (``student_two.apply``), delivery (the chat worker, the socket fallback, WhatsApp), her hands
-running a skill. This module owns persistence and linking only; it never interprets a record, and learning reads
+Each learner records its own attempt: her mind one evaluation (``mind_turn``: what she read, the tools she
+used, what she said or that she chose silence), her hands their skill choice (``skill_driver``), her planner and
+her hard thoughts theirs. Executors record what actually happened: delivery (the chat worker, the socket fallback,
+WhatsApp), her hands running a skill. This module owns persistence and linking only; it never interprets a record, and learning reads
 the records without rewriting them.
 
-- **Ids before the call.** ``attempt_id`` is assigned before a learner is invoked and travels downstream (Student 2
-  names Student 1's attempt as upstream; a reply's execution names Student 2's attempt). A chat job's attempts are
+- **Ids before the call.** ``attempt_id`` is assigned before a learner is invoked and travels downstream (a
+  reply's execution names her mind's attempt; a wake names the work that woke her). A chat job's attempts are
   deterministic per job attempt (``uuid5(turn, "<learner>:<n>")``), so a reclaimed job's retry is a new attempt
   linked to the one before, and re-recording the same attempt inserts nothing twice.
 - **Frozen at record time.** ``attempt`` / ``execution`` turn their arguments into JSON on the caller's thread,
@@ -27,7 +27,7 @@ game tick (``trajectory_chunk``), their streams (``trajectory_stream``) and what
 trajectory never pushes out a decision.
 
 Retention (``prune``, on the learning worker) and source deletion (``drop_raw_for``, from forgetting) remove raw
-copies; training examples (``services/training_examples.py``) are separate and stay.
+copies.
 """
 from __future__ import annotations
 
@@ -587,7 +587,7 @@ def reply(*, user_id: uuid.UUID, attempt_id: str | uuid.UUID | None, turn_id: uu
           conversation_id: uuid.UUID | None, outcome: str, assistant_message_id: uuid.UUID | None,
           reply_chars: int, intended: dict[str, Any] | None, channel: str, voice: bool,
           started_at: datetime | None = None) -> None:
-    """The mouth's delivery of one turn: what Student 2 intended next to what was stored and sent. One record per
+    """The delivery of one evaluation: what her mind chose (speak / silent) next to what was stored and sent. One record per
     turn (a turn has one assistant row; the first record wins). A reply to an outside channel (WhatsApp) is
     ``unknown`` here; its settlement is recorded by the channel."""
     result = _REPLY_RESULT.get(outcome, "unknown")

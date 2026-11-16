@@ -11,7 +11,7 @@ so the revision is what starts this, not the correction. What it reaches is deci
    become ``pending``, owned by this revision; older open items that share a source or a person with the fact
    and were never judged against it become ``unknown`` candidates. Pending items are held from autonomous use
    (enforced where she acts on her own: the autonomous memory view, her mind's promise checks, thought memory,
-   background status changes, Student 2 without a user message); replies still see them, marked. An item that
+   background status changes, a wake of her mind without a user message); replies still see them, marked. An item that
    only mentions the fact (``context``) or was judged unrelated (``none``) is never held.
 2. Read (``process``, one model call): the old and new wording are evidence, not values. The model names the
    detail that changed ("Lisbon" -> "Porto"), as the user's message supports it, or says the meaning is the

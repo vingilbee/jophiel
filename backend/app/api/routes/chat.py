@@ -127,16 +127,15 @@ from app.schemas.chat import (
     VoiceStartRequest,
     chat_ws_message_adapter,
 )
-from app.services import asset_store, google_account, image_store, salience
+from app.services import asset_store, desktop_control, google_account, image_store, salience, security_activity
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
 from app.services import chat as chat_service
 from app.services import agent_say, memory_manager
-from app.services import cognitive_live, inner_state_live
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import coordinator, shared_state, voice_target
+from app.services import mind_turn, voice_target
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -939,13 +938,15 @@ async def chat_ws(websocket: WebSocket) -> None:
                 "user_message_id": str(user_message.id),
                 "conversation_id": str(conversation.id),
             })
-            history = chat_service.get_history(db, conversation=conversation)
             resolved_id = last_conversation_id = conversation.id
             # Derived after the user's message is persisted, so "you last spoke
             # moments ago" is true of *this* turn rather than the previous one.
             state = awareness_service.build(
                 db, user_id=user_id, session=session
             )
+            history = chat_service.get_history(
+                db, conversation=conversation, records=True, zone=state.zone_name,
+                current_message_id=user_message.id)
             # Resolved per turn, not per connection: Google access tokens last
             # about an hour, and a chat socket can outlive that. None when the
             # user hasn't connected Google — the agent then runs without the
@@ -967,21 +968,15 @@ async def chat_ws(websocket: WebSocket) -> None:
         if senses.vision_enabled and not session.captioned(senses.screen_image_id):
             state = await _caption_screen(state)
 
-        # One scoped view -> Student 1 -> her; no search before the reply (docs/SHARED_STATE_REFACTOR_SPEC.md),
-        # the only preparation. Off the event loop: it reads the database and runs the student.
+        # One evaluation of her mind (services/mind_turn.py), the same as the chat worker runs. Off the event
+        # loop: it reads the database. (What she starts or schedules wakes her later through the chat worker:
+        # this local path has no job of its own for that.)
         assistant_message_id = uuid.uuid4()
-        fast = await asyncio.to_thread(
-            shared_state.prepare, user_id=user_id, conversation_id=resolved_id,
-            user_message_id=user_message.id, history=history, message=content, zone=state.zone_name,
-            turn_id=turn_id, reply_message_id=assistant_message_id, voice=voice, user_name=user_name)
-        recall_turn, long_term_memory, live = fast.recall_turn, fast.long_term_memory, fast.live
-        if fast.silent:
-            # Cognition chose silence while she thinks: no reply, recorded as not sent. (Follow-ups need
-            # the external chat worker: this local path has no job for them to run in.)
-            coordinator.immediate_outcome(turn_id, status="not_sent", assistant_message_id=None)
-            await emit_event({"type": "done", "turn_id": str(turn_id), "status": "silent"})
-            shared_state.finish(fast, outcome="silent", reply="", assistant_message_id=None)
-            return
+        mind = await asyncio.to_thread(
+            mind_turn.prepare_message, user_id=user_id, conversation_id=resolved_id,
+            user_message_id=user_message.id, message=content, zone=state.zone_name,
+            turn_id=turn_id, voice=voice, user_name=user_name)
+        recall_turn = mind.recall_turn
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -993,23 +988,28 @@ async def chat_ws(websocket: WebSocket) -> None:
             asset_ids=tuple(attached_assets),
             blender_enabled=settings.blender_tools_enabled,
             voice=voice,
-            awareness=state.describe(),
-            long_term_memory=long_term_memory,
-            character_page=live.character_page if live else None,
-            typed_memory=live.typed_memory if live else None,
-            cognitive_reading=live.reading if live else None,
-            conversation_notes=live.notes if live else None,
+            awareness=mind_turn.fresh_awareness(state.describe(), wake=False),
+            now=await asyncio.to_thread(mind.situation),
+            long_term_memory=mind.long_term_memory,
+            personality=await asyncio.to_thread(chat_worker._personality),
             working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
-            recall=fast.recall_rendered,
+            recall=mind.recall_rendered,
             recall_turn=recall_turn,
-            cached_memory=fast.cached_memory,
-            turn_boundary=fast.boundary,
-            decision=fast.decision_brief,
+            cached_memory=mind.cached_memory,
+            turn_boundary=mind.boundary(),
+            mind_state=await asyncio.to_thread(mind.state),
+            lessons=mind_turn.lessons_text(mind),
+            mind=mind,
             memory_tools=True,
             source_message_id=user_message.id,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
             **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
+            desktop=await asyncio.to_thread(desktop_control.line_for, user_id),
+            security=await asyncio.to_thread(security_activity.line_for, user_id, zone=state.zone_name),
+            zone=state.zone_name,
+            turn_id=turn_id,
+            conversation_id=resolved_id,
         )
         clauses: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = (
@@ -1024,8 +1024,8 @@ async def chat_ws(websocket: WebSocket) -> None:
         reply = ""
         stopped = False
         failed = False
-        # How this reply was routed, degraded or not: visible on the turn, never silent.
-        await emit_event({**fast.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
+        # What memory gave this evaluation, failed or not: visible on the turn, never silent.
+        await emit_event({**mind.event(), "turn_id": str(turn_id), "message_id": str(assistant_message_id)})
         first_model_token = True
         sticker_buffer = ""
         try:
@@ -1092,8 +1092,11 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         # Persist whatever was generated (full reply, or an explicit outcome
         # marker if stopped before the first token) so every turn is durable.
+        # Silence is her choice (stay_silent with nothing said): no message at all, recorded as not sent.
+        silent = not failed and not stopped and mind.silent is not None and not reply.strip()
         outcome_status = (
             "failed" if failed else
+            "silent" if silent else
             "cancelled" if stopped and not reply else
             "partial" if stopped else
             "completed"
@@ -1138,20 +1141,10 @@ async def chat_ws(websocket: WebSocket) -> None:
             "message_id": str(assistant_message_id),
             "status": outcome_status,
         })
-        if fast.pending:
-            coordinator.immediate_outcome(turn_id, status={"completed": "delivered"}.get(outcome_status, outcome_status),
-                                          assistant_message_id=assistant_message_id if reply else None)
-        shared_state.finish(fast, outcome=outcome_status, reply=reply,
-                            assistant_message_id=assistant_message_id
-                            if reply or outcome_status in {"cancelled", "failed"} else None)
-        if live is not None and outcome_status == "completed":
-            # After the reply is delivered: notes follow what she actually said. Never fails the turn.
-            await asyncio.to_thread(cognitive_live.after_reply, live, user_id=user_id,
-                                    conversation_id=resolved_id, message=content, reply=reply)
-        if outcome_status == "completed":
-            # Her inner state reads the exchange on its own thread (off unless enabled; no influence).
-            inner_state_live.observe(user_id=user_id, conversation_id=resolved_id, history=history,
-                                     message=content, reply=reply)
+        await asyncio.to_thread(
+            mind_turn.finish, mind, outcome=outcome_status, reply=reply,
+            assistant_message_id=assistant_message_id
+            if reply or outcome_status in {"cancelled", "failed"} else None)
 
     async def run_voice_turn(
         conversation_id: uuid.UUID | None,

@@ -30,7 +30,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
-from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -43,8 +43,12 @@ from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
 from app.ai.tools.desktop import build_desktop_tools
+from app.ai.tools.desktop_control import build_desktop_control_tools, screenshot_hook
+from app.ai.tools.desktop_control.tools import RECURSION_LIMIT as DESKTOP_RECURSION_LIMIT
+from app.ai.tools.security import build_security_tools
 from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
+from app.ai.tools.mind import build_mind_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -132,8 +136,11 @@ def _build_inputs(
     context: AgentRuntimeContext,
     specs: Sequence[SubAgentSpec],
 ) -> dict[str, Any]:
+    system = build_system_prompt(context, list(specs))
+    if context.mind is not None:
+        context.mind.prompt = system  # the evaluation's record keeps exactly what she read
     lc_messages: list[BaseMessage] = [
-        SystemMessage(build_system_prompt(context, list(specs))),
+        SystemMessage(system),
         *to_lc_messages(messages),
     ]
     if context.game_picture is not None and lc_messages and isinstance(lc_messages[-1], HumanMessage):
@@ -188,13 +195,33 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
                                                 planner=context.game_planner,
                                                 since=context.game_moment, message_id=context.source_message_id))
+    # Her own desktop's hands (general desktop control): same exception, and she looks after every few
+    # actions, so an extra model hop per action would make it crawl. Replies only: a background turn
+    # never starts using the desktop on its own.
+    hook = None
+    if context.desktop is not None and context.game_event is None and context.nudge is None:
+        direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
+                                                        conversation_id=context.conversation_id,
+                                                        message_id=context.source_message_id))
+        hook = screenshot_hook
+    # Her desktop's security records: read only, so on follow-ups too (she checks before presenting a finding as
+    # current); never on game-event turns.
+    if context.security is not None and context.game_event is None:
+        direct_tools.extend(build_security_tools(context.user_id, zone=context.zone))
     # Her working memory's tools: same exception (few, cheap, and the next turn must see the change).
     if context.memory_tools:
         direct_tools.extend(build_memory_tools(context.user_id, message_id=context.source_message_id,
-                                               background=context.game_event is not None))
-    # Her read tools over what she remembers: only with shared recall, on reply turns.
+                                               background=context.game_event is not None,
+                                               wake=context.wake is not None, evaluation=context.mind))
+    # Her read tools over what she remembers: their results come straight back into this same loop.
     if context.recall_turn is not None:
         direct_tools.extend(build_recall_tools(context.recall_turn))
+    # Her mind's own tools (silence, background thinking, coming back later, a proposal's decision): on every
+    # evaluation of her mind. A game's own think_it_over (with the game in view) takes that name while she plays.
+    if context.mind is not None:
+        taken = {tool.name for tool in direct_tools}
+        direct_tools.extend(tool for tool in build_mind_tools(context.mind) if tool.name not in taken)
+        context.mind.model = model or settings.chat_model
 
     connections = _resolve_connections(context)
     server_config = build_server_config(connections)
@@ -207,19 +234,24 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if not server_config or not specs:
         # No specialists, but possibly still the eye. `get_agent` is the cached
         # tool-less agent and can only serve the genuinely tool-less case.
-        yield (build_agent(direct_tools, model=model) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook) if direct_tools else get_agent(model)), []
         return
 
     subagent_tools = await _load_subagent_tools(server_config, specs, model, queue=queue)
     if not subagent_tools:
-        yield (build_agent(direct_tools, model=model) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook) if direct_tools else get_agent(model)), []
         return
 
     # Keep specs in step with the tools that actually built, so the prompt
     # never advertises a specialist whose server didn't come up.
     live = {tool.name for tool in subagent_tools}
     specs = [spec for spec in specs if spec.tool_name in live]
-    yield build_agent([*direct_tools, *subagent_tools], model=model), specs
+    yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook), specs
+
+def _run_config(context: AgentRuntimeContext) -> dict | None:
+    """A desktop turn alternates looking and acting many times: more graph steps than a chat turn."""
+    return {"recursion_limit": DESKTOP_RECURSION_LIMIT} if context.desktop is not None else None
+
 
 async def _speaker_from_tags(tags: Sequence[str] | None) -> str | None:
     """Return the specialist's name if this chunk came from a subagent run."""
@@ -249,11 +281,16 @@ async def stream_chat(
                     with contextlib.suppress(Exception):
                         on_stage("tools_ready")
                 inputs = _build_inputs(messages, context, specs)
-                async for chunk, metadata in agent.astream(inputs, stream_mode="messages"):
-                    if not isinstance(chunk, AIMessageChunk) or chunk.tool_call_chunks:
-                        continue
+                async for chunk, metadata in agent.astream(inputs, _run_config(context), stream_mode="messages"):
                     if SUBAGENT_TAG in (metadata.get("tags") or ()):
                         continue  # belongs to a subagent; it already pushed itself
+                    if isinstance(chunk, ToolMessage) and context.mind is not None:
+                        # What each of her tools returned, in order: the evaluation's record of what she did.
+                        context.mind.actions.append({"tool": chunk.name, "status": getattr(chunk, "status", None),
+                                                     "result": extract_text(chunk.content)[:300]})
+                        continue
+                    if not isinstance(chunk, AIMessageChunk) or chunk.tool_call_chunks:
+                        continue
                     text = extract_text(chunk.content)
                     if text:
                         await queue.put((None, text))
@@ -285,5 +322,5 @@ async def complete_chat(
 ) -> str:
     """Await the full assistant reply as a single string (non-streaming)."""
     async with _orchestrator_for(context) as (agent, specs):
-        result = await agent.ainvoke(_build_inputs(messages, context, specs))
+        result = await agent.ainvoke(_build_inputs(messages, context, specs), _run_config(context))
     return extract_text(result["messages"][-1].content)

@@ -21,7 +21,7 @@ Success is a conversation that feels continuous and natural with a consistent so
 
 ## Positioning
 
-She isn't a single model call. She's a set of parts that run all the time and hand work to each other: a mouth, cognition (two trained students that read and decide), a mind that thinks on its own, hands that play, memory, observation, and learning. Much of her life happens without a user message. Showing that living system is part of what makes her her.
+She isn't a single model call. She's a set of parts that run all the time and hand work to each other: a mind that decides everything she does and keeps thinking on its own, a mouth that delivers what she says, hands that play, memory, observation, and learning. Much of her life happens without a user message. Showing that living system is part of what makes her her.
 
 ## Operating Context
 
@@ -31,9 +31,9 @@ She isn't a single model call. She's a set of parts that run all the time and ha
 
 ## Capabilities and Constraints
 
-- Her parts: **Mouth** (the orchestrator that speaks), **Cognition** (memory check, Student 1 reading, Student 2 decision, coordinator), **Mind** (quick and hard thoughts, planner, mood), **Hands** (game skills), **Memory**, **Observation**, **Learning** (assessments, lessons, trials, game lessons, proposals).
+- Her parts: **Mind** (every evaluation: what woke her, what she did, what she keeps open and will come back to; quick and hard thoughts, planner), **Mouth** (delivery, in text and voice), **Hands** (game skills), **Memory**, **Observation**, **Learning** (assessments, lessons, trials, game lessons, proposals).
 - Her insides are for the owner only; signals and details shown are the owner's own activity.
-- Some parts show reasoning (hard thoughts) and others only outputs (Student 2's decision, the mouth's reply). Never present made-up reasoning.
+- Some parts show reasoning (hard thoughts) and others only outputs (an evaluation's tools and reply, the mouth's delivery). Never present made-up reasoning.
 
 ## Brand Commitments
 

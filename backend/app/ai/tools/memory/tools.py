@@ -1,5 +1,5 @@
-"""The working-memory tools: keep a goal, close or change an item, note a promise or an intention,
-turn to another context. Each calls ``app.services.memory_manager`` for this user only. Evidence is
+"""The working-memory tools: keep a goal, close or change an item, note a promise, an intention or an open
+question, turn to another context. Her mind owns what is noted and when it's closed; memory persists it. Each calls ``app.services.memory_manager`` for this user only. Evidence is
 the user's message this reply answers, filled in here, never by the model. Refusals come back as
 plain text the model can relay.
 """
@@ -36,9 +36,12 @@ async def _run(fn: Callable[..., str], **kwargs) -> str:
 
 
 def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = None,
-                       background: bool = False) -> list[BaseTool]:
-    """Memory tools for one user's turn. ``message_id``: the user's message being answered (the evidence
-    for what these keep). ``background``: a turn the user didn't start: only her own intentions."""
+                       background: bool = False, wake: bool = False, evaluation=None) -> list[BaseTool]:
+    """Memory tools for one evaluation. ``message_id``: the user's message being answered (the evidence
+    for what these keep). ``background``: a game-event turn: only her own intentions. ``wake``: her mind woke
+    without a user message: a promise of hers she keeps in this evaluation can be marked fulfilled. ``evaluation``:
+    the evaluation of her mind (``mind_turn.Evaluation``): a promise marked fulfilled is noted on it, and opened
+    again if her words then aren't delivered."""
     source = Source("message", message_id) if message_id is not None else None
 
     def relying(db, entry, relies_on: list[str] | None) -> str:
@@ -90,10 +93,19 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
         """
         def do(db) -> str:
             entry, children = memory_manager.resolve(db, user_id, item, status=status, reason=reason,
-                                                     source=source, background=background)
+                                                     source=source, background=background, own_word=wake)
             note = ""
+            if entry.status == "fulfilled" and evaluation is not None:
+                evaluation.fulfilled.append(entry.id)
+                note = " (It counts once what you say now reaches them; if it doesn't, it opens again.)"
+            if entry.closed_at is not None:
+                # What she set to come back to about it has nothing left to come back to.
+                from app.services import coordinator
+
+                if coordinator.close_item_wakes(db, user_id, entry.id):
+                    note = " What you'd scheduled to come back to about it is dropped."
             if children:
-                note = " Still open under it: " + "; ".join(
+                note += " Still open under it: " + "; ".join(
                     f'[{memory_manager.ref(c)}] "{c.text}"' for c in children) + "."
             return f'Done: [{memory_manager.ref(entry)}] "{entry.text}" is {entry.status}.{note}'
         return await _run(do)
@@ -125,6 +137,19 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
         return await _run(do)
 
     @tool
+    async def note_question(question: str, asked_by: Literal["user", "columbina"] = "user") -> str:
+        """Keep a question that is still open after this exchange: one of theirs you haven't answered (or only
+        in part), or one of yours they haven't answered. It stays in your working memory until you mark it
+        answered or dropped (update_item). Only for a question worth coming back to, not every "?".
+        asked_by: "user" for theirs, "columbina" for yours."""
+        def do(db) -> str:
+            entry = memory_manager.add_item(db, user_id, kind="question", text_=question, owner=asked_by,
+                                            epistemic="reported" if asked_by == "user" else "inferred",
+                                            source=source)
+            return f'Kept: open question [{memory_manager.ref(entry)}] "{entry.text}".'
+        return await _run(do)
+
+    @tool
     async def switch_context(name: str, kind: Literal["activity", "project", "world", "general"] = "activity",
                              new: bool = False) -> str:
         """Turn your attention to another context, so what's kept from now on belongs there: a project
@@ -145,4 +170,4 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
 
     if background:
         return [note_intention, update_item]
-    return [set_goal, update_item, note_commitment, note_intention, switch_context]
+    return [set_goal, update_item, note_commitment, note_intention, note_question, switch_context]

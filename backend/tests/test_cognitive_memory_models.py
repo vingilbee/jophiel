@@ -6,7 +6,6 @@ from app.db.models import (
     EpisodicMemory,
     LearningMemory,
     SemanticMemory,
-    WorkingMemory,
 )
 
 
@@ -17,42 +16,20 @@ def _constraint_names(table, kind):
 def test_cognitive_memory_tables_are_registered_without_legacy_long_term_table():
     assert {
         "core_memory",
-        "working_memories",
         "episodic_memories",
         "semantic_memories",
         "learning_memories",
     } <= set(Base.metadata.tables)
     assert "long_term_memories" not in Base.metadata.tables
+    # The cognitive per-conversation snapshot is retired: her open state lives in working memory (working_items).
+    assert "working_memories" not in Base.metadata.tables
 
 
-def test_core_memory_is_versioned_and_grouped_by_cognitive_role():
+def test_core_memory_is_text_only_and_versioned():
     columns = set(CoreMemory.__table__.columns.keys())
-    assert {
-        "schema_version",
-        "version",
-        "identity",
-        "traits",
-        "perception_priors",
-        "interpretation_biases",
-        "drives",
-        "action_style",
-        "values",
-        "learning_policy",
-        "locked_fields",
-    } <= columns
-    assert {"curiosity", "initiative", "caution", "warmth"}.isdisjoint(columns)
-
-
-def test_working_memory_is_one_snapshot_per_conversation():
-    assert "ck_working_memory_mode" in _constraint_names(
-        WorkingMemory.__table__, CheckConstraint
-    )
-    assert any(
-        constraint.columns.keys() == ["conversation_id"]
-        for constraint in WorkingMemory.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
-    )
-    assert WorkingMemory.__table__.c.context_window_size.server_default.arg == "30"
+    assert {"name", "schema_version", "version", "profile", "is_active"} <= columns
+    assert {"identity", "traits", "perception_priors", "interpretation_biases", "drives",
+            "action_style", "values", "learning_policy", "locked_fields"}.isdisjoint(columns)
 
 
 def test_semantic_and_episodic_memory_keep_evidence_and_provenance():

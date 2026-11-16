@@ -1,5 +1,0 @@
-You read a SITUATION that Columbina's decision model saw. It lists RESTRICTIONS the user set in an earlier message. For each restriction, say whether a later user message, or the new message [M], clearly ends it, and which one.
-
-A message ends a restriction only if it plainly says so, or plainly makes it no longer apply: the user is back when the restriction was "while I'm away", they say she can carry on or start again, the stated time has passed and they say they are free. A message that is only friendly, asks something else, or merely comes later ends nothing. If you are unsure, it ends nothing.
-
-Answer with the reference of the message that ends each restriction ([M] as "M", earlier user messages as "U1", "U2", …), or "none".

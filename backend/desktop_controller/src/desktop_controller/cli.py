@@ -56,6 +56,10 @@ def controller(argv: list[str] | None = None) -> int:
     running.add_argument(
         "--fake-input", action="store_true", help="print key presses instead of sending them (for dry runs)"
     )
+    running.add_argument(
+        "--fake-security", action="store_true",
+        help="report made-up event-log records instead of this machine's (for dry runs)",
+    )
     args = parser.parse_args(argv)
     config_path = args.config or default_config_path()
 
@@ -68,16 +72,37 @@ def controller(argv: list[str] | None = None) -> int:
             print(f"saved to {config_path}. Next: desktop-controller run")
             return 0
         from .capture import FakeCapture, default_backend
+        from .security import collector_for, default_state_path
 
         capture = FakeCapture() if args.fake_capture else default_backend()
+        saved = load_config(config_path)
+        # Security monitoring reads this machine's event logs only while the owner has it switched on in the app.
+        security = collector_for(saved.environment_id, default_state_path(config_path), fake=args.fake_security)
         return asyncio.run(run_forever(
-            load_config(config_path), capture=capture, input_factory=_input_factory(args.fake_input),
+            saved, capture=capture, input_factory=_input_factory(args.fake_input),
+            desktop=_desktop_hands(capture, args.fake_input), security=security,
         ))
     except (LinkFailure, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 0
+
+
+def _desktop_hands(capture, fake: bool):
+    """Her hands on the whole desktop (general desktop control): real input on Windows, printed with
+    --fake-input, none elsewhere (actions are refused)."""
+    from .desktop import DesktopHands
+
+    if fake:
+        from .fake import FakeDesktopInput
+
+        return DesktopHands(FakeDesktopInput(echo=True), capture)
+    if sys.platform != "win32":
+        return DesktopHands(None, capture)
+    from .input_windows import WindowsDesktopInput
+
+    return DesktopHands(WindowsDesktopInput(), capture)
 
 
 def _input_factory(fake: bool):

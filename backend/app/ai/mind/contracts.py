@@ -1,13 +1,15 @@
-"""What the general mind and its sources and bodies agree on (docs/COLUMBINA_INNER_STATE_PLAN.md).
+"""What the general mind and its sources and bodies agree on (docs/COLUMBINA_MIND_DESIGN.md, docs/MIND_ARCHITECTURE.md).
 
 The mind (services/mind.py: attention, quick thoughts; services/mind_hard.py: problems, hard
 thoughts, where conclusions go) knows nothing about a game. A **source** tells it what is going
 on (a ``Moment``), what is worth thinking hard about (``Problem``s) and whether a problem still
 holds. A **body** keeps acting on its own and is steered with commands it can accept or refuse.
-Minecraft is one source with one body (services/mind_minecraft.py); conversation is another
-source, with no body (services/mind_conversation.py).
+Minecraft is one source with one body (services/mind_minecraft.py); her desktop's security records
+are another, with no body (services/mind_security.py). A conversation is not a source of background
+thinking: every message wakes her mind directly (services/mind_turn.py), and what she chose to come
+back to wakes it later (services/coordinator.py).
 
-Shaped by those two sources only: add a field when one of them needs it.
+Shaped by those sources only: add a field when one of them needs it.
 """
 from __future__ import annotations
 
@@ -20,12 +22,12 @@ from app.ai.mind.situation import Situation
 
 # Which waiting problem starts first when several activities have one (lower first).
 PRIORITY = {"handoff": 0, "failing": 1, "surprise": 2, "promise": 2, "intention": 2, "conflict": 2, "big": 3,
-            "open": 3, "quiet": 9, "review": 1}
+            "open": 3, "quiet": 9, "review": 1, "security": 2}
 
 
 @dataclass(frozen=True)
 class Scope:
-    """What a piece of thinking is about. Attention (and, later, mood) is shared per user;
+    """What a piece of thinking is about. Attention is shared per user;
     thoughts, intentions, the open question, hand-offs and tips stay per activity, so a
     thought about an old game never steers a new one."""
 
@@ -122,7 +124,7 @@ class Source(Protocol):
 
     def drop_waiting(self, scope: Scope, moment: Moment, problem: Problem) -> str | None: ...
 
-    def quiet_topics(self, user: str) -> tuple[str, ...]: ...
+    def thinks_when_quiet(self) -> bool: ...  # whether quiet time in it starts a thought (never on what)
 
     def gather(self, db: Any, scope: Scope, problem: Problem,
                base: HardInput) -> tuple[HardInput | None, Any]: ...  # None: the activity is gone

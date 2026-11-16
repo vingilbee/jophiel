@@ -171,9 +171,10 @@ The field is full-bleed and spatial, not paged. It is a map you drag, wheel, pin
 A black sky lit by seven part colors and stars in white and the same part colors, with a cool grey ink ramp for text and one red reserved for failure.
 
 ### Primary
-Seven part colors, one per part. They are equal in rank; none is "the brand accent".
-- **Cognition Cyan**: the central, largest node. Also the page's default focus ring and text-selection tint (cyan at 32%).
-- **Mouth Green**, **Mind Rose**, **Hands Amber**, **Memory Orange**, **Observation Blue**, **Learning Violet**.
+Six part colors, one per part. They are equal in rank; none is "the brand accent".
+- **Mind Rose**: the central, largest node (since 2026-11-13, when the Cognition node was retired).
+- **Cognition Cyan**: no longer a part's color; kept as the page's default focus ring and text-selection tint (cyan at 32%).
+- **Mouth Green**, **Hands Amber**, **Memory Orange**, **Observation Blue**, **Learning Violet**.
 
 On the field each part color paints its node's core (a radial gradient from pure white through Core White at 38% into the color at 62%), its halos, arc glow and charging ring, its sub-cores, its state word under the label, its end of every fibre it touches, the tail of every pulse it sends, and its share of the tinted stars and warp streaks. In the jump it is the flood of light (white at the centre, the part color at 16%, the color at 33% alpha at 34%, gone by 62%). On its page it is the live node glyph, the state word, the sub-part dots (with an 8px glow), every timeline meta line, the reasoning rule (at 40%) and the page's focus ring. A hand-off line in the rail takes the *other* part's color for its dot.
 
@@ -223,7 +224,7 @@ On the field each part color paints its node's core (a radial gradient from pure
 
 The System page is fixed to the viewport (`inset: 0`, no page scroll). The field fills it; wheel zoom is captured so the page never scrolls. A part page is a layer over it that scrolls on its own.
 
-- **Field.** Seven parts at fixed positions in a 1600 × 1000 field: Cognition central and largest, Mouth right, Memory beneath, Mind upper left, Hands lower right, Observation top, Learning lower left. The fitted view frames the nodes and their labels (not the empty field), with 70px clear at top and bottom (110px on top in portrait) for the overlay, at 96% of the available fit.
+- **Field.** Six parts at fixed positions in a 1600 × 1000 field: Mind central and largest, Mouth right, Memory beneath, Hands lower right, Observation top, Learning lower left. The fitted view frames the nodes and their labels (not the empty field), with 70px clear at top and bottom (110px on top in portrait) for the overlay, at 96% of the available fit.
 - **Portrait.** When the viewport is more than 1.15× taller than wide, the field is turned on its side (x and y swapped) so every node keeps its neighbours and a phone is filled; labels move above or below.
 - **Overlay.** Specimen label, status, last signal and page links top left; magnification ruler bottom left; zoom buttons bottom right. Gutters 16px, 24px from 640px up. The top-left text fades out (300ms) as soon as a jump begins; the bottom chrome fades while the light is up or a page is open; the map's nodes and fibres fade out while a page is open.
 - **Part page.** Centred, at most 1152px wide, 20px sides on phones and 32px from 640px, 20px / 32px on top, 96px at the bottom. From 1024px it is two columns: a 288px rail that sticks 32px from the top, a 56px gap, and the timeline. Below 1024px the rail stacks above the timeline, the glyph sits beside the name, and sub-parts wrap into a row.
@@ -280,6 +281,15 @@ Round glass instruments, quiet until touched.
 - **Rail:** back link; node glyph with the Display name and the state word (part color, Fail Red when failing, Ink Muted when down or off); role line; "Inside" lists the sub-parts with a glowing part-color dot each, and only those with a section on the page are links (Ink Body, white on hover; the rest are plain Ink Muted text); "Running as" lists workers with their state and seconds since seen, worker errors in Error Text; "Hand-offs" lists up to eight recent signals into and out of the part, each with the other part's dot and an age.
 - **Timeline:** headline sections, each a list of rule-divided entries (Entry Rule): time column on the left, a part-color meta line, then the text. Dropped or stale entries go Ink Muted; failed ones put their meta in Error Text. Reasoning, where a record has it, folds into a "Her reasoning" disclosure with a part-color left rule. Empty sections say so plainly in Ink Muted.
 - **Focus:** the timeline takes focus on open; Escape closes; focus rings inside use the part color. A drawing failure shows a plain Error Text line and leaves Esc working.
+
+- **Records that open:** an entry can carry the rest of its record behind a disclosure ("Whole record", "The three reports", "What it saw and what was applied"): label/value lines in Ink Muted / Ink Body, raw records as indented text on a near-black well, scrolled when long. A "Trace" pill (hairline ring, 12px) sits at the end of an entry's meta line when the record can be followed through her parts.
+- **Hands:** the page opens on "Goal and plan": the goal in 16px Ink Strong, the plan's steps with a filled amber dot for done, a lit amber ring for the active one and a hollow ring for the rest, then the user's rules and what code counted. Her hands' decisions keep three reports apart: her claim, the pack's report, her state before and after.
+
+### Log drawer
+A 400px panel on the right of the field (full width below 1024px), Surface Night at 92% with a backdrop blur and a hairline left rule; on a wide screen the field refits to the space left. Three tabs as quiet pills: **Watch** (her hands' goal pinned on top in a hairline card, then one log of what she thought, what memory captured and what her hands ran, each row with its part's dot and colour, filterable by Thinking / Memory / Hands), **Signals** (every hand-off, newest first, filterable by part, with a Trace pill where the signal names a turn or decision) and **Errors** (worker errors, invalid decisions, failed executions, capture gaps; the tab shows the count of the last ten minutes in Error Text). Clicking a row's part opens that part's page at the row's section. Closed, it is one "Log" pill top right with the last signal's colour dot. Opening state and tab are remembered per browser.
+
+### Trace
+A sheet sliding in from the right over any page (max 760px), one vertical line of steps, each a part-colour dot and meta line (part, trigger, clock time, seconds, model), the step's title ("Student 2 decided", "The skill ran"), its answer in a line, and "What it was given" / "What it answered" disclosures. What was never saved is listed under "Missing from the record" in amber, never drawn as a step. Esc closes the trace only.
 
 ### Magnification ruler
 Readout "×1.0" (13px, 500, tabular) beside a 112–160px line with ticks at ×1, ×2, ×4 and ×6 on a log scale; a bright fill and a 9px cursor mark the current magnification; a hint says "zoom in to see inside each part" until sub-cores resolve, then "inside view".

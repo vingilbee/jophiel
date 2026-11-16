@@ -23,7 +23,6 @@ from app.db.models import (
 from app.services import (
     autonomous_speech,
     chat as chat_service,
-    cognitive_live,
     memory_manager,
     mind,
     mind_conversation,
@@ -39,6 +38,57 @@ from app.services.thought_memory import Judgement
 from db_support import create_conversation, create_user, database, db_env  # noqa: F401
 
 
+class ConversationThoughts:
+    """A source of hard thoughts about a conversation, for these tests: what her slow thinking reads about one
+    (the conversation, her working memory, what her last answer used) and nothing that drops it. Conversations
+    aren't a background source in the app any more (her mind starts that thinking itself); the handoff to memory
+    tested here is the same for every source (Minecraft, security)."""
+
+    name = "conversation"
+    shadow = False
+
+    def situation(self):
+        return mind_conversation.CONVERSATION
+
+    def gather(self, db, scope, problem, base):
+        from dataclasses import replace
+
+        now = datetime.now(timezone.utc)
+        refs = list(base.memory_refs)
+        parts = [base.memories] if base.memories else []
+        working = memory_manager.view_for(scope.user_id, user_name=base.user, autonomous=True)
+        if working:
+            parts.append(working)
+        cached = recall_references.cached_for_reply(scope.user_id, scope.activity, None, None)
+        if cached.rendered and cached.result.records:
+            parts.append(cached.rendered)
+            refs.extend(str(r) for r in cached.result.refs())
+        found = "\n\n".join(parts) or None
+        return replace(base, conversation=mind_hard.conversation(db, scope.user_id, now, scope.activity),
+                       memories=found, memory_refs=tuple(dict.fromkeys(refs))), None
+
+    def dropped(self, db, scope, problem, cancelled):
+        return cancelled
+
+    def outdated(self, db, scope, problem, token):
+        return []
+
+    def current_goal(self, db, scope):
+        return None
+
+    def speaking(self, db, scope):
+        return {"commentary_mode": "occasional"}
+
+    def body(self, scope):
+        return None
+
+    def thought_session(self, scope):
+        return None
+
+
+SOURCE = ConversationThoughts()
+
+
 @pytest.fixture
 def mind_env(db_env, monkeypatch, tmp_path):
     """A real hard-thought run in a conversation, with a scripted thinker; returns a way to think."""
@@ -50,7 +100,6 @@ def mind_env(db_env, monkeypatch, tmp_path):
     monkeypatch.setattr(mind, "publish", lambda user_id, thought: None)
     monkeypatch.setattr(mind, "_set_thinking", lambda key, topic: None)
     monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: said.append(kw) or "Proposed.")
-    monkeypatch.setattr(cognitive_live, "load_state", lambda uid, cid: {})
     monkeypatch.setattr(mind_hard, "_character", lambda db: ())
     supplied: list[str] = []
 
@@ -79,7 +128,7 @@ def mind_env(db_env, monkeypatch, tmp_path):
 
         monkeypatch.setattr(mind_hard, "thinker", lambda: SimpleNamespace(
             think=answer, instructions=lambda trigger, user, situation, **kw: "system"))
-        mind_hard.run(mind_conversation.SOURCE, scope, att, Problem("quiet", "x", topic, "sister"), 100.0)
+        mind_hard.run(SOURCE, scope, att, Problem("quiet", "x", topic, "sister"), 100.0)
         with db_env.db() as db:
             return db.scalar(select(MindThought).where(MindThought.user_id == ids.user)
                              .order_by(MindThought.created_at.desc()).limit(1))
@@ -132,7 +181,7 @@ def test_a_finished_hard_thought_is_handed_over_with_what_she_read(mind_env):
     # Replaying the handoff never duplicates it.
     with mind_env.db() as db:
         row = db.get(MindThought, thought.id)
-        mind_hard.to_memory(db, mind_conversation.SOURCE, mind_env.scope, Problem("quiet", "x", "their sister", "s"),
+        mind_hard.to_memory(db, SOURCE, mind_env.scope, Problem("quiet", "x", "their sister", "s"),
                           SimpleNamespace(conversation=(), memory_refs=()), HardThought("guess", row.text), row)
         db.commit()
         assert len(_observations(db, mind_env.ids.user)) == 1

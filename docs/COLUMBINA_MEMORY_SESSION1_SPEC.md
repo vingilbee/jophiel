@@ -1,5 +1,7 @@
 # Memory session 1: general working memory (spec)
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Status: spec for review. Nothing is built. Parent design: `docs/COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md`.
 Date: 2026-10-20
 

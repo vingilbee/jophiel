@@ -38,6 +38,17 @@ export function canSeeBlock (bot, position) {
   return false
 }
 
+// A block a ray of her view reached (src/perception.js): seen, by name.
+export function rememberSeen (bot, x, y, z, name) {
+  const type = bot.registry.blocksByName[name]?.id
+  if (type === undefined) return
+  const memory = remembered(bot)
+  const key = `(${x}, ${y}, ${z})`
+  memory.delete(key)
+  memory.set(key, type)
+  if (memory.size > REMEMBER) memory.delete(memory.keys().next().value)
+}
+
 // findBlocks, but only blocks she can see now or has seen (and that are still that block).
 export function seenBlocks (bot, { matching, maxDistance, count = 1 }) {
   const ids = new Set(Array.isArray(matching) ? matching : [matching])

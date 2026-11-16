@@ -336,7 +336,7 @@ export function describeOverhead (o) {
   return `underground: ${words(o.block)} ${o.up} m above your head, rock all the way up`
 }
 
-function describeEnd (e) {
+export function describeEnd (e) {
   if (e.kind === 'open') return null
   if (e.kind === 'unloaded') return 'the world not loaded beyond'
   if (e.kind === 'wall') return `a ${words(e.block)} wall ${e.height}${e.taller ? '+' : ''} m high`

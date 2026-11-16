@@ -53,7 +53,7 @@ class TurnRecall:
     focus_context_id: uuid.UUID | None
     result: RecallResult
     rendered: str
-    legacy: str | None  # the old fact/episode block, for the cognitive layer that reads text
+    legacy: str | None  # the old fact/episode block, for consumers that read plain text
     prior_note: str | None = None
     supplied: dict[MemoryRef, MemoryRecord] = field(default_factory=dict)
     tool_calls: int = 0
@@ -61,7 +61,7 @@ class TurnRecall:
     tool_statuses: list[str] = field(default_factory=list)
     histories: list = field(default_factory=list)  # recall_history.HistoryRun, kept with the receipt
     # The evidence bundle this reply's consumers read: one id per search, and what each consumer was given
-    # (refs and a hash of its rendering), so a receipt says exactly what Student 1, Student 2 and the mouth saw.
+    # (refs and a hash of its rendering), so a receipt says exactly what her mind saw.
     bundle_id: uuid.UUID = field(default_factory=uuid.uuid4)
     consumers: dict[str, dict] = field(default_factory=dict)
     user_message_id: uuid.UUID | None = None  # the message being answered: never a transcript search hit
@@ -187,7 +187,7 @@ def for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_messag
 
 def cached_for_reply(user_id: uuid.UUID, conversation_id: uuid.UUID | None, user_message_id: uuid.UUID | None,
                      zone: str | None) -> TurnRecall:
-    """A reply's memory without a search (the shared-state pipeline, docs/SHARED_STATE_REFACTOR_SPEC.md): only
+    """A reply's memory without a search (when the search failed, or for a background thought): only
     the answer before's references, re-read now, so a correction or deletion since is seen, never an old copy.
     The turn carries the same tool budget, and its receipt supplies them again, so follow-ups keep working.
     Never raises: a failed reread is ``failed``, not an empty cache."""

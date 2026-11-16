@@ -1,5 +1,7 @@
 # Component coordination: implementation review and proposed contract
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Reviewed 2026-10-21. This is a source-code review, not verification of deployed flags or a runtime concurrency test. The user confirms student/teacher cognition is current and V0 shadow is no longer used. V0 is legacy and excluded from the target design. Memory internals are being changed separately; this review defines integration boundaries only. No runtime behavior is changed by this document.
 
 ## Assessment

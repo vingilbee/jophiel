@@ -40,6 +40,8 @@ SENSITIVE_PROCESSES = frozenset({
 })
 
 JPEG_QUALITY = 70
+# A desktop screenshot travels as one link frame (link.MAX_FRAME_BYTES, minus room for the header).
+SCREENSHOT_MAX_BYTES = 500 * 1024
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,8 @@ class CaptureBackend(Protocol):
     def grab(self, config: CaptureConfig) -> Grab: ...
     def observe(self, config: ObserveConfig) -> Grab: ...
     def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None: ...
+    # General desktop control (desktop.DesktopScreen); raises desktop.Refused when there's no picture.
+    def screenshot(self, action): ...
 
 
 def small_grey(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -78,6 +82,44 @@ def encode(image: Image.Image, max_width: int, max_height: int) -> Grab:
     return Grab("ok", out.getvalue(), image.width, image.height)
 
 
+def desktop_shot(image: Image.Image, screen: tuple[int, int, int, int], action, foreground=(None, None)):
+    """A desktop screenshot (``desktop.Screenshot``) of ``image``, the primary screen whose rectangle is
+    ``screen``: the whole screen fitted into the size limits, or a region of it, enlarged up to
+    ``max_zoom`` so small text can be read. Raises ``desktop.Refused`` for a region off the screen."""
+    from .desktop import Refused, Shot
+    from .link import ScreenInfo
+
+    left, top, width, height = screen
+    if action.region is None:
+        region = screen
+        crop = image
+    else:
+        rx, ry, rw, rh = action.region
+        x0, y0 = max(rx, left), max(ry, top)
+        x1, y1 = min(rx + rw, left + width), min(ry + rh, top + height)
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            raise Refused("that part of the screen is off the screen")
+        region = (x0, y0, x1 - x0, y1 - y0)
+        crop = image.crop((x0 - left, y0 - top, x1 - left, y1 - top))
+    zoom = 1.0 if action.region is None else action.max_zoom
+    scale = min(action.max_width / crop.width, action.max_height / crop.height, zoom)
+    size = (max(1, round(crop.width * scale)), max(1, round(crop.height * scale)))
+    if size != crop.size:
+        crop = crop.resize(size, Image.Resampling.LANCZOS if scale < 1 else Image.Resampling.BICUBIC)
+    crop = crop.convert("RGB")
+    for quality in (80, 65, 50, 35):  # it must fit in one link frame
+        out = io.BytesIO()
+        crop.save(out, format="JPEG", quality=quality)
+        if out.tell() <= SCREENSHOT_MAX_BYTES:
+            break
+    else:
+        raise Refused("the screenshot came out too large to send")
+    process, title = foreground
+    return Shot(out.getvalue(), ScreenInfo(
+        region=region, size=size, screen=screen,
+        foreground_process=(process or None) and process[:64], foreground_title=(title or None) and title[:200]))
+
+
 class FakeCapture:
     """A stand-in game window: a gradient with a counter, always foreground."""
 
@@ -99,6 +141,14 @@ class FakeCapture:
 
     def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None:
         return small_grey(self._picture(), size) if self.state == "ok" else None
+
+    def screenshot(self, action):
+        from .desktop import Refused
+
+        self.grabs += 1
+        if self.state != "ok":
+            raise Refused("no picture: " + self.state)
+        return desktop_shot(self._picture(), (0, 0, 1920, 1080), action, ("explorer.exe", "Fake desktop"))
 
     def _picture(self) -> Image.Image:
         image = Image.new("RGB", (1920, 1080), (30, 90, 40))
@@ -146,6 +196,26 @@ class WindowsCapture:
             return Grab("sensitive")  # a prompt appeared during the grab: drop it
         image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
         return encode(image, config.max_width, config.max_height)
+
+    def screenshot(self, action):
+        """General desktop control: the primary screen (or part of it) for the orchestrator. No picture
+        while a Windows sign-in or permission prompt is in front."""
+        from .desktop import Refused
+
+        win = self._win
+        foreground = win.foreground()
+        if foreground and win.process_name(foreground) in SENSITIVE_PROCESSES:
+            raise Refused("a Windows sign-in or permission prompt is in front; no picture while it is")
+        sct = self._shooter()
+        monitor = sct.monitors[1]  # the primary screen
+        shot = sct.grab(monitor)
+        after = win.foreground()
+        if after != foreground and after and win.process_name(after) in SENSITIVE_PROCESSES:
+            raise Refused("a Windows sign-in or permission prompt came up; no picture while it is")
+        image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        screen = (monitor["left"], monitor["top"], monitor["width"], monitor["height"])
+        names = (win.process_name(after), win.window_title(after)) if after else (None, None)
+        return desktop_shot(image, screen, action, names)
 
     def _grab_window(self, config: CaptureConfig) -> Grab:
         image = self._window_image(config.target_process or "")

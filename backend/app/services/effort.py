@@ -70,6 +70,10 @@ def _action_entry(row: DecisionExecution) -> Entry | None:
     detail = _params(params)
     if row.result == "succeeded":
         outcome = "done"
+    elif row.result == "unknown" and row.ended_at is None and not row.deviation:
+        # Recorded when it started; its result lands when it ends. Asked mid-run, it's still going, not lost
+        # (seen live: a bed craft 0.1 s in read as "result not seen", and she doubted the bed she then had).
+        outcome = "started, no result yet"
     elif row.result == "unknown":
         outcome = f"result not seen ({row.deviation})" if row.deviation else "result not seen"
     else:

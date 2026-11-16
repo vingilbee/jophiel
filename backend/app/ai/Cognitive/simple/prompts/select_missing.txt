@@ -1,1 +1,0 @@
-Each numbered text says what the nearest proposed intention lacked or got wrong compared with what Columbina meant. Classify each by what was missing: commitment, condition, offer, question, decline, uncertainty, fact, feeling, view, acknowledgement, stance (the whole direction was wrong), wording_only (only style or emphasis), other.

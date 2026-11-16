@@ -1,6 +1,7 @@
 // State JSON -> the few lines of text her hands will read (stage G phase 3). Pure.
 import { describeSurroundings } from './surroundings.js'
 import { describeTerrain } from './terrain.js'
+import { describeView } from './perception.js'
 
 function where (entity) {
   const vertical = Math.abs(entity.dy) >= 2
@@ -38,6 +39,7 @@ export function describeState (state) {
   if (height) lines.push(height)
   lines.push(...describeSurroundings(state.surroundings))
   lines.push(...describeTerrain(state.terrain))
+  lines.push(...describeView(state.view))
   const spectating = new Set(state.players_spectating ?? [])
   for (const p of state.players ?? []) {
     if (!spectating.has(p.name)) lines.push(describePlayer(p, state.nearby))

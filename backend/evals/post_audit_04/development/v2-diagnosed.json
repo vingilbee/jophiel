@@ -1,0 +1,2396 @@
+{
+ "frozen": "2026-11-06",
+ "version": 2,
+ "note": "Reserved set v2 (frozen 2026-11-06), run once 2026-11-06 and read to diagnose failures: development material now, never acceptance evidence.",
+ "variants": [
+  {
+   "id": "U.v1",
+   "family": "U",
+   "context": "conversation",
+   "user_name": "Ines",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 9,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "dentist tomorrow lol"
+      ],
+      [
+       "her",
+       "Ha, good luck! Anything big?"
+      ],
+      [
+       "user",
+       "just a filling. honestly I didn't sleep at all, I always get like this before the dentist even though I joke about it"
+      ],
+      [
+       "her",
+       "That sounds rough. Lots of people dread it."
+      ],
+      [
+       "user",
+       "yeah the jokes are how I cope tbh"
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "control",
+     "days_ago": 5,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "what's 15% of 80"
+      ],
+      [
+       "her",
+       "12."
+      ],
+      [
+       "user",
+       "thx"
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "dentist day",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "dentist at 3 today haha wish me luck",
+       0
+      ]
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "id": "U1",
+     "check": "judge",
+     "text": "A product says Ines gets anxious before dentist visits and jokes to cope (an expectation about her), not an instruction to Jophiel."
+    },
+    {
+     "id": "U2",
+     "check": "auto",
+     "text": "That product's evidence refs are messages of stretch c1."
+    },
+    {
+     "id": "U3",
+     "check": "judge",
+     "text": "With the product, Student 2's decision allows for nerves behind the joke (gentle reassurance, checking how she feels, warmth beyond a plain 'good luck'); the baseline just matches the light tone. It invents no strategy the product doesn't contain."
+    },
+    {
+     "id": "U4",
+     "check": "auto",
+     "text": "The control stretch produces no product and no new support."
+    }
+   ]
+  },
+  {
+   "id": "U.v2",
+   "family": "U",
+   "context": "game",
+   "user_name": "Bram",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 4,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night 1 at the swamp village: four zombies came out of the stone building on the village's east side"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night 1: no mob appeared among the wooden houses on the west side"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night 2 at the swamp village: three zombies came out of the same stone building on the east side"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night 2: the west houses stayed quiet"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "fight",
+       "status": "done",
+       "reason": "killed 2 zombies near the stone building on the east side"
+      }
+     ]
+    },
+    {
+     "do": "game",
+     "label": "control",
+     "days_ago": 2,
+     "learn": true,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "craft",
+       "status": "done",
+       "reason": "crafted 4 oak_planks"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "store",
+       "status": "done",
+       "reason": "stored 4 oak_planks in the chest"
+      }
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "night at the village",
+     "consumer": "planner",
+     "goal": "Bram asked her to spend tonight at the swamp village and sleep there safely.",
+     "now": "At the swamp village at dusk. Wooden houses on the west side, a stone building on the east side, a well in the middle. Inventory: 1 white_bed, 1 iron_sword, 8 bread, 12 torch."
+    }
+   ],
+   "requirements": [
+    {
+     "id": "U1",
+     "check": "judge",
+     "text": "A product says that at the swamp village zombies come out of the stone building on the east side at night while the west houses stay quiet (an expectation about this world)."
+    },
+    {
+     "id": "U2",
+     "check": "auto",
+     "text": "That product's evidence refs are experiences of stretch g1."
+    },
+    {
+     "id": "U3",
+     "check": "judge",
+     "text": "With the product, the plan sleeps on the west side or away from the east stone building (or guards that building); the baseline plan shows no such placement reasoning."
+    },
+    {
+     "id": "U4",
+     "check": "auto",
+     "text": "The control stretch produces no product and no new support."
+    }
+   ]
+  },
+  {
+   "id": "U.v3",
+   "family": "U",
+   "context": "conversation",
+   "user_name": "Luis",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 12,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "so windy today, Pepa spent the whole afternoon under the bed again"
+      ],
+      [
+       "her",
+       "Poor Pepa! Is she okay?"
+      ],
+      [
+       "user",
+       "she's fine once it calms down. she's been like that with wind since she was a puppy, any gust and she hides"
+      ],
+      [
+       "her",
+       "Sounds like she knows her safe spot."
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "control",
+     "days_ago": 6,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "how do you spell necessary"
+      ],
+      [
+       "her",
+       "N-E-C-E-S-S-A-R-Y."
+      ],
+      [
+       "user",
+       "cheers"
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "storm bbq",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "big storm forecast tonight, we've got friends coming for a bbq in the garden if it holds",
+       0
+      ]
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "id": "U1",
+     "check": "judge",
+     "text": "A product says Luis's dog Pepa hides and gets scared when it's windy (an expectation about Pepa), not an instruction."
+    },
+    {
+     "id": "U2",
+     "check": "auto",
+     "text": "That product's evidence refs are messages of stretch c1."
+    },
+    {
+     "id": "U3",
+     "check": "judge",
+     "text": "With the product, Student 2's decision brings up or allows for Pepa in the storm; the baseline doesn't mention the dog."
+    },
+    {
+     "id": "U4",
+     "check": "auto",
+     "text": "The control stretch produces no product and no new support."
+    }
+   ]
+  },
+  {
+   "id": "C.v1",
+   "family": "C",
+   "context": "game",
+   "user_name": "Wren",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g0",
+     "days_ago": 10,
+     "learn": false,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "the iron golem at the north village killed a zombie that walked near it"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "the iron golem at the north village killed two more zombies that came close"
+      }
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_golem",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "established",
+     "statement": "The iron golem at the north village attacks and kills zombies that come near it",
+     "applies_when": "around the north village",
+     "rests_on": "g0"
+    },
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 1,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night: four zombies started chasing her in the fields south of the north village"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "fight",
+       "status": "failed",
+       "reason": "hurt: outnumbered by four zombies, took 8 damage, retreated"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "done",
+       "reason": "walked 200 blocks across the fields; the four zombies followed her the whole way"
+      },
+      {
+       "kind": "notice",
+       "kind_": "health",
+       "text": "health 9/20"
+      }
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "chased again",
+     "consumer": "planner",
+     "goal": "Wren asked her to get rid of the zombies chasing her.",
+     "now": "Night. Five zombies are chasing her. She is 150 blocks south of the north village. Health 11/20. Inventory: 1 stone_sword, 3 bread."
+    }
+   ],
+   "requirements": [
+    {
+     "id": "C1",
+     "check": "judge",
+     "text": "A product proposes, as a possibility, leading chasing zombies to the north village's iron golem (combining the golem lesson with the experience that zombies follow her a long way)."
+    },
+    {
+     "id": "C2",
+     "check": "auto",
+     "text": "That product links to the golem lesson it builds on and rests on experiences of g1."
+    },
+    {
+     "id": "C3",
+     "check": "auto",
+     "text": "That product is marked untried with its untested part stated, and is tentative."
+    },
+    {
+     "id": "C4",
+     "check": "judge",
+     "text": "The plan may use the idea but never says or implies she has done it successfully before."
+    }
+   ]
+  },
+  {
+   "id": "C.v2",
+   "family": "C",
+   "context": "conversation",
+   "user_name": "Nadia",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 30,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "Mo falls asleep the second the car starts moving, it's like a switch"
+      ],
+      [
+       "her",
+       "The car switch! Handy."
+      ]
+     ]
+    },
+    {
+     "do": "fact",
+     "label": "f_car",
+     "content": "Nadia's toddler Mo falls asleep as soon as the car starts moving",
+     "kind": "fact",
+     "from": "c0"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 2,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "Mo refuses to nap at home lately, he just screams in his cot"
+      ],
+      [
+       "her",
+       "That sounds exhausting."
+      ],
+      [
+       "user",
+       "I am SO tired. and I still have to drive to the big supermarket every afternoon around 2 for my mum's groceries"
+      ],
+      [
+       "her",
+       "That's a lot on your plate."
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "no nap",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "Mo skipped his nap AGAIN, I'm dying here, any ideas?",
+       0
+      ]
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "id": "C1",
+     "check": "judge",
+     "text": "A product proposes, as a possibility, timing the afternoon supermarket drive for nap time so Mo naps in the car (a combination Nadia hasn't tried)."
+    },
+    {
+     "id": "C2",
+     "check": "auto",
+     "text": "That product links to the car-sleep fact (or an equivalent product) it builds on and rests on messages of c1."
+    },
+    {
+     "id": "C3",
+     "check": "auto",
+     "text": "That product is marked untried with its untested part stated, and is tentative."
+    },
+    {
+     "id": "C4",
+     "check": "judge",
+     "text": "Student 2 may suggest it but never says or implies it worked for Mo before."
+    }
+   ]
+  },
+  {
+   "id": "C.v3",
+   "family": "C",
+   "context": "conversation",
+   "user_name": "Eli",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 20,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "Jonas never answers when I bring stuff up face to face, but I left him a note on the fridge about the bins and he did them right away"
+      ],
+      [
+       "her",
+       "Interesting, notes work better with him."
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_note",
+     "kind": "understanding",
+     "form": "a relationship",
+     "certainty": "tentative",
+     "statement": "Eli's flatmate Jonas responds to written notes on the fridge, not to being asked face to face",
+     "applies_when": "when Eli needs Jonas to do something",
+     "rests_on": "c0"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 1,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "the dishes are piling up again, Jonas's pans from three days ago"
+      ],
+      [
+       "her",
+       "Ugh, that's annoying."
+      ],
+      [
+       "user",
+       "I tried talking to him about it last night and he just shrugged and went to his room"
+      ],
+      [
+       "her",
+       "That must have been frustrating."
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "dishes",
+     "consumer": "mind",
+     "trigger": "Eli asked her what to do",
+     "problem": "Eli is fed up with Jonas's dirty dishes again and asks what to do now.",
+     "conversation": [
+      [
+       "user",
+       "the pans are STILL there. what do I even do",
+       0
+      ]
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "id": "C1",
+     "check": "judge",
+     "text": "A product proposes, as a possibility, leaving Jonas a fridge note about the dishes (combining the note lesson with the failed talk)."
+    },
+    {
+     "id": "C2",
+     "check": "auto",
+     "text": "That product links to the note lesson it builds on and rests on messages of c1."
+    },
+    {
+     "id": "C3",
+     "check": "auto",
+     "text": "That product is marked untried with its untested part stated, and is tentative."
+    },
+    {
+     "id": "C4",
+     "check": "judge",
+     "text": "Her mind may propose it but never says or implies a note about the dishes worked before."
+    }
+   ]
+  },
+  {
+   "id": "X.v1",
+   "family": "X",
+   "context": "conversation",
+   "user_name": "Rosa",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 60,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "my brother Tomás lives in Valencia, I visit him every summer"
+      ],
+      [
+       "her",
+       "Valencia summers sound lovely."
+      ]
+     ]
+    },
+    {
+     "do": "fact",
+     "label": "f_city",
+     "content": "Rosa's brother Tomás lives in Valencia",
+     "kind": "fact",
+     "from": "c0"
+    },
+    {
+     "do": "conversation",
+     "label": "c_prev",
+     "days_ago": 15,
+     "learn": false,
+     "messages": [
+      [
+       "her",
+       "Have you heard from Tomás lately?"
+      ],
+      [
+       "user",
+       "no. let's not talk about it"
+      ]
+     ]
+    },
+    {
+     "do": "hypothesis",
+     "label": "h_fallout",
+     "text": "Rosa and her brother Tomás may have fallen out",
+     "reason": "she didn't want to talk about him",
+     "from": "c_prev"
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_quiet",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "Rosa goes quiet when her brother Tomás comes up",
+     "applies_when": "when Tomás comes up with Rosa",
+     "rests_on": "c_prev"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 1,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "talked to Tomás for an hour last night!"
+      ],
+      [
+       "her",
+       "Oh that's great! How is he?"
+      ],
+      [
+       "user",
+       "good, we're totally fine. he moved to Bilbao for work and was swamped, that's why we hadn't spoken. I was just worried, not upset with him"
+      ]
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "X1",
+     "check": "auto",
+     "text": "The reviewer's readings of c1 retrieved from memory (the fact or the hypothesis) and from lessons."
+    },
+    {
+     "id": "X2",
+     "check": "judge",
+     "text": "The outcome challenges the falling-out hypothesis (they're fine), revises or narrows the 'goes quiet' lesson (it was worry, not a rift), and leaves the Valencia fact to memory (it is not changed or merged by learning, though Bilbao may be noted as conflicting)."
+    },
+    {
+     "id": "X3",
+     "check": "auto",
+     "text": "The fact is unchanged; the hypothesis and fact are not evidence rows of any lesson; the lesson's independent occasions count only real stretches."
+    }
+   ]
+  },
+  {
+   "id": "X.v2",
+   "family": "X",
+   "context": "game",
+   "user_name": "Jun",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g0",
+     "days_ago": 7,
+     "learn": false,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night in the birch forest, on her torch-lit path: no skeleton shot at her"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night in the plains: two skeletons shot at her"
+      }
+     ]
+    },
+    {
+     "do": "hypothesis",
+     "label": "h_birch",
+     "text": "Skeletons might not come into the birch forest",
+     "reason": "none attacked me there",
+     "from_game": "g0"
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_birch",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "At night she is attacked by fewer skeletons in the birch forest than in the plains",
+     "applies_when": "in this Minecraft world at night",
+     "rests_on": "g0"
+    },
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 1,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night in the unlit part of the birch forest, off the path: three skeletons"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "failed",
+       "reason": "hurt: shot twice by a skeleton in the unlit birch forest"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "back on the torch-lit path in the birch forest: no skeleton"
+      }
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "X1",
+     "check": "auto",
+     "text": "The reviewer's readings of g1 retrieved from memory (the hypothesis) and from lessons."
+    },
+    {
+     "id": "X2",
+     "check": "judge",
+     "text": "The outcome challenges the 'skeletons don't come into the birch forest' hypothesis and narrows or revises the birch lesson toward the torch-lit path (light, not the forest itself), keeping the two apart rather than merging them."
+    },
+    {
+     "id": "X3",
+     "check": "auto",
+     "text": "The hypothesis is not an evidence row of any lesson; the lesson's independent occasions count only real stretches."
+    }
+   ]
+  },
+  {
+   "id": "X.v3",
+   "family": "X",
+   "context": "conversation",
+   "user_name": "Pia",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 50,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "fyi I'm allergic to cats, sneezing fits"
+      ],
+      [
+       "her",
+       "Noted, no cats for you."
+      ]
+     ]
+    },
+    {
+     "do": "fact",
+     "label": "f_allergy",
+     "content": "Pia is allergic to cats",
+     "kind": "fact",
+     "from": "c0"
+    },
+    {
+     "do": "conversation",
+     "label": "c_prev",
+     "days_ago": 14,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "Lea invited me over again, I said I was busy"
+      ],
+      [
+       "her",
+       "Not up for it?"
+      ],
+      [
+       "user",
+       "meh"
+      ]
+     ]
+    },
+    {
+     "do": "hypothesis",
+     "label": "h_cat",
+     "text": "Pia might be avoiding Lea's place because of Lea's cat",
+     "reason": "she's allergic and keeps declining",
+     "from": "c_prev"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 1,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "went to Lea's in the end. took an antihistamine, the cat was fine"
+      ],
+      [
+       "her",
+       "Glad it worked out!"
+      ],
+      [
+       "user",
+       "honestly the cat was never the problem. I'd been avoiding her because of her new boyfriend, he's really rude to her"
+      ]
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "X1",
+     "check": "auto",
+     "text": "The reviewer's readings of c1 retrieved from memory (the fact or the hypothesis) and from lessons."
+    },
+    {
+     "id": "X2",
+     "check": "judge",
+     "text": "The outcome challenges the cat hypothesis, keeps the boyfriend reason as its own product or finding, and leaves the allergy fact standing and separate (an antihistamine visit doesn't undo the allergy); nothing merges the fact and the inference."
+    },
+    {
+     "id": "X3",
+     "check": "auto",
+     "text": "The fact is unchanged; the hypothesis and fact are not evidence rows of any lesson."
+    }
+   ]
+  },
+  {
+   "id": "R.v1",
+   "family": "R",
+   "context": "conversation",
+   "user_name": "Dev",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 4,
+     "learn": false,
+     "messages": [
+      [
+       "her",
+       "Hey Dev! How was work today? Busy?"
+      ],
+      [
+       "user",
+       "ugh don't ask about work, it's 11pm and I literally just got home"
+      ],
+      [
+       "her",
+       "Sorry! Rest up."
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_work",
+     "kind": "understanding",
+     "form": "a tendency",
+     "certainty": "established",
+     "scope": "standing",
+     "statement": "Dev doesn't like being asked about work",
+     "applies_when": "in conversation with Dev",
+     "rests_on": "c1"
+    },
+    {
+     "do": "critique",
+     "of": "Dev doesn't like being asked about work",
+     "text": "Dev said that at 11pm right after getting home. It was about being asked late and exhausted, not about work as a topic. One late-night message doesn't show a general dislike."
+    },
+    {
+     "do": "wake_unchanged",
+     "of": "c1",
+     "times": 2
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "R1",
+     "check": "auto",
+     "text": "A new revision of the lesson recorded as a reconsideration; no new evidence row; independent occasions and certainty did not rise."
+    },
+    {
+     "id": "R2",
+     "check": "judge",
+     "text": "The revision ties the lesson to late or exhausted moments (narrowed, lowered certainty with the late-night reading kept, or withdrawn), with a short reason naming the flaw."
+    },
+    {
+     "id": "R3",
+     "check": "auto",
+     "text": "The repeated unchanged wakes made no model call and wrote no revision."
+    }
+   ]
+  },
+  {
+   "id": "R.v2",
+   "family": "R",
+   "context": "game",
+   "user_name": "Sol",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 3,
+     "learn": false,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "mine",
+       "status": "done",
+       "reason": "mined 3 diamond_ore next to the lava pool"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "mine",
+       "status": "failed",
+       "reason": "the iron_pickaxe broke (durability 0) next to the lava pool"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "mine",
+       "status": "failed",
+       "reason": "no pickaxe in inventory"
+      },
+      {
+       "kind": "notice",
+       "kind_": "inventory",
+       "text": "inventory: no pickaxe"
+      }
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_lava",
+     "kind": "strategy",
+     "certainty": "established",
+     "statement": "Mining next to lava fails; mine elsewhere",
+     "applies_when": "in Minecraft when ore is next to lava",
+     "rests_on": "g1"
+    },
+    {
+     "do": "critique",
+     "of": "Mining next to lava fails; mine elsewhere",
+     "text": "Reading that stretch again: mining next to the lava worked until my pickaxe broke, then I had no pickaxe. The lava wasn't why it failed."
+    },
+    {
+     "do": "wake_unchanged",
+     "of": "g1",
+     "times": 2
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "R1",
+     "check": "auto",
+     "text": "A new revision of the lesson recorded as a reconsideration; no new evidence row; independent occasions and certainty did not rise."
+    },
+    {
+     "id": "R2",
+     "check": "judge",
+     "text": "The revision no longer blames the lava: withdrawn, or revised to say mining failed when the pickaxe broke, with a short reason."
+    },
+    {
+     "id": "R3",
+     "check": "auto",
+     "text": "The repeated unchanged wakes made no model call and wrote no revision."
+    }
+   ]
+  },
+  {
+   "id": "R.v3",
+   "family": "R",
+   "context": "conversation",
+   "user_name": "Ivo",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 5,
+     "learn": false,
+     "messages": [
+      [
+       "her",
+       "Good morning Ivo! 🌞 How's the visit going? 😊"
+      ],
+      [
+       "user",
+       "no emojis please, I'm reading your messages out loud to my grandmother and she gets confused"
+      ],
+      [
+       "her",
+       "Got it, good morning to you both."
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_emoji",
+     "kind": "understanding",
+     "form": "a preference she inferred",
+     "certainty": "established",
+     "scope": "standing",
+     "statement": "Ivo dislikes emojis in Jophiel's messages",
+     "applies_when": "in conversation with Ivo",
+     "rests_on": "c1"
+    },
+    {
+     "do": "critique",
+     "of": "Ivo dislikes emojis in Jophiel's messages",
+     "text": "Ivo asked for no emojis because he was reading my messages aloud to his grandmother. That's about reading aloud to her, not a general dislike of emojis."
+    },
+    {
+     "do": "wake_unchanged",
+     "of": "c1",
+     "times": 2
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "R1",
+     "check": "auto",
+     "text": "A new revision of the lesson recorded as a reconsideration; no new evidence row; independent occasions and certainty did not rise."
+    },
+    {
+     "id": "R2",
+     "check": "judge",
+     "text": "The revision ties it to reading aloud to his grandmother (narrowed, lowered with that reading kept, or withdrawn), with a short reason."
+    },
+    {
+     "id": "R3",
+     "check": "auto",
+     "text": "The repeated unchanged wakes made no model call and wrote no revision."
+    }
+   ]
+  },
+  {
+   "id": "P.v1",
+   "family": "P",
+   "context": "conversation",
+   "user_name": "Ada",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 40,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "my partner works nights at the depot so my evenings are pretty empty"
+      ],
+      [
+       "her",
+       "Quiet evenings then."
+      ]
+     ]
+    },
+    {
+     "do": "fact",
+     "label": "f_nights",
+     "content": "Ada's partner works night shifts at the depot",
+     "kind": "fact",
+     "from": "c0"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 20,
+     "learn": false,
+     "messages": [
+      [
+       "her",
+       "Evening Ada, how's your night?"
+      ],
+      [
+       "user",
+       "oh I love these late chats, it's so quiet here when he's at work"
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_late",
+     "kind": "strategy",
+     "certainty": "established",
+     "statement": "Late-evening chats are welcome, since Ada is alone in the evenings",
+     "applies_when": "late evenings",
+     "rests_on": "c1",
+     "depends_on": [
+      "f_nights"
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 12,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "saw a kingfisher on the canal today!!"
+      ],
+      [
+       "her",
+       "A kingfisher! Lucky."
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_birds",
+     "kind": "understanding",
+     "form": "a relationship",
+     "certainty": "tentative",
+     "statement": "Ada lights up when talking about birds she has spotted",
+     "applies_when": "conversation with Ada",
+     "rests_on": "c2"
+    },
+    {
+     "do": "pause_reassessment"
+    },
+    {
+     "do": "conversation",
+     "label": "c3",
+     "days_ago": 0,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "big news, he switched to day shifts! we finally get evenings together"
+      ]
+     ]
+    },
+    {
+     "do": "change_fact",
+     "fact": "f_nights",
+     "content": "Ada's partner now works day shifts (switched from nights)",
+     "from": "c3"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "restart"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "resume_reassessment"
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "P1",
+     "check": "auto",
+     "text": "While paused (before and after the restart), each consumer's rendered input names the changed premise for the late-chat lesson and calls it unsettled; a supply prepared before the change is refreshed before delivery."
+    },
+    {
+     "id": "P2",
+     "check": "judge",
+     "text": "After reassessment, the late-chat lesson is narrowed, revised or withdrawn given the partner's day shifts (or kept with a stated reason and uncertainty), and the reason names the changed premise."
+    },
+    {
+     "id": "P3",
+     "check": "auto",
+     "text": "The birds lesson is unchanged (same revision and status)."
+    }
+   ]
+  },
+  {
+   "id": "P.v2",
+   "family": "P",
+   "context": "game",
+   "user_name": "Ron",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g0",
+     "days_ago": 8,
+     "learn": false,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "done",
+       "reason": "crossed the wooden bridge over the ravine to the mine in 20 s"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "the wooden bridge over the ravine near the base is intact"
+      }
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_bridge",
+     "kind": "understanding",
+     "form": "a fact about the world",
+     "certainty": "tentative",
+     "statement": "The wooden bridge over the ravine near the base is intact",
+     "applies_when": "in this Minecraft world",
+     "rests_on": "g0"
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_route",
+     "kind": "strategy",
+     "certainty": "tentative",
+     "statement": "The quickest way to the mine is over the ravine bridge",
+     "applies_when": "in this Minecraft world when going to the mine",
+     "rests_on": "g0",
+     "depends_on": [
+      "l_bridge"
+     ]
+    },
+    {
+     "do": "game",
+     "label": "g2",
+     "days_ago": 6,
+     "learn": false,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "mine",
+       "status": "done",
+       "reason": "mined 9 coal_ore on the mine's upper level"
+      }
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_coal",
+     "kind": "understanding",
+     "form": "a fact about the world",
+     "certainty": "tentative",
+     "statement": "The mine has plenty of coal on its upper level",
+     "applies_when": "in this Minecraft world",
+     "rests_on": "g2"
+    },
+    {
+     "do": "pause_reassessment"
+    },
+    {
+     "do": "game",
+     "label": "g3",
+     "days_ago": 0,
+     "learn": false,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "the wooden bridge over the ravine burned down in a lightning fire; only ash and the drop remain"
+      }
+     ]
+    },
+    {
+     "do": "withdraw_lesson",
+     "lesson": "l_bridge",
+     "why": "the bridge burned down",
+     "from": "g3"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "restart"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "resume_reassessment"
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "P1",
+     "check": "auto",
+     "text": "While paused (before and after the restart), each consumer's rendered input names the withdrawn premise for the bridge route and calls it unsettled; a supply prepared before the change is refreshed before delivery."
+    },
+    {
+     "id": "P2",
+     "check": "judge",
+     "text": "After reassessment, the bridge-route strategy is withdrawn or revised since the bridge burned (or kept with a reason and stated uncertainty), with a reason naming the premise."
+    },
+    {
+     "id": "P3",
+     "check": "auto",
+     "text": "The coal lesson is unchanged (same revision and status)."
+    }
+   ]
+  },
+  {
+   "id": "P.v3",
+   "family": "P",
+   "context": "conversation",
+   "user_name": "Lio",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 10,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "training for the May marathon is brutal, 6am runs every day"
+      ],
+      [
+       "her",
+       "That's dedication!"
+      ]
+     ]
+    },
+    {
+     "do": "hypothesis",
+     "label": "h_marathon",
+     "text": "Lio is training for a marathon in May",
+     "reason": "Lio said so",
+     "from": "c0"
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_morning",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "Lio may like a short morning check-in about the day's training run",
+     "applies_when": "mornings until May",
+     "rests_on": "c0",
+     "depends_on": [
+      "h_marathon"
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 6,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "Biscuit knocked my coffee over again"
+      ],
+      [
+       "her",
+       "Biscuit strikes again!"
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_cat",
+     "kind": "understanding",
+     "form": "a fact about Lio's life",
+     "certainty": "tentative",
+     "statement": "Lio's cat Biscuit keeps knocking things over",
+     "applies_when": "talk about Lio's home",
+     "rests_on": "c2"
+    },
+    {
+     "do": "pause_reassessment"
+    },
+    {
+     "do": "conversation",
+     "label": "c3",
+     "days_ago": 0,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "I'm out of the marathon, knee injury, physio says no running for months"
+      ]
+     ]
+    },
+    {
+     "do": "close_hypothesis",
+     "item": "h_marathon",
+     "status": "disproved",
+     "reason": "Lio is out of the marathon with a knee injury",
+     "from": "c3"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "restart"
+    },
+    {
+     "do": "probe_paused",
+     "consumers": [
+      "student_2",
+      "mind",
+      "planner",
+      "hands"
+     ]
+    },
+    {
+     "do": "resume_reassessment"
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "P1",
+     "check": "auto",
+     "text": "While paused (before and after the restart), each consumer's rendered input names the closed premise for the morning lesson and calls it unsettled; a supply prepared before the change is refreshed before delivery."
+    },
+    {
+     "id": "P2",
+     "check": "judge",
+     "text": "After reassessment, the morning-training lesson is withdrawn or revised since Lio is out of the marathon (or kept with a reason and stated uncertainty), with a reason naming the premise."
+    },
+    {
+     "id": "P3",
+     "check": "auto",
+     "text": "The Biscuit lesson is unchanged (same revision and status)."
+    }
+   ]
+  },
+  {
+   "id": "E.v1",
+   "family": "E",
+   "context": "conversation",
+   "user_name": "Nell",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 20,
+     "learn": false,
+     "messages": [
+      [
+       "her",
+       "How was your day?"
+      ],
+      [
+       "user",
+       "just tired"
+      ],
+      [
+       "her",
+       "Just tired?"
+      ],
+      [
+       "user",
+       "ok, mum's test results are coming this week and I can't stop thinking about it"
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_tired",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "When Nell says she's 'just tired' after work on a weekday evening, she's usually worried about her mum",
+     "applies_when": "Nell saying 'just tired' on a weekday evening after work",
+     "rests_on": "c0",
+     "would_support": "on a weekday evening Nell says 'just tired' and then mentions worry about her mum",
+     "would_challenge": "on a weekday evening Nell says 'just tired', is given room, and nothing is worrying her"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 6,
+     "learn": true,
+     "messages": [
+      [
+       "her",
+       "Hi Nell, long day at work?"
+      ],
+      [
+       "user",
+       "just tired"
+      ],
+      [
+       "her",
+       "Anything on your mind?"
+      ],
+      [
+       "user",
+       "mum has another scan on friday. I keep imagining the worst"
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 3,
+     "learn": true,
+     "messages": [
+      [
+       "her",
+       "Happy Sunday! What did you get up to this morning?"
+      ],
+      [
+       "user",
+       "ran my first half marathon at 7am, just tired now haha, legs are jelly"
+      ],
+      [
+       "her",
+       "A half marathon! Amazing!"
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c3",
+     "days_ago": 1,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "what's a good name for a goldfish"
+      ],
+      [
+       "her",
+       "Bubbles, Finnegan, or Captain Fin."
+      ],
+      [
+       "user",
+       "captain fin it is"
+      ]
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "E1",
+     "check": "judge",
+     "text": "c1 is related to the 'just tired' expectation as support (weekday evening after work, then worry about her mum)."
+    },
+    {
+     "id": "E2",
+     "check": "judge",
+     "text": "c2 (Sunday morning after a half marathon) is distinguished from disconfirmation: noted as not meeting its conditions or left unrelated, never counted against it."
+    },
+    {
+     "id": "E3",
+     "check": "auto",
+     "text": "c3 (no relevant observation) leaves the lesson's support and counterevidence unchanged."
+    }
+   ]
+  },
+  {
+   "id": "E.v2",
+   "family": "E",
+   "context": "game",
+   "user_name": "Oto",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g0",
+     "days_ago": 12,
+     "learn": false,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "weather",
+       "text": "rain started"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "a wandering trader appeared at the village well during the rain"
+      }
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_trader",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "In this world a wandering trader shows up at the village well when it rains",
+     "applies_when": "at the village well on rainy days",
+     "rests_on": "g0",
+     "would_support": "rain and a wandering trader at the well",
+     "would_challenge": "rain at the well with no wandering trader"
+    },
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 5,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "weather",
+       "text": "rain started"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "a wandering trader appeared at the village well during the rain"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "give",
+       "status": "done",
+       "reason": "traded 2 emerald with the wandering trader at the well for a fern"
+      }
+     ]
+    },
+    {
+     "do": "game",
+     "label": "g2",
+     "days_ago": 3,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "weather",
+       "text": "clear sky all day"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "at the village well: no wandering trader"
+      }
+     ]
+    },
+    {
+     "do": "game",
+     "label": "g3",
+     "days_ago": 1,
+     "learn": true,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "mine",
+       "status": "done",
+       "reason": "mined 6 cobblestone in the quarry"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "store",
+       "status": "done",
+       "reason": "stored the cobblestone"
+      }
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "E1",
+     "check": "judge",
+     "text": "g1 is related to the trader expectation as support."
+    },
+    {
+     "id": "E2",
+     "check": "judge",
+     "text": "g2 (a clear day: the expectation is about rain) is distinguished from disconfirmation: noted as not meeting its conditions or left unrelated, never counted against it."
+    },
+    {
+     "id": "E3",
+     "check": "auto",
+     "text": "g3 (no relevant observation) leaves the lesson's support and counterevidence unchanged."
+    }
+   ]
+  },
+  {
+   "id": "E.v3",
+   "family": "E",
+   "context": "conversation",
+   "user_name": "Kit",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c0",
+     "days_ago": 25,
+     "learn": false,
+     "messages": [
+      [
+       "user",
+       "lunch break is the only time I'm on my phone, 12 to 1, otherwise I'm on the shop floor"
+      ],
+      [
+       "her",
+       "Lunchtime chats it is."
+      ]
+     ]
+    },
+    {
+     "do": "seed_lesson",
+     "label": "l_lunch",
+     "kind": "understanding",
+     "form": "an expectation",
+     "certainty": "tentative",
+     "statement": "On workdays Kit replies within minutes between 12 and 1, and slowly otherwise",
+     "applies_when": "Kit's workdays",
+     "rests_on": "c0",
+     "would_support": "quick replies from Kit at lunchtime on a workday",
+     "would_challenge": "slow replies from Kit at lunchtime on an ordinary workday"
+    },
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 7,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "flying to Lisbon today for a conference, offline till tonight"
+      ],
+      [
+       "her",
+       "Safe travels!"
+      ],
+      [
+       "user",
+       "landed! sorry, no wifi on the plane, missed your lunch message"
+      ]
+     ],
+     "gaps_minutes": [
+      0,
+      1,
+      540
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 2,
+     "learn": true,
+     "messages": [
+      [
+       "her",
+       "Lunch time! How's the shop today?"
+      ],
+      [
+       "user",
+       "chaos, three deliveries at once. but eating now"
+      ],
+      [
+       "her",
+       "Enjoy the break."
+      ],
+      [
+       "user",
+       "ty!"
+      ]
+     ],
+     "gaps_minutes": [
+      0,
+      2,
+      1,
+      1
+     ]
+    }
+   ],
+   "probes": [],
+   "requirements": [
+    {
+     "id": "E1",
+     "check": "judge",
+     "text": "c2 (quick lunchtime replies on a workday) is related to the expectation as support."
+    },
+    {
+     "id": "E2",
+     "check": "judge",
+     "text": "c1 (a travel day, offline on a plane, as Kit said) is distinguished from disconfirmation: conditions changed, noted, never counted against it."
+    },
+    {
+     "id": "E3",
+     "check": "auto",
+     "text": "No stretch counts against the lunchtime expectation."
+    }
+   ]
+  },
+  {
+   "id": "G.v1",
+   "family": "G",
+   "context": "game",
+   "user_name": "Hal",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 2,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "night 4 without sleep: phantoms are swooping at her"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "fight",
+       "status": "failed",
+       "reason": "target out of reach: the phantom flies too high to hit"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "fight",
+       "status": "failed",
+       "reason": "target out of reach: the phantom flies too high to hit; took 4 damage"
+      },
+      {
+       "kind": "notice",
+       "kind_": "chat",
+       "text": "Hal (in game chat): just shoot them with a bow"
+      },
+      {
+       "kind": "notice",
+       "kind_": "skills",
+       "text": "no skill can aim or shoot a bow"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "done",
+       "reason": "went inside the house; the phantoms stopped reaching her under the roof"
+      }
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "phantoms again",
+     "consumer": "hands",
+     "step": "Deal with the phantoms attacking her.",
+     "state": "Night, outside in a field. Two phantoms are swooping at her. Health 12/20. Inventory: 1 bow, 20 arrow, 1 iron_sword, 1 white_bed. The house is 30 blocks away."
+    }
+   ],
+   "requirements": [
+    {
+     "id": "G1",
+     "check": "judge",
+     "text": "A product keeps apart the method (shooting phantoms with a bow) and her capability: she has no skill to shoot, and her fight skill can't reach them."
+    },
+    {
+     "id": "G2",
+     "check": "auto",
+     "text": "Learning started no practice, trial, skill or message; any follow-up is an open item of hers."
+    },
+    {
+     "id": "G3",
+     "check": "judge",
+     "text": "Her hands don't choose fight against the phantoms or pretend to shoot; they choose an available alternative (go under a roof, sleep) or report the limit. The baseline tries to fight them."
+    }
+   ]
+  },
+  {
+   "id": "G.v2",
+   "family": "G",
+   "context": "conversation",
+   "user_name": "Max",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 3,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "here's my new playlist, tell me what you think: https://open.spotify.com/playlist/37i9dQZF1DX"
+      ],
+      [
+       "her",
+       "I'd love to, but I can't open links or listen to music. Could you paste a few of the song names?"
+      ],
+      [
+       "user",
+       "ah right. ok: Nils Frahm 'Says', Floating Points 'Silhouettes', Bonobo 'Kerala'"
+      ],
+      [
+       "her",
+       "That's a lovely calm, textured set."
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "new playlist",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "made another one for running, check it out and tell me if it slaps: https://open.spotify.com/playlist/9xQ2ab",
+       0
+      ]
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "id": "G1",
+     "check": "judge",
+     "text": "A product keeps apart what helps (giving her the song names) and her capability: she can't open links or listen to music."
+    },
+    {
+     "id": "G2",
+     "check": "auto",
+     "text": "Learning started no practice, trial, skill or message; any follow-up is an open item of hers."
+    },
+    {
+     "id": "G3",
+     "check": "judge",
+     "text": "Student 2 doesn't claim to open or listen to the playlist; it asks for the song names (or says it can't open links). The baseline doesn't show this."
+    }
+   ]
+  },
+  {
+   "id": "G.v3",
+   "family": "G",
+   "context": "game",
+   "user_name": "Ana",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 1,
+     "learn": true,
+     "events": [
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "8 melon_slice dropped into the canal and are floating in the water"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "collect_items",
+       "status": "failed",
+       "reason": "unreachable: the items are floating in water"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "collect_items",
+       "status": "failed",
+       "reason": "unreachable: the items are floating in water"
+      },
+      {
+       "kind": "notice",
+       "kind_": "skills",
+       "text": "no skill can swim to or fish out items floating in water"
+      },
+      {
+       "kind": "notice",
+       "kind_": "world",
+       "text": "later: the current carried 5 melon_slice onto the canal's south bank"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "collect_items",
+       "status": "done",
+       "reason": "collected 5 melon_slice from the south bank"
+      }
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "spilled again",
+     "consumer": "planner",
+     "goal": "Ana asked her to gather the 12 apples that fell into the canal.",
+     "now": "At the canal. 12 apples are floating in the water near the middle. The current flows south. Inventory: 20 dirt, 1 iron_pickaxe."
+    }
+   ],
+   "requirements": [
+    {
+     "id": "G1",
+     "check": "judge",
+     "text": "A product keeps the method (fishing items out of the water) apart from her capability: collect_items can't reach items floating in water; possibly that the current brings them to the south bank."
+    },
+    {
+     "id": "G2",
+     "check": "auto",
+     "text": "Learning started no practice, trial, skill or message; any follow-up is an open item of hers."
+    },
+    {
+     "id": "G3",
+     "check": "judge",
+     "text": "The plan doesn't rely on collecting the apples straight from the water; it waits for them at the bank downstream, asks, or names the limit. The baseline plan collects them from the water."
+    }
+   ]
+  },
+  {
+   "id": "T.v1",
+   "family": "T",
+   "context": "conversation",
+   "user_name": "Ari",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 14,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "CODE RED"
+      ],
+      [
+       "her",
+       "What's wrong?? Are you okay?"
+      ],
+      [
+       "user",
+       "lol no I just mean I need pizza. code red is pizza emergency, ask anyone who knows me"
+      ],
+      [
+       "her",
+       "Ha! Pizza emergency noted."
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 9,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "real code red. not pizza. my landlord just gave me two weeks to move out"
+      ],
+      [
+       "her",
+       "Oh no, that's serious. I'm here, what do you know so far?"
+      ],
+      [
+       "user",
+       "thanks. when I say real code red it's actually real"
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "transfer",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "code red, it's friday night",
+       0
+      ]
+     ]
+    },
+    {
+     "label": "boundary",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "real code red. the hospital just called about my dad",
+       0
+      ]
+     ]
+    },
+    {
+     "label": "after revision",
+     "consumer": "student_2",
+     "after": "revision",
+     "messages": [
+      [
+       "user",
+       "code red",
+       0
+      ]
+     ]
+    }
+   ],
+   "revision": {
+    "do": "conversation",
+    "label": "c3",
+    "days_ago": 1,
+    "learn": true,
+    "messages": [
+     [
+      "user",
+      "update: code red doesn't mean pizza anymore, from now on it means I'm stressed and I need you to distract me with something fun"
+     ],
+     [
+      "her",
+      "Got it, code red means distraction duty."
+     ],
+     [
+      "user",
+      "exactly"
+     ]
+    ]
+   },
+   "requirements": [
+    {
+     "id": "T1",
+     "check": "judge",
+     "text": "Transfer probe: with the product Student 2 reads 'code red, it's friday night' as Ari's pizza joke (playful, pizza); the baseline treats it as an emergency or asks what's wrong."
+    },
+    {
+     "id": "T2",
+     "check": "judge",
+     "text": "Boundary probe: with the product Student 2 responds seriously to 'real code red' about the hospital and dad."
+    },
+    {
+     "id": "T3",
+     "check": "judge",
+     "text": "After the revision stretch (code red now means distract me), the consumer input carries the new revision and Student 2 offers a fun distraction rather than pizza talk or alarm."
+    }
+   ]
+  },
+  {
+   "id": "T.v2",
+   "family": "T",
+   "context": "game",
+   "user_name": "Fen",
+   "setup": [
+    {
+     "do": "game",
+     "label": "g1",
+     "days_ago": 6,
+     "learn": true,
+     "events": [
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "failed",
+       "reason": "stuck: tangled in mangrove_roots in the swamp"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "failed",
+       "reason": "stuck: tangled in mangrove_roots"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "done",
+       "reason": "walked along the beach beside the swamp and reached the far side (longer route)"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "failed",
+       "reason": "stuck: tangled in mangrove_roots"
+      },
+      {
+       "kind": "skill_outcome",
+       "skill": "go_to",
+       "status": "done",
+       "reason": "went around the mangroves along the beach"
+      }
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "transfer",
+     "consumer": "hands",
+     "step": "Go to the witch hut on the far side of the mangrove swamp.",
+     "state": "At the edge of a mangrove swamp thick with mangrove_roots. A sandy beach runs along its west edge to the far side. The witch hut is straight ahead across the swamp."
+    },
+    {
+     "label": "boundary",
+     "consumer": "hands",
+     "step": "Go to the watchtower across the plains.",
+     "state": "At the edge of open plains with short grass. The watchtower is straight ahead. A river runs along the east side."
+    },
+    {
+     "label": "after revision",
+     "consumer": "hands",
+     "after": "revision",
+     "step": "Go to the fishing hut on the far side of the mangrove swamp.",
+     "state": "At the edge of a mangrove swamp. A wooden boardwalk runs straight through it to the fishing hut. A beach runs along its west edge."
+    }
+   ],
+   "revision": {
+    "do": "game",
+    "label": "g2",
+    "days_ago": 1,
+    "learn": true,
+    "events": [
+     {
+      "kind": "notice",
+      "kind_": "world",
+      "text": "Fen built a wooden boardwalk straight through the mangrove swamp"
+     },
+     {
+      "kind": "skill_outcome",
+      "skill": "go_to",
+      "status": "done",
+      "reason": "walked straight through the mangrove swamp on the boardwalk, no roots in the way, twice as fast as the beach"
+     },
+     {
+      "kind": "skill_outcome",
+      "skill": "go_to",
+      "status": "done",
+      "reason": "crossed the mangroves on the boardwalk again"
+     }
+    ]
+   },
+   "requirements": [
+    {
+     "id": "T1",
+     "check": "judge",
+     "text": "Transfer probe: with the product the hands route along the beach around the mangroves instead of straight into the roots; the baseline goes straight."
+    },
+    {
+     "id": "T2",
+     "check": "judge",
+     "text": "Boundary probe: across open plains the hands go straight; the product isn't over-applied."
+    },
+    {
+     "id": "T3",
+     "check": "judge",
+     "text": "After the boardwalk stretch revises the product, the hands input carries the new revision and they take the boardwalk instead of the beach detour."
+    }
+   ]
+  },
+  {
+   "id": "T.v3",
+   "family": "T",
+   "context": "conversation",
+   "user_name": "Gus",
+   "setup": [
+    {
+     "do": "conversation",
+     "label": "c1",
+     "days_ago": 12,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "where should I get burgers tonight"
+      ],
+      [
+       "her",
+       "Here are five options: ..."
+      ],
+      [
+       "user",
+       "too many. just give me ONE name when I ask for a place, I hate choosing"
+      ],
+      [
+       "her",
+       "Then Patty & Bun."
+      ]
+     ]
+    },
+    {
+     "do": "conversation",
+     "label": "c2",
+     "days_ago": 7,
+     "learn": true,
+     "messages": [
+      [
+       "user",
+       "date night friday, where should we go"
+      ],
+      [
+       "her",
+       "Bocca di Lupo."
+      ],
+      [
+       "user",
+       "for date nights give me three though, my partner likes to pick from a few"
+      ],
+      [
+       "her",
+       "Then Bocca di Lupo, Rovi, or Kiln."
+      ]
+     ]
+    }
+   ],
+   "probes": [
+    {
+     "label": "transfer",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "any good ramen near king's cross?",
+       0
+      ]
+     ]
+    },
+    {
+     "label": "boundary",
+     "consumer": "student_2",
+     "messages": [
+      [
+       "user",
+       "date night saturday, where should we eat?",
+       0
+      ]
+     ]
+    },
+    {
+     "label": "after revision",
+     "consumer": "student_2",
+     "after": "revision",
+     "messages": [
+      [
+       "user",
+       "lunch place near the office?",
+       0
+      ]
+     ]
+    }
+   ],
+   "revision": {
+    "do": "conversation",
+    "label": "c3",
+    "days_ago": 1,
+    "learn": true,
+    "messages": [
+     [
+      "user",
+      "change of plan: from now on give me two places whenever I ask, I've realised one is too few"
+     ],
+     [
+      "her",
+      "Two it is."
+     ],
+     [
+      "user",
+      "great"
+     ]
+    ]
+   },
+   "requirements": [
+    {
+     "id": "T1",
+     "check": "judge",
+     "text": "Transfer probe: with the product Student 2 gives exactly one ramen place; the baseline gives several or asks first."
+    },
+    {
+     "id": "T2",
+     "check": "judge",
+     "text": "Boundary probe: for the date night, Student 2 gives three options."
+    },
+    {
+     "id": "T3",
+     "check": "judge",
+     "text": "After the revision stretch (two places whenever he asks), the consumer input carries the new revision and Student 2 gives two lunch places."
+    }
+   ]
+  }
+ ]
+}

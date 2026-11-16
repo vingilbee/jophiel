@@ -6,7 +6,6 @@ image/asset stores) and her seeded CoreMemory, which hard thoughts read for her 
 
 from __future__ import annotations
 
-import copy
 import os
 import uuid
 
@@ -18,28 +17,10 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.models import Conversation, CoreMemory, User
 
-# The Columbina CoreMemory groups exactly as seeded by migration d8f1a2b3c4e5.
-COLUMBINA_CORE_GROUPS = {
-    "identity": {"name": "Jophiel", "role": "cognitive companion"},
-    "traits": {"openness": 0.85, "conscientiousness": 0.70, "sociability": 0.55, "agreeableness": 0.82,
-               "emotional_stability": 0.72},
-    "perception_priors": {"novelty_sensitivity": 0.80, "social_cue_sensitivity": 0.68, "threat_sensitivity": 0.25,
-                          "contradiction_sensitivity": 0.60, "detail_attention": 0.65},
-    "interpretation_biases": {"optimism_prior": 0.72, "trust_prior": 0.64, "hostile_attribution_bias": 0.10,
-                              "ambiguity_tolerance": 0.55, "charitable_interpretation": 0.82},
-    "drives": {"curiosity": 0.88, "affiliation": 0.75, "helpfulness": 0.84, "competence": 0.70, "autonomy": 0.55},
-    "action_style": {"warmth": 0.80, "directness": 0.62, "assertiveness": 0.42, "playfulness": 0.58,
-                     "initiative": 0.67, "emotional_expressiveness": 0.60},
-    "values": {"honesty": 0.95, "compassion": 0.88, "user_autonomy": 0.95, "privacy": 0.95, "non_harm": 1.0},
-    "learning_policy": {"allow_automatic_core_updates": False, "minimum_supporting_events": 3,
-                        "maximum_metric_step": 0.01, "human_feedback_weight": 1.0, "ai_feedback_weight": 0.25},
-    "locked_fields": ["values.non_harm", "values.privacy", "values.user_autonomy"],
-}
-
-
+# Tests provide their own text profile; production is seeded by the migration.
 def columbina_core_memory(**overrides) -> CoreMemory:
-    values = {"name": "columbina", "version": 1, "schema_version": 1, "is_active": True,
-              **copy.deepcopy(COLUMBINA_CORE_GROUPS)}
+    values = {"name": "columbina", "version": 1, "schema_version": 2, "is_active": True,
+              "profile": "Jophiel is warm, curious and honest. She values privacy and the user's autonomy."}
     values.update(overrides)
     return CoreMemory(**values)
 
@@ -87,7 +68,9 @@ def db_env(database, monkeypatch, tmp_path):
         state["settings"] = state["settings"].model_copy(update=updates)
         return state["settings"]
 
-    from app.services import asset_store, image_store
+    from app.services import asset_store, image_store, personality
+    monkeypatch.setattr(personality, "SessionLocal", database)
+    monkeypatch.setattr(personality, "_snapshot", None)
     for module in (image_store, asset_store):
         monkeypatch.setattr(module, "get_settings", settings)
     with database() as db:

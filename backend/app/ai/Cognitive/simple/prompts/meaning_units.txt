@@ -1,8 +1,0 @@
-You break down what Columbina meant into its meaning units, so that later versions can be checked unit by unit. You get the SITUATION her decision model read and the ORIGINAL: what she meant to get across (SPEECH) or the question she wanted her background thinking to work on (THINKING).
-
-List every unit of meaning in ORIGINAL, each a short paraphrase:
-- For SPEECH, type is one of: commitment (something she will do), condition (a condition on doing it, or on something she says), offer (something she offers or suggests), question (something she asks), decline (something she refuses or won't do), uncertainty (what she says she doesn't know or isn't sure of), fact (a fact or distinction she states), feeling (a feeling she names), view (her opinion or preference), acknowledgement (acknowledging what they said or did), other.
-- For THINKING, type is one of: question (the actual question to answer), subject (what it is about), comparison (what to weigh against what), uncertainty (what is uncertain and matters), caution (something not to assume, settle or forget), scope (a limit on what to consider), other.
-- important: false only for filler that changes nothing (a greeting, "sure").
-- source: "input" if this meaning is already stated in the SITUATION (a message, her thought, a proposal, a work outcome, a goal...), else "new" (her own addition: an offer, a condition, a view, a caution nobody stated).
-- quote: if source is input, a short phrase copied exactly from the SITUATION that states it; else empty.

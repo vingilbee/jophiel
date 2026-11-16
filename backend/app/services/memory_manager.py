@@ -456,10 +456,12 @@ def _set_status(db: Session, entry: WorkingItem, status: str, reason: str, now: 
 
 def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: str, reason: str,
             source: Source | None = None, expected_revision: int | None = None,
-            background: bool = False) -> tuple[WorkingItem, list[WorkingItem]]:
+            background: bool = False, own_word: bool = False) -> tuple[WorkingItem, list[WorkingItem]]:
     """Change an item's status. Returns it and its still-open sub-goals (closing a goal never closes them:
     the caller decides). A closed item stays closed; completing or fulfilling needs a source.
-    ``background``: a turn the user didn't start may only change her own intentions."""
+    ``background``: a game-event turn the user didn't start may only change her own intentions.
+    ``own_word``: her mind woke without a user message and kept a promise of her own in that evaluation (said
+    what she'd promised to say): her own promise may be marked fulfilled without a message to point at."""
     entry = item(db, user_id, key)
     # Lock order: environment -> session -> working item (spec 4.6).
     sessions = _linked_sessions(db, user_id, entry.id) if entry.kind == "goal" else []
@@ -475,7 +477,9 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
         raise MemoryError("invalid", f"a {entry.kind} can be: {', '.join(opened + closed)}")
     if entry.closed_at is not None:
         raise MemoryError("closed", f'that {entry.kind} is already {entry.status}')
-    if status in ("completed", "fulfilled", "happened") and source is None:
+    kept_herself = (own_word and status == "fulfilled" and entry.kind == "commitment"
+                    and entry.owner == "columbina")
+    if status in ("completed", "fulfilled", "happened") and source is None and not kept_herself:
         raise MemoryError("no_evidence", "say what shows it's done (only when the user said so or it's clearly done)")
     if status in ("supported", "disproved") and source is None:
         raise MemoryError("no_evidence", "a suspicion is only shown right or wrong by what the user said or what happened")
@@ -501,6 +505,19 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
                                                          WorkingItem.closed_at.is_(None))))
     _log({"op": "resolve", "user": str(user_id), "item": str(entry.id), "status": status})
     return entry, children
+
+
+def reopen_undelivered(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str) -> WorkingItem | None:
+    """A promise she marked fulfilled in an evaluation whose words never reached them (cancelled, failed): what
+    she meant to do didn't happen, so it is open again, with why. Returns it, or None when it wasn't closed as
+    fulfilled (nothing to undo)."""
+    entry = item(db, user_id, item_id, lock=True)
+    if entry.kind != "commitment" or entry.status != "fulfilled":
+        return None
+    _set_status(db, entry, WORKING_ITEM_STATUSES[entry.kind][0][0],
+                f"marked fulfilled, but what you said wasn't delivered ({delivery})", _now())
+    _log({"op": "reopen_undelivered", "user": str(user_id), "item": str(entry.id), "delivery": delivery})
+    return entry
 
 
 def link(db: Session, user_id: uuid.UUID, *, role: str, source: Source, item_id: uuid.UUID | None = None,
@@ -683,6 +700,10 @@ def on_plan_set(db: Session, session: DesktopSession, *, goal_text: str, source:
     elif goal.status == "suspended" and source in USER_PLAN_SOURCES:
         _set_status(db, goal, "active", "the user set a plan for it", _now())
     _link_session(session, goal)
+    if session.plan is not None:
+        # The goal this plan was made for. ``goal_id`` follows the session to a newer goal; this stays, so a
+        # revision can tell an old goal's plan (and its rules) from the current one's (seen live 2026-11-05).
+        session.plan = {**session.plan, "made_for_goal": str(goal.id)}  # reassign: JSONB doesn't track in place
     if source in USER_PLAN_SOURCES:  # her own revisions in the background don't move her attention
         focus(db, user_id, context.id)
     return goal

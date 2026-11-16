@@ -124,7 +124,7 @@ def _param_schema(rule: dict) -> dict:
     return schema
 
 
-def skill_schema(manifest: list[dict]) -> dict:
+def skill_schema(manifest: list[dict], lesson_refs: list[str] | None = None) -> dict:
     """Strict JSON schema: a note, the step status and id, and one action
     (a skill from the manifest with its parameters, or a wait), or none."""
     actions = []
@@ -150,7 +150,7 @@ def skill_schema(manifest: list[dict]) -> dict:
         "required": ["skill", "params"],
         "additionalProperties": False,
     })
-    return {
+    schema = {
         "type": "object",
         "properties": {
             "note": {"type": "string", "description": "a few words on what you're doing and why"},
@@ -161,6 +161,12 @@ def skill_schema(manifest: list[dict]) -> dict:
         "required": ["note", "status", "step_id", "action"],
         "additionalProperties": False,
     }
+
+    if lesson_refs:
+        from app.ai.learning import lessons as L
+        schema["properties"]["lessons_weighed"] = L.weighed_schema(lesson_refs)
+        schema["required"].append("lessons_weighed")
+    return schema
 
 
 def _skill_line(skill: dict) -> str:
@@ -173,23 +179,10 @@ def _skill_line(skill: dict) -> str:
 
 
 def lessons_text(lessons: list[dict]) -> str:
-    """Lessons from earlier sessions (game learning), confirmed ones first: how
-    skills behave, then planning lessons as background (Jophiel plans with
-    those; the ones she wants kept arrive as the plan's rules)."""
-    def line(lesson: dict) -> str:
-        return (f"- When {lesson['situation']}: {lesson['advice']}"
-                + (" (tentative: seen once)" if lesson.get("status") == "trial" else ""))
-
-    skill = [line(lesson) for lesson in lessons if lesson.get("level", "skill") == "skill"]
-    plan = [line(lesson) for lesson in lessons if lesson.get("level") == "plan"]
-    text = ""
-    if skill:
-        text += ("\n\nWhat you learned in earlier sessions (follow it unless this situation is clearly different):\n"
-                 + "\n".join(skill))
-    if plan:
-        text += ("\n\nPlanning lessons Jophiel learned (she plans with these; keep them in mind):\n"
-                 + "\n".join(plan))
-    return text
+    from app.ai.learning import lessons as L
+    views = [L.LessonView.from_dict(v) for v in lessons]
+    lines = L.decision_lines(views)
+    return "\n\n" + "\n".join(lines) + "\n" + L.GUIDE if lines else ""
 
 
 def system_prompt(manifest: list[dict], game: str = "Minecraft", lessons: list[dict] | None = None) -> str:
@@ -245,9 +238,26 @@ way", "that direction", "go this way" from the user means the way THEY face (the
 (your <side>)"): walk your way on that side (go_to its end spot, or a spot a few blocks along it for "a few \
 blocks"). "The other way" is the opposite side of where you were going. When they point at a spot ("go there", \
 "stand here"), use go_to looking:<name>. "I'll follow you" / "stop following me" means lead: don't follow_player.
-- A cave or tunnel: go_to an Openings spot, then walk its passages (underground, your Ways and "Where it goes \
-on" are the passages: each says which way the open space leads on and whether it goes down; pick one you \
-haven't walked). For a search on the surface, use go_to toward a reachable spot from Ways, then reassess.
+- "In view" is what your eyes see now, forward and far (100° wide, up to 128 m), wherever you stand: openings \
+(cave or tunnel mouths, doorways), passages where the space you're in goes on, possible structures, water and \
+lava, each with an id (L3) that stays the same as you turn away and come back. "Remembered places" were seen \
+before and aren't in view now. Seeing a place isn't a way there: "along the straight line to it: a drop of \
+14 m" is a ravine or cliff in between, and a "route to L3" line says what a route check found.
+- To go to something you see or remember, go_to its id (target "L3"): it picks a spot to stand at it that a \
+route reaches, or goes as close as walking allows and says what's in the way. Take coordinates only from your \
+state (a Ways end spot, a landmark's position); never make up coordinates toward something you can't see: \
+look_around first, or walk a Ways direction and look again.
+- When what you need isn't in view (a cave, trees, a building), look_around (all round, or toward a side or \
+direction) before walking off; after getting somewhere new, look again.
+- A go_to that fails says why; act on it. "no route ... under go_to's rules" means walking can't get there \
+from here: don't send that go_to again; take another landmark or spot on this side, look_around toward it for \
+a way round, or use dig="yes". "the route search used its time" is not proof there's none: go part of the way \
+(a nearer landmark or Ways spot), then try again. "no place to stand" means the spot was inside a block or in \
+the air: pick a real one. "beyond the loaded world": what's ahead was unknown; look at your state again.
+- A cave or tunnel: go_to its opening's id (or an Openings spot), then walk its passages (underground, your \
+"In view" passages, Ways and "Where it goes on" say which way the open space leads on and whether it goes \
+down; pick one you haven't walked). For a search on the surface, go_to a reachable spot or landmark, then \
+reassess.
 - "Land", "Highest ground (peak)", "Way out" and "Surface" are the bigger picture: where the land rises and \
 falls, the highest ground near and how steep the way up is, and underground the way to the sky. "Climb the \
 mountain" / "go to the top": go_to target "peak"; steps higher than 1 block need dig="yes" (it digs steps). \
@@ -378,6 +388,7 @@ class SkillDriverDeps:
     # Game learning: (session, kind, payload) appends an experience; lessons(session) loads her lessons.
     experience: Callable[[uuid.UUID, str, dict], None] | None = None
     lessons: Callable[[uuid.UUID], list[dict]] | None = None
+    lesson_use: Callable | None = None
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
     # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
@@ -504,6 +515,10 @@ class SkillDriverRun:
                          "why": why})
             self._save()
             return True
+        # Refresh between decisions so a newly assessed experience can inform this run.
+        supplied = self._load_lessons()
+        self._system = system_prompt(self.manifest, lessons=supplied)
+        self._schema = skill_schema(self.manifest, [v["ref"] for v in supplied])
         messages = deps.messages(self.session_id) if deps.messages else []
         text = self.prompt_text(view, current, state, messages)
         asked_at = deps.now()
@@ -959,6 +974,12 @@ class SkillDriverRun:
         """Her hands' decision as asked (system prompt, the step's text, the schema, the messages she was given)
         and as answered (her status for the step is her own claim; the run's result is recorded apart)."""
         model = self.deps.model
+        if self.deps.lesson_use:
+            try:
+                self.deps.lesson_use(self.session_id, attempt_id, getattr(self, "_supplied_lessons", []),
+                                     reply.output if reply else {}, status)
+            except Exception as exc:
+                self.deps.metric({"session": str(self.session_id), "event": "lesson_use_error", "error": str(exc)[:200]})
         self._capture(
             "attempt", attempt_id=attempt_id, model=getattr(model, "model", None) or type(model).__name__,
             input={"system": None, "schema": None, "text": text, "images": 0,
@@ -1022,10 +1043,12 @@ class SkillDriverRun:
             return []
 
     def _load_lessons(self) -> list[dict]:
+        self._supplied_lessons, self._lesson_refs = [], []
         if self.deps.lessons is None:
             return []
         try:
             lessons = self.deps.lessons(self.session_id)
+            self._supplied_lessons = lessons
             self._lesson_refs = [{"ref": f"lesson:{lesson['id']}", "status": lesson.get("status"),
                                   "revision": lesson.get("revision")} for lesson in lessons if lesson.get("id")]
             return lessons

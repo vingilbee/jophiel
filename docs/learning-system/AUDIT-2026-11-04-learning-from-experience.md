@@ -1,5 +1,7 @@
 # Audit: can she learn from experience? Gap map for steps 2–4
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](../MIND_ARCHITECTURE.md).
+
 Status: audit, 2026-11-04. Read from the code, not the step docs, and checked against the game session of
 2026-11-05 00:10–01:04 UTC ("make an iron armor set", the user as examiner, memory reset before it). Nothing here is
 authorized to build. [Plan index](README.md).

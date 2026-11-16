@@ -4,8 +4,11 @@ Status: v1 being built on `feature/minecraft-awareness` (2026-10-14). Games firs
 the same design is meant to grow into an always-on mind outside games.
 
 Update (2026-10-19): the mind's runtime is now general, with Minecraft as one source and body
-behind `app/ai/mind/contracts.py` (`services/mind_minecraft.py`) and conversation as a second
-source in shadow. See `docs/COLUMBINA_INNER_STATE_PLAN.md`. The behaviour described here is unchanged.
+behind `app/ai/mind/contracts.py` (`services/mind_minecraft.py`). The behaviour described here is unchanged.
+
+Update (2026-11-13): her mind now also decides every turn and wake (one evaluation of the agent loop per message,
+finished thought, proposal or reconsideration); conversations are no longer a background source, and the
+mouth is delivery. See [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
 
 ## Why
 

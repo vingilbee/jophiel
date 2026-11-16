@@ -1,6 +1,6 @@
 """Signals between her parts: one small record each time a part hands work to another (the System page's pulses).
 
-``emit(user_id, "cognition", "mouth", "decision")`` appends ``{from, to, kind, ref, at}`` to that user's Redis
+``emit(user_id, "mind", "mouth", "reply")`` appends ``{from, to, kind, ref, at}`` to that user's Redis
 stream (``system:signals:<user>``, the last ``KEEP`` kept), so the owner's page can draw a pulse along the wire
 and replay what happened while it was closed. Signals carry ids and part names only, never text. They are a
 picture of the system, not a record anything reads back: no other code depends on them.
@@ -28,10 +28,10 @@ REPEAT_SECONDS = 1.5
 BACKOFF_SECONDS = 10.0
 
 WIRES = frozenset({
-    ("memory", "cognition"), ("cognition", "mouth"), ("cognition", "mind"), ("mind", "mouth"), ("mind", "memory"),
+    ("mind", "mouth"), ("mind", "memory"), ("learning", "mind"),
     ("mind", "hands"), ("mouth", "memory"), ("mouth", "observation"), ("hands", "observation"),
-    ("observation", "memory"), ("observation", "learning"), ("hands", "learning"), ("learning", "cognition"),
-    ("learning", "hands"),
+    ("observation", "memory"), ("observation", "learning"), ("hands", "learning"), ("learning", "memory"),
+    ("memory", "hands"), ("memory", "mind"),
 })
 
 _local = threading.local()

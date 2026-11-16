@@ -1,5 +1,7 @@
 # Capture and ownership
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](../MIND_ARCHITECTURE.md).
+
 Status: design decisions accepted 2026-11-01; implementation requested and built 2026-11-01 (uncommitted, branch `feature/learning-01-capture-ownership`): see [Step 1 implementation](01-implementation.md) for the schema, settings and what isn't covered. [Plan index](README.md).
 
 ## Outcome

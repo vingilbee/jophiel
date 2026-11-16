@@ -7,6 +7,7 @@ helpers to load history before streaming and to persist each turn after.
 """
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import case, exists, func, or_, select, update
 from sqlalchemy.orm import Session, aliased
@@ -18,8 +19,10 @@ import secrets
 import redis
 from app.core.config import get_settings
 
-# A plain history turn the AI layer understands: {"role": ..., "content": ...}
-ChatTurn = dict[str, str]
+# A history turn the AI layer understands: {"role": ..., "content": ...}, and with ``records``: "marker" (the app's
+# own line about when it was said, shown to the model as an app record) or role "record" (an evaluation of hers
+# that produced no message). Metadata never goes inside the user's or her text.
+ChatTurn = dict[str, Any]
 
 # Longest title we derive from a conversation's first user message.
 _TITLE_MAX_LEN = 60
@@ -175,13 +178,26 @@ def get_history(
     db: Session, *, conversation: Conversation,
     up_to_message_id: uuid.UUID | None = None,
     up_to_job_id: uuid.UUID | None = None,
+    records: bool = False,
+    zone: str | None = None,
+    current_message_id: uuid.UUID | None = None,
 ) -> list[ChatTurn]:
-    """Return the conversation's messages, oldest first, as role/content dicts.
+    """Return the conversation's messages, oldest first, one turn per stored message.
 
     Attachments are folded into the text as a trailing marker. The AI layer
     takes plain role/content turns and we want to keep it that way, but an
     image id has to survive into later turns — otherwise "what about the photo
     I sent earlier?" has nothing to point at.
+
+    Messages are never merged: two messages in a row from the user stay two
+    turns, so an instruction scoped to one message can't bleed into the next.
+
+    ``records`` (an evaluation of her mind): each message carries a ``marker``
+    (when it was said, in ``zone``; the one ``current_message_id`` names is
+    marked CURRENT), and evaluations of hers that produced no message (silence,
+    nothing written, failed or cancelled before any words) appear in place as
+    ``record`` turns. Both are the app's own lines, never the user's text and
+    never words she said.
     """
     limit = max(2, get_settings().short_term_memory_messages)
     # Fetch newest-first so Postgres can apply the limit, then restore natural
@@ -214,8 +230,11 @@ def get_history(
             stmt = stmt.where(ChatMessage.created_at <= boundary.created_at)
     if job_time is None:
         stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit)
+    rows = list(reversed(list(db.scalars(stmt))))
     history: list[ChatTurn] = []
-    for message in reversed(list(db.scalars(stmt))):
+    kept: list[tuple[datetime, ChatTurn]] = []
+    now = datetime.now(timezone.utc)
+    for message in rows:
         # Durable cancellation metadata is not useful model context.
         if message.role == "assistant" and message.status == "cancelled" and not message.content:
             continue
@@ -229,20 +248,95 @@ def get_history(
         if message.asset_ids:
             attached = ", ".join(message.asset_ids)
             content = f"{content}\n\n[Attached Blender asset ids: {attached}]"
+        turn: ChatTurn = {"role": message.role, "content": content}
+        if records:
+            turn["marker"] = _marker(message, zone, now, current=message.id == current_message_id)
+        history.append(turn)
+        kept.append((_aware(message.created_at), turn, message.id))
 
-        # The agent can speak unprompted (see services/salience.py), producing
-        # adjacent assistant messages. Merge them into one coherent history
-        # turn rather than teaching every model caller about that edge case.
-        if history and history[-1]["role"] == message.role:
-            history[-1]["content"] += f"\n\n{content}"
-            continue
-        history.append({"role": message.role, "content": content})
-
-    # A history that opens with an assistant turn is also rejected. Only
+    if records and kept:
+        history = _with_outcomes(db, conversation.id, kept, zone, now)
+    # A history that opens with anything but a user turn is also rejected. Only
     # possible if the very first thing in a conversation was a nudge.
-    while history and history[0]["role"] == "assistant":
+    while history and history[0]["role"] != "user":
         history.pop(0)
     return history
+
+
+_RECORD = "[App record, not part of any message]"
+# What an evaluation of hers that left no message did, as the app recorded it.
+_OUTCOME_WORDS = {"silent": "you chose silence; no words were delivered",
+                  "no_words": "you wrote nothing; no words were delivered",
+                  "cancelled": "it was cancelled before any words were delivered",
+                  "failed": "it failed before any words were delivered"}
+_WOKEN_BY = {"user_message": "their message above", "due": "something you had scheduled coming due",
+             "work_result": "thinking you started ending", "thought": "a thought of your own",
+             "proposal": "a proposal from another part of you", "conflict": "memory noticing a disagreement",
+             "finding": "a security finding"}
+MAX_OUTCOME_RECORDS = 12
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _clock(value: datetime, zone: str | None, now: datetime) -> str:
+    from app.ai.mind import when as W
+
+    same_day = W.describe(value, zone)[:10] == W.describe(now, zone)[:10]
+    return W.describe(value, zone, date=not same_day)
+
+
+def _marker(message: ChatMessage, zone: str | None, now: datetime, *, current: bool) -> str:
+    at = _clock(_aware(message.created_at), zone, now)
+    turn = f" (turn {str(message.turn_id)[:8]})" if message.turn_id else ""
+    if message.role == "user":
+        what = ("CURRENT user message: the one this evaluation answers" if current else "user message")
+    else:
+        what = {"partial": "your reply, stopped part way", "failed": "your reply, which failed",
+                "cancelled": "your reply, stopped"}.get(message.status, "your reply")
+        if message.heard_chars is not None:
+            what += "; they heard only up to where it was cut off"
+    return f"{_RECORD} {at}: {what}{turn}."
+
+
+def _with_outcomes(db: Session, conversation_id: uuid.UUID, kept: list[tuple[datetime, ChatTurn, uuid.UUID]],
+                   zone: str | None, now: datetime) -> list[ChatTurn]:
+    """Evaluations of hers in this stretch that left no message, each in place after what preceded it.
+
+    An evaluation answering a message is placed after that message by its id, not by comparing times: a
+    message's time comes from the database's clock and an evaluation's from the worker's, which can disagree
+    by more than the gap between them. Only evaluations no message here triggered (a wake) are placed by time."""
+    from app.db.models import MindEvaluation
+
+    since = kept[0][0]
+    index = {message_id: i for i, (_, _, message_id) in enumerate(kept)}
+    rows = list(db.scalars(select(MindEvaluation).where(
+        MindEvaluation.conversation_id == conversation_id, MindEvaluation.assistant_message_id.is_(None),
+        or_(MindEvaluation.finished_at >= since, MindEvaluation.trigger_message_id.in_(list(index))),
+        MindEvaluation.outcome.in_(tuple(_OUTCOME_WORDS)))
+        .order_by(MindEvaluation.finished_at.desc()).limit(MAX_OUTCOME_RECORDS)))
+    after: dict[int, list] = {}
+    for row in sorted(rows, key=lambda r: r.finished_at):
+        finished = _aware(row.finished_at)
+        at = index.get(row.trigger_message_id)
+        if at is None:
+            at = -1
+            while at + 1 < len(kept) and kept[at + 1][0] <= finished:
+                at += 1
+        after.setdefault(at, []).append(row)
+    out: list[ChatTurn] = [_record(r, zone, now) for r in after.get(-1, [])]
+    for i, (_, turn, _) in enumerate(kept):
+        out.append(turn)
+        out.extend(_record(r, zone, now) for r in after.get(i, []))
+    return out
+
+
+def _record(row, zone: str | None, now: datetime) -> ChatTurn:
+    woke = _WOKEN_BY.get(row.reason, row.reason)
+    note = f' ("{row.silence_reason}")' if row.outcome == "silent" and row.silence_reason else ""
+    return {"role": "record", "content": f"{_RECORD} {_clock(_aware(row.finished_at), zone, now)}: "
+                                         f"your evaluation of {woke}: {_OUTCOME_WORDS[row.outcome]}{note}."}
 
 
 def delete_conversation(

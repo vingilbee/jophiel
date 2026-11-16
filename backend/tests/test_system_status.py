@@ -39,10 +39,9 @@ def test_part_state_combines_its_workers():
 
 def test_status_without_redis_says_it_cannot_tell(monkeypatch):
     monkeypatch.setattr(S, "_client", lambda: None)
-    monkeypatch.setattr(S, "_student_answers", lambda: False)
     out = S.status()
     assert out["known"] is False
-    assert [p["id"] for p in out["parts"]] == ["mouth", "cognition", "mind", "hands", "memory", "observation",
+    assert [p["id"] for p in out["parts"]] == ["mouth", "mind", "hands", "memory", "observation",
                                                "learning"]
     assert all(p["state"] in ("down", "off") for p in out["parts"])
 

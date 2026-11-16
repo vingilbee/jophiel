@@ -8,6 +8,8 @@ Expand sources and autonomy only after the foundational loops are measurable.
 
 Dependencies: Validated V1 and separate scope decisions.
 
+Roadmap clarification (2026-11-05, updated after the step 4 interview): [post-audit 3](POST-AUDIT-03-broaden-experience-understanding.md) owns the implemented intake, inquiry, and initial product/delivery foundation; [post-audit 4](POST-AUDIT-04-broader-learning-products.md) completes remaining broader-product semantics and validation. Reuse both rather than duplicate their work. Their relevant behavioral gates remain prerequisites for later training and integration claims; ordinary-experience understanding is not deferred to later expansion.
+
 ## Work
 
 - Add reading and screen sources with attributed claims and coverage.

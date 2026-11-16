@@ -57,15 +57,15 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.9.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.11.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl SHA256
-   py -m pip install --user --force-reinstall $HOME\Downloads\desktop_controller-0.9.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl SHA256
+   py -m pip install --user --force-reinstall $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
@@ -107,6 +107,45 @@ what Columbina can see:
 Pictures are never saved: the Mac keeps only the latest one, in memory, for 10 seconds. The
 preview needs Redis (`REDIS_URL`, already in `.env`).
 
+### Jophiel's own desktop (general desktop control)
+
+With the controller running (0.10.0 or newer) and the preview on (**Whole VM screen**), the VM is
+Jophiel's own Windows desktop: in chat she has `screenshot`, `move_mouse`, `click`, `drag`, `scroll`
+and `keyboard`, and uses them when you ask her to do something there ("open Notepad and write a
+haiku"). No session to start or end. Input goes to whatever is in front, as yours would.
+
+- The preview switch is also her switch: preview off, or **I'm signing in**, and every action is
+  refused ("Not done"). Nothing is pressed while a Windows sign-in or permission prompt is in front.
+- Apps running as administrator can't be clicked or typed into unless the controller itself runs
+  as administrator (Windows blocks it; she's told "Windows blocked the input").
+- Dry run on any machine: `py -m desktop_controller run --fake-input` prints what she would press.
+- Each action becomes experience on the Mac: a `desktop_action` capture record on the turn's chain,
+  and a `desktop.desktop_action` observation (System page → hands; `GET /api/memory/observations`).
+
+### Security monitoring (her desktop's security logs)
+
+With the controller running (**0.11.0 or newer**), the card has its own **Security monitoring** switch,
+separate from the preview and from her hands. While it's on, the VM reads its Windows event logs **read
+only** (`wevtutil gli` / `wevtutil qe`; it never clears, writes or reconfigures a log) and sends them to the
+Mac; Jophiel's mind looks into anything the logs themselves mark as notable, takes a periodic look, and
+in chat she has `get_security_activity`. Switching it off stops reading at once; switching it on again
+starts at the logs' end, so nothing from while it was off is collected.
+
+- **One-time setup on the VM**: the Security log needs the controller's Windows user in the
+  **Event Log Readers** group. In an administrator PowerShell:
+  `Add-LocalGroupMember -Group "Event Log Readers" -Member $env:USERNAME`, then sign out and in again.
+  Without it the card lists *Security: access denied* (the other channels still work).
+- The channels read are `SECURITY_CHANNELS` in `backend/.env` (default: Security, System, Defender,
+  Firewall, PowerShell, Sysmon, Task Scheduler, RDP, WinRM, SMB server). A channel the VM doesn't have
+  (Sysmon unless installed) shows as *not on this machine*; that's expected. For richer process and
+  network records, install [Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon)
+  in the VM; it is picked up with no change here.
+- Bookmarks live next to the pairing (`%APPDATA%\Columbina\security_state.json`): after the VM or
+  the Mac was away, it recovers what the log still holds and reports what it lost as a gap.
+- Dry run on any machine: `py -m desktop_controller run --fake-security` reports made-up records.
+- On the Mac the relay must be running (it carries the records). `backend/var/` logs nothing extra;
+  records are observations (`desktop_security`), visible with `GET /api/memory/observations`.
+
 ### Test controls (stage C)
 
 Start a session on the card with the game open **and in front** in the VM. The session turns
@@ -135,7 +174,7 @@ so never a service), action `pythonw.exe` with arguments `-m desktop_controller 
 ## Updating the VM program
 
 When the program changes, repeat §2 and §3 with the new file name (the version is in it,
-e.g. `desktop_controller-0.9.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
+e.g. `desktop_controller-0.11.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
 no new code is needed.
 
 ## 6. Check what the VM can reach (stage B gate)

@@ -14,7 +14,7 @@ call, and applies its decision here:
 - new_goal / done / wait_for_user: a new plan, nothing, or a pause with a question.
 
 The planner's "why" is saved as her thought (level hard, kind plan), and a question or
-line becomes a shared-state proposal for cognition and the mouth. A decision made on a plan that
+line becomes a wake of her mind, which decides whether it's said. A decision made on a plan that
 changed meanwhile, or while a newer goal from the user waits, is dropped: the newer job
 plans again.
 
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 SOURCE = "plan"
 # Reasons that are news about the plan, which the planner answers instead of a background turn.
-# "trial": an experiment cognition chose needs something arranged first (services/learning_trials.py).
+# "trial": an experiment her mind chose needs something arranged first (services/learning_trials.py).
 PLAN_KINDS = frozenset({"stuck", "needs_human", "struggling", "plan_low", "goal_done", "rethink", "trial"})
 PLAN_PAUSES = frozenset({"paused:plan_complete", "paused:planning_timeout"})
 TALK_MESSAGES = 6
@@ -160,6 +160,9 @@ def plan_lines(plan: dict | None) -> list[str]:
              + f", set by {_SOURCES.get(plan.get('source'), plan.get('source'))}."]
     if plan.get("constraints"):
         lines.append("Rules in force: " + "; ".join(plan["constraints"]) + ".")
+        if made_for_other_goal(plan):
+            lines.append("  (These rules came with a plan made for an earlier goal. A revision keeps only the "
+                         "ones you list again.)")
     for step in plan["steps"]:
         lines.append(f"  [{step['id']}] {step['state']}: {step['do']} (done when: {step['done_when']})")
     if not any(step["state"] in ("pending", "active") for step in plan["steps"]):
@@ -298,7 +301,9 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     talk = _talk(db, session.owner_user_id, read)
     if read is not None:
         read["goal_item_id"] = getattr(memory_manager.open_goal_of_session(db, session.id), "id", None)
-        read["lessons"] = _lessons_supplied(db, session) if facts["learned"] else []
+        read["lesson_supply"] = facts["lesson_supply"]
+        read["lessons"] = [{"ref": f"lesson:{v.id}", "status": v.status, "revision": v.revision}
+                           for v in facts["lesson_supply"].views]
     if talk:
         sections.append(("Recent talk (oldest first)", talk))
     return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
@@ -332,14 +337,38 @@ def _same_steps(current: list[dict], steps: list[dict]) -> bool:
     return open_steps == [(s["do"], s["done_when"]) for s in steps]
 
 
-def _rules(*groups) -> list[str]:
+def made_for_other_goal(plan: dict | None) -> bool:
+    """The plan was made for a goal the session no longer plays for (the user gave a new one, and no new plan
+    has been made since). Unknown (an older plan with no record) counts as the same goal."""
+    plan = plan or {}
+    made_for, now = plan.get("made_for_goal"), plan.get("goal_id")
+    return bool(made_for and now and made_for != now)
+
+
+def _rule_key(rule) -> str:
+    """One rule however it's written: spacing, case and end punctuation don't make it another rule (seen live
+    2026-11-05: the planner's copy with a full stop read as new, so the old one was 'carried by code')."""
+    return " ".join(str(rule).split()).rstrip(" .!;,").lower()
+
+
+MAX_RULES = 5
+
+
+def _rules(*groups, limit: int | None = MAX_RULES) -> list[str]:
     out: list[str] = []
     for group in groups:
         for rule in group or []:
-            rule = " ".join(str(rule).split())[:120]
-            if rule and rule.lower() not in (r.lower() for r in out):
+            rule = " ".join(str(rule).split())
+            if rule and _rule_key(rule) not in {_rule_key(r) for r in out}:
                 out.append(rule)
-    return out[:5]
+    return out[:limit] if limit is not None else out
+
+
+def _revised_rules(held, previous, user_goal, proposed) -> list[str]:
+    """A revision's rules: when more than fit, the user's come first, then the planner's, then the old plan's
+    (so the planner can let an old rule go by not listing it); they read in the plan's order."""
+    kept = {_rule_key(r) for r in _rules(held, user_goal, proposed, previous)}
+    return [r for r in _rules(held, previous, user_goal, proposed, limit=None) if _rule_key(r) in kept]
 
 
 def _users_rules(db: Session, session: DesktopSession) -> list[str]:
@@ -354,13 +383,11 @@ def _users_rules(db: Session, session: DesktopSession) -> list[str]:
 
 
 def _rule_origins(applied: list[str], *, proposed=None, user_memory=None, previous_plan=None,
-                  user_goal=None) -> dict:
+                  user_goal=None, ended_with_old_goal=None) -> dict:
     """The rules as applied, each with where it came from (the planner's proposal, the user's rules in memory, the
     plan before, the user's words for this goal), and the ones the limit left out. Code's carrying of rules is
     shown, never hidden (the old-rules problem of the audit)."""
-    def key(rule) -> str:
-        return " ".join(str(rule).split())[:120].lower()
-
+    key = _rule_key
     groups = {"proposed": proposed or [], "user_memory": user_memory or [], "previous_plan": previous_plan or [],
               "user_goal": user_goal or []}
     applied_keys = {key(r) for r in applied}
@@ -371,24 +398,10 @@ def _rule_origins(applied: list[str], *, proposed=None, user_memory=None, previo
         "proposed": list(groups["proposed"]),
         "carried_by_code": [r for r in applied if key(r) not in {key(x) for x in groups["proposed"]}],
         "left_out_by_limit": [r for k, r in every.items() if k not in applied_keys],
+        # The old plan's rules not carried because it was made for an earlier goal (none listed them again).
+        "ended_with_old_goal": [r for r in ended_with_old_goal or [] if key(r) not in applied_keys],
     }
 
-
-def _lessons_supplied(db: Session, session: DesktopSession) -> list[dict]:
-    """The game lessons the planning input showed (desktop_game._learned_lines reads the same ones), by id,
-    status and revision."""
-    from app.services import game_learning
-
-    game = game_learning.game_for_profile(session.profile_id)
-    if game is None:
-        return []
-    try:
-        lessons = [*game_learning.plan_lessons(db, session.owner_user_id, game),
-                   *game_learning.skill_lessons(db, session.owner_user_id, game)]
-    except Exception:  # noqa: BLE001 - what was read is recorded when it can be; never a failed plan
-        return [{"ref": "game_lessons", "note": "could not be listed"}]
-    return [{"ref": f"game_lesson:{lesson.id}", "status": lesson.status, "revision": lesson.revision}
-            for lesson in lessons]
 
 
 def apply(db: Session, session: DesktopSession, decision, *, read_revision: int, goal: dict | None,
@@ -414,7 +427,12 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
         if decision.decision == "revise":
             merged = merged_steps(plan.get("steps", []), decision.steps, decision.drop)
             steps = merged[:max_steps]
-            constraints = _rules(held, plan.get("constraints"), (goal or {}).get("rules"), decision.rules)
+            # Seen live 2026-11-05: the user said "make a bed, you don't have to follow me"; the plan, still the
+            # old goal's, was revised into the bed, and "Follow the user deeper into the cave" came with it.
+            # The old plan's rules come along only for the same goal, and after the user's and the planner's.
+            old_goal = made_for_other_goal(plan)
+            previous = [] if old_goal else plan.get("constraints")
+            constraints = _revised_rules(held, previous, (goal or {}).get("rules"), decision.rules)
             listed = {entry.keep for entry in decision.steps if entry.keep}
             report.update(steps={
                 "applied": steps, "cut_by_limit": merged[max_steps:],
@@ -422,10 +440,12 @@ def apply(db: Session, session: DesktopSession, decision, *, read_revision: int,
                                   if step["state"] in ("pending", "active") and step["id"] not in listed
                                   and step["id"] not in decision.drop]},
                 rules=_rule_origins(constraints, proposed=decision.rules, user_memory=held,
-                                    previous_plan=plan.get("constraints"), user_goal=(goal or {}).get("rules")))
+                                    previous_plan=previous, user_goal=(goal or {}).get("rules"),
+                                    ended_with_old_goal=plan.get("constraints") if old_goal else []))
             if not steps:
                 return "nothing to do: a revision with no steps"
-            if _same_steps(plan.get("steps", []), steps) and (decision.goal or plan.get("goal")) == plan.get("goal"):
+            if (_same_steps(plan.get("steps", []), steps) and (decision.goal or plan.get("goal")) == plan.get("goal")
+                    and not old_goal):  # an old goal's plan is re-made, so its rules end even with the same steps
                 return "kept (the revision changed nothing)" + desktop_game.unpause_after_planning(
                     db, user_id, "columbina_mind")
             # The plan's goal is her approach: a revision may change it (seen live 2026-11-04: "follow tearDrop12"
@@ -500,8 +520,13 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
         commentary_mode = session.commentary_mode
         db.commit()
     topic = (f"planning: {goal['text']}" if goal else "planning: " + "; ".join(reasons))[:GOAL_CHARS]
+    from app.services.personality import current
+    text = f"PERSONALITY\n{current().text}\n\nPLANNING SITUATION\n{text}"
     decision = (planner or _get_planner()).plan(
         text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
+    from app.services import memory_lessons
+    memory_lessons.record_uses(user_id, attempt_id, read["lesson_supply"], consumer="planner",
+                              received=True, decision_status="ok" if decision.decision else "invalid")
     _capture_attempt(attempt_id, user_id=user_id, session_id=session_id, job_id=job_id, try_number=try_number,
                      text=text, reasons=reasons, goal=goal, read=read, read_revision=read_revision,
                      plan_before=plan_before, decision=decision, started_at=started_at)
@@ -587,7 +612,7 @@ def _capture_attempt(attempt_id: uuid.UUID, *, user_id, session_id, job_id, try_
     from app.services import learning_capture
 
     try:
-        refs = [f"session:{session_id}"]
+        refs = [f"session:{session_id}", *(r["ref"] for r in read.get("lessons") or () if r.get("ref"))]
         if read.get("goal_item_id"):
             refs.append(f"item:{read['goal_item_id']}")
         ctx = learning_capture.Ctx(

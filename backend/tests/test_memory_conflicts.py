@@ -148,35 +148,32 @@ def test_forgetting_the_fact_settles_it(db, alice, monkeypatch):
     assert [r.status for r in _conflicts(db, alice)] == ["forgotten"]
 
 
-def test_her_mind_gets_it_once_in_its_conversation_and_drops_it_when_settled(db, alice, monkeypatch):
+def test_her_mind_is_woken_once_in_its_conversation_and_a_settled_one_is_never_brought_up(db, alice, monkeypatch):
+    from app.db.models import CoordinatorWork
+    from app.services import autonomous_speech, coordinator
+
+    monkeypatch.setattr(coordinator, "_wake", lambda: None)
     conversation, fact = _taught(db, alice)
     _said, job = _exchange(db, conversation, LISBON_SLIP, "Say hi back!")
     _consolidate(db, monkeypatch, job, _reads([], [_slip()]))
     [row] = _conflicts(db, alice)
     now = datetime.now(timezone.utc)
-    assert mind_conversation.conflict_problems(db, now) == []  # her reply goes first
-    db.execute(update(MemoryConflict).where(MemoryConflict.id == row.id)
-               .values(created_at=now - timedelta(minutes=1)))
-    db.commit()
-    [(scope, problem)] = mind_conversation.conflict_problems(db, now)
-    assert scope == Scope(alice.id, "conversation", conversation.id) and problem.trigger == "conflict"
-    assert PORTO in problem.text and "my sister in Lisbon" in problem.text
-    assert problem.anchor == {"conflict": str(row.id), "event": f"conflict:{row.id}"}
-
-    offered = []
-    from app.services import mind_hard
-    monkeypatch.setattr(mind_hard, "offer", lambda source, s, p, at: offered.append((s, p.trigger)) or "hard: started")
-    source = mind_conversation.ConversationSource()
-    source.sweep(db, now.timestamp())
-    assert (scope, "conflict") in offered
+    source = mind_conversation.ConversationEvents()
+    [handed] = source.sweep(db, now.timestamp())
+    assert handed.startswith(f"conflict {row.id.hex[:6]}: Proposed")
+    # One durable wake of her mind, in the conversation it was said in, about this disagreement; nothing said yet.
+    [work] = list(db.scalars(select(CoordinatorWork).where(CoordinatorWork.user_id == alice.id)))
+    assert (work.kind, work.conversation_id, work.input["wake"], work.input["premise"]) == (
+        "mind", conversation.id, "conflict", {"conflict": str(row.id)})
+    assert PORTO.rstrip(".") in work.result["conclusion"] and "my sister in Lisbon" in work.result["conclusion"]
     db.expire_all()
     assert db.get(MemoryConflict, row.id).offered_at is not None
-    assert mind_conversation.conflict_problems(db, now) == []  # once
-
-    assert source.dropped(db, scope, problem, None) is None
+    assert source.sweep(db, now.timestamp() + 60) == []  # handed over once
+    assert autonomous_speech.why_not(db, work) is None
+    # Settled before she was woken (or while she worded it): the premise no longer holds, nothing is said.
     memory_conflicts.settle(db, fact, "known_confirmed", message_id=None)
     db.commit()
-    assert source.dropped(db, scope, problem, None) == "it's been settled"
+    assert autonomous_speech.why_not(db, work) == "the disagreement it was about is settled"
 
 
 def test_a_conflict_must_name_a_fact_of_the_same_user(db, alice, bob):
@@ -191,88 +188,6 @@ def test_a_conflict_must_name_a_fact_of_the_same_user(db, alice, bob):
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
-
-
-# --- settlement racing her thought (plan stage 0: the two cases the 2026-10-29 run never exercised) ---------
-
-
-class _Thinker:
-    """A scripted hard thinker: ``during`` runs while she thinks (the user settling it meanwhile)."""
-
-    def __init__(self, during=None):
-        self.during, self.calls = during, 0
-
-    def instructions(self, trigger, name, situation, **kw):
-        return "system"
-
-    def think(self, inp, situation):
-        from app.ai.mind.hard import HardThought
-
-        self.calls += 1
-        if self.during:
-            self.during()
-        return HardThought("question", "I should check where Nora lives.", question="Is Nora in Porto or Lisbon?")
-
-
-def _offered_problem(db, monkeypatch, user):
-    conversation, fact = _taught(db, user)
-    _said, job = _exchange(db, conversation, LISBON_SLIP, "Say hi back!")
-    _consolidate(db, monkeypatch, job, _reads([], [_slip()]))
-    [row] = _conflicts(db, user)
-    now = datetime.now(timezone.utc)
-    db.execute(update(MemoryConflict).where(MemoryConflict.id == row.id).values(created_at=now - timedelta(minutes=1)))
-    db.commit()
-    [(scope, problem)] = mind_conversation.conflict_problems(db, now)
-    return fact, scope, problem
-
-
-def _run(monkeypatch, database, scope, problem, thinker):
-    from app.services import mind, mind_hard
-
-    from app.services import cognitive_live, recall_references
-
-    for module in (mind_hard, recall_references, cognitive_live):
-        monkeypatch.setattr(module, "SessionLocal", database)
-    monkeypatch.setattr(mind_hard, "thinker", lambda: thinker)
-    routed, logged = [], []
-    monkeypatch.setattr(mind_hard, "route", lambda *a, **k: routed.append(a) or {})
-    monkeypatch.setattr(mind, "_log", logged.append)
-    monkeypatch.setattr(mind, "_set_thinking", lambda *a: None)
-    monkeypatch.setattr(mind, "publish_thought", lambda *a, **k: None, raising=False)
-    att = mind_hard.attention_for(scope.user_id)
-    att.running, att.running_scope = problem, scope
-    mind_hard.run(mind_conversation.ConversationSource(), scope, att, problem, datetime.now(timezone.utc).timestamp())
-    return routed, logged
-
-
-def test_a_conflict_settled_while_its_thought_waited_is_never_thought_about(db, alice, monkeypatch, database):
-    fact, scope, problem = _offered_problem(db, monkeypatch, alice)
-    memory_conflicts.settle(db, fact, "known_confirmed", message_id=None)  # the user answered meanwhile
-    db.commit()
-    thinker = _Thinker()
-    routed, logged = _run(monkeypatch, database, scope, problem, thinker)
-    assert thinker.calls == 0 and routed == []
-    assert logged[-1]["hard_dropped_before_thinking"] == {"trigger": "conflict", "why": "it's been settled"}
-    from app.db.models import MindThought
-    db.expire_all()
-    assert list(db.scalars(select(MindThought).where(MindThought.user_id == alice.id))) == []
-
-
-def test_a_conflict_settled_while_she_thinks_drops_the_thought_with_its_reason(db, alice, monkeypatch, database):
-    fact, scope, problem = _offered_problem(db, monkeypatch, alice)
-
-    def settle_meanwhile():
-        with database() as other:
-            memory_conflicts.settle(other, other.get(SemanticMemory, fact.id), "known_confirmed", message_id=None)
-            other.commit()
-
-    thinker = _Thinker(settle_meanwhile)
-    routed, _ = _run(monkeypatch, database, scope, problem, thinker)
-    assert thinker.calls == 1 and routed == []  # nothing reaches her mouth or her working memory
-    from app.db.models import MindThought
-    db.expire_all()
-    [thought] = list(db.scalars(select(MindThought).where(MindThought.user_id == alice.id)))
-    assert thought.status == "dropped" and thought.dropped_reason == "it's been settled"
 
 
 # --- what depends on a disagreement (plan stage 2) ----------------------------------------------------------
@@ -304,11 +219,10 @@ def test_settling_a_disagreement_closes_the_question_raised_about_it(db, alice, 
     assert thought_memory._premise(db, alice.id, str(row.id)) is None
 
 
-def test_student_two_reads_an_unresolved_disagreement_with_the_users_words(db, alice, monkeypatch):
-    """Snapshot v5: the memory check before cognition reaches Student 2 as MEMORY, the disputed fact as unresolved
-    with what the user said; a model trained before v5 gets the situation without the section."""
-    from app.ai.state import student_two as S
-    from app.services import student_two
+def test_her_mind_reads_an_unresolved_disagreement_with_the_users_words(db, alice, monkeypatch):
+    """The memory check her mind reads (the recall section of her prompt): the disputed fact marked unresolved, with
+    what the user said; a failed search is said as failed, never as nothing found."""
+    from app.ai.recall.contracts import RecallResult
 
     conversation, fact = _taught(db, alice)
     _said, job = _exchange(db, conversation, LISBON_SLIP, "Say hi back!")
@@ -316,13 +230,8 @@ def test_student_two_reads_an_unresolved_disagreement_with_the_users_words(db, a
     now = datetime.now(timezone.utc)
     found = recall.search(db, RecallRequest(user_id=alice.id, query="where does my sister Nora live",
                                             purpose="reply", now=now, kinds=("fact",)))
-    memory = student_two.memory_for(db, found)
-    [record] = [r for r in memory.records if r.text == PORTO]
-    assert memory.search == "found" and record.section == "holds" and record.disagreed_words == "my sister in Lisbon"
-    live = S.Live("user_message", "chat", now, (), "is Nora around this weekend?", memory=memory)
-    situation = S.snapshot(live)
-    text = S.render(situation, "memory-v1")
-    assert f'- unresolved: {PORTO.rstrip(".")} (recorded today); today they said "my sister in Lisbon"' in text
-    assert "MEMORY" not in S.render(situation, "exchange-line-v1")
-    assert student_two.memory_for(db, found, failed=True).search == "failed"
-    assert student_two.memory_for(db, None) is None
+    text = recall.render_bundle(found, now=now, zone="UTC")
+    assert text.index("Unresolved") < text.index(PORTO.rstrip("."))  # under its own heading, with her fact
+    assert 'unresolved: on ' in text and 'they said "my sister in Lisbon"' in text
+    failed = recall.render_bundle(RecallResult.failed("search_failed"), now=now, zone="UTC")
+    assert "fail" in failed.lower()

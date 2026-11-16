@@ -75,6 +75,11 @@ function movesFor (bot, canDig) {
   return cached[key]
 }
 
+// The Movements go_to walks with (the same object walkTo uses): a route check under the same rules.
+export function walkMovements (bot, canDig = false) {
+  return movesFor(bot, canDig)
+}
+
 // Resolves when the goal is reached. Walking: pathfinder's goto(). A walk that may dig waits for
 // the real arrival itself: through diggable ground the search often runs out of time, and goto()
 // then gives up although the pathfinder carries on with its part-route; and goto() takes the empty

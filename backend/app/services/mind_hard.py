@@ -1,15 +1,15 @@
 """When she thinks hard, and where the conclusion goes (docs/COLUMBINA_HARD_THINKING_PLAN.md,
-docs/COLUMBINA_INNER_STATE_PLAN.md).
+docs/MIND_ARCHITECTURE.md).
 
 General: no game here. Hard thinking starts on a problem, never on the last second. Her mind's
 tick (services/mind.py) calls ``step`` for each activity of a polled source; a source that
 produces events calls ``offer``. Problems come from:
 
 - the source (services/mind_minecraft.py: a step that keeps failing, a surprise, something big;
-  services/mind_conversation.py: a question of theirs still open after her reply, a promise she hasn't kept,
-  an intention about to lapse, quiet time, and Student 2 deciding to think something over);
-- her mouth's ``think_it_over`` (a hand-off: the user's words need thought);
-- quiet: nothing new for MIND_HARD_QUIET_SECONDS, at most every MIND_HARD_QUIET_EVERY_SECONDS.
+  services/mind_security.py: what her desktop's security records show);
+- her own ``think_it_over`` while a game is live (a hand-off: something needs thought with the game in view);
+- quiet in a live activity: nothing new for MIND_HARD_QUIET_SECONDS, at most every
+  MIND_HARD_QUIET_EVERY_SECONDS. What she thinks about then is hers to choose: no topic is supplied.
 
 Attention is per user: one hard thought at a time across all her activities, none while any of
 them is under urgent pressure, a gap between them (a hand-off skips it). Each activity keeps one
@@ -20,8 +20,9 @@ recently. Shadow sources have their own attention and never delay a live thought
 The thought (app/ai/mind/hard.py) runs on this module's own thread; it has no tools. When it lands
 the source says whether it still holds (``dropped``) and whether the world moved past it
 (``outdated``); otherwise it's saved and sent on: a tip to the activity's body (which accepts or
-refuses it), an intention her body and mouth keep for a while, a question her mouth asks at a
-pause, and always her mouth's "on your mind" and the thoughts panel. Intentions, the question and
+refuses it), an intention her body keeps for a while, and, when there is a conclusion or a question, a wake of
+her mind (``autonomous_speech.submit``): there she decides whether it is said, asked, noted or left. Always the
+thoughts panel. Intentions, the question and
 hand-offs are kept per activity (``Scope.key``), so a thought about one game never steers another.
 """
 from __future__ import annotations
@@ -44,17 +45,15 @@ from sqlalchemy.orm import Session
 from app.ai.mind.contracts import PRIORITY, Command, CommandResult, Moment, Scope, Source
 from app.ai.mind.hard import HardInput, HardThinker, HardThought, Problem, render
 from app.core.config import get_settings
-from app.db.models import ChatJob, ChatMessage, Conversation, CoreMemory, MindThought, User
+from app.db.models import ChatMessage, Conversation, MindThought, User
 from app.db.session import SessionLocal
-from app.services import agent_say, desktop_preview
+from app.services import desktop_preview
 
 log = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 EARLIER_WINDOW = timedelta(minutes=10)
 EARLIER_KEPT = 3
-QUESTION_PAUSE_SECONDS = 8.0  # the user quiet this long: a natural pause to ask
-QUESTION_TTL_SECONDS = 180
 INTENTION_TTL_SECONDS = 20 * 60
 INTENTIONS_KEPT = 3
 HANDOFF_TTL_SECONDS = 120
@@ -100,7 +99,6 @@ class ActivityHard:
 
     started: bool = False  # the first tick sets what's already going on, without thinking about it
     last_news_at: float = 0.0
-    quiet_topic: int = 0
     source_state: Any = None
 
 
@@ -194,8 +192,7 @@ def handoff(key: uuid.UUID | str, user: str) -> Problem | None:
 
 def quiet(source: Source, act: ActivityHard, att: Attention, moment: Moment, at: float, user: str) -> Problem | None:
     settings = get_settings()
-    topics = source.quiet_topics(user)
-    if not topics or not settings.mind_hard_quiet_seconds or moment.pressure == "urgent":
+    if not source.thinks_when_quiet() or not settings.mind_hard_quiet_seconds or moment.pressure == "urgent":
         return None
     if at - act.last_news_at < settings.mind_hard_quiet_seconds:
         return None
@@ -203,10 +200,9 @@ def quiet(source: Source, act: ActivityHard, att: Attention, moment: Moment, at:
         return None
     if any(m.get("role") == "user" and at - m.get("at", 0) < USER_TURN_SECONDS for m in moment.talk):
         return None
-    topic = topics[act.quiet_topic % len(topics)]
-    act.quiet_topic += 1
-    return Problem("quiet", f"Nothing is happening. Think about {topic}.", topic=f"quiet: {topic}"[:200],
-                   query=topic[:300])
+    return Problem("quiet", "Nothing is happening, so you have time. Think about whatever is actually on your "
+                            f"mind right now ({user}, what you two are doing, yourself): what, is yours to choose.",
+                   topic="quiet: time to think", query="")
 
 
 def _wait(att: Attention, source: Source, scope: Scope, problem: Problem, at: float) -> None:
@@ -327,6 +323,27 @@ def start(source: Source, scope: Scope, att: Attention, problem: Problem, at: fl
 # The thought
 # --------------------------------------------------------------------------- #
 
+def lessons_for(db: Session, user_id: uuid.UUID, problem) -> tuple[object | None, tuple[str, ...]]:
+    """What she learned with this user before, for a hard thought: the same retrieval a wake of her mind uses,
+    tentative inferences labelled as guesses. Its exact supply is kept beside the input (``mind_hard`` records which
+    revisions the thought had). A failure is no lessons, never a failed thought."""
+    from app.ai.learning import lessons as L
+    from app.services import memory_lessons
+
+    if not get_settings().lessons_supply_enabled:
+        return None, ()
+    try:
+        with db.begin_nested():
+            supply = memory_lessons.for_decision(db, user_id, problem.text, include_tentative=True)
+    except Exception:  # noqa: BLE001
+        log.exception("mind: reading lessons for a thought failed")
+        return None, ()
+    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
+    if lines:
+        lines.append(L.GUIDE.split("lessons_weighed:")[0].strip())
+    return supply, tuple(lines)
+
+
 def thinker() -> HardThinker:
     global _thinker
     if _thinker is None:
@@ -367,10 +384,9 @@ def conversation(db: Session, user_id: uuid.UUID, now: datetime,
 
 
 def _character(db: Session) -> tuple[str, ...]:
-    core = db.scalar(select(CoreMemory).where(CoreMemory.is_active.is_(True)).limit(1))
-    character = ((core.identity or {}).get("character") or {}) if core else {}
-    return tuple(item.get("text", "") for section in ("values", "principles")
-                 for item in character.get(section) or [] if item.get("text"))
+    from app.services.personality import current
+
+    return (current().text,)
 
 
 def _earlier(db: Session, scope: Scope, topic: str, now: datetime) -> tuple[str, ...]:
@@ -429,9 +445,15 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
         if not source.shadow:
             _log_hard(scope, problem, system, render(inp), thought)
             _capture_attempt(attempt_id, source, scope, problem, inp, thought, started_at=started_at)
+            if thought.learn and not thought.error:
+                _nominate(scope, attempt_id, thought.learn)
+            if thought.reconsider and not thought.error:
+                _critique(scope, attempt_id, inp, thought.reconsider)
         if thought.error or thought.kind is None:
             if source.shadow:
                 _log_shadow(scope, problem, system, render(inp), thought, status="nothing", why=None)
+            elif not thought.error:
+                _concluded(source, scope, problem, None, None, None)  # thought through: nothing worth concluding
             return
         with SessionLocal() as db:
             why = source.dropped(db, scope, problem, att.cancelled)
@@ -456,6 +478,8 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
                                "routed": {k: [r.status, r.detail] for k, r in routed.items()}})
             _capture_route(attempt_id, source, scope, thought, status=status, why=why, thought_id=saved.id,
                            routed=routed)
+            if status == "done":
+                _concluded(source, scope, problem, thought.kind, thought.conclusion, saved.id)
     except Exception:  # noqa: BLE001 - a hard thought that fails is just not thought
         log.exception("mind: hard thought failed for %s %s", scope.source, scope.activity)
     finally:
@@ -467,6 +491,54 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
             schedule(att, time.time())  # no tick comes back for event-source work
 
 
+def _concluded(source: Source, scope: Scope, problem: Problem, kind: str | None, conclusion: str | None,
+               thought_id: uuid.UUID | None) -> None:
+    """Tell a source that keeps its own record of what she looked into (security investigations) that a thought
+    about it landed. Never raises."""
+    hook = getattr(source, "concluded", None)
+    if hook is None:
+        return
+    try:
+        with SessionLocal() as db:
+            hook(db, scope, problem, kind, conclusion, thought_id)
+    except Exception:  # noqa: BLE001
+        log.exception("mind: %s did not take a landed thought", source.name)
+
+
+def _nominate(scope: Scope, attempt_id: uuid.UUID, text: str) -> None:
+    """She pointed her learning at something in this activity (post-audit 3). Learning's reviewer decides whether
+    the records bear it out; her thought is never evidence. Never raises."""
+    from app.services import learning_review
+
+    try:
+        with SessionLocal() as db:
+            if learning_review.nominate(db, scope.user_id, source=scope.source, activity=scope.activity,
+                                        thought_id=attempt_id, text=text):
+                db.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("mind: a nomination for learning was not kept")
+
+
+def _critique(scope: Scope, attempt_id: uuid.UUID, inp: HardInput, asked: dict) -> None:
+    """She thinks a lesson she was shown is mistaken (post-audit 4): her learning reads it again on its own evidence.
+    Only a lesson in what she read (its ref there); her thought is what prompts the reading, never evidence. Never
+    raises."""
+    from app.services import learning_lessons
+
+    supply = getattr(inp, "lesson_supply", None)
+    view = next((v for v in getattr(supply, "views", ()) if v.ref == asked.get("lesson")), None)
+    if view is None:
+        log.info("mind: a critique named %s, which wasn't among the lessons she read", asked.get("lesson"))
+        return
+    try:
+        with SessionLocal() as db:
+            if learning_lessons.critique(db, scope.user_id, uuid.UUID(view.id), asked.get("why") or "",
+                                         source=f"hard_thought:{attempt_id}"):
+                db.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("mind: a critique of a lesson was not kept")
+
+
 def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, problem: Problem, inp: HardInput,
                      thought: HardThought, *, started_at: datetime) -> None:
     """A hard thought as asked (its exact text and system, what it read) and as answered, for learning
@@ -474,15 +546,23 @@ def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, proble
     from app.ai.mind.hard import SCHEMA
     from app.services import learning_capture
 
+    from app.services import memory_lessons
+    supply = getattr(inp, "lesson_supply", None)
+    if supply is not None:
+        memory_lessons.record_uses(scope.user_id, attempt_id, supply, consumer="mind", received=True,
+                                  decision_status="ok" if thought.kind else "no_conclusion")
     try:
         messages = [m["id"] for m in inp.conversation if m.get("id")]
         session_id = source.thought_session(scope)
         refs = [f"message:{m}" for m in messages] + [str(r) for r in inp.memory_refs]
+        refs += [f"lesson:{v.id}" for v in (supply.views if supply is not None else ())]
         if session_id is not None:
             refs.append(f"session:{session_id}")
         ctx = learning_capture.Ctx(
             user_id=scope.user_id, attempt_id=attempt_id, trigger=f"hard:{problem.trigger}"[:32],
-            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs),
+            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs) + tuple(
+                {"ref": f"lesson:{v.id}", "revision": v.revision, "status": v.status}
+                for v in (supply.views if supply is not None else ())),
             sources=tuple(refs))
         answered = thought.raw is not None
         status = ("ok" if thought.kind is not None or (answered and not thought.error)
@@ -576,6 +656,21 @@ def route(source: Source, scope: Scope, thought_id: uuid.UUID, problem: Problem,
             if results["tip"].status == "accepted":
                 from app.services import system_signals
                 system_signals.emit(scope.user_id, "mind", "hands", "tip", thought_id)
+    judged = thought.assessment or {}
+    if problem.trigger == "review" and judged.get("progress") == "no" and thought.conclusion:
+        # Her look back judged the effort isn't getting anywhere: the approach is her planner's, so it is asked to
+        # look again (it may keep the plan). Only on a look back (code picks when), never on every surprise:
+        # 2026-11-04 every thought asking for a rethink made 44 revisions in 24 minutes.
+        body = source.body(scope)
+        if body is not None and "rethink" in body.controls():
+            why = f"your own look back found no progress: {thought.conclusion}"
+            if judged.get("cause"):
+                why += f" (the cause you favour: {judged['cause']}" + (
+                    f"; you'd check it by: {judged['check']})" if judged.get("check") else ")")
+            results["rethink"] = body.command(scope, Command("rethink", why))
+            if results["rethink"].status == "accepted":
+                from app.services import system_signals
+                system_signals.emit(scope.user_id, "mind", "hands", "rethink", thought_id)  # a new plan for her hands
     if thought.kind == "intention":
         add_intention(scope.key, thought.for_hands or thought.conclusion)  # her hands' tip (an execution hint)
         # Memory gets it through ``to_memory``, never written here.
@@ -625,8 +720,7 @@ def _log_shadow(scope: Scope, problem: Problem, system: str, text: str, thought:
 
 
 # --------------------------------------------------------------------------- #
-# Intentions, the question, and her mouth's hand-off (Redis: shared with other processes),
-# each per activity (Scope.key).
+# Intentions and her own hand-off (Redis: shared with other processes), each per activity (Scope.key).
 # --------------------------------------------------------------------------- #
 
 def _intentions_key(key: uuid.UUID | str) -> str:
@@ -667,67 +761,6 @@ def hands_messages(session_id: uuid.UUID) -> list[dict]:
     return desktop_commands.hands_messages(session_id) + [
         {"id": f"i{i['id']}", "text": f"keep in mind (your own intention): {i['text']}", "at": i["at"]}
         for i in intentions(session_id)]
-
-
-def _question_key(key: uuid.UUID | str) -> str:
-    return f"mind:question:{key}"
-
-
-def set_question(key: uuid.UUID | str, question: dict) -> None:
-    client = desktop_preview.redis_client()
-    if client is None:
-        return
-    try:
-        client.set(_question_key(key), json.dumps(question), ex=QUESTION_TTL_SECONDS)
-    except redis.RedisError:
-        log.warning("mind: could not keep a question for %s", key)
-
-
-def take_question(key: uuid.UUID | str) -> dict | None:
-    """Her open question, handed to her mouth's reply (so it's never also asked at a pause)."""
-    client = desktop_preview.redis_client()
-    if client is None:
-        return None
-    try:
-        raw = client.getdel(_question_key(key))
-    except redis.RedisError:
-        return None
-    return json.loads(raw) if raw else None
-
-
-def _reply_in_flight(db: Session, user_id: uuid.UUID) -> bool:
-    return db.scalar(select(ChatJob.id).where(ChatJob.user_id == user_id,
-                                              ChatJob.status.in_(("pending", "processing"))).limit(1)) is not None
-
-
-def ask_if_due(db: Session, source: Source, scope: Scope, at: float) -> str | None:
-    """Her mouth asks the activity's open question at a natural pause: the user quiet for
-    QUESTION_PAUSE_SECONDS and no reply being written. Returns what happened."""
-    client = desktop_preview.redis_client()
-    if client is None:
-        return None
-    try:
-        raw = client.get(_question_key(scope.key))
-    except redis.RedisError:
-        return None
-    if not raw:
-        return None
-    question = json.loads(raw)
-    if question.get("goal") not in (None, source.current_goal(db, scope)):
-        client.delete(_question_key(scope.key))
-        return "question dropped: the goal changed"
-    user_id = scope.user_id
-    if agent_say.user_spoke_since(db, user_id, at - QUESTION_PAUSE_SECONDS) or _reply_in_flight(db, user_id):
-        return None
-    from app.services import autonomous_speech
-    outcome = autonomous_speech.submit(
-        db, user_id=user_id, activity_id=scope.activity, source=scope.source,
-        event_id=question.get("thought_id") or f"question:{question.get('at')}", text=question["text"],
-        question=True, reasons=[f"question: {question.get('topic', '')}"[:300]],
-        **source.speaking(db, scope))
-    if outcome.startswith("Proposed"):
-        client.delete(_question_key(scope.key))
-    return f"asked: {outcome}"
 
 
 def hand_off(db: Session, user_id: uuid.UUID, *, what: str) -> str:

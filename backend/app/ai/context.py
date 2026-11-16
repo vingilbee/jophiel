@@ -80,13 +80,8 @@ class AgentRuntimeContext:
     # Small, already-ranked set of durable user memories relevant to this
     # turn. Rendered by the service so the AI layer remains storage-agnostic.
     long_term_memory: str | None = None
-    # Simple cognition, live (services/cognitive_live.py; all None unless enabled): her character
-    # page, memories typed by whose they are (replaces long_term_memory in the prompt), Student 1's
-    # quick reading of the message, and the conversation's open notes.
-    character_page: str | None = None
-    typed_memory: str | None = None
-    cognitive_reading: str | None = None
-    conversation_notes: str | None = None
+    # Who she is: the text personality (services/personality.current().text), loaded once per process.
+    personality: str | None = None
     # Her working memory (services/memory_manager.py; None when empty): what we're
     # doing, in which context, and what's unfinished, rendered for this turn. ``memory_tools``: she gets
     # the tools that change it. ``source_message_id``: the user's message this turn answers, the evidence
@@ -98,15 +93,22 @@ class AgentRuntimeContext:
     # object her read tools add to (its receipt is saved with the reply).
     recall: str | None = None
     recall_turn: object | None = None
-    # The shared-state pipeline (services/shared_state.py): the memories from the last answer, re-read (no
-    # search ran for this message; replaces ``recall`` in the prompt), what this turn did and didn't have
-    # (degraded cognition, limits nobody assessed), and her decision (Student 2), which the reply puts into words.
+    # This evaluation of her mind (services/mind_turn.py). ``cached_memory``: the memories from the last answer,
+    # re-read, when no search ran or it failed (replaces ``recall`` in the prompt). ``turn_boundary``: what this
+    # evaluation had from memory. ``mind_state``: thinking she started that's still under way and what she
+    # scheduled to come back to. ``lessons``: what she has learned with this user (the LESSONS section).
+    # ``mind``: the evaluation's record: her mind's tools are built from it and write what she did into it
+    # (None: a turn that isn't an evaluation of her mind, e.g. a nudge). ``wake``: why she was woken when it
+    # wasn't a user message (rendered by ``coordinator.render_wake``); her reply is then what she says, if anything.
     cached_memory: str | None = None
     turn_boundary: str | None = None
-    decision: str | None = None
-    # A follow-up after background thinking (services/coordinator.py): the finished thought, rendered as her own
-    # internal conclusion (never a user message), and what cognition decided to do with it (respond / ask).
-    thought_result: str | None = None
+    mind_state: str | None = None
+    lessons: str | None = None
+    mind: Any = None
+    wake: str | None = None
+    # The clock and what caused this evaluation (``mind_turn.situation``): read fresh when the evaluation runs,
+    # never from a queued job's awareness snapshot.
+    now: str | None = None
     source_message_id: uuid.UUID | None = None
 
     # --- Eyes ---
@@ -144,6 +146,19 @@ class AgentRuntimeContext:
     # user's message so she sees what they saw without a tool round trip.
     game_picture: bytes | None = None
     game_picture_note: str | None = None
+
+    # --- Her own desktop (general desktop control) ---
+    # One line about her paired Windows desktop (connected? can she see and use it?), from
+    # ``services/desktop_control.access_for``. None without one: then no section and no desktop tools.
+    desktop: str | None = None
+    # The turn and conversation her desktop actions belong to (their experience records link to them).
+    turn_id: uuid.UUID | None = None
+    conversation_id: uuid.UUID | None = None
+    # Her desktop's security records (services/security_activity.line_for): one line about monitoring, or None
+    # without a paired desktop (then no section and no ``get_security_activity``). ``zone``: the user's IANA time
+    # zone when the client reported one, for showing record times in their time.
+    security: str | None = None
+    zone: str | None = None
 
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,

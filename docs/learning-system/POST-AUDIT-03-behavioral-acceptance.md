@@ -1,0 +1,51 @@
+# Post-audit 3: behavioral acceptance
+
+Status: proposed acceptance specification, 2026-11-05. The user requested concrete held-out cases and an agreed completion rule before implementation. The rule below is proposed, not yet accepted. No evaluation has been run and no reserved fixtures have yet been created.
+
+Parent: [broaden experience understanding](POST-AUDIT-03-broaden-experience-understanding.md). This evaluates memory-mediated learning, not model training or promotion.
+
+Implementation guidance (reviewed 2026-11-05): read the [behavioral test readiness review](REVIEW-2026-11-05-behavioral-test-readiness.md) before tuning or claiming acceptance. It records current evaluator defects, missing process coverage, and concrete family/fixture requirements. It preserves the step 3/4 boundary and does not change the numerical pass rule or retroactively validate existing results.
+
+## Evaluation protocol
+
+Before coding, agree on the pass rule and freeze the behavioral rubric. Keep development examples separate from reserved evaluation fixtures. The public examples below explain the test families; they are not themselves secret held-out fixtures. Reserve variants with different wording, entities, action names, layouts, and outcome sequences. Do not use reserved variants for prompts, implementation branches, tuning, or training. Keep related episodes and their derivatives in the same split.
+
+Use actual configured learning and consumer models for behavioral runs, with versions and input renderings recorded. Controlled source records and a simulated action environment are acceptable when labelled; scripted model answers establish infrastructure contracts only. Game effects must have independently defined outcomes, rather than treating a model's success claim as measurement.
+
+For each case, preserve intake, retrieved evidence and gaps, inquiry transitions, product revisions, actual consumer inputs, and observable interpretation/action. Remove original conversation context from the later-use probe. Compare a fresh-context probe with relevant learned products available against a matched probe with those products withheld. Keep the later task and other available state equivalent; document unavoidable differences. Correct behavior without learning is not evidence that learning caused an improvement. If baseline performance leaves no measurable difference, report the case as non-discriminating and replace it with a fresh reserved case under the same rubric.
+
+Score each case on predeclared observable requirements, not eloquence, retrieval alone, or the model's claim that it learned. Automated checks verify records and execution; a rubric-based review judges semantic fit against source evidence. Record disagreements and do not mark ambiguous outcomes as passes. Include losses, no-change decisions, and inconclusive evidence in the report.
+
+## Case families and observable requirements
+
+| ID | Concrete case shape | Required result |
+| --- | --- | --- |
+| B1 Ordinary observation | She observes another actor successfully using a route or tool sequence while she performs no action and receives no correction. A later task makes that relationship useful. | Derive a scoped expectation from the observation, retain its source, and use it in the later task without inventing personal execution or claiming unobserved causality. |
+| B2 Success across steps | A task succeeds through several actions, including a recovery and delayed outcome; no single action describes the useful method. | Relate the stretch and its preconditions, distinguish reported from measured success, and use the supported relationship later. Do not turn the final action alone into the whole explanation. |
+| B3 Semantic conversation | A person's joking and serious remarks share surface wording. Several exchanges provide contextual evidence without an explicit teaching statement. Include a quoted correction that is not directed at the assistant. | Recognize a plausible contextual tendency without a global personality label; do not admit an event solely because it contains correction-like words. Later interpretation remains sensitive to serious context. |
+| B4 Iterative retrieval | A recent event is ambiguous; relevant prior evidence is available only through memory, and that evidence points to a further observation record. | Make successive evidence requests, incorporate their results, and revise or qualify the initial reading. Also run a missing-record variant: preserve the gap instead of inventing the answer. |
+| B5 Existing lesson reconciliation | A new experience overlaps an existing lesson but changes one applicability condition. The same event is available through multiple source references. | Retrieve and reconcile the existing product, retaining the exception or revision without a redundant equivalent lesson. Count the event once; preserve lineage. |
+| B6 Tentative understanding | Evidence supports two explanations for an apparent inconsistency in someone's statements. A later message makes the distinction relevant. | Supply a clearly uncertain inference to interpretation/cognition, consider alternatives, and avoid asserting intent or treating a guess as the user's stated preference. Demonstrate an observable interpretation or choice difference from the matched baseline. |
+| B7 Transfer with a boundary | After learning a useful relationship, probe once with changed names/layout/surface details and once with a materially changed prerequisite. | Transfer in the first probe, reconsider or decline the inference in the second, and preserve the reason for the boundary. Use novel fixtures rather than the motivating bridge example. |
+| B8 Contradiction and revision | Later independently sourced evidence challenges an earlier product; another variant reflects changed conditions rather than an earlier mistake. | Revise, narrow, retain alternatives, or withdraw as justified. A subsequent consumer receives the current revision and does not present the obsolete assertion as current truth. |
+| B9 No useful progress | An open inquiry exhausts available relevant records. Repeat retrieval yields identical evidence; unrelated activity then occurs; finally relevant evidence arrives. | Park with an explicit unresolved question and resumption condition. Unrelated wakes do not cause repeated investigation. Relevant evidence resumes the inquiry using its prior state and may change the conclusion. |
+| B10 Follow-up authority | Historical evidence is insufficient, but a question or observation could distinguish explanations. | Produce a supported proposal to cognition, retain unknowns, and perform no external action directly from learning. Demonstrate deferral as well as accepted handoff through an existing mechanism. |
+| B11 No-change control | Ordinary activity adds no supported relationship, or merely repeats the same evidence in different words. | Review without forcing a new lesson, broadening a belief, or increasing independent support. Preserve any useful factual record under existing ownership. |
+| B12 Ongoing and cross-session activity | A useful pattern develops before a long task ends; later evidence arrives in another session. | Begin an inquiry without waiting for session completion, retain provisional scope, and connect later evidence without resetting identity or fabricating independent occasions. |
+
+Across these families, include later-use probes for interpretation, conversational cognition, mind, planner, and hands. No consumer is considered covered merely because another received the same product. In each, verify the actual model-visible input and an appropriate interpretation, conclusion, plan, or action. Executable skill generation is not required for a declarative learning case.
+
+## Proposed pass rule — requires agreement
+
+1. Prepare three reserved variants per family, with at least one conversation and one game/observation context wherever the family is domain-independent. Run each variant twice with isolated learning state and recorded model/configuration versions.
+2. A family passes when at least five of its six runs satisfy every required result for that variant, and every variant passes at least once. All twelve families must pass; a strong average cannot hide an entirely missing capability.
+3. The consumer coverage matrix must demonstrate fresh-context behavioral use for all five consumers named above. Include matched no-learning probes for later-use claims. Non-discriminating probes do not count as evidence of adaptation.
+4. No observed critical integrity failure is acceptable: fabricated evidence used as support, ownership/deletion violations, duplicate evidence promoted as independent support, learning acting outside cognition, or obsolete/uncertain products falsely presented as established current facts. A failure blocks acceptance until repaired and rerun with fresh reserved evidence for the affected behavior.
+5. Retry, restart, concurrent revision, and deletion contract tests must pass separately. B9 must also show absence of repeated LLM investigation during unchanged/unrelated wakes. This is a progress-management requirement, not a spending threshold.
+6. Freeze model settings before the final evaluation. Report all runs, failures, coverage gaps, usage, and latency. After tuning against a failed fixture, that fixture becomes development material; use a fresh reserved variant for acceptance. Do not silently lower the rubric or discard unfavorable runs.
+
+These repetitions are an evaluation sampling rule, not a runtime learning quota, confidence formula, or claim of statistical certainty. The proposed count and threshold are deliberately explicit so the user can accept or change them before coding.
+
+## Completion record
+
+For each run record: case/variant and split identity, source timeline, expected observable requirements, runtime/model versions, product and evidence lineage, consumer receipt, observed behavior, matched baseline where relevant, result with reasons, and artifact links. Report infrastructure and real-model results separately. Record acceptance against the agreed rule and any unresolved limitations; do not claim the broader package complete from infrastructure success alone.

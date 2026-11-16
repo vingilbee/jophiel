@@ -1,5 +1,7 @@
 # Memory system: implementation status
 
+> **2026-11-13:** Student 1, Student 2, the shared-state pipeline, appraisal and mood were retired; one mind now decides every turn and wake. Where this document describes them, it records the system as it was. Current design: [MIND_ARCHITECTURE.md](MIND_ARCHITECTURE.md).
+
 Plan: [COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md](COLUMBINA_MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md). This file
 records what each stage built, the contracts it fixed, and its gate evidence. Built in `app-cognitive`, branch
 `chore/cleanup-legacy-paths`, uncommitted.

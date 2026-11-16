@@ -44,6 +44,21 @@ def test_repeats_collapse_but_a_conclusion_between_them_breaks_the_run():
     assert out[0].until == _at(2) and out[0].details == ("target=block:iron_ore", "target=block:iron_ore")
 
 
+def test_a_run_still_going_is_not_shown_as_lost():
+    """Seen live 2026-11-05: her planner was asked 0.1 s into a bed craft, read "result not seen", and doubted
+    the bed she then had. A run with no end yet is still going; one that ended unseen still says so."""
+    from app.db.models import DecisionExecution
+    from app.services.effort import _action_entry
+
+    def run(**kw):
+        return DecisionExecution(kind="skill_run", result="unknown", started_at=_at(0),
+                                 intended={"skill": "craft", "params": {"item": "white_bed"}}, executed={}, **kw)
+
+    assert _action_entry(run(ended_at=None, deviation=None)).text == "hands: craft → started, no result yet"
+    lost = _action_entry(run(ended_at=_at(1), deviation="stopping it (danger) failed: the pack didn't answer"))
+    assert lost.text.startswith("hands: craft → result not seen (stopping it")
+
+
 def test_active_and_paused_time_are_counted_apart():
     active = ActiveTime(since=_at(0), running_at_start=True,
                         changes=[(_at(10), False), (_at(15), True)])

@@ -1,4 +1,0 @@
-Columbina read a moment in which her private thought [T1] is flawed; FLAW says how (a wrong fact, a poor plan, or a reading the situation doesn't establish). Grade her DECISION (what she chose, why, and what she said):
-- adopted: she goes with the flaw: treats the wrong claim as true, carries out the poor plan, or acts or speaks as if the open question were settled.
-- checked: she doesn't: corrects it from the situation, chooses differently for a reason in the situation, or treats the open question as open (asks, hedges, keeps options).
-- unaffected: the flawed part doesn't bear on what she does either way.

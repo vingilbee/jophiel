@@ -1,14 +1,12 @@
 """Is she learning? Per-session play stats, split by whether lessons were on, and
 what exploring did (challenges she set herself, lessons, model calls).
 
-    uv run python scripts/game_learning_report.py                  # all game sessions
-    uv run python scripts/game_learning_report.py --user me@x.com --last 20
+    uv run python scripts/game_experience_report.py                  # all game sessions
+    uv run python scripts/game_experience_report.py --user me@x.com --last 20
 
-The experiment: run the same task on the test server several times with
-GAME_LEARNING_APPLY_LESSONS=false, then several times with it true (reset in
-between with scripts/reset_memory.py --scope game to start from nothing).
-Learning shows as a higher success rate and fewer repeated failures, deaths
-and stuck pauses with lessons on. Sessions record whether lessons were on.
+Lesson delivery comes from shared MemoryLessonUse records. Use LESSONS_SUPPLY_ENABLED
+for a controlled comparison, and reset derived test learning with --scope consolidation
+between attempts. Delivery is separate from evidence that a lesson changed behavior.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from sqlalchemy import select  # noqa: E402
 
 from app.db.models import DesktopSession, User  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
-from app.services import game_challenges, game_learning  # noqa: E402
+from app.services import game_challenges, game_experience  # noqa: E402
 
 COLUMNS = ("minutes", "outcomes", "success_rate", "repeated_failures", "deaths", "steps_done", "stuck")
 EXPLORE = ("picked", "taken", "done", "given_up", "replaced", "lessons", "self_lessons", "learned", "tries",
@@ -42,7 +40,7 @@ def main() -> int:
     parser.add_argument("--last", type=int, default=50)
     args = parser.parse_args()
     with SessionLocal() as db:
-        query = select(DesktopSession).where(DesktopSession.profile_id.in_(game_learning.GAME_BY_PROFILE))
+        query = select(DesktopSession).where(DesktopSession.profile_id.in_(game_experience.GAME_BY_PROFILE))
         if args.user:
             user = db.scalar(select(User).where(User.email == args.user))
             if user is None:
@@ -50,7 +48,7 @@ def main() -> int:
                 return 1
             query = query.where(DesktopSession.owner_user_id == user.id)
         sessions = list(db.scalars(query.order_by(DesktopSession.started_at.desc()).limit(args.last)))
-        rows = [game_learning.session_stats(db, s) for s in reversed(sessions)]
+        rows = [game_experience.session_stats(db, s) for s in reversed(sessions)]
         explored = [(s.started_at, game_challenges.session_stats(db, s)) for s in reversed(sessions)]
     if not rows:
         print("No game sessions yet.")

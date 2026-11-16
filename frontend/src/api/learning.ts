@@ -7,28 +7,12 @@ import type {
   AssessmentListing,
   Challenge,
   LearnedSkill,
-  Lesson,
-  LessonStatus,
-  Proposal,
-  ProposalStatus,
-  Reflection,
   TrialDetail,
   TrialListing,
 } from '../types/learning'
 
-/** What she learned from playing: moves she taught herself, lessons, code proposals, reflections. */
+/** What she learned from playing: shared assessments and lessons, trials and moves she taught herself. */
 export const learningApi = {
-  lessons: () => api.get<Lesson[]>('/learning/lessons'),
-  setLessonStatus: (id: string, status: Exclude<LessonStatus, 'confirmed'>) =>
-    api.patch<Lesson>(`/learning/lessons/${id}`, { status }),
-  deleteLesson: (id: string) => api.delete<void>(`/learning/lessons/${id}`),
-
-  proposals: () => api.get<Proposal[]>('/learning/proposals'),
-  updateProposal: (id: string, change: { status?: ProposalStatus; user_note?: string }) =>
-    api.patch<Proposal>(`/learning/proposals/${id}`, change),
-
-  reflections: () => api.get<Reflection[]>('/learning/reflections'),
-
   challenges: () => api.get<Challenge[]>('/learning/challenges'),
   skills: () => api.get<LearnedSkill[]>('/learning/skills'),
   setSkillEnabled: (id: string, enabled: boolean) => api.patch<LearnedSkill>(`/learning/skills/${id}`, { enabled }),
@@ -45,7 +29,7 @@ export const learningApi = {
     api.get<AdaptationListing>(`/learning/adaptation/lessons${status ? `?status=${status}` : ''}`),
   adaptationLesson: (id: string) => api.get<AdaptationLessonDetail>(`/learning/adaptation/lessons/${id}`),
 
-  /** Bounded game trials: what she tested, what she predicted, what cognition chose, what happened (read only). */
+  /** Bounded game trials: what she tested, what she predicted, what her mind chose, what happened (read only). */
   trials: () => api.get<TrialListing>('/learning/trials'),
   trial: (id: string) => api.get<TrialDetail>(`/learning/trials/${id}`),
 }

@@ -8,6 +8,8 @@ Versioned, auditable datasets for shared learners.
 
 Dependencies: Step 3; step 4 for trial-derived records.
 
+Roadmap clarification (2026-11-05, updated after the step 4 interview): [post-audit 3](POST-AUDIT-03-broaden-experience-understanding.md) owns the implemented intake, inquiry, and initial product/delivery foundation; [post-audit 4](POST-AUDIT-04-broader-learning-products.md) completes remaining broader-product semantics and validation. Reuse both rather than duplicate their work. Their relevant behavioral gates remain prerequisites for later training and integration claims; ordinary-experience understanding is not deferred to later expansion.
+
 ## Work
 
 - Derive learner-specific supervised targets first; use preference pairs only where evidence supports comparisons.

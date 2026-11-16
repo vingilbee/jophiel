@@ -53,7 +53,7 @@ def _now() -> datetime:
 
 
 def _game(session: DesktopSession) -> str:
-    from app.services.game_learning import game_for_profile
+    from app.services.game_experience import game_for_profile
 
     return game_for_profile(session.profile_id) or "minecraft"
 
@@ -275,7 +275,7 @@ def listing(db: Session, user_id: uuid.UUID, limit: int = 50) -> list[dict]:
 
 
 def session_stats(db: Session, session: DesktopSession) -> dict:
-    """For scripts/game_learning_report.py: what exploring did in a session, and how many model
+    """For scripts/game_experience_report.py: what exploring did in a session, and how many model
     calls it took (no budget yet, so the count is how cost is watched)."""
     from app.db.models import GameSkillAttempt
 

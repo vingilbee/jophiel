@@ -2,14 +2,25 @@
 
 > **Name:** the agent is now **Jophiel** (renamed from Columbina on 2026-11-03, to move away from a game character). Docs, comments and internal ids (`columbina_user_turn`, `columbina_mind`, the `columbina` speaker label Student 1/2 were trained on, `columbina.md`, the core-memory key) keep the old name on purpose; everything the app shows or the live prompts say uses Jophiel. Wherever docs say "Columbina", read Jophiel.
 
+## One mind (2026-11-13)
+
+One persistent mind owns her decisions, conversation continuity and scheduling choices; Student 1, Student 2,
+the shared-state pipeline, appraisal and mood were removed. Every wake (a message, thinking she started that
+finished, a thought or proposal from another part of her, a reconsideration she scheduled) is one evaluation
+of the agent loop with her prompt and tools. See `docs/MIND_ARCHITECTURE.md`. Personality is text-only
+`core_memory.profile`, cached once per process by `services/personality.py`. Apply migrations `a6d2f8c4e9b1`
+and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14,
+"Continuity follow-up" in `docs/MIND_ARCHITECTURE.md`): migration `c8e4a1f7b3d2` (`mind_evaluations`,
+`learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
+
 ## Overview
-Columbina is a general conversational agent with a persistent identity, personality, memory, and cognitive processing. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
+Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
 
 `NutritionDetection` is the historical workspace name. MacroVision food-photo inference and weight/calorie APIs are specialist capabilities retained in the codebase; they do not define Columbina's identity or the app's main focus.
 
 **Core features:**
 - General text and voice conversation with Columbina
-- Cognitive processing of meaning, conversational moves, personality, and dialogue continuity
+- One mind owning what she says (or doesn't), her background thinking, what she keeps open and when she comes back to it
 - Persistent memory and context, with screen awareness and integrations where available
 - Practical collaboration and specialist tools when the user requests them
 
@@ -37,9 +48,11 @@ Columbina is a general conversational agent with a persistent identity, personal
 /frontend                 # Vite + React 19 + TS, styled with Tailwind v4
   /src
     /components       # reusable UI: Logo, Button, ProtectedRoute, AppHeader, ProviderIcon, VoiceOrb, SenseStrip,
-                       #   DesktopSessionPanel, ThoughtStream, MoodStrip (her inner state, debug),
-                       #   Avatar (her glyph mark + user initial), system/ (the System page's field: FieldMap, PartPanel,
-                       #   anatomy, shapes, icons, LearningDetails = what the Learning page was)
+                       #   DesktopSessionPanel, ThoughtStream, MindPanel (what her mind keeps open and will come back to),
+                       #   Avatar (her glyph mark + user initial), system/ (the System page's field: FieldMap, PartPage,
+                       #   LogDrawer (watch log / signals / errors), TraceView (a turn or decision through every part),
+                       #   GoalCard (her hands' goal + plan), log.tsx + format.ts (timeline pieces), anatomy, shapes,
+                       #   icons, LearningDetails = what the Learning page was)
     /pages             # route-level pages: LandingPage, LoginPage, DashboardPage (voice), ChatPage, PredictPage, IntegrationsPage,
                        #   SystemPage (owner only: her parts as a live field; replaced LearningPage, /learning redirects)
     /audio             # mic capture worklet client, PCM playback, VAD, wake word
@@ -64,7 +77,8 @@ Columbina is a general conversational agent with a persistent identity, personal
         chat.py         # chatbot: WebSocket /api/chat/ws (streams reply) + REST conversation history
         dashboard.py    # weight/calorie CRUD endpoints
         integrations.py # Google OAuth connect/callback/status/disconnect
-        desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED)
+        desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED);
+                        #   PUT/GET .../environments/{id}/security: the owner's security-monitoring switch + channel health
         learning.py     # game learning: lessons, proposals, reflections under /api/learning; trials under
                         #   /api/learning/trials; learning capture
                         #   (chains, gaps) and training examples under /api/learning/capture, /training-examples;
@@ -72,6 +86,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   /api/learning/adaptation
         system.py       # her parts as one system: GET /api/system/status (worker heartbeats per part),
                         #   GET /api/system/parts/{part} (a part's recent activity, the owner's own),
+                        #   GET /api/system/watch (thoughts, memory captured, hands' goal as one log),
+                        #   GET /api/system/errors (what went wrong across parts),
                         #   GET /api/system/signals[/stream] (hand-offs between parts, SSE live); owner only
         auth.py
       deps.py           # shared deps (get_current_user, get_current_user_optional)
@@ -90,46 +106,40 @@ Columbina is a general conversational agent with a persistent identity, personal
         registry.py     # IntegrationProvider registry — the API/UI list is built from this
         /google         # OAuth 2.0: oauth.py, credentials.py, scopes.py, provider.py
       vision.py         # captions a screen frame to one line (small model)
-      /state            # the shared view (pure): contracts.py (sections with owner/version/status), routing.py
-                        #   (cognition + Student 2 -> fast path / recall / mind), student_two.py (the live situation
-                        #   in Student 2's training shape, its decision parsed/checked, its words for the mouth),
-                        #   decisions.py (cognition's decisions around thinking + what the student supports);
-                        #   adapters in services/shared_state.py
       /observe          # registry.py: what each kind of observation looks like and its memory rule (pure)
-      /learning         # trials.py: bounded game trials (pure): proposal contract and checks, Student 2's [P*] view,
+      /learning         # trials.py: bounded game trials (pure): proposal contract and checks, the options her mind reads,
                         #   measurement, prediction checks, the assessor's contract;
                         #   assessment.py: retrospective assessment (pure): the evidence bundle, the evaluator's
                         #   contract and prompt, code checks of what it returns, fingerprints, qualitative statuses;
                         #   lessons.py: lessons (pure): the builder's bundle, contract and checks, the LESSONS section
-                        #   and guide Student 2 reads, its lessons_weighed account
+                        #   and guide her mind, hard thoughts, planner and hands read, the lessons_weighed account
+      /security         # coverage.py: what she could see of a log channel over a window, and why not the rest (pure)
       /recall           # contracts.py: recall requests, typed results, memory references, limits (pure);
                         #   history.py: source-backed history contracts, reader prompt/schema, check, rendering (pure)
-      /mind             # her always-on mind (docs/COLUMBINA_MIND_DESIGN.md, docs/COLUMBINA_INNER_STATE_PLAN.md):
+      /mind             # her background mind's pure parts (docs/COLUMBINA_MIND_DESIGN.md, docs/MIND_ARCHITECTURE.md):
                         #   contracts.py (Scope, Moment, Source, Body, Command), tick.py (what changed, pressure, tick
                         #   text; the Minecraft source), situation.py (what a source tells the general mind), gates.py (how hard
                         #   to think: Jev / OpenAI Decisions / chat / Strands), think.py (quick thoughts),
                         #   plan.py (her planner: the one author of her game plan),
                         #   effort.py (her effort, pure: outcome / approach / actions / the user's rules as a
-                        #   timeline she and her planner read; docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md),
-                        #   mood_layers.py (her inner state: reaction -> incident -> mood, frozen config in
-                        #   Cognitive/simple/character/columbina.inner_state.json), inner_state.py (the flat model it replaced,
-                        #   kept for comparison)
+                        #   timeline she and her planner read; docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md)
       /desktop          # desktop agent runtime: driver.py + driver_loop.py (gameplay model loop), skill_driver.py (her hands
                         #   in a game pack), practice.py (her learner, stage H1), play_log.py (view angle +
                         #   recent play, counted by code), relay.py (TLS controller relay, own process:
                         #   `uv run python -m app.ai.desktop.relay`) + tls.py (its self-signed certificate)
-      /Cognitive
-        /simple         # simple cognition chain + teacher environment, the only cognition architecture (plan:
-                        #   docs/COLUMBINA_SIMPLE_COGNITION_AND_TEACHER_PLAN.md): contracts, notice/mood/turn/notes
-                        #   (code stages), render (teacher's view of the bundle), teacher + prompts/, simuser,
-                        #   scenario, episode, real (stored chats, read-only), student/ (encoder, data, model,
-                        #   train/evaluate, report, review page). CLI: `uv run python scripts/simple_cognition.py`
       /tools           # MCP tool servers the agent can call
         /screen         # look_at_screen — NOT MCP; one tool on the orchestrator itself
+        /mind           # her mind's own tools (stay_silent, think_it_over, stop_thinking, come_back_to,
+                        #   drop_come_back, decide_proposal, experiment) — NOT MCP; on every evaluation
         /memory         # her working-memory tools (set_goal, update_item, note_commitment, note_intention,
-                        #   switch_context) — NOT MCP; on the orchestrator for every reply;
+                        #   note_question, switch_context) — NOT MCP; on the orchestrator for every evaluation;
                         #   recall.py: her read tools (search_memories incl. "said", read_memory, read_timeline, what_i_know), recall_history
-        /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with a game VM
+        /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with her Minecraft pack
+        /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
+                        #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
+        /desktop_control # her own Windows desktop (docs/GENERAL_DESKTOP_CONTROL_DESIGN.md): screenshot, move_mouse,
+                        #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
+                        #   screenshot_hook shows her the pictures (pre-model hook)
         /gmail          # gmail_api.py (REST) + server.py (MCP) + client.py (adapter)
         /drive          # user-scoped Drive/Docs/Slides MCP tools and PDF/Office export
         /macrovision    # server.py (MCP over the nutrition model) + mount.py + scope.py
@@ -153,11 +163,15 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   desktop_link.py: desktop VM pairing codes, device tokens, controller heartbeats,
                        #   capture gate; desktop_preview.py: latest game frame in Redis (10 s TTL);
                        #   desktop_commands.py: API -> relay command stream + decision outcomes,
+                       #   security_activity.py: her desktop's security logs (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md):
+                       #   the owner's monitoring switch (epochs), intake from the relay, coverage, the read query;
+                       #   mind_security.py: those records as a source of her mind (investigations from the logs' own
+                       #   severity, her periodic look, coverage gaps, late evidence);
+                       #   desktop_control.py: general desktop control (access, one action there and back,
+                       #   each action recorded as a desktop_action capture + desktop observation),
                        #   voice_latency.py: per-stage voice-turn timing marks -> var/voice_latency.jsonl,
                        #   read with `uv run python scripts/voice_latency_report.py`;
                        #   game_learning.py: game experience -> reflection -> lessons/proposals/episode;
-                       #   cognitive_live.py: simple cognition in live chat, always on: her page, typed memories,
-                       #   Student 1 reading, notes;
                        #   game_skills.py: moves she taught herself, kept as skills her hands use (H2);
                        #   game_planning.py: her planner's jobs: input, decision, applying it;
                        #   game_moment.py: what changed in her game since a moment (counted by code);
@@ -165,9 +179,11 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   mind.py + mind_hard.py: her general mind (attention per user, quick and hard thoughts,
                        #   where conclusions go), over sources (app/ai/mind/contracts.py);
                        #   mind_minecraft.py: Minecraft as a source and a body (its senses and view coverage);
-                       #   effort.py: her effort in a game session, built from what was recorded (read-only); mind_conversation.py: a conversation
-                       #   as a live source (hard thoughts on open questions, promises, intentions, quiet time);
-                       #   inner_state_live.py: her mood from real conversations, no influence;
+                       #   effort.py: her effort in a game session, built from what was recorded (read-only);
+                       #   mind_conversation.py: memory's disagreements handed to her mind as wakes (no conversation
+                       #   sweeps of its own); mind_turn.py: one evaluation of her mind (what a wake is given, the
+                       #   evaluation's record, trace var/mind_turns.jsonl); mind_state.py: her continuity as one view
+                       #   (GET /api/mind/state);
                        #   memory_manager.py: her working memory (contexts, goals, commitments, intentions,
                        #   questions, her hypotheses and decisions, events); GET /api/memory/working inspects it;
                        #   thought_memory.py: her finished thoughts handed to memory, kept or skipped;
@@ -185,28 +201,35 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   memory_reset.py: wipe user memory for tests, `uv run python scripts/reset_memory.py`;
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
                        #   writer, gaps; planner and hard thoughts too); trajectory_capture.py + trajectory.py: her
-                       #   trajectory, every game tick pulled from the pack in chunks, read back (docs/learning-system/POST-AUDIT-01-implementation.md); capture_chains.py: reading chains back; training_examples.py: derivatives;
-                       #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions);
-                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences);
-                       #   learning_trials.py: bounded game trials (investigation, cognition's choice, preparation,
+                       #   trajectory, every game tick pulled from the pack in chunks, read back (docs/learning-system/POST-AUDIT-01-implementation.md); capture_chains.py: reading chains back;
+                       #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions,
+                       #   iterative requests, parked inquiries); learning_review.py: review opportunities (every
+                       #   exchange, pauses, ongoing play, her mind's nominations) and follow-ups handed to memory;
+                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences), and
+                       #   reconsideration (post-audit 4): a lesson read again on its own evidence after a changed
+                       #   premise (sweep) or her mind's critique, never new support;
+                       #   learning_trials.py: bounded game trials (investigation, her mind's choice, preparation,
                        #   execution bounds, recovery, assessment, what persists);
-                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting);
+                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting),
+                       #   their links to other memories (premises / ingredients: a changed one makes the lesson
+                       #   UNSETTLED for every consumer at once), details (untested, tried, needs, would support /
+                       #   challenge), a prepared supply made current before delivery (``current``);
                        #   transcript_search.py: what was said (heard text, by speaker), her "said" search;
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
-                       #   shared_state.py: the shared-state pipeline, user message -> scoped view -> Student 1 ->
-                       #   Student 2 -> mouth (the only reply preparation; trace var/shared_state.jsonl);
-                       #   student_two.py: Student 2 live (her live situation, the served decision model, its effects;
-                       #   trace var/student_two.jsonl); coordinator.py: background recall + hard.py thinking, outputs
-                       #   per phase; cognition_decisions.py: the decision providers for finished thoughts)
+                       #   coordinator.py: background thinking she started and the durable wake events that bring her
+                       #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
+                       #   per wake; autonomous_speech.py: those events' delivery fences)
     /workers           # external workers: chat, memory, whatsapp, file_deletion,
-                       #   coordinator (shared-state background work), desktop (gameplay driver) + agent_events (Columbina on game events)
+                       #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Columbina on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
-                       #   learning (training examples from captures, raw-capture retention) + learning-assessment
+                       #   learning (raw-capture retention) + learning-assessment
                        #   + learning-lessons (lessons from assessments) + learning-trials (desktop mode)
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
     main.py             # FastAPI app entrypoint
-  /desktop_controller   # desktop agent action contract + controller core. uv workspace member (pydantic, pyyaml,
+  /desktop_controller   # desktop agent action contract + controller core; desktop.py = general desktop control (her hands
+                        #   on the whole VM desktop: bounded actions, released on failure); security.py = the VM's event
+                        #   logs read only (wevtutil), bookmarks checked by record number, gaps/resets reported. uv workspace member (pydantic, pyyaml,
                         #   websockets only): runs in the game VM, also imported by the backend. Lives inside backend/ because
                         #   the Docker image builds from backend/ only. See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7.
                         #   Its tests run with the backend's: `uv run pytest` (testpaths includes it)
@@ -224,8 +247,17 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   src/sandbox.js = the sealed box her own code runs in (stage H; Node >= 24);
                         #   src/needs.js = what it takes to get an item or mine a block (GET /needs/<name>);
                         #   src/trajectory.js = her trajectory: every tick, damage causes, actions, in chunks (GET /trajectory);
+                        #   her view (docs/MINECRAFT_RAY_BASED_PERCEPTION_DESIGN.md): src/view.js (rays from her eyes),
+                        #   src/scene.js (openings, passages, structures, water, lava), src/landmarks.js (stable ids L3,
+                        #   saved with the world), src/perception.js (kept fresh, into her state as "In view"),
+                        #   src/view_image.js (material/depth PNGs, GET /view/image), src/navigation.js (standing spots,
+                        #   bounded route checks: go_to's grounding); skill look_around in src/skills/looking.js;
                         #   backend side: app/ai/desktop/practice.py + services/game_practice.py (H1, her learner).
                         #   `bun run test`, `bun run smoke`, `bun run itest` (real server, needs the EULA accepted)
+
+/backend/evals/post_audit_04 # post-audit 4 behavioral acceptance: frozen RUBRIC.md, reserved/fixtures.json (evaluation
+                        #   only, never for tuning), development/ (runner checks), the pack's skill manifest snapshot.
+                        #   Runner: `uv run python scripts/broader_learning_eval.py --run` (TEST_DATABASE_URL, real models)
 
 /model_weights          # pretrained weights copied/downloaded from the separate training repo (gitignored)
 
@@ -315,7 +347,7 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - **Image store:** a per-user directory (`<root>/<user_id>/<image_id>`), referred to by opaque `image_id`. Screen frames are `kind="screen"`, with short retention.
 - **Chat:** history lives in Postgres. The client sends only the new message. A WebSocket hands each turn to the external chat worker through Redis Streams. Postgres is the source of truth.
 - **Message order is a database fact:** a trigger allocates `chat_messages.conversation_sequence`. Never set it in code, and never order a conversation by timestamp alone.
-- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` merges consecutive same-role turns.
+- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` never merges turns; with `records=True` (her mind) each turn carries an app-record marker and silent evaluations appear as `record` turns, rendered as system messages (`ai/messages.py`).
 - **Awareness, the eye, nudges, voice page, WhatsApp:** see `docs/DECISIONS.md`. Client-reported senses never authorize anything.
 - **Deployment / CI:** local only, no CI yet.
 
@@ -324,24 +356,26 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - Desktop tests need a throwaway `TEST_DATABASE_URL` / `TEST_REDIS_URL`, never the dev DB.
 - Game learning: `services/game_learning.py` (its module docstring is the spec). A model's guess never becomes truth without evidence.
 
-**Her mind** (`docs/COLUMBINA_MIND_DESIGN.md`, `docs/COLUMBINA_INNER_STATE_PLAN.md`, `docs/COLUMBINA_HARD_THINKING_PLAN.md`, `docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md`)
-- General mind over `Source`/`Body` contracts (`app/ai/mind/contracts.py`). Attention is per user: one hard thought at a time. Minecraft and conversation are sources.
-- Hard thoughts conclude (decision / guess / question / intention / feeling) and have no tools. Concluded thoughts reach memory as observations.
-- The planner is the one author of a game pack's plan. Inner state is observed only and has no influence yet.
+**Her mind** (`docs/MIND_ARCHITECTURE.md`, `docs/COLUMBINA_MIND_DESIGN.md`, `docs/COLUMBINA_HARD_THINKING_PLAN.md`, `docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md`)
+- One mind decides: every wake is one evaluation of the agent loop (`services/mind_turn.py`); recall results return into the same loop; silence, background thinking, continuity and coming back later are her tools. No code decides social behaviour (no speaking gaps, hush rules or canned topics); execution checks stay.
+- Background mind over `Source`/`Body` contracts (`app/ai/mind/contracts.py`). Attention is per user: one hard thought at a time. Minecraft and her desktop's security records are sources; a conversation is not (messages wake her directly).
+- Hard thoughts conclude (decision / guess / question / intention / feeling) and have no tools. Concluded thoughts reach memory as observations; anything to say becomes a wake of her mind.
+- The planner is the one author of a game pack's plan.
 - No code-defined "stuck" (2026-11-04, the user's decision): no time limit or try count decides it. Code keeps the
-  effort record and picks when she looks back (a plan step ending); her mind judges progress and the cause.
+  effort record and picks when she looks back (a plan step ending, or every `MIND_STEP_LOOK_BACK_SECONDS` while one
+  keeps going); her mind judges progress and the cause, and a look back that finds no progress asks her planner to rethink.
 
 **Memory** (`docs/COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md`, `docs/COLUMBINA_MEMORY_SESSION{1,2,3}_*.md`, `docs/COLUMBINA_SOURCE_BACKED_RECALL.md`, `docs/COLUMBINA_MEMORY_CORRECTIONS.md`, `docs/COLUMBINA_MEMORY_CONFLICTS.md`, `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`)
 - Working memory (contexts, items, events, evidence), observation, shared recall, source-backed history, corrections, conflicts, forgetting, claims/entities/time, dependencies, transcript search and upkeep. Status of each stage: `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`.
 - Invariants: memory never picks a side in a conflict; a failed or partial search is never reported as `no_match`; observations are immutable; evidence links cascade, memories don't.
 
-**Reply pipeline and cognition** (`docs/SHARED_STATE_*`, `docs/STUDENT2_*`, `docs/LEGACY_CLEANUP_2026-10-22.md`; Student 2 live in `docs/DECISIONS.md`)
-- One shared-state pipeline prepares every reply: memory check → Student 1 → Student 2 → mouth. There is no fallback branch. Cognition = `app/ai/Cognitive/simple` only.
-- Student 2 (served Qwen LoRA, `scripts/student_model.py prepare|serve`) decides every message. If it is unavailable, the turn falls back to a labelled `respond`. The backend never imports MLX.
-- Tests refuse the dev DB and Student 2's HTTP call (`tests/conftest.py`).
+**Wakes and delivery** (`docs/MIND_ARCHITECTURE.md`; "Her mind owns every decision" in `docs/DECISIONS.md`)
+- A wake that isn't a message is durable `coordinator_work` (`mind`, `wake`) dispatched as one chat job in its own conversation; `coordinator_outputs` records what she did (`said` / `silent` / `no_words`) and what was delivered.
+- Before anything a wake produced is stored: no newer user message, its premise still open, nothing forgotten since, not already said in this quiet stretch.
+- Tests refuse the dev DB (`tests/conftest.py`), give every test one fixed text personality, and script her mind's model run (`tests/test_coordinator.py`).
 
 **Learning** (`docs/learning-system/`: steps 01-04 decisions + implementation)
-- Capture, retrospective assessment, lessons for Student 2, bounded game trials. Learning proposes, memory and cognition own the outcome.
+- Capture, retrospective assessment, lessons for her mind, hard thoughts, planner and hands, bounded game trials. Learning proposes, memory and her mind own the outcome.
 
 **Product rules** (full text in `docs/DECISIONS.md`)
 - **Always on (2026-10-28, the user's decision):** no feature flags for her own parts. Flags remain only for outside setup or behaviour choices.

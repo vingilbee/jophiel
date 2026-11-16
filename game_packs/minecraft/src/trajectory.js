@@ -505,7 +505,13 @@ export class Trajectory {
     if (!this.stream || !state) return
     const content = {
       surroundings: state.surroundings ?? null, terrain: state.terrain ?? null, blocks: state.blocks ?? null,
-      heights: state.heights ?? null, players_out_of_sight: state.players_out_of_sight ?? null
+      heights: state.heights ?? null, players_out_of_sight: state.players_out_of_sight ?? null,
+      // Her view's landmarks (in view and remembered), without the view's own id and timing.
+      view: state.view ? {
+        facing: state.view.facing,
+        landmarks: [...state.view.in_view, ...state.view.remembered].map((l) => ({ id: l.id, kind: l.kind, status: l.status, x: l.x, y: l.y, z: l.z })),
+        unknown: state.view.unknown
+      } : null
     }
     const key = digest(content)
     const first = !this.chunk.perceived.has(key)

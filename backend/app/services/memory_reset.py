@@ -14,18 +14,19 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    TrajectoryChunk, TrajectoryStream,
+    TrajectoryChunk, TrajectoryStream, LearningReset, User,
     AgentEventJob, CaptureBlob, LearningAssessment, LearningLessonJob, MemoryLesson, CaptureGap, Conversation, DecisionAttempt, DecisionExecution, DesktopSession, EpisodicMemory, GameChallenge, GameExperience, GameLearnedSkill,
     GameLesson, GameProposal, GameReflectionJob, GameSkillAttempt, LearningMemory, MemoryConflict, MemoryContext,
     MemoryCorrection, MemoryEntity, MemoryEntityLink, MemoryEvent, MemoryForget, MemoryForgottenSource, MemoryUpkeepPair,
     MemoryEvidence, MemoryJob, MemoryManagerState, Observation, ObservationBinding, ObservationProcessing,
     ObservationSource, MemoryEventEmbedding, RecallReceipt, RecallReconstruction, RecallReconstructionSource,
-    RecallReference, SemanticMemory, TrainingExample, TrainingExampleDeletion, WorkingItem, LearningTrial,
+    RecallReference, SemanticMemory, WorkingItem, LearningTrial,
     LearningTrialTrigger,
 )
 
 # What each scope deletes, in order. Every model here has a ``user_id`` column.
 SCOPES: dict[str, tuple[type, ...]] = {
+    "consolidation": (LearningTrialTrigger, LearningTrial, LearningLessonJob, MemoryLesson, LearningAssessment, GameReflectionJob, GameLesson, GameProposal),
     "conversations": (Conversation,),
     # Corrections go with the consolidation that read them (their memory events, if any, are working memory).
     # Forget requests and their tombstones too: a test reset starts over (a user's forget never does this).
@@ -49,11 +50,8 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # Learning capture (docs/learning-system/01-implementation.md): raw decision captures and their gaps, and her
     # trajectory (docs/learning-system/POST-AUDIT-01-implementation.md).
     "capture": (DecisionExecution, DecisionAttempt, CaptureGap, CaptureBlob, TrajectoryChunk, TrajectoryStream),
-    # Training examples derived from them, with deletion tombstones (a test reset starts over; a user's own
-    # source deletion never removes examples, and their explicit deletion keeps the tombstone).
-    "training": (TrainingExampleDeletion, TrainingExample),
     # Learning's assessments (docs/learning-system/02-implementation.md): revisions, links, evidence and uses
-    # cascade with them. Training examples they flagged stay flagged (scope training resets those).
+    # cascade with them.
     "assessment": (LearningAssessment,),
     # Lessons (docs/learning-system/03-implementation.md): revisions, evidence and uses cascade with them; the
     # lesson jobs also go with scope assessment (they cascade with their assessment).
@@ -62,6 +60,9 @@ SCOPES: dict[str, tuple[type, ...]] = {
     # with their trial. What they fed (a hypothesis's status, a game lesson, a move) belongs to those owners.
     "trials": (LearningTrialTrigger, LearningTrial),
 }
+
+
+FOLLOW_UP_MARK = "learning follow-up (assessment "  # services/learning_review.propose
 
 
 def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
@@ -76,6 +77,39 @@ def reset(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     if unknown:
         raise ValueError(f"unknown scope(s): {', '.join(sorted(unknown))}")
     counts: dict[str, int] = {}
+    if "consolidation" in chosen:
+        from datetime import datetime, timezone
+        from sqlalchemy.dialects.postgresql import insert
+        cutoff = datetime.now(timezone.utc)
+        targets = ids if ids is not None else list(db.scalars(select(User.id)))
+        for user_id in targets:
+            db.execute(insert(LearningReset).values(user_id=user_id, cutoff_at=cutoff)
+                       .on_conflict_do_update(index_elements=[LearningReset.user_id], set_={"cutoff_at": cutoff}))
+        episode_delete = delete(EpisodicMemory).where(EpisodicMemory.context["source"].astext == "game")
+        if ids is not None:
+            episode_delete = episode_delete.where(EpisodicMemory.user_id.in_(ids))
+        counts["game_episodes"] = db.execute(episode_delete).rowcount or 0
+        receipts = update(ObservationProcessing).where(
+            ObservationProcessing.consumer.in_(("learning", "trials")),
+            ObservationProcessing.status.in_(("pending", "retry")))
+        if ids is not None:
+            receipts = receipts.where(ObservationProcessing.user_id.in_(ids))
+        counts["pending_learning_receipts"] = db.execute(receipts.values(
+            status="skipped", processed_at=cutoff, reason="test learning reset")).rowcount or 0
+        pending = delete(LearningTrialTrigger)
+        if ids is not None:
+            pending = pending.where(LearningTrialTrigger.user_id.in_(ids))
+        db.execute(pending)
+        # Learning's open follow-up proposals (post-audit 3) go with the assessments that made them: closed, so
+        # her mind never takes one up across test attempts.
+        counts["learning_follow_ups"] = 0
+        for kind, status in (("question", "dropped"), ("hypothesis", "unresolved")):
+            closing = update(WorkingItem).where(WorkingItem.kind == kind, WorkingItem.closed_at.is_(None),
+                                                WorkingItem.reason.like(FOLLOW_UP_MARK + "%"))
+            if ids is not None:
+                closing = closing.where(WorkingItem.user_id.in_(ids))
+            counts["learning_follow_ups"] += db.execute(closing.values(
+                status=status, status_reason="test learning reset", closed_at=cutoff)).rowcount or 0
     for scope in chosen:
         if scope == "working":
             unlink = update(DesktopSession).where(DesktopSession.goal_item_id.is_not(None)).values(goal_item_id=None)
@@ -116,10 +150,31 @@ def preview(db: Session, *, user_ids: Iterable[uuid.UUID] | None = None,
     """Rows ``reset`` would delete, without deleting anything."""
     ids = None if user_ids is None else list(user_ids)
     counts: dict[str, int] = {}
+    scopes = list(scopes)
     for scope in scopes:
         for model in SCOPES[scope]:
             query = select(func.count()).select_from(model)
             if ids is not None:
                 query = query.where(model.user_id.in_(ids))
             counts[model.__tablename__] = db.scalar(query) or 0
+    if "consolidation" in scopes:
+        query = select(func.count()).select_from(EpisodicMemory).where(EpisodicMemory.context["source"].astext == "game")
+        receipts = select(func.count()).select_from(ObservationProcessing).where(
+            ObservationProcessing.consumer.in_(("learning", "trials")), ObservationProcessing.status.in_(("pending", "retry")))
+        if ids is not None:
+            query = query.where(EpisodicMemory.user_id.in_(ids))
+            receipts = receipts.where(ObservationProcessing.user_id.in_(ids))
+        counts["game_episodes"] = db.scalar(query) or 0
+        counts["pending_learning_receipts"] = db.scalar(receipts) or 0
+        follow_ups = select(func.count()).select_from(WorkingItem).where(
+            WorkingItem.closed_at.is_(None), WorkingItem.reason.like(FOLLOW_UP_MARK + "%"))
+        if ids is not None:
+            follow_ups = follow_ups.where(WorkingItem.user_id.in_(ids))
+        counts["learning_follow_ups"] = db.scalar(follow_ups) or 0
     return counts
+
+
+def learning_cutoff(db: Session, user_id: uuid.UUID):
+    from datetime import datetime, timezone
+    row = db.get(LearningReset, user_id)
+    return row.cutoff_at if row is not None else datetime.min.replace(tzinfo=timezone.utc)

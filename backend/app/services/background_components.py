@@ -1,23 +1,81 @@
-"""Step 7 adapters over existing owners. Durable work is the notification/recovery source.
+"""Adapters over existing owners for the coordinator's maintenance work. Durable work is the
+notification/recovery source.
 
 Memory maintenance retains its existing rule engine. Observation preparation has no production
 transformer: its input contract and scheduler are implemented, and work settles as blocked.
+The contracts are here (pure dataclasses): ``AdapterPolicy``, ``PreparationInput``, ``PreparationResult``.
 """
 from __future__ import annotations
 
 import uuid
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import timedelta
+from typing import Protocol
 
 from sqlalchemy import select, func, exists
 from sqlalchemy.dialects.postgresql import insert
 
-from app.ai.state.background import CognitionEvent, PreparationInput, PreparationResult, SinkReceipt
 from app.core.config import get_settings
 from app.db.models import (CoordinatorWork, MemoryManagerState, Observation, ObservationProcessing,
                            ChatMessage)
 from app.db.session import SessionLocal
+
+
+
+@dataclass(frozen=True)
+class AdapterPolicy:
+    component: str
+    event_types: tuple[str, ...]
+    input_versions: tuple[str, ...]
+    scope: str
+    concurrency_key: str
+    timeout_seconds: int
+    max_attempts: int
+    result_type: str
+    cadence_seconds: float | None = None
+
+
+POLICIES = {
+    "mind": AdapterPolicy("mind", ("thinking_requested",), ("evidence", "conversation"),
+                          "conversation/activity", "mind:user", 180, 3, "private_thought"),
+    "recall": AdapterPolicy("recall", ("recall_requested",), ("evidence",),
+                            "conversation", "recall:user", 180, 3, "memory_result"),
+    "wake": AdapterPolicy("wake", ("reconsideration_due",), (), "conversation", "wake:user", 180, 3, "wake"),
+    "memory": AdapterPolicy("memory", ("source_report", "maintenance_due"), ("due", "receipt"),
+                            "user", "memory:user", 180, 3, "maintenance_receipt", 1),
+    "observation": AdapterPolicy("observation", ("exchange_settled", "experience", "delivery_changed"),
+                                 ("source", "delivery"), "conversation/activity", "observation:user",
+                                 180, 3, "learning_preparation"),
+}
+
+
+@dataclass(frozen=True)
+class PreparationInput:
+    event_id: str
+    user_id: str
+    conversation_id: str | None
+    activity_id: str | None
+    source_refs: tuple[str, ...]
+    input_versions: dict[str, str]
+    delivery: dict  # recorded/partial/cancelled and heard extent, never assumed delivered
+    correlation_id: str
+    created_at: str
+    schema_version: int = 1
+
+
+@dataclass(frozen=True)
+class PreparationResult:
+    output_refs: tuple[str, ...] = ()
+    processing_version: str = "unavailable"
+    coverage: tuple[str, ...] = ()
+    unavailable: str | None = None
+    schema_version: int = 1
+
+
+class PreparationAdapter(Protocol):
+    def __call__(self, evidence: PreparationInput) -> PreparationResult: ...
+
 
 PREPARATION_CONSUMER = "preparation"
 ELIGIBLE = ("reply_recorded", "reply_interrupted", "delivery_status", "skill_outcome", "notice")
@@ -27,21 +85,8 @@ def unavailable_preparation(evidence: PreparationInput) -> PreparationResult:
     return PreparationResult(unavailable="conversation/experience learning-preparation transformer not implemented")
 
 
-def unavailable_cognition(event: CognitionEvent) -> SinkReceipt:
-    return SinkReceipt("blocked", "background result cognition unavailable; relevance check required before replay")
-
-
-def student_cognition(event: CognitionEvent) -> SinkReceipt:
-    """A finished thought already went to Student 2 in its follow-up phase (``coordinator._conclude``); other
-    events have no reader yet."""
-    if event.kind == "private_thought":
-        return SinkReceipt("consumed", "decided by Student 2 in the follow-up phase")
-    return unavailable_cognition(event)
-
-
 # Test/implementation seams, deliberately without model or teacher fallbacks.
 prepare_observation = unavailable_preparation
-cognition_sink = student_cognition
 
 
 def enabled(kind: str) -> bool:
@@ -49,9 +94,9 @@ def enabled(kind: str) -> bool:
     # Everything always runs except observation preparation, which has no production transformer yet.
     return bool({"mind": True,
                  "recall": True,
+                 "wake": True,
                  "memory": True,
-                 "observation": getattr(s, "observation_preparation_enabled", False),
-                 "cognition": True}.get(kind, False))
+                 "observation": getattr(s, "observation_preparation_enabled", False)}.get(kind, False))
 
 
 def admit(db, *, kind, key, user_id, payload, versions, conversation_id=None, activity_id=None,
@@ -73,7 +118,7 @@ def admit(db, *, kind, key, user_id, payload, versions, conversation_id=None, ac
         activity_id=activity_id, kind=kind, status="queued", input=payload, input_versions=versions,
         dependency_ids=[], idempotency_key=key,
         deadline_at=coordinator._now() + timedelta(seconds=getattr(
-            get_settings(), "shared_state_work_deadline_seconds", 180)),
+            get_settings(), "mind_work_deadline_seconds", 180)),
     ).on_conflict_do_nothing(index_elements=["idempotency_key"]).returning(CoordinatorWork.id)).scalar()
 
 
@@ -160,18 +205,11 @@ def execute(work):
             raise ValueError("preparation outputs must be bounded references")
         return asdict(result), "blocked" if result.unavailable else "completed", (
             "preparation_unavailable" if result.unavailable else None)
-    if work.kind == "cognition":
-        values = dict(work.input)
-        values["source_refs"] = tuple(values["source_refs"])
-        receipt = cognition_sink(CognitionEvent(**values))
-        if receipt.status not in ("consumed", "blocked"):
-            raise ValueError("invalid cognition receipt; no speech actions supported")
-        return asdict(receipt), "blocked" if receipt.status == "blocked" else "completed", None
     raise ValueError(f"unknown background component: {work.kind}")
 
 
 def accepted(db, work) -> None:
-    """Same transaction as accepted output. Historical work survives new conversational input."""
+    """Same transaction as accepted output: an observation preparation settles its processing receipt."""
     from app.services import coordinator
     if work.kind == "observation":
         receipt = db.get(ObservationProcessing, (int(work.input["event_id"]), PREPARATION_CONSUMER))
@@ -180,111 +218,6 @@ def accepted(db, work) -> None:
             receipt.processed_at = coordinator._now()
             receipt.reason = work.error_code
             receipt.rule_version = (work.result or {}).get("processing_version", "unavailable")[:32]
-    # Maintenance receipts are not cognitive events. Mind's speech decision keeps its step 4/5 boundary.
-    if work.kind not in ("mind", "observation") or work.status != "completed":
-        return
-    event_id = uuid.uuid5(work.id, "cognition")
-    event = CognitionEvent(str(event_id), str(work.user_id),
-        str(work.conversation_id) if work.conversation_id else None,
-        str(work.activity_id) if work.activity_id else None,
-        "private_thought" if work.kind == "mind" else "learning_preparation",
-        (f"work:{work.id}",), {**work.input_versions, **(work.result or {}).get("evidence_versions", {})},
-        str(work.id), str(work.request_id),
-        coordinator._now().isoformat())
-    enqueue_cognition(db, event, event_id, f"cognition:{work.id}", work.request_id)
-
-
-def enqueue_cognition(db, event, identity, key, request_id):
-    """Keep every source handoff, but never overfill its runnable queue. Overflow is explicit/blocked."""
-    from app.services import coordinator
-    db.execute(select(func.pg_advisory_xact_lock(func.hashtext("admission:cognition"))))
-    pending = db.scalar(select(func.count()).select_from(CoordinatorWork).where(
-        CoordinatorWork.kind == "cognition", CoordinatorWork.status.in_(coordinator.ACTIVE)))
-    full = pending >= getattr(get_settings(), "coordinator_max_pending", 1000)
-    db.execute(insert(CoordinatorWork).values(
-        id=identity, request_id=request_id, user_id=uuid.UUID(event.user_id),
-        conversation_id=uuid.UUID(event.conversation_id) if event.conversation_id else None,
-        activity_id=uuid.UUID(event.activity_id) if event.activity_id else None, kind="cognition",
-        input=asdict(event), input_versions=event.input_versions, dependency_ids=[],
-        status="blocked" if full else "queued", idempotency_key=key,
-        result=asdict(SinkReceipt("blocked", "cognition queue capacity; relevance review required")) if full else None,
-        error_code="handoff_capacity" if full else None,
-        deadline_at=coordinator._now() + timedelta(days=1),
-    ).on_conflict_do_nothing(index_elements=["idempotency_key"]))
-
-
-def projections(user_id, conversation_id):
-    from app.ai.state.contracts import ComponentView, Projection, SourceRef
-    from app.services import coordinator
-    output = []
-    try:
-        with SessionLocal() as db:
-            for kind in ("mind", "memory", "observation", "cognition"):
-                if not enabled(kind):
-                    output.append(ComponentView(Projection.off(kind, "component disabled"), kind,
-                        str(user_id), str(conversation_id) if conversation_id else None, "disabled"))
-                    continue
-                scope = [CoordinatorWork.user_id == user_id, CoordinatorWork.kind.in_(
-                    ("memory", "recall") if kind == "memory" else (kind,))]
-                if kind == "mind":
-                    scope.append(CoordinatorWork.conversation_id == conversation_id)
-                pending = list(db.scalars(select(CoordinatorWork).where(*scope,
-                    CoordinatorWork.status.in_(coordinator.ACTIVE)).order_by(CoordinatorWork.created_at).limit(10)))
-                last = db.scalar(select(CoordinatorWork).where(*scope,
-                    CoordinatorWork.status.in_(coordinator.TERMINAL)).order_by(CoordinatorWork.updated_at.desc()).limit(1))
-                state = db.get(MemoryManagerState, user_id) if kind == "memory" else None
-                status = ("running" if any(w.status == "running" for w in pending) else "queued") if pending else (
-                    "blocked" if last and last.status == "blocked" else
-                    "failed" if last and last.status in ("failed", "expired") else "idle")
-                version = str(state.revision) if state else (last.updated_at.isoformat() if last else None)
-                updated = state.updated_at if state else (last.updated_at if last else None)
-                reason = ((last.result or {}).get("unavailable") or (last.result or {}).get("reason")) if last and status == "blocked" else None
-                stale = any(w.status == "running" and w.lease_expires_at and
-                            w.lease_expires_at <= coordinator._now() for w in pending)
-                if stale:
-                    reason = "lease expired; recovery pending"
-                elif last and status == "failed":
-                    reason = last.error_code
-                output.append(ComponentView(Projection(kind, "stale" if stale else "available", version=version, updated_at=updated,
-                    source_refs=(SourceRef("work", str(last.id)),) if last else (), reason=reason),
-                    kind, str(user_id), str(conversation_id) if kind == "mind" and conversation_id else None,
-                    status, tuple(f"work:{w.id}" for w in pending), f"work:{last.id}" if last else None,
-                    last.input_versions if last else {}, state.next_check_at if state else None))
-    except Exception:
-        # A projection outage cannot derail the reply or misrepresent it as empty/idle.
-        return tuple(ComponentView(Projection.missing(k, "component state read failed"), k, str(user_id),
-                                   None, "blocked") for k in ("mind", "memory", "observation", "cognition"))
-    return tuple(output) + owned_memory_projections(user_id, conversation_id)
-
-
-def owned_memory_projections(user_id, conversation_id):
-    """Expose existing ingestion workers without scheduling duplicate copies of their work."""
-    from app.ai.state.contracts import ComponentView, Projection, SourceRef
-    from app.db.models import MemoryJob
-    result = []
-    for name, model, source_attr in (
-        ("memory_ingestion", MemoryJob, "assistant_message_id"),
-    ):
-        scope_id = str(conversation_id) if conversation_id else None
-        try:
-            with SessionLocal() as db:
-                scope = (model.user_id == user_id, model.conversation_id == conversation_id)
-                pending = list(db.scalars(select(model).where(*scope, model.status.in_(("pending", "processing")))
-                                         .order_by(model.created_at).limit(10)))
-                last = db.scalar(select(model).where(*scope, model.status.in_(("completed", "failed", "skipped")))
-                                 .order_by(model.processed_at.desc().nulls_last()).limit(1))
-                running = any(row.status == "processing" for row in pending)
-                status = ("running" if running else "queued") if pending else (
-                    "failed" if last and last.status == "failed" else "idle")
-                ref = f"{name}:{last.id}" if last else None
-                stamp = last.processed_at if last else None
-                result.append(ComponentView(Projection(name, "available", str(stamp) if stamp else None, stamp,
-                    (SourceRef(name, str(last.id)),) if last else ()), name, str(user_id), scope_id, status,
-                    tuple(f"{name}:{row.id}" for row in pending), ref,
-                    {"source_message": str(getattr(last, source_attr))} if last else {}))
-        except Exception:
-            result.append(ComponentView(Projection.missing(name, "owner read failed"), name, str(user_id), scope_id, "blocked"))
-    return tuple(result)
 
 
 def source_current(db, work):
@@ -311,12 +244,6 @@ def memory_changed(db, user_id, correction_id, event_id, refs):
     current.last_event_id = event_id
     current.last_decision = {"decision": "invalidated", "source": f"correction:{correction_id}",
                              "changed_refs": list(versions)}
-    now = coordinator._now()
-    identity = uuid.uuid5(user_id, f"memory-correction:{correction_id}")
-    event = CognitionEvent(str(identity), str(user_id), None, None, "memory_changed",
-        (f"correction:{correction_id}", f"event:{event_id}"), versions, str(correction_id),
-        str(correction_id), now.isoformat())
-    enqueue_cognition(db, event, identity, f"correction:{correction_id}", identity)
     background_wake.mark(db)
 
 

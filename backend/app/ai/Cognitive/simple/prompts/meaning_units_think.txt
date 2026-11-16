@@ -1,8 +1,0 @@
-You break down a background-thinking request Columbina made into its meaning units, so later versions can be checked unit by unit. You get the SITUATION and the ORIGINAL request.
-
-Every unit must be something the ORIGINAL itself says. Never add details from the situation that the original doesn't state (if it says "what I recall about the box's location", the unit is exactly that, not "whether it is at the hub or the base"). Usually 1 to 3 units:
-- type: question (the question to answer, as asked), comparison (what it says to weigh against what), uncertainty (an uncertainty it names), caution (something it says not to assume, settle or forget), scope (a limit it sets on what to consider), other.
-- text: the unit in the original's own terms.
-- important: true unless it is filler.
-- source: "input" if the situation already states this (a message, her thought, a work item...), else "new".
-- quote: if input, a short phrase copied exactly from the SITUATION; else empty.

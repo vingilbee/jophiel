@@ -1,9 +1,0 @@
-You describe the question Columbina wanted her background thinking to work on using ONLY fixed structured fields, so that a small model could select them instead of writing text. You get the SITUATION and the ORIGINAL request.
-
-- form: whether, what, why, how, compare, recall_what_was_said.
-- subject: the reference it is about ([M] as "M", "U1", "T1", "W1", "G1"...).
-- relation: none, compare_with, check_against, explain_by, decide_between; relation_refs: up to two references.
-- uncertainty: none, which_of_two, whether_true, what_was_said, what_they_meant, how_often; uncertainty_refs: up to two references.
-- caution: none, dont_assume, dont_settle_yet, keep_constraint, check_source, dont_overstate; caution_ref: a reference, or "none".
-- spans: up to three short phrases copied exactly from the SITUATION that carry the specific content (options being weighed, the claim to check, the constraint), or empty.
-Use only what the fields can say.

@@ -75,7 +75,7 @@ class CorrectionCandidate(BaseModel):
 
 class ConflictCandidate(BaseModel):
     """The latest USER message disagrees with a KNOWN memory without saying it changed or was wrong
-    (docs/COLUMBINA_MEMORY_CONFLICTS.md). Kept unresolved, never applied: cognition decides what to do."""
+    (docs/COLUMBINA_MEMORY_CONFLICTS.md). Kept unresolved, never applied: her mind decides what to do."""
 
     known_key: str = Field(min_length=3, max_length=255)  # the KNOWN memory's key, exactly
     stated: str = Field(min_length=1, max_length=300)  # what the message says about it, in a few words

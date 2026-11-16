@@ -1,4 +1,4 @@
-"""Minecraft as a source and a body of her general mind (docs/COLUMBINA_INNER_STATE_PLAN.md).
+"""Minecraft as a source and a body of her general mind (docs/COLUMBINA_MIND_DESIGN.md).
 
 Everything about the game the mind needs, behind the contracts in app/ai/mind/contracts.py:
 
@@ -40,11 +40,6 @@ INVENTORY_KEPT_SECONDS = 180  # how far back "while it ran" can look
 # on only these is not a surprise (the user talking is her mouth's to answer).
 NOT_WORLD = ("the user said", "you said", "your hands:", "new goal:", "next step:", "session ", "learning:",
              "(first tick")
-QUIET_TOPICS = (
-    "{user}: what they want from today, and how they're doing",
-    "the session so far: what you two did, and what's unfinished",
-    "yourself: how it's going for you, and what you'd like to do",
-)
 
 _situation = None
 _notice_cursors: dict[uuid.UUID, int] = {}
@@ -77,6 +72,7 @@ class Triggers:
     goal_seen: str | None = None
     learned_seen: tuple | None = None  # the learned move run already thought about
     place_surprise_at: float = 0.0  # when going in or out last made her think hard
+    step_looked: tuple | None = None  # (plan revision, step id, when) of the last look back while a step ran
 
 
 # --------------------------------------------------------------------------- #
@@ -164,6 +160,40 @@ def step_ended(st: Triggers, session: DesktopSession, plan: dict | None, driver:
              "and if not, why?")
     return Problem("review", text, topic=f"looking back: {before['do']}"[:200],
                    query=f"{(plan or {}).get('goal') or ''} {before['do']}"[:300],
+                   anchor={"outcome": str(session.goal_item_id) if getattr(session, "goal_item_id", None) else None})
+
+
+def step_running_long(st: Triggers, session: DesktopSession, plan: dict | None, driver: dict, at: float, *,
+                      every: float | None = None) -> Problem | None:
+    """A step of her plan is still going a while after it began: a moment to look back over the whole effort,
+    as when one ends. Code picks only *when* (``mind_step_look_back_seconds`` into the step, and again each time
+    that passes); whether it is getting anywhere, and whether the way she goes about it should change, is her
+    mind's to judge. Live 2026-11-06 the iron step ran 21 minutes and nothing looked back: a step that never
+    ends never got the step-ended look back."""
+    from app.ai.desktop.skill_driver import failure_summary
+
+    every = get_settings().mind_step_look_back_seconds if every is None else every
+    if session is None or not every:
+        return None
+    now = _active(session, plan, driver)
+    log_ = driver.get("step") or {}
+    if now is None or log_.get("id") != now["id"] or not log_.get("since"):
+        return None
+    began = float(log_["since"])
+    key = (now["revision"], now["id"])
+    last = st.step_looked[2] if st.step_looked and st.step_looked[:2] == key else began
+    if at - last < every:
+        return None
+    st.step_looked = (*key, at)
+    minutes = max(1, round((at - began) / 60))
+    text = f'A step of your plan has been going for {minutes} minutes and isn\'t done: "{now["do"]}".'
+    if now["tries"]:
+        text += f" Your hands tried {now['tries']} times; {now['failed']} failed"
+        text += (": " + failure_summary(now["failures"]) + "." if now["failed"] and now["failures"] else ".")
+    text += ("\nLook back over your whole effort below, not just the last move: is it getting anywhere? If not, "
+             "is it the way you are going about it (the approach), not only where to go next?")
+    return Problem("review", text, topic=f"looking back: {now['do']}"[:200],
+                   query=f"{(plan or {}).get('goal') or ''} {now['do']}"[:300],
                    anchor={"outcome": str(session.goal_item_id) if getattr(session, "goal_item_id", None) else None})
 
 
@@ -261,12 +291,16 @@ def big(st: Triggers, plan: dict | None, driver: dict, state: dict) -> Problem |
 # What she reads, and whether a thought still holds
 # --------------------------------------------------------------------------- #
 
-SHAPE_LINES = ("Ways", "Land ", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on")
+SHAPE_LINES = ("Ways", "Land ", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on",
+               "In view", "Remembered places")
 # The shape lines her mind reads (all but the long "Land out to" survey): which way the ground rises or
 # falls, cave mouths, the way out. Before 2026-11-04 her mind got none of them, so "which branch goes
 # deeper?" had no answer in what it read.
 # The open space she is in and where it goes on (2026-11-04) are kept too: the passages underground.
-SHAPE_KEPT = ("Ways", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on")
+# Her view (2026-11-07, the pack's src/perception.js): what's in front of her eyes, far, and the landmarks she
+# remembers, under ids kept across views.
+SHAPE_KEPT = ("Ways", "Highest ground", "Surface", "Way out", "Openings", "Open space", "Where it goes on",
+              "In view", "Remembered places")
 
 # How she perceives in Minecraft, checked against the pack's code (game_packs/minecraft/src/sight.js,
 # surroundings.js, terrain.js) on 2026-11-04. Fixed: what the code can and can't tell her.
@@ -276,7 +310,15 @@ SENSES = (
     "check at most 128 candidates, so many hidden ones nearby can crowd out a visible one further off.",
     "Ways: in 8 directions you walk the ground up to 24 blocks (up 1, down at most 3) and learn how far it rises "
     "or falls and what stops you. It stops at the first wall.",
-    "Openings (cave or tunnel mouths): detected only while you're under open sky, along 16 directions.",
+    "Openings (cave or tunnel mouths found walking 16 directions): only while you're under open sky.",
+    "View (\"In view\"): rays from your eyes over what's in front of you, 100° wide and up to 128 m, wherever you "
+    "stand (under trees, a roof or rock, across water): openings into covered space (cave or tunnel mouths, doorways) "
+    "with their size, how far in you see and how the floor goes; passages where the space you're in goes on; possible "
+    "structures from built materials; water and lava. Each gets an id (L3) kept across views; \"Remembered "
+    "places\" were seen before and aren't in view now. Only what the rays reached: past a bend, behind a wall, "
+    "behind you or out of loaded terrain is unknown until you look from elsewhere; far unlit surfaces keep their "
+    "shape, not their name. Seeing a place isn't a way there: a route check (go_to, look_around) says whether "
+    "walking reaches it, and a failed one is one way that didn't work, not proof none does.",
     "Overhead: open sky, trees, a roof, or underground with how far up the rock starts.",
     "Open space: the air connected to where you stand, filled side by side and never through rock, out to 12 "
     "blocks sideways, 4 above your head and 8 below your feet: its size, the floor in it, water or lava at its "
@@ -318,8 +360,9 @@ def coverage(state: dict | None) -> tuple[str, ...]:
     # and she left caves for open sky four times in ten minutes (2026-11-04).
     if "underground" in around or "under a roof" in around:
         out.append("Under rock or a roof: the openings list is empty here by design (it's only filled under "
-                   "open sky); the ways say where walkable ground rises or falls within 24 blocks; the open "
-                   "space says where the air around you goes on past 12 blocks, not where it leads after that.")
+                   "open sky; your view still shows openings and passages in front of you); the ways say where "
+                   "walkable ground rises or falls within 24 blocks; the open space says where the air around you "
+                   "goes on past 12 blocks, not where it leads after that.")
     else:
         out.append("Under open sky: openings are listed along 16 directions from here.")
     if "Ways" not in text:
@@ -328,13 +371,6 @@ def coverage(state: dict | None) -> tuple[str, ...]:
         out.append("No open space was reported in this view.")
     return tuple(out)
 
-
-def _learned(db: Session, user_id: uuid.UUID) -> tuple[str, ...]:
-    from app.services import desktop_game, game_learning, game_pack, game_skills
-
-    lines = desktop_game._learned_lines(db, user_id, game_learning.game_for_profile(game_pack.PACK_PROFILE_ID))
-    lines += game_skills.summary_lines(db, user_id, desktop_game.PACK_GAME)
-    return tuple(line.strip() for line in lines if line.strip())
 
 
 def dropped(db: Session | None, session: DesktopSession | None, problem: Problem, cancelled: str | None) -> str | None:
@@ -366,13 +402,33 @@ class Hands:
     """Her hands in the game (the skill driver): they take tips."""
 
     def controls(self) -> frozenset[str]:
-        return frozenset({"tip"})
+        return frozenset({"tip", "rethink"})
 
     def command(self, scope: Scope, command: Command) -> CommandResult:
+        if command.control == "rethink":
+            return rethink(scope.activity, command.text)
         if command.control != "tip":
             return CommandResult("unsupported", f"her hands don't take {command.control}")
         kept = desktop_commands.send_hands_message(scope.activity, command.text)
         return CommandResult("accepted") if kept is not None else CommandResult("refused", "no Redis")
+
+
+def rethink(session_id: uuid.UUID, text: str) -> CommandResult:
+    """Her own look back judged that the effort isn't getting anywhere: her planner, who owns the approach, is
+    asked to look at it again (it may keep the plan). Before 2026-11-06 her thoughts only ever reached her hands
+    as tips, so she judged "no progress" ten times in 18 minutes while the plan never changed. A rethink still
+    waits until the plan has stood a while (``game_planning.RETHINK_GAP_S``)."""
+    from app.db.session import SessionLocal
+    from app.services import agent_events, game_planning
+
+    with SessionLocal() as db:
+        session = db.get(DesktopSession, session_id)
+        if session is None or not game_planning.handles(session):
+            return CommandResult("unsupported", "no planner for this session")
+        game_planning.request(db, session, f"rethink: {' '.join(text.split())[:300]}")
+        db.commit()
+    agent_events.wake()
+    return CommandResult("accepted")
 
 
 class MinecraftSource:
@@ -435,7 +491,9 @@ class MinecraftSource:
         while st.inventory and st.inventory[0][0] < at - INVENTORY_KEPT_SECONDS:
             st.inventory.popleft()
         driver = desktop_commands.load_driver_state(scope.activity) or {}
-        found = [step_ended(st, moment.data.get("session"), plan, driver), surprise_from_outcome(st, plan, driver, state),
+        ended = step_ended(st, moment.data.get("session"), plan, driver)
+        found = [ended or step_running_long(st, moment.data.get("session"), plan, driver, at),
+                 surprise_from_outcome(st, plan, driver, state),
                  surprise_from_gate(moment.fresh, plan, driver, st) if gate_hard else None,
                  big(st, plan, driver, state)]
         return [p for p in found if p is not None]
@@ -447,8 +505,8 @@ class MinecraftSource:
             return "the goal changed"
         return None
 
-    def quiet_topics(self, user: str) -> tuple[str, ...]:
-        return tuple(topic.format(user=user) for topic in QUIET_TOPICS)
+    def thinks_when_quiet(self) -> bool:
+        return True  # a live game with nothing happening leaves her time to think; about what is hers
 
     def gather(self, db: Session, scope: Scope, problem: Problem, base: HardInput) -> tuple[HardInput | None, Any]:
         session = db.get(DesktopSession, scope.activity)
@@ -466,10 +524,14 @@ class MinecraftSource:
         # Her effort: the outcome from memory and the story of it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
         # The plan's own goal is only her current approach, shown inside it.
         story = effort.lines_for_session(db, session, user=base.user, senses=SENSES, coverage=coverage(state))
+        from app.services import memory_lessons, desktop_game, game_skills
+        supply = memory_lessons.for_game(db, scope.user_id, "minecraft", query=problem.text)
+        learned = desktop_game._learned_lines(db, scope.user_id, "minecraft", supply=supply)
+        learned += game_skills.summary_lines(db, scope.user_id, "minecraft")
         now = _brief(state)
         shape = _shape(state)
         inp = replace(base, now=now + (f"\n{shape}" if shape else ""), goal=None if story else goal,
-                      effort=story, learned=_learned(db, scope.user_id))
+                      effort=story, learned=tuple(learned), lesson_supply=supply)
         return inp, game_moment.capture(db, session, state)
 
     def dropped(self, db: Session, scope: Scope, problem: Problem, cancelled: str | None) -> str | None:
