@@ -569,6 +569,7 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
         forget_keys: list[str] = []
         updated_keys = {c.normalized_key.strip().lower() for c in candidates if c.operation == "upsert"}
         split_notes: dict[str, list[uuid.UUID]] = {}
+        learned: list[uuid.UUID] = []  # the facts this exchange kept (linked to her file reads in it, if any)
         # Older notes (no attribute) as they were before this turn changed anything: a claim split out of one
         # keeps the note's own source and time, even when the note itself is updated earlier in the loop.
         notes = {m.normalized_key: {"id": m.id, "source": m.source_message_id, "created_at": m.created_at,
@@ -698,8 +699,14 @@ def process_job(db: Session, job_id: uuid.UUID) -> bool:
             db.flush()
             if origin is not None:
                 memory_entities.evidence(db, job.user_id, role=role, message_id=origin, fact_id=existing.id)
+            learned.append(existing.id)
             if claim["attribute"] == "name" and entity is not None and claim["value"]:
                 memory_entities.rename(resolver, entity, claim["value"])
+        if turn is not None and turn[1].strip():
+            # Her reply (unfenced) is part of what they were learned from: if she read a file in it, they say so.
+            from app.services import attachment_memory
+
+            attachment_memory.link_reads(db, job.user_id, source_message_id, learned)
         for note_key, claims in split_notes.items():
             note = shown_by_key[note_key]
             if note_key not in updated_keys and note.status == "active":

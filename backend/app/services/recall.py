@@ -770,6 +770,14 @@ def _with_evidence(db: Session, records: list[MemoryRecord]) -> list[MemoryRecor
         key = f"event:{link.event_id}" if link.event_id is not None else f"item:{link.item_id}"
         by_target.setdefault(key, []).append(link)
     ended = _ended_sessions(db, links)
+    from app.services import attachment_memory
+
+    facts = [uuid.UUID(r.ref.id) for r in records if r.ref.kind == "fact"]
+    try:
+        files = attachment_memory.sources(db, facts)
+    except Exception:  # noqa: BLE001 - a fact reads without its file sources rather than not at all
+        log.exception("recall: reading file sources failed")
+        files = {}
     out = []
     for record in records:
         if record.ref.kind in ("event", "item"):
@@ -784,7 +792,9 @@ def _with_evidence(db: Session, records: list[MemoryRecord]) -> list[MemoryRecor
         elif record.ref.kind == "fact":
             fact = db.get(SemanticMemory, uuid.UUID(record.ref.id))
             evidence = (Evidence("origin", "message", str(fact.source_message_id)),) if fact and fact.source_message_id else ()
-            out.append(replace(record, evidence=evidence))
+            read = files.get(uuid.UUID(record.ref.id), [])
+            evidence += tuple(Evidence(attachment_memory.ROLE, "observation", str(f.observation_id)) for f in read)
+            out.append(replace(record, evidence=evidence, read_from=tuple(f.line for f in read)))
         else:
             episode = db.get(EpisodicMemory, uuid.UUID(record.ref.id))
             ids = (episode.source_message_ids or []) if episode else []
@@ -1049,6 +1059,8 @@ def _record_line(record: MemoryRecord, now: datetime, zone: ZoneInfo) -> str:
         parts.append("from your last answer")
     if record.evidence == ():
         parts.append("its source is no longer available")
+    if record.read_from:
+        parts.append("learned while you read " + "; ".join(record.read_from))
     why = f"\n  Why you thought so: {record.reason}" if record.reason else ""
     words = f'\n  Their words: "{record.user_words}"' if record.user_words else ""
     return f"{head} · " + " · ".join(parts) + f"\n  {record.content}{words}{why}"

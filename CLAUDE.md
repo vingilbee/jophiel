@@ -220,6 +220,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   attachment_text.py: attached files' text pulled out once per page (PDF via pypdfium2, Word,
                        #   PowerPoint, Excel, text, CSV; no OCR: scanned pages marked) and read in bounded pieces;
                        #   file_shared / file_read observations reach memory, the text stays with the file;
+                       #   attachment_memory.py: facts learned while she read a file linked to her reads of it
+                       #   (shown as file + pages when read back; a deleted file is said to be, never an error);
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
                        #   coordinator.py: background thinking she started and the durable wake events that bring her

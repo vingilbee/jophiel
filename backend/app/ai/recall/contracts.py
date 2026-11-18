@@ -180,6 +180,9 @@ class MemoryRecord:
     # forgotten (it's still history the user can ask about; it's never remembered again from it).
     conversation_id: uuid.UUID | None = None
     forgotten: bool = False
+    # A fact learned while she read a file: which file and pages, in words (services/attachment_memory.py); a file
+    # deleted since is said to be. Filled with the evidence.
+    read_from: tuple[str, ...] = ()
 
 
 _SUSPECTED = {"open": "You suspected (not confirmed)", "supported": "You suspected, later confirmed",
