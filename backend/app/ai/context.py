@@ -59,8 +59,11 @@ class AgentRuntimeContext:
     # the food-vision sub-agent, which runs the model on it.
     image_ids: tuple[str, ...] = ()
 
-    # User-owned Blender projects/meshes attached to this turn.
+    # Files (documents, Blender projects/meshes) attached to this turn.
     asset_ids: tuple[str, ...] = ()
+    # The readable files the user has (newest first, ``(asset_id, filename)``): she gets ``read_attachment``
+    # when there's any (services/attachment_text.py).
+    files: tuple[tuple[str, str], ...] = ()
     blender_enabled: bool = False
 
     # True when this turn arrived as speech and the reply will be spoken aloud.

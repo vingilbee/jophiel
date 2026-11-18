@@ -42,6 +42,7 @@ from app.ai.prompts import build_system_prompt
 from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
+from app.ai.tools.attachments import build_attachment_tools
 from app.ai.tools.desktop import build_desktop_tools
 from app.ai.tools.desktop_control import build_desktop_control_tools, screenshot_hook
 from app.ai.tools.desktop_control.tools import RECURSION_LIMIT as DESKTOP_RECURSION_LIMIT
@@ -208,6 +209,10 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     # current); never on game-event turns.
     if context.security is not None and context.game_event is None:
         direct_tools.extend(build_security_tools(context.user_id, zone=context.zone))
+    # Her reading of the user's files: one tool, its result back in her own loop (never on game-event turns).
+    if context.files and context.game_event is None:
+        direct_tools.extend(build_attachment_tools(context.user_id, conversation_id=context.conversation_id,
+                                                   message_id=context.source_message_id))
     # Her working memory's tools: same exception (few, cheap, and the next turn must see the change).
     if context.memory_tools:
         direct_tools.extend(build_memory_tools(context.user_id, message_id=context.source_message_id,

@@ -224,6 +224,7 @@ async def _generate(job: ChatJob) -> None:
     game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
     desktop = await asyncio.to_thread(desktop_control.line_for, job.user_id)
     security = await asyncio.to_thread(security_activity.line_for, job.user_id, zone=payload.get("zone"))
+    files = await asyncio.to_thread(_readable_files, job.user_id, payload.get("asset_ids") or [])
     working_memory = await asyncio.to_thread(memory_manager.view_for, job.user_id,
                                              user_name=user.name if user else None)
     spoke_at = payload.get("spoke_at")
@@ -240,6 +241,7 @@ async def _generate(job: ChatJob) -> None:
         macrovision_enabled=settings.macrovision_tools_enabled,
         image_ids=tuple(payload.get("image_ids", [])),
         asset_ids=tuple(payload.get("asset_ids", [])),
+        files=files,
         blender_enabled=settings.blender_tools_enabled,
         voice=bool(payload.get("voice", False)),
         # Their app's senses without its clock (a queued job's snapshot is never the clock): "Now" is read here.
@@ -569,6 +571,26 @@ async def _generate(job: ChatJob) -> None:
 
 
 _DELIVERED = {"completed": "delivered", "partial": "partial", "cancelled": "cancelled", "silent": "not_sent"}
+
+
+def _readable_files(user_id, attached: list[str]) -> tuple[tuple[str, str], ...]:
+    """The user's readable files for ``read_attachment`` (this message's first), as ``(asset_id, filename)``."""
+    from app.services import attachment_text
+
+    try:
+        found = [(record.asset_id, record.filename) for record in attachment_text.readable_files(user_id)]
+        for asset_id in attached:
+            if asset_id not in dict(found):
+                try:
+                    record = asset_store.get_record(user_id, asset_id)
+                except asset_store.AssetNotFoundError:
+                    continue
+                if attachment_text.readable(record.filename):
+                    found.insert(0, (asset_id, record.filename))
+        return tuple(found)
+    except Exception:  # noqa: BLE001 - a turn never fails because the file list did
+        logger.exception("chat worker: listing readable files failed")
+        return ()
 
 
 def _personality() -> str | None:

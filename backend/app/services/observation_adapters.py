@@ -95,6 +95,39 @@ def _message_report(message: ChatMessage, user_id: uuid.UUID) -> Report | None:
                   occurred_at=message.created_at, message_id=message.id)
 
 
+def _file_reports(message: ChatMessage, user_id: uuid.UUID) -> list[Report]:
+    """One ``file_shared`` per file attached to a user's message: its name, type and how much of it has text
+    (extracting it now if the upload's background extraction hasn't yet)."""
+    if message.role != "user" or not message.asset_ids:
+        return []
+    from app.services import asset_store, attachment_text
+
+    reports: list[Report] = []
+    for asset_id in message.asset_ids:
+        try:
+            record_ = asset_store.get_record(user_id, asset_id)
+        except asset_store.AssetNotFoundError:
+            continue  # deleted since: nothing to describe
+        payload: dict = {"message_id": str(message.id), "asset_id": asset_id, "filename": record_.filename[:220],
+                         "media_type": record_.media_type[:120]}
+        try:
+            doc = attachment_text.load(user_id, asset_id)
+            readable = len(doc.pages) - len(doc.unreadable)
+            payload |= {"status": "readable" if readable else "no_text", "unit": doc.unit, "total": doc.total,
+                        "no_text": len(doc.unreadable)}
+        except attachment_text.Unreadable as exc:
+            payload["status"] = "unsupported" if not attachment_text.readable(record_.filename) else "failed"
+            log.info("observation: file %s not readable: %s", asset_id, exc)
+        except Exception:  # noqa: BLE001 - describing a file never stops the conversation's capture
+            log.exception("observation: reading file %s failed", asset_id)
+            payload["status"] = "failed"
+        reports.append(Report(user_id=user_id, source=CONVERSATION, source_instance=str(message.conversation_id),
+                              source_event_key=f"message:{message.conversation_sequence}:file:{asset_id}",
+                              kind="file_shared", payload=payload, occurred_at=message.created_at,
+                              message_id=message.id))
+    return reports
+
+
 def _pull_conversations(db: Session, deadline: float) -> int:
     from app.core.config import get_settings
 
@@ -137,14 +170,15 @@ def _pull_one(db: Session, conversation_id: uuid.UUID, user_id: uuid.UUID, start
     captured = 0
     for message in messages:
         report = _message_report(message, user_id)
-        if report is not None:
-            try:
-                if record(db, report) is not None:
+        reports = [report, *_file_reports(message, user_id)] if report is not None else []
+        try:
+            for one in reports:
+                if record(db, one) is not None:
                     captured += 1
-            except registry.ObservationInvalid as exc:
-                # The position stays before it: capture isn't known to have worked.
-                state.last_error = str(exc)[:500]
-                break
+        except registry.ObservationInvalid as exc:
+            # The position stays before it: capture isn't known to have worked.
+            state.last_error = str(exc)[:500]
+            break
         at = message.conversation_sequence
     state.position = {**(state.position or {}), "sequence": at}
     return captured

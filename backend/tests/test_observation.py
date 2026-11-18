@@ -641,3 +641,43 @@ def test_registry_rules_never_explain_or_invent():
     shaped = registry.normalize("conversation", "user_message", {"message_id": "m", "sequence": 1, "channel": "web",
                                                                  "chars": 12, "attachments": 2})
     assert shaped.summary == "The user sent a message (12 characters, 2 attachments) on web"
+
+
+def test_a_shared_file_and_her_reads_of_it_reach_memory_without_its_text(db, alice, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from app.services import asset_store, attachment_text
+
+    files = SimpleNamespace(asset_store_dir=str(tmp_path / "assets"), asset_max_upload_mb=1,
+                            attachment_max_pages=2000)
+    monkeypatch.setattr(asset_store, "get_settings", lambda: files)
+    monkeypatch.setattr(attachment_text, "get_settings", lambda: files)
+    record = asset_store.save_bytes(alice.id, b"The secret code word is pineapple.\n\nSecond part.",
+                                    filename="notes.txt")
+    _start(db)
+    conversation = _conversation(db, alice)
+    turn = uuid.uuid4()
+    message = chat_service.add_message(db, conversation=conversation, role="user", content="read this",
+                                       turn_id=turn, asset_ids=[record.asset_id])
+    chat_service.add_message(db, conversation=conversation, role="assistant", content="Reading.", turn_id=turn)
+    db.commit()
+    # Her read, as the tool records it.
+    observation.record(db, Report(
+        user_id=alice.id, source="conversation", source_instance=str(conversation.id), source_event_key="file_read:1",
+        kind="file_read", message_id=message.id, payload={
+            "asset_id": record.asset_id, "filename": "notes.txt", "mode": "pages", "pages": "1", "status": "read",
+            "unit": "section", "total": 1}))
+    db.commit()
+    _tick(db, at=datetime.now(timezone.utc) + timedelta(seconds=40))
+    _tick(db, at=datetime.now(timezone.utc) + timedelta(seconds=80))
+
+    [shared] = _observations(db, alice, "file_shared")
+    assert shared.message_id == message.id and shared.payload["status"] == "readable"
+    [kept] = _events(db, alice, "file_shared")
+    assert kept.text.startswith('The user shared a file: "notes.txt" (text/plain, 1 section)')
+    [read] = _events(db, alice, "file_read")
+    assert read.text.startswith('You read section 1 of "notes.txt"')
+    # The history names the file, and the file's words stay with the file.
+    history = chat_service.get_history(db, conversation=conversation)
+    assert f'[Attached files: "notes.txt" (id {record.asset_id})]' in history[0]["content"]
+    assert not any("pineapple" in event.text for event in _events(db, alice))

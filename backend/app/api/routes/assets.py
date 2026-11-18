@@ -1,5 +1,5 @@
-"""Upload and retrieve user-owned Blender assets."""
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+"""Upload and retrieve user-owned files (documents she can read, Blender/3D assets)."""
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
 from app.core.limiter import limiter
 from fastapi.responses import FileResponse
 
@@ -7,7 +7,7 @@ from app.api.deps import get_current_user, validate_origin
 from app.core.config import get_settings
 from app.db.models import User
 from app.schemas.asset import AssetOut
-from app.services import asset_store, slide_images
+from app.services import asset_store, attachment_text, slide_images
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -27,7 +27,8 @@ def get_slide_image(token: str) -> FileResponse:
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(validate_origin)])
 @limiter.limit("10/minute")
 async def upload_asset(
-    request: Request, file: UploadFile = File(...), current_user: User = Depends(get_current_user)
+    request: Request, background: BackgroundTasks, file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ) -> AssetOut:
 
     try:
@@ -36,6 +37,9 @@ async def upload_asset(
         )
     except asset_store.InvalidAssetError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if attachment_text.readable(record.filename):
+        # Pull the text out now, after the response, so her first read is a lookup (it's lazy otherwise too).
+        background.add_task(attachment_text.extract_quietly, current_user.id, record.asset_id)
     return AssetOut(**record.to_dict())
 
 
