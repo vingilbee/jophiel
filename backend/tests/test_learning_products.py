@@ -440,6 +440,88 @@ def test_a_critique_revises_on_the_same_evidence_without_support_and_unchanged_w
         assert LL.claim(db, soon(hours=1)) is None
 
 
+def _review_scenario(env):
+    """A lesson with support and counter evidence on distinct occasions, a basis premise that changed, a link that
+    is not its basis, eight revisions and one earlier reconsideration of its current revision. Returns its queued
+    premise job and what the test needs to check against."""
+    user, conversation = setup(env)
+    with env.db() as db:
+        wfh = fact(db, user, "Ana works from home on Mondays")
+        aside = fact(db, user, "Ana likes tea")
+        m1 = say(db, conversation, "user", "a quick call at noon on Mondays works for me")
+        m2 = say(db, conversation, "user", "noon call was nice today")
+        m3 = say(db, conversation, "user", "not today, I'm swamped")
+        lesson = seed(db, user, "A noon call on Mondays is welcome", applies_when="Mondays at noon",
+                      refs=[f"message:{m1.id}"], occasion="occ:a",
+                      links=[link_to("fact", wfh.id), link_to("fact", aside.id, "related", "context")])
+
+        def change(op, occasion, msg, **kw):
+            row = db.get(MemoryLesson, lesson.id)
+            c = L.Change(op, "L", str(row.id), row.revision, row.kind, row.scope,
+                         kw.pop("statement", row.statement), kw.pop("applies_when", row.applies_when),
+                         kw.pop("exceptions", []), [], [f"message:{msg.id}"], None, kw.pop("why", op), **kw)
+            ML.apply(db, user.id, [c], ML.Source(occasion, NOW, None, None), embed=lambda t: None)
+
+        change("support", "occ:b", m2)
+        for i in range(6):
+            change("revise", f"occ:r{i}", m2, statement=f"A noon call on Mondays is welcome (v{i + 2})",
+                   why=f"reworded {i}")
+        change("counter", "occ:c", m3)
+        change("narrow", "occ:d", m3, exceptions=["when she is swamped"], why="she was swamped once")
+        db.commit()
+        row = db.get(MemoryLesson, lesson.id)
+        assert row.revision == 8
+        lesson_id, revision, fact_id = row.id, row.revision, wfh.id
+        db.add(LearningLessonJob(id=uuid.uuid4(), user_id=user.id, kind="reconsider", lesson_id=lesson_id,
+                                 job_key=f"earlier:{uuid.uuid4()}", input={"prompted_by": "critique",
+                                                                           "revision": revision,
+                                                                           "critique": "only one Monday"},
+                                 reason="x", next_attempt_at=NOW, state="done", outcome="keep",
+                                 result={"why": "two Mondays, not one"}))
+        db.get(SemanticMemory, fact_id).content = "Ana works in the office on Mondays now"
+        db.get(SemanticMemory, fact_id).revision += 1
+        db.commit()
+        assert LL.sweep_premises(db) == 1
+        db.commit()
+    (job,) = [j for j in reconsider_jobs(env) if j.state != "done"]
+    return job, {"lesson": lesson_id, "fact": str(fact_id), "messages": (m1.id, m2.id, m3.id)}
+
+
+def test_a_reconsideration_reads_the_lesson_its_evidence_premises_and_recent_revisions(env):
+    job, s = _review_scenario(env)
+    with env.db() as db:
+        r, by_ref = LL.reconsider_bundle(db, db.get(LearningLessonJob, job.id))
+        counts = ML._counts(db, [s["lesson"]])[s["lesson"]]
+        text = L.render_reconsider(r)
+    shown = r.lesson
+    assert (shown.ref, shown.id, shown.revision, shown.status) == ("L", str(s["lesson"]), 8, "accepted")
+    assert shown.exceptions == ("when she is swamped",) and shown.rests_on_revised is None
+    assert shown.support_from == tuple(sorted(counts["support"])) and shown.support_from
+    assert shown.counter_from == tuple(sorted(counts["counter"])) and shown.counter_from
+    assert shown.occasions == ("occ:a", "occ:b", "occ:c", "occ:d", *(f"occ:r{i}" for i in range(6)))
+    assert (shown.links, shown.unsettled, shown.noted, shown.shares_evidence) == ((), (), (), False)
+    # Only the basis is a premise, and its P ref maps to the very link memory holds.
+    assert list(by_ref) == ["P1"] and by_ref["P1"].target_id == s["fact"] and by_ref["P1"].relation == "depends_on"
+    p = r.premises["P1"]
+    assert (p.then_text, p.now_text, p.changed) == ("Ana works from home on Mondays",
+                                                    "Ana works in the office on Mondays now", True)
+    # The six most recent revisions, oldest first.
+    assert [h.split()[1] for h in r.history] == ["3", "4", "5", "6", "7", "8"]
+    assert r.history[-1].startswith("revision 8 narrow: ") and r.history[-1].endswith("because: she was swamped once")
+    assert r.earlier == ["only one Monday -> keep: two Mondays, not one"]
+    assert (r.prompted_by, r.critique) == ("premise", None)
+    assert sorted(e.roots[0] for e in r.evidence.values()) == sorted(f"message:{m}" for m in s["messages"])
+    assert "Ana works in the office on Mondays now" in text and "Ana likes tea" not in text
+
+
+def test_a_lesson_is_read_for_review_only_for_its_own_user(env):
+    job, s = _review_scenario(env)
+    with env.db() as db:
+        assert ML.lesson_for_review(db, uuid.uuid4(), s["lesson"]) is None
+        assert ML.lesson_for_review(db, job.user_id, uuid.uuid4()) is None
+        assert ML.lesson_for_review(db, job.user_id, s["lesson"]).view.id == str(s["lesson"])
+
+
 # --------------------------------------------------------------------------- #
 # Cross-owner reconciliation, notes, carrying forward
 # --------------------------------------------------------------------------- #
