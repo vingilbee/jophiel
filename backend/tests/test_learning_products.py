@@ -522,6 +522,32 @@ def test_a_lesson_is_read_for_review_only_for_its_own_user(env):
         assert ML.lesson_for_review(db, job.user_id, s["lesson"]).view.id == str(s["lesson"])
 
 
+@pytest.mark.parametrize("case", ["withdrawn", "stale_critique"])
+def test_a_job_pointing_at_another_users_lesson_finishes_gone_and_shows_nothing_of_it(env, case):
+    me, _ = setup(env)
+    other, _ = setup(env)
+    with env.db() as db:
+        theirs = seed(db, other, "Theo likes long walks")
+        if case == "withdrawn":
+            c = L.Change("withdraw", "L", str(theirs.id), theirs.revision, theirs.kind, theirs.scope, theirs.statement,
+                         theirs.applies_when, [], [], [f"message:{uuid.uuid4()}"], None, "not anymore")
+            ML.apply(db, other.id, [c], ML.Source(f"seen:{uuid.uuid4()}", NOW, None, None))
+        db.commit()
+        row = db.get(MemoryLesson, theirs.id)
+        assert row.status == ("withdrawn" if case == "withdrawn" else "accepted")
+        job_id = uuid.uuid4()
+        db.add(LearningLessonJob(id=job_id, user_id=me.id, kind="reconsider", lesson_id=row.id,
+                                 job_key=f"cross:{job_id}", reason="x", next_attempt_at=NOW,
+                                 input={"prompted_by": "critique", "revision": row.revision + 1,
+                                        "critique": "is it true?"}))
+        db.commit()
+    script = Reconsiderer()  # any model call would fail: none is expected
+    assert run_job(env, job_id, script) == "gone" and script.texts == []
+    with env.db() as db:
+        job = db.get(LearningLessonJob, job_id)
+        assert (job.state, job.outcome, job.result) == ("done", "gone", {"why": "the lesson is gone"})
+
+
 # --------------------------------------------------------------------------- #
 # Cross-owner reconciliation, notes, carrying forward
 # --------------------------------------------------------------------------- #

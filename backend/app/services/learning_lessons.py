@@ -501,7 +501,7 @@ def process_reconsider(db: Session, job_id: uuid.UUID, attempts: int, *,
             db.rollback()
             return "gone"
         row = db.get(MemoryLesson, job.lesson_id)
-        if row is None:
+        if row is None or row.user_id != job.user_id:  # another user's lesson is gone to this job: nothing of it shown
             return _finish(db, job_id, attempts, "gone", {"why": "the lesson is gone"})
         if row.status == "withdrawn":
             return _finish(db, job_id, attempts, "superseded", {"why": "the lesson was withdrawn meanwhile"})
