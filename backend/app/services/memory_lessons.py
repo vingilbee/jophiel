@@ -786,6 +786,37 @@ def changed_lessons(db: Session, *, limit: int = 50) -> list[tuple[MemoryLesson,
     return out
 
 
+REVIEW_REVISIONS = 6  # the most recent revisions a reconsideration reads
+
+
+@dataclass(frozen=True)
+class LessonForReview:
+    """One lesson as memory holds it now, for reading it again: the lesson (ref ``L``), the premises it rests on or
+    builds on (its basis, in link order) and its most recent revisions (oldest first). What it means is Learning's."""
+
+    view: L.Shown
+    premises: tuple[PremiseState, ...]
+    revisions: tuple[MemoryLessonRevision, ...]
+
+
+def lesson_for_review(db: Session, user_id: uuid.UUID, lesson_id: uuid.UUID) -> LessonForReview | None:
+    """The lesson read again by a reconsideration, gathered as of now in the caller's session. Read only. None when
+    the user holds no such lesson."""
+    row = db.get(MemoryLesson, lesson_id)
+    if row is None or row.user_id != user_id:
+        return None
+    counts = _counts(db, [row.id])[row.id]
+    view = L.Shown("L", str(row.id), row.revision, row.kind, row.scope, row.status, row.statement, row.applies_when,
+                   tuple(row.exceptions or ()), tuple(row.user_words or ()), tuple(sorted(counts["support"])),
+                   tuple(sorted(counts["counter"])), tuple(sorted(counts["occasions"])), None,
+                   _aware(row.withdrawn_occasion_at), row.status_reason, row.form, tuple(row.alternatives or ()),
+                   details=dict(row.details or {}))
+    basis = tuple(p for p in premises(db, user_id, [row.id])[row.id] if p.basis)
+    revisions = tuple(db.scalars(select(MemoryLessonRevision).where(MemoryLessonRevision.lesson_id == row.id)
+                                 .order_by(MemoryLessonRevision.revision.desc()).limit(REVIEW_REVISIONS)))[::-1]
+    return LessonForReview(view, basis, revisions)
+
+
 # --------------------------------------------------------------------------- #
 # Retrieval for a decision
 # --------------------------------------------------------------------------- #
@@ -1208,5 +1239,5 @@ def _log(record: dict) -> None:
 
 __all__ = ["Stale", "Source", "Applied", "Supply", "apply", "shown_for", "reconsider", "for_decision", "for_learning", "for_learning_ids",
            "offered", "refresh", "premises", "unsettled_lines", "basis_lines", "link_lines", "PremiseState",
-           "reconsidered", "changed_lessons", "current",
+           "reconsidered", "changed_lessons", "lesson_for_review", "LessonForReview", "current",
            "record_uses", "explain", "uses_for_attempt", "listing", "detail", "drop_for", "lock"]

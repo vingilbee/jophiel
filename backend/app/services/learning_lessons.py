@@ -413,13 +413,13 @@ def critique(db: Session, user_id: uuid.UUID, lesson_id: uuid.UUID, text: str, *
                   reason="her mind questioned its reasoning", detail={"critique": words, "source": source[:120]})
 
 
-def _evidence_lines(db: Session, row) -> dict[str, L.Examined]:
+def _evidence_lines(db: Session, user_id: uuid.UUID, lesson_id: uuid.UUID) -> dict[str, L.Examined]:
     """What the lesson rests on or was found against, read again from its owners (forgotten parts withheld)."""
     from app.db.models import ChatMessage, Conversation, GameExperience, MemoryLessonEvidence
     from app.services import learning_assessment as LA
     from app.services import memory_forget
 
-    rows = list(db.scalars(select(MemoryLessonEvidence).where(MemoryLessonEvidence.lesson_id == row.id)
+    rows = list(db.scalars(select(MemoryLessonEvidence).where(MemoryLessonEvidence.lesson_id == lesson_id)
                            .order_by(MemoryLessonEvidence.occasion_at.desc()).limit(EVIDENCE_SHOWN)))
     out: dict[str, L.Examined] = {}
     for e in reversed(rows):
@@ -430,17 +430,17 @@ def _evidence_lines(db: Session, row) -> dict[str, L.Examined]:
             if kind == "message":
                 try:
                     m = db.scalar(select(ChatMessage).join(Conversation, Conversation.id == ChatMessage.conversation_id)
-                                  .where(ChatMessage.id == uuid.UUID(key), Conversation.user_id == row.user_id))
+                                  .where(ChatMessage.id == uuid.UUID(key), Conversation.user_id == user_id))
                 except ValueError:
                     m = None
                 if m is not None:
-                    cuts = memory_forget.memory_cuts(db, row.user_id, [m.id])
+                    cuts = memory_forget.memory_cuts(db, user_id, [m.id])
                     words = memory_forget.memory_view(m.content, m.heard_chars, m.role, cuts.get(m.id, False))
                     who = "her" if m.role == "assistant" else "user"
                     text = f'[{who}, {LA._hm(m.created_at)}] "{LA.FORGOTTEN if words is None else words}"'
             elif kind == "experience" and key.isdigit():
                 g = db.get(GameExperience, int(key))
-                if g is not None and g.user_id == row.user_id:
+                if g is not None and g.user_id == user_id:
                     text = f"[game, {LA._hm(g.occurred_at)}] {g.kind}: {LA._game_excerpt(g.payload, 600)}"
             if text is None:
                 continue
@@ -452,35 +452,31 @@ def _evidence_lines(db: Session, row) -> dict[str, L.Examined]:
 
 
 def reconsider_bundle(db: Session, job: LearningLessonJob):
-    """(the reconsideration's view, its premises by P ref) for one job, gathered as of now."""
-    from app.db.models import MemoryLesson, MemoryLessonRevision
+    """(the reconsideration's view, its premises by P ref) for one job, gathered as of now; None when the job's user
+    holds no such lesson. Memory says what the lesson is; this makes the reviewer's input of it."""
     from app.services import memory_lessons
 
-    row = db.get(MemoryLesson, job.lesson_id)
-    counts = memory_lessons._counts(db, [row.id])[row.id]
-    states = [p for p in memory_lessons.premises(db, row.user_id, [row.id])[row.id] if p.basis]
-    by_ref = {f"P{i}": p for i, p in enumerate(states, 1)}
-    shown = L.Shown("L", str(row.id), row.revision, row.kind, row.scope, row.status, row.statement, row.applies_when,
-                    tuple(row.exceptions or ()), tuple(row.user_words or ()), tuple(sorted(counts["support"])),
-                    tuple(sorted(counts["counter"])), tuple(sorted(counts["occasions"])), None,
-                    _aware(row.withdrawn_occasion_at), row.status_reason, row.form, tuple(row.alternatives or ()),
-                    details=dict(row.details or {}))
+    held = memory_lessons.lesson_for_review(db, job.user_id, job.lesson_id)
+    if held is None:
+        return None
+    shown = held.view
+    lesson_id = uuid.UUID(shown.id)
+    by_ref = {f"P{i}": p for i, p in enumerate(held.premises, 1)}
     history = [f"revision {v.revision} {v.op}" + (f" ({v.prompted_by})" if v.prompted_by else "")
                + f': "{v.statement}" ({v.status}, applies: {v.applies_when}) because: {v.reason}'
-               for v in db.scalars(select(MemoryLessonRevision).where(MemoryLessonRevision.lesson_id == row.id)
-                                   .order_by(MemoryLessonRevision.revision.desc()).limit(6))][::-1]
+               for v in held.revisions]
     earlier = []
     for other in db.scalars(select(LearningLessonJob).where(
-            LearningLessonJob.lesson_id == row.id, LearningLessonJob.kind == "reconsider",
+            LearningLessonJob.lesson_id == lesson_id, LearningLessonJob.kind == "reconsider",
             LearningLessonJob.state == "done", LearningLessonJob.id != job.id)):
-        if (other.input or {}).get("revision") == row.revision and other.outcome:
+        if (other.input or {}).get("revision") == shown.revision and other.outcome:
             said = (other.input or {}).get("critique") or "a premise changed"
             earlier.append(f'{said[:200]} -> {other.outcome}: {((other.result or {}).get("why") or "")[:200]}')
     r = L.Reconsider(shown, (job.input or {}).get("prompted_by") or "premise", (job.input or {}).get("critique"),
                      {ref: L.Premise(ref, p.relation, p.what, p.then_text, p.then_status,
                                      p.now[2] if p.now else None, p.now[1] if p.now else None, p.changed, p.note)
                       for ref, p in by_ref.items()},
-                     _evidence_lines(db, row), history, earlier)
+                     _evidence_lines(db, job.user_id, lesson_id), history, earlier)
     return r, by_ref
 
 
@@ -505,7 +501,7 @@ def process_reconsider(db: Session, job_id: uuid.UUID, attempts: int, *,
             db.rollback()
             return "gone"
         row = db.get(MemoryLesson, job.lesson_id)
-        if row is None:
+        if row is None or row.user_id != job.user_id:  # another user's lesson is gone to this job: nothing of it shown
             return _finish(db, job_id, attempts, "gone", {"why": "the lesson is gone"})
         if row.status == "withdrawn":
             return _finish(db, job_id, attempts, "superseded", {"why": "the lesson was withdrawn meanwhile"})
@@ -515,11 +511,14 @@ def process_reconsider(db: Session, job_id: uuid.UUID, attempts: int, *,
                 "why": f"the lesson was revised to revision {row.revision} since the critique; it was about "
                        f"revision {(job.input or {}).get('revision')}"})
         try:
-            r, by_ref = reconsider_bundle(db, job)
+            bundled = reconsider_bundle(db, job)
         except Exception as exc:  # noqa: BLE001 - a failed gathering retries; never a change
             log.exception("learning lessons %s: gathering a reconsideration failed", job_id)
             db.rollback()
             return _fail(db, job_id, attempts, f"{type(exc).__name__}: {exc}"[:500])
+        if bundled is None:
+            return _finish(db, job_id, attempts, "gone", {"why": "the lesson is gone"})
+        r, by_ref = bundled
         if prompted == "premise" and not any(p.changed for p in by_ref.values()):
             return _finish(db, job_id, attempts, "settled", {"why": "its premises were reassessed meanwhile"})
         user_id, lesson_id = row.user_id, row.id
