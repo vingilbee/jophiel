@@ -262,3 +262,17 @@ def test_readable_files_are_not_hidden_by_many_newer_pictures(store):
     for i in range(205):
         _save(owner, b"\x89PNG not really", f"photo{i}.obj")
     assert [r.asset_id for r in attachment_text.readable_files(owner)] == [lease]
+
+
+def test_a_low_budget_that_fits_the_rest_of_a_page_ends_it_without_a_continuation():
+    words = "x" * 1_000 + " " + "tail words " * 9  # the last ~100 characters, after start=1001
+    doc = attachment_text.Extracted(asset_id="a" * 16, filename="big.pdf", media_type="application/pdf",
+                                    unit="page", total=2, pages=[attachment_text.Page(1, words),
+                                                                 attachment_text.Page(2, "the second page")])
+
+    last = attachment_text.read_pages(doc, "1", 50, start=1_001)  # under the 200-character floor
+    assert last.status == "read" and "start=" not in last.text and "goes on" not in last.text
+    assert words[1_001:].rstrip() in last.text
+
+    then = attachment_text.read_pages(doc, "1-2", 50, start=1_001)
+    assert then.status == "partial" and "start=" not in then.text and "Not shown yet: page 2" in then.text

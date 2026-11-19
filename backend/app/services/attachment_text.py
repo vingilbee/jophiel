@@ -543,12 +543,14 @@ def read_pages(doc: Extracted, spec: str, budget: int, *, start: int = 0) -> Rea
             if not blocks:  # one page bigger than the whole budget: show what fits of it, and where it goes on
                 rest_of_page = page.text[offset:]
                 head = len(block) - len(rest_of_page)
-                end = _cut(rest_of_page, max(budget - head, 200))
-                block = block[:head] + rest_of_page[:end].rstrip() + f" …[cut: {doc.unit} {n} goes on]"
+                end = _cut(rest_of_page, max(budget - head, 200))  # always some progress, even on a low budget
+                goes_on = end < len(rest_of_page)  # the floor can fit the whole rest: then there's nothing to resume
+                block = block[:head] + rest_of_page[:end].rstrip() + (f" …[cut: {doc.unit} {n} goes on]" if goes_on else "")
                 blocks.append(block)
                 shown.append(n)
                 used += len(block)
-                resume = (n, offset + end)
+                if goes_on:
+                    resume = (n, offset + end)
                 stopped_at = wanted[i + 1] if i + 1 < len(wanted) else None
             else:
                 stopped_at = n
