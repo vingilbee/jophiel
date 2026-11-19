@@ -641,6 +641,63 @@ def test_a_finding_relates_to_memory_and_the_builder_links_and_carries_without_s
         assert ML.changed_lessons(db) == []
 
 
+def test_a_finding_relates_only_to_this_users_live_facts_and_items_each_given_one_ref(env):
+    user, _ = setup(env)
+    other, _ = setup(env)
+    with env.db() as db:
+        nights = fact(db, user, "Dana works night shifts at the hospital")
+        gone = fact(db, user, "Dana lives in Leeds")
+        gone.status = "deleted"
+        theirs = fact(db, other, "someone else's fact")
+        open_h = memory_manager.add_item(db, user.id, kind="hypothesis", owner="columbina", epistemic="inferred",
+                                         text_="Dana's curt mornings might be tiredness", reason="short replies")
+        closed_h = memory_manager.add_item(db, user.id, kind="hypothesis", owner="columbina", epistemic="inferred",
+                                           text_="Dana might dislike mornings", reason="a guess")
+        memory_manager.resolve(db, user.id, closed_h.id, status="unresolved", reason="set aside")
+        users_q = memory_manager.add_item(db, user.id, kind="question", owner="user", epistemic="reported",
+                                          text_="should Dana switch to day shifts?")
+        db.commit()
+        lesson = seed(db, user, "Dana's early-morning messages are short", kind="understanding", certainty="tentative")
+        db.commit()
+
+        b = L.Bundle("a-1", 1, "review:x", NOW, "a review", "")
+        seen: dict[str, str] = {}
+
+        def rel(target, relation="same_as"):
+            return LL._related(db, user.id, b, seen, {"target": target, "relation": relation})
+
+        assert rel(f"fact:{nights.id}", "depends_on") == "M1"
+        assert rel(f"item:{open_h.id}") == "M2"
+        assert rel(f"item:{closed_h.id}") == "M3"  # closed, still a ref: just not carryable
+        assert rel(f"item:{users_q.id}") == "M4"
+        for bad in ("item:not-a-uuid", f"item:{uuid.uuid4()}", f"fact:{uuid.uuid4()}", f"fact:{gone.id}",
+                    f"fact:{theirs.id}", f"lesson:{lesson.id}", "fact:", "", "fact"):
+            assert rel(bad) is None, bad
+        assert rel(f"fact:{nights.id}", "contradicts") == "M1"  # a repeat keeps its first ref and relation
+        assert rel(f"item:{open_h.id}") == "M2"
+
+        f, h, c, q = (b.related[m] for m in ("M1", "M2", "M3", "M4"))
+        assert list(b.related) == ["M1", "M2", "M3", "M4"]
+        assert f == L.Related("M1", "fact", str(nights.id), nights.revision, nights.status,
+                              "Dana works night shifts at the hospital", ML.TARGET_WORDS["fact"], "depends_on", False)
+        assert h == L.Related("M2", "item", str(open_h.id), open_h.revision, "open",
+                              "Dana's curt mornings might be tiredness", "her hypothesis", "same_as", True)
+        closed = db.get(WorkingItem, closed_h.id)
+        assert c == L.Related("M3", "item", str(closed_h.id), closed.revision, "unresolved",
+                              "Dana might dislike mornings", "her hypothesis", "same_as", False)
+        assert q == L.Related("M4", "item", str(users_q.id), users_q.revision, users_q.status,
+                              "should Dana switch to day shifts?", "the user's question", "same_as", False)
+
+        # Memory's public read and its internal link reader say the same of every target.
+        for kind, key in (("fact", nights.id), ("item", open_h.id), ("item", closed_h.id), ("item", users_q.id)):
+            now = ML.related_target(db, user.id, kind, str(key))
+            assert (now.revision, now.status, now.text, now.what) == ML._target_now(db, user.id, kind, str(key))
+        assert ML.related_target(db, user.id, "lesson", str(lesson.id)) is None
+        assert ML._target_now(db, user.id, "lesson", str(lesson.id))[3] == ML.TARGET_WORDS["lesson"]
+        assert ML._target_now(db, other.id, "lesson", str(lesson.id)) is None
+        assert ML._target_now(db, user.id, "fact", str(gone.id)) is None
+
+
 def test_a_noted_occasion_is_coverage_counted_for_nothing(env):
     user, _ = setup(env)
     with env.db() as db:

@@ -204,18 +204,12 @@ def _related(db: Session, user_id: uuid.UUID, b: L.Bundle, seen: dict[str, str],
     target = f"{kind}:{key}"
     if target in seen:
         return seen[target]
-    now = memory_lessons._target_now(db, user_id, kind, key)
+    now = memory_lessons.related_target(db, user_id, kind, key)
     if now is None:
         return None
-    revision, status, words, what = now
-    carryable = False
-    if kind == "item":
-        from app.db.models import WorkingItem
-        item = db.get(WorkingItem, uuid.UUID(key))
-        carryable = bool(item and item.kind == "hypothesis" and item.owner == "columbina" and item.closed_at is None)
     ref = f"M{len(b.related) + 1}"
-    b.related[ref] = L.Related(ref, kind, key, revision, status, words, what, r.get("relation") or "related",
-                               carryable)
+    b.related[ref] = L.Related(ref, kind, key, now.revision, now.status, now.text, now.what,
+                               r.get("relation") or "related", now.carryable)
     seen[target] = ref
     return ref
 
