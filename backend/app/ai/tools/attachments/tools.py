@@ -42,12 +42,27 @@ def _record_read(user_id: uuid.UUID, conversation_id: uuid.UUID | None, message_
         log.exception("read_attachment: recording the read of %s failed", payload.get("asset_id"))
 
 
-def _listing(user_id: uuid.UUID) -> str:
-    files = attachment_text.readable_files(user_id, limit=20)
+LISTED = 20
+
+
+def _listing(user_id: uuid.UUID, name: str = "") -> str:
+    files = attachment_text.readable_files(user_id, limit=LISTED + 1, name=name)
+    more = len(files) > LISTED
+    files = files[:LISTED]
+    lines = [f'- {record.asset_id}: "{record.filename}" ({record.created_at[:10]})' for record in files]
+    if name.strip():
+        if not files:
+            return (f'No readable file whose name matches "{name.strip()}" (all of the user\'s files were searched). '
+                    "Try other words, or call read_attachment() to list the newest.")
+        head = f'Readable files whose name matches "{name.strip()}", newest first:'
+        if len(files) > 1:
+            head += " (more than one: if it isn't clear which, ask the user, naming them by date)"
+        tail = f"\n… more match; narrow the name." if more else ""
+        return head + "\n" + "\n".join(lines) + tail
     if not files:
         return "The user has no readable files stored (PDF, Word, PowerPoint, Excel, text or CSV)."
-    lines = [f'- {record.asset_id}: "{record.filename}" ({record.created_at[:10]})' for record in files]
-    return "Readable files the user has, newest first:\n" + "\n".join(lines)
+    tail = '\n… older files too: search them with name="…".' if more else ""
+    return "Readable files the user has, newest first:\n" + "\n".join(lines) + tail
 
 
 def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | None = None,
@@ -57,7 +72,8 @@ def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | N
     left = settings.attachment_turn_chars
 
     @tool
-    async def read_attachment(asset_id: str = "", pages: str = "", find: str = "", start: int = 0) -> str:
+    async def read_attachment(asset_id: str = "", pages: str = "", find: str = "", start: int = 0,
+                              name: str = "") -> str:
         """Read a file the user attached (PDF, Word, PowerPoint, Excel, text, CSV). Its text was pulled out page by
         page; you read it in pieces, the way a person reads a long document.
 
@@ -66,7 +82,8 @@ def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | N
           where to continue. A single page too long for one read is cut and says where to go on: ask for that
           page again with ``start`` (the character it gives) to read the rest.
         - ``find``: words to look for; returns the best-matching passages with their page numbers.
-        - No ``asset_id``: lists the readable files the user has.
+        - No ``asset_id``: lists the user's newest readable files. With ``name`` (e.g. "lease"), searches all of
+          their files by filename instead. Two files can share a name: tell them apart by date and id.
 
         Pages marked as scanned pictures have no text: say you couldn't read them, never guess. Cite page numbers
         when it helps. Say how much you actually read: don't claim to have read a whole long file from its outline.
@@ -75,7 +92,7 @@ def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | N
         nonlocal left
         asset_id = asset_id.strip()
         if not asset_id:
-            return await asyncio.to_thread(_listing, user_id)
+            return await asyncio.to_thread(_listing, user_id, name)
         if pages.strip() and find.strip():
             return "Use pages or find, not both. Read the pages, or search; then the other if you need it."
         if left <= 0:

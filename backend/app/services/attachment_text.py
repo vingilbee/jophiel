@@ -373,9 +373,26 @@ def extract_quietly(user_id: uuid.UUID | str, asset_id: str) -> None:
         log.exception("attachment text: extracting %s failed", asset_id)
 
 
-def readable_files(user_id: uuid.UUID | str, *, limit: int = 20) -> list[asset_store.AssetRecord]:
-    """The user's readable files, newest first. Filtered before the limit, so later photos never hide them."""
-    return [record for record in asset_store.list_assets(user_id, limit=None) if readable(record.filename)][:limit]
+def _name_words(text: str) -> list[str]:
+    return re.findall(r"[^\W_]+", text.lower())
+
+
+def readable_files(user_id: uuid.UUID | str, *, limit: int = 20, name: str = "") -> list[asset_store.AssetRecord]:
+    """The user's readable files, newest first. Filtered before the limit, so later photos never hide them.
+    ``name`` searches every one of them by filename: each word must appear in it ("lease pdf", "Lease.PDF")."""
+    words = _name_words(name)
+    found = []
+    for record in asset_store.list_assets(user_id, limit=None):
+        if not readable(record.filename):
+            continue
+        if words:
+            have = " ".join(_name_words(record.filename))
+            if not all(word in have for word in words):
+                continue
+        found.append(record)
+        if len(found) >= limit:
+            break
+    return found
 
 
 # --------------------------------------------------------------------------- #

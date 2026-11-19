@@ -911,7 +911,7 @@ def build_system_prompt(
                    "for meshes, rigging and animation, use the Blender specialist.")
     elif context.files:
         prompt += (f"\nThe user has {len(context.files)} file(s) they shared earlier that you can read with "
-                   "read_attachment (call it with no id to list them).")
+                   "read_attachment (call it with no id to list the newest, or with name=\"…\" to find one by its name).")
 
     # While a game session exists, she's hanging out, not assisting. Late, so
     # its tone overrides the base prompt's; before voice, whose speech rules win.

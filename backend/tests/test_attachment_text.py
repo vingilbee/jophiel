@@ -276,3 +276,27 @@ def test_a_low_budget_that_fits_the_rest_of_a_page_ends_it_without_a_continuatio
 
     then = attachment_text.read_pages(doc, "1-2", 50, start=1_001)
     assert then.status == "partial" and "start=" not in then.text and "Not shown yet: page 2" in then.text
+
+
+def test_she_finds_a_file_by_name_among_all_of_them_even_an_old_one(store):
+    from app.ai.tools.attachments import tools as attachment_tools
+
+    owner = uuid.uuid4()
+    lease = _save(owner, b"old lease words", "My Lease_2024.pdf.txt")
+    report_old = _save(owner, b"first report", "report.txt")
+    for i in range(30):
+        _save(owner, f"note {i}".encode(), f"note{i}.txt")
+    report_new = _save(owner, b"second report", "report.txt")
+    [read] = attachment_tools.build_attachment_tools(owner)
+
+    def call(**kwargs) -> str:
+        return asyncio.run(read.ainvoke(kwargs))
+
+    newest = call()
+    assert lease not in newest and 'search them with name="…"' in newest  # past the newest 20
+    found = call(name="lease 2024")
+    assert lease in found and "note" not in found
+    assert [r.asset_id for r in attachment_text.readable_files(owner, name="LEASE")] == [lease]
+    both = call(name="report")
+    assert both.index(report_new) < both.index(report_old) and "ask the user, naming them by date" in both
+    assert "No readable file whose name matches" in call(name="invoice")
