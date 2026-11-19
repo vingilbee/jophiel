@@ -140,7 +140,8 @@ def exists(user_id: uuid.UUID | str, asset_id: str) -> bool:
         return False
 
 
-def list_assets(user_id: uuid.UUID | str, *, limit: int = 20) -> list[AssetRecord]:
+def list_assets(user_id: uuid.UUID | str, *, limit: int | None = 20) -> list[AssetRecord]:
+    """The user's assets, newest first; ``limit=None`` for all of them."""
     directory = _user_dir(user_id)
     if not directory.is_dir():
         return []
@@ -151,7 +152,7 @@ def list_assets(user_id: uuid.UUID | str, *, limit: int = 20) -> list[AssetRecor
         except (OSError, ValueError, TypeError):
             continue
     records.sort(key=lambda item: item.created_at, reverse=True)
-    return records[:limit]
+    return records if limit is None else records[:limit]
 
 
 def derived_path(user_id: uuid.UUID | str, asset_id: str, suffix: str) -> Path:

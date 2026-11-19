@@ -57,13 +57,14 @@ def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | N
     left = settings.attachment_turn_chars
 
     @tool
-    async def read_attachment(asset_id: str = "", pages: str = "", find: str = "") -> str:
+    async def read_attachment(asset_id: str = "", pages: str = "", find: str = "", start: int = 0) -> str:
         """Read a file the user attached (PDF, Word, PowerPoint, Excel, text, CSV). Its text was pulled out page by
         page; you read it in pieces, the way a person reads a long document.
 
         - Only ``asset_id``: the overview: page count, outline (headings with their pages), the opening. Start here.
         - ``pages``: those pages, e.g. "12", "120-135", "3, 7, 9-10". Long ranges stop at a size limit and say
-          where to continue.
+          where to continue. A single page too long for one read is cut and says where to go on: ask for that
+          page again with ``start`` (the character it gives) to read the rest.
         - ``find``: words to look for; returns the best-matching passages with their page numbers.
         - No ``asset_id``: lists the readable files the user has.
 
@@ -93,7 +94,7 @@ def build_attachment_tools(user_id: uuid.UUID, *, conversation_id: uuid.UUID | N
         budget = min(per_call, left)
         try:
             if pages.strip():
-                mode, reading = "pages", attachment_text.read_pages(doc, pages, budget)
+                mode, reading = "pages", attachment_text.read_pages(doc, pages, budget, start=start)
             elif find.strip():
                 mode, reading = "find", attachment_text.find(doc, find, budget)
             else:

@@ -103,10 +103,11 @@ def sources(db: Session, fact_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, list[
     for fact_id, obs in rows:
         payload = obs.payload or {}
         words = _words(payload)
-        if words in seen.setdefault(fact_id, set()) or len(out.get(fact_id, [])) >= SHOWN_MAX:
-            continue
-        seen[fact_id].add(words)
         asset_id = str(payload.get("asset_id") or "")
+        key = f"{asset_id}\n{words}"  # two files with one name are two sources, never collapsed
+        if key in seen.setdefault(fact_id, set()) or len(out.get(fact_id, [])) >= SHOWN_MAX:
+            continue
+        seen[fact_id].add(key)
         state = _file_state(obs.user_id, asset_id, cache) if asset_id else "deleted"
         tail = {"present": f" [file {asset_id}]", "deleted": " (the file has since been deleted)"}.get(state, "")
         out.setdefault(fact_id, []).append(FileSource(obs.id, words + tail))

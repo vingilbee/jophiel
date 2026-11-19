@@ -222,3 +222,43 @@ def test_what_memory_keeps_of_files():
     searched = registry.decide("conversation", "file_read", 1,
                                {**read, "mode": "find", "pages": "12", "query": "termination", "status": "read"}, "c")
     assert searched.text.startswith('You searched "lease.pdf" for "termination" and found it on page 12')
+
+
+def test_a_page_longer_than_one_read_is_partial_and_reads_on_from_where_it_stopped():
+    words = " ".join(f"w{i}" for i in range(4_000))  # about 23k characters on one page
+    doc = attachment_text.Extracted(asset_id="a" * 16, filename="big.pdf", media_type="application/pdf",
+                                    unit="page", total=2, pages=[attachment_text.Page(1, words),
+                                                                 attachment_text.Page(2, "the second page")])
+
+    first = attachment_text.read_pages(doc, "1", 8_000)
+    assert first.status == "partial" and first.chars <= 8_000 + 40
+    at = int(first.text.split("at character ")[1].split(" ")[0])
+    assert f'pages="1" with start={at}' in first.text
+    assert words[:at].rstrip() in first.text and words[at:at + 50] not in first.text
+
+    collected = words[:at]
+    while True:
+        more = attachment_text.read_pages(doc, "1", 8_000, start=at)
+        assert f"from character {at} of {len(words)}" in more.text
+        if more.status == "read":
+            collected += words[at:]
+            assert words[-40:] in more.text
+            break
+        nxt = int(more.text.split("at character ")[1].split(" ")[0])
+        assert nxt > at
+        collected += words[at:nxt]
+        at = nxt
+    assert collected == words
+
+    both = attachment_text.read_pages(doc, "1-2", 8_000)
+    assert both.status == "partial" and "then page 2" in both.text
+    with pytest.raises(attachment_text.BadRequest):
+        attachment_text.read_pages(doc, "1", 8_000, start=len(words) + 5)
+
+
+def test_readable_files_are_not_hidden_by_many_newer_pictures(store):
+    owner = uuid.uuid4()
+    lease = _save(owner, b"lease words", "lease.txt")
+    for i in range(205):
+        _save(owner, b"\x89PNG not really", f"photo{i}.obj")
+    assert [r.asset_id for r in attachment_text.readable_files(owner)] == [lease]

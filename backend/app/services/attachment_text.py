@@ -374,7 +374,8 @@ def extract_quietly(user_id: uuid.UUID | str, asset_id: str) -> None:
 
 
 def readable_files(user_id: uuid.UUID | str, *, limit: int = 20) -> list[asset_store.AssetRecord]:
-    return [record for record in asset_store.list_assets(user_id, limit=200) if readable(record.filename)][:limit]
+    """The user's readable files, newest first. Filtered before the limit, so later photos never hide them."""
+    return [record for record in asset_store.list_assets(user_id, limit=None) if readable(record.filename)][:limit]
 
 
 # --------------------------------------------------------------------------- #
@@ -454,8 +455,10 @@ def _no_text_words(page: Page) -> str:
     return "no text: empty"
 
 
-def _page_block(doc: Extracted, page: Page, text: str | None = None) -> str:
+def _page_block(doc: Extracted, page: Page, text: str | None = None, start: int = 0) -> str:
     label = f"{doc.unit} {page.n}" + (f" ({page.heading})" if page.heading and doc.unit != "page" else "")
+    if start:
+        label += f", from character {start} of {len(page.text)}"
     if page.status != "text":
         return f"--- {label}: {_no_text_words(page)} ---"
     return f"--- {label} ---\n{page.text if text is None else text}"
@@ -508,24 +511,44 @@ def overview(doc: Extracted, budget: int) -> Reading:
     return Reading(text, "read", shown_pages, sum(map(len, opening)))
 
 
-def read_pages(doc: Extracted, spec: str, budget: int) -> Reading:
+def _cut(text: str, room: int) -> int:
+    """Where to stop in ``text`` to fit ``room`` characters: at a space near the limit when there is one."""
+    if len(text) <= room:
+        return len(text)
+    space = text.rfind(" ", max(0, room - 200), room)
+    return space + 1 if space > 0 else max(room, 1)
+
+
+def read_pages(doc: Extracted, spec: str, budget: int, *, start: int = 0) -> Reading:
+    """Those pages, up to ``budget`` characters. ``start`` resumes inside the first page asked for (a character
+    offset, as a cut-short read gives it), so a page longer than one read's budget is read in steps."""
     readable_count = len(doc.pages)
     if readable_count == 0:
         return Reading(f'"{doc.filename}" has no {_unit(doc, 2)} with text.', "no_text")
     wanted = parse_pages(spec, readable_count)
+    first = doc.pages[wanted[0] - 1]
+    start = max(0, start) if first.status == "text" else 0
+    if start and start >= len(first.text):
+        raise BadRequest(f"{doc.unit} {first.n} has only {len(first.text)} characters; start={start} is past its end")
     blocks: list[str] = []
     shown: list[int] = []
     used = 0
     stopped_at: int | None = None
+    resume: tuple[int, int] | None = None  # (page, character) a read cut inside a page goes on from
     for i, n in enumerate(wanted):
         page = doc.pages[n - 1]
-        block = _page_block(doc, page)
+        offset = start if i == 0 else 0
+        block = _page_block(doc, page, page.text[offset:] if offset else None, offset)
         if used + len(block) > budget:
-            if not blocks:  # one page bigger than the whole budget: show what fits of it
-                block = block[:budget].rstrip() + f" …[cut: {doc.unit} {n} goes on]"
+            if not blocks:  # one page bigger than the whole budget: show what fits of it, and where it goes on
+                rest_of_page = page.text[offset:]
+                head = len(block) - len(rest_of_page)
+                end = _cut(rest_of_page, max(budget - head, 200))
+                block = block[:head] + rest_of_page[:end].rstrip() + f" …[cut: {doc.unit} {n} goes on]"
                 blocks.append(block)
                 shown.append(n)
                 used += len(block)
+                resume = (n, offset + end)
                 stopped_at = wanted[i + 1] if i + 1 < len(wanted) else None
             else:
                 stopped_at = n
@@ -538,14 +561,19 @@ def read_pages(doc: Extracted, spec: str, budget: int) -> Reading:
     lines = [f'"{doc.filename}", {_unit(doc, len(wanted))} {asked} of {doc.total} {_DATA_NOTE}']
     body = "\n\n".join(blocks)
     tail: list[str] = []
-    if stopped_at is not None:
-        rest = wanted[wanted.index(stopped_at):]
+    rest = wanted[wanted.index(stopped_at):] if stopped_at is not None else []
+    if resume is not None:
+        page_n, at = resume
+        then = f", then {_unit(doc, len(rest))} {span(rest)}" if rest else ""
+        tail.append(f"[Stopped inside {doc.unit} {page_n} at character {at} of {len(doc.pages[page_n - 1].text)}. "
+                    f'To read on, ask for pages="{page_n}" with start={at}{then}.]')
+    elif rest:
         tail.append(f"[Stopped at the size limit. Not shown yet: {_unit(doc, len(rest))} {span(rest)}. "
                     "Ask for them next if you need them.]")
     if doc.cut_short and wanted[-1] == readable_count:
         tail.append(f"[The file goes on to {doc.unit} {doc.total}, but only {readable_count} were extracted.]")
     status: Literal["read", "partial", "no_text"] = (
-        "no_text" if not shown else "partial" if stopped_at is not None else "read")
+        "no_text" if not shown else "partial" if resume is not None or rest else "read")
     return Reading("\n".join([lines[0], body, *tail]).strip(), status, shown, used)
 
 

@@ -125,3 +125,20 @@ def test_an_empty_or_fenced_reply_links_nothing(db, alice, monkeypatch):
     _read_file(db, alice, conversation, asked, asset_id)
     _run(db, monkeypatch, job, _lease_ends())
     assert db.scalar(select(func.count()).select_from(MemoryEvidence).where(MemoryEvidence.role == "basis")) == 0
+
+
+def test_two_files_with_one_name_stay_two_sources_when_one_is_deleted(db, alice, monkeypatch):
+    conversation = _conversation(db, alice)
+    old = asset_store.save_bytes(alice.id, b"old lease", filename="lease.txt").asset_id
+    new = asset_store.save_bytes(alice.id, b"new lease", filename="lease.txt").asset_id
+    asked, job = _said(db, conversation, "compare my two leases", "Both end in March.")
+    _read_file(db, alice, conversation, asked, old)
+    _read_file(db, alice, conversation, asked, new)
+    _run(db, monkeypatch, job, _lease_ends())
+    # No single-file delete exists yet: remove the first file's record the way one would.
+    (asset_store._user_dir(alice.id) / f"{old}.json").unlink()
+
+    fact = _fact(db, alice, "home:lease_end")
+    result, _ = _shown(db, alice, fact)
+    assert result.records[0].read_from == ('"lease.pdf", pages 120-128 (the file has since been deleted)',
+                                           f'"lease.pdf", pages 120-128 [file {new}]')
