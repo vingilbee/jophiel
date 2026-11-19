@@ -716,6 +716,30 @@ def _embed(text: str) -> list[float] | None:
         return None
 
 
+@dataclass(frozen=True)
+class Prepared:
+    """Lesson changes made ready for search ahead of ``apply``: what memory will store for each, computed before
+    any lock is taken. Pass ``embed`` to ``apply``; text it wasn't prepared for gets no embedding."""
+
+    vectors: dict[str, list[float] | None]
+
+    def embed(self, text: str) -> list[float] | None:
+        return self.vectors.get(text)
+
+
+def prepare_for_search(changes: Iterable[L.Change], *, embed=None) -> Prepared:
+    """Prepare these lesson changes for search: the searchable text memory will store for each change that writes
+    one (create, narrow, revise) and its embedding, each distinct text once. Calls the embedding model; takes no
+    lock and reads no rows, so callers run it before taking theirs."""
+    vectors: dict[str, list[float] | None] = {}
+    for c in changes:
+        if c.op in ("create", "narrow", "revise"):
+            text = _text(c)
+            if text not in vectors:
+                vectors[text] = (embed or _embed)(text)
+    return Prepared(vectors)
+
+
 def reconsider(db: Session, user_id: uuid.UUID, assessment_id: uuid.UUID, revision: int) -> list[str]:
     """An assessment was revised and its conclusions changed: the evidence its earlier revisions gave stops counting
     until the new revision is read (the lesson job for it re-reads and may support again). A strategy that loses
