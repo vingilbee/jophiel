@@ -315,7 +315,7 @@ def process(db: Session, job_id: uuid.UUID, attempts: int, *, builder: Callable[
         if answer.raw is None:
             return _fail(db, job_id, attempts, answer.error or "no answer")
         checked = L.check(answer.raw, bundle)
-        vectors = _vectors(checked.changes, embed)
+        prepared = memory_lessons.prepare_for_search(checked.changes, embed=embed)  # before any lock
         # Write: the assessment row locked (its revision can't move under us), then memory's own lock.
         job = _mine(db, job_id, attempts, lock=True)
         if job is None:
@@ -328,7 +328,7 @@ def process(db: Session, job_id: uuid.UUID, attempts: int, *, builder: Callable[
         source = memory_lessons.Source(occasion, occasion_at, assessment_id, assessment_revision, job_id)
         try:
             applied = memory_lessons.apply(db, user_id, checked.changes, source,
-                                           embed=lambda text: vectors.get(text))
+                                           embed=prepared.embed)
         except memory_lessons.Stale as exc:
             db.rollback()
             log.info("learning lessons %s: stale reading (%s); reading again", job_id, exc)
@@ -551,19 +551,6 @@ def process_reconsider(db: Session, job_id: uuid.UUID, attempts: int, *,
               "prompted_by": prompted})
         return outcome
     return _fail(db, job_id, attempts, "the lesson kept changing while it was reconsidered; read again later")
-
-
-def _vectors(changes: list[L.Change], embed) -> dict[str, list[float] | None]:
-    """Embeddings for the texts memory will store, computed before any lock is taken."""
-    from app.services import memory_lessons
-
-    out = {}
-    for c in changes:
-        if c.op in ("create", "narrow", "revise"):
-            text = memory_lessons._text(c)
-            if text not in out:
-                out[text] = (embed or memory_lessons._embed)(text)
-    return out
 
 
 def _finish(db: Session, job_id: uuid.UUID, attempts: int, outcome: str, result: dict) -> str:

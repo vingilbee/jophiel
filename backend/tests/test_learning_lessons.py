@@ -107,6 +107,27 @@ def test_preferences_need_exact_words_but_inference_certainty_is_the_builders_ju
     assert L.status_for("understanding", "situation", "established") == "accepted"
 
 
+def test_memory_prepares_each_distinct_stored_text_for_search_once():
+    def c(op, statement="Listen rather than offer fixes", exceptions=("when they ask for advice",)):
+        return L.Change(op, None, None, None, "preference", "situation", statement, "when they are venting",
+                        list(exceptions), [], ["message:u1"], None, "because")
+
+    calls = []
+
+    def embed(text):
+        calls.append(text)
+        return [float(len(calls))]
+
+    changes = [c("create"), c("narrow"), c("revise", "Ask before offering fixes"), c("support"), c("withdraw"),
+               c("note")]
+    prepared = ML.prepare_for_search(changes, embed=embed)
+    listen, ask = ML._text(changes[0]), ML._text(changes[2])
+    assert calls == [listen, ask]  # the repeat once; support / withdraw / note store no text
+    assert prepared.embed(listen) == [1.0] and prepared.embed(ask) == [2.0]
+    assert prepared.embed("text it was never prepared for") is None
+    assert ML.prepare_for_search([], embed=embed).vectors == {} and len(calls) == 2
+
+
 def test_a_cited_stated_conclusion_vouches_only_for_the_users_own_line_it_rests_on():
     # The real-model builder often cites a1 ("the user stated: ...") without the message line itself.
     b = bundle()
@@ -437,6 +458,26 @@ def test_a_correction_informs_the_next_evaluation_now_and_a_fresh_conversation_l
         # Reached her; she gives no account of each lesson (not a schema answer), so inspection says so.
         case, sentence = ML.explain(row)
         assert case == "no_account"
+
+
+def test_a_new_lesson_is_stored_with_the_embedding_memory_prepared_before_it_locked(env):
+    user, conversation = setup(env)
+    assessed(env, user, conversation)
+    calls = []
+
+    def embed(text):
+        calls.append(text)
+        return [0.25, 0.5]
+
+    builder = Builder(lambda text, n: preference(text, scope="situation", applies_when="when they are venting"))
+    with env.db() as db:
+        claimed = LL.claim(db, soon(hours=1))
+    with env.db() as db:
+        assert LL.process(db, *claimed, builder=builder, embed=embed) == "changed"
+    with env.db() as db:
+        lesson = db.scalar(select(MemoryLesson).where(MemoryLesson.user_id == user.id))
+        assert lesson.embedding == [0.25, 0.5]
+        assert calls == [ML._text(lesson)]
 
 
 def test_an_inference_is_as_certain_as_the_builder_judged_and_rereading_one_is_not_new_support(env):
