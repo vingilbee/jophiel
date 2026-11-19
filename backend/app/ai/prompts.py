@@ -900,11 +900,18 @@ def build_system_prompt(
         )
 
     if context.has_assets:
-        prompt += (
-            "\nThe user attached file asset ids: "
-            + ", ".join(context.asset_ids)
-            + ". For Drive uploads or document operations, pass these IDs to the Drive specialist; for meshes, rigging, and animation, use the Blender specialist."
-        )
+        names = dict(context.files)
+        attached = ", ".join(f'"{names[i]}" (id {i})' if i in names else i for i in context.asset_ids)
+        readable = [i for i in context.asset_ids if i in names]
+        prompt += f"\nThe user attached files to this message: {attached}."
+        if readable:
+            prompt += (" Read them yourself with read_attachment (start with the overview; for a long file read "
+                       "the parts that matter or search it). Say how much you actually read.")
+        prompt += (" To put a file in Drive or use it in a Doc or Slides, pass its id to the Drive specialist; "
+                   "for meshes, rigging and animation, use the Blender specialist.")
+    elif context.files:
+        prompt += (f"\nThe user has {len(context.files)} file(s) they shared earlier that you can read with "
+                   "read_attachment (call it with no id to list the newest, or with name=\"…\" to find one by its name).")
 
     # While a game session exists, she's hanging out, not assisting. Late, so
     # its tone overrides the base prompt's; before voice, whose speech rules win.

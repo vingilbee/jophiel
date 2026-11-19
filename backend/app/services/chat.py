@@ -174,6 +174,19 @@ def record_heard(
     return True
 
 
+def _file_labels(user_id: uuid.UUID, asset_ids: Sequence[str]) -> str:
+    """ "report.pdf (id 1a2b…)" per attached file, so a later turn knows what was sent and how to read it."""
+    from app.services import asset_store
+
+    labels = []
+    for asset_id in asset_ids:
+        try:
+            labels.append(f'"{asset_store.get_record(user_id, asset_id).filename}" (id {asset_id})')
+        except asset_store.AssetNotFoundError:
+            labels.append(f"{asset_id} (deleted)")
+    return ", ".join(labels)
+
+
 def get_history(
     db: Session, *, conversation: Conversation,
     up_to_message_id: uuid.UUID | None = None,
@@ -246,8 +259,7 @@ def get_history(
             attached = ", ".join(message.image_ids)
             content = f"{content}\n\n[Attached image ids: {attached}]"
         if message.asset_ids:
-            attached = ", ".join(message.asset_ids)
-            content = f"{content}\n\n[Attached Blender asset ids: {attached}]"
+            content = f"{content}\n\n[Attached files: {_file_labels(conversation.user_id, message.asset_ids)}]"
         turn: ChatTurn = {"role": message.role, "content": content}
         if records:
             turn["marker"] = _marker(message, zone, now, current=message.id == current_message_id)

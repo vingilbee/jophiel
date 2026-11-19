@@ -72,6 +72,33 @@ class ReplyInterrupted(_Payload):
     total_chars: int = Field(ge=0)
 
 
+class FileShared(_Payload):
+    """A file the user attached to a message (services/attachment_text.py), as code read it: its name, type and
+    how much of it has text. The filename is the user's own text, quoted."""
+
+    message_id: str
+    asset_id: str = Field(max_length=16)
+    filename: str = Field(max_length=220)
+    media_type: str = Field(max_length=120)
+    status: Literal["readable", "no_text", "unsupported", "failed"]
+    unit: str | None = Field(default=None, max_length=16)
+    total: int | None = Field(default=None, ge=0)
+    no_text: int = Field(default=0, ge=0)  # pages with no text (scanned pictures or empty)
+
+
+class FileRead(_Payload):
+    """One read of a file by her (``read_attachment``): which file, how, and which pages she was shown."""
+
+    asset_id: str = Field(max_length=16)
+    filename: str = Field(max_length=220)
+    mode: Literal["overview", "pages", "find"]
+    pages: str = Field(default="", max_length=200)  # "120-128, 140"
+    query: str | None = Field(default=None, max_length=200)
+    status: Literal["read", "partial", "no_text"]
+    unit: str = Field(default="page", max_length=16)
+    total: int = Field(default=0, ge=0)
+
+
 class DeliveryStatus(_Payload):
     delivery_id: str
     message_id: str
@@ -274,6 +301,50 @@ def _interrupted_memory(p: ReplyInterrupted, _instance: str) -> Decision:
                    "characters; the rest was never heard)", "reported")
 
 
+def _file_size(unit: str | None, total: int | None, no_text: int = 0) -> str:
+    if not unit or total is None:
+        return ""
+    size = _plural(total, unit)
+    return f", {size}" + (f", {no_text} without readable text" if no_text else "")
+
+
+def _file_shared_summary(p: FileShared) -> str:
+    words = {"readable": "", "no_text": "; it has no readable text", "unsupported": "; not a file she can read as text",
+             "failed": "; it couldn't be opened"}[p.status]
+    return f'The user shared a file: "{quote(p.filename)}" ({p.media_type}{_file_size(p.unit, p.total, p.no_text)}){words}'
+
+
+def _file_shared_memory(p: FileShared, _instance: str) -> Decision:
+    return Promote("file_shared", _file_shared_summary(p).replace("she can", "you can") + f" [file {p.asset_id}]",
+                   "observed", coalesce_key=f"file_shared:{p.asset_id}")
+
+
+def _file_read_words(p: FileRead) -> str:
+    name = f'"{quote(p.filename)}"'
+    unit = f"{p.unit}s" if "," in p.pages or "-" in p.pages else p.unit
+    if p.status == "no_text":
+        return f"tried to read {name}, but what you asked for has no readable text"
+    if p.mode == "overview":
+        shown = f" and {unit} {p.pages}" if p.pages else ""
+        return f"looked over {name} (its outline{shown}, of {_plural(p.total, p.unit)})"
+    if p.mode == "find":
+        found = f"found it on {unit} {p.pages}" if p.pages else "found no match"
+        return f'searched {name} for "{quote(p.query, 80)}" and {found}'
+    partial = " (stopped at the size limit)" if p.status == "partial" else ""
+    return f"read {unit} {p.pages} of {name}, of {_plural(p.total, p.unit)}{partial}"
+
+
+def _file_read_summary(p: FileRead) -> str:
+    return f"Jophiel {_file_read_words(p)}"
+
+
+def _file_read_memory(p: FileRead, _instance: str) -> Decision:
+    """What she read is kept (the same read again is one memory with more evidence); the file's text is not."""
+    key = f"file_read:{p.asset_id}:{p.mode}:{p.pages}:{(p.query or '').lower()}"
+    return Promote("file_read", f"You {_file_read_words(p)} [file {p.asset_id}]", "observed",
+                   coalesce_key=key[:240])
+
+
 def _delivery_summary(p: DeliveryStatus) -> str:
     return f"{p.channel.capitalize()} reply part {p.part_index + 1}: {p.status}"
 
@@ -422,6 +493,10 @@ _SPECS = [
              _skip("kept in the conversation history"), needs_context=False),
     KindSpec("conversation", "reply_interrupted", 1, ReplyInterrupted, "user", "reported", "system",
              _fixed("notable"), _interrupted_summary, _interrupted_memory, consumers=("memory", "learning")),
+    KindSpec("conversation", "file_shared", 1, FileShared, "user", "observed", "user", _fixed("notable"),
+             _file_shared_summary, _file_shared_memory),
+    KindSpec("conversation", "file_read", 1, FileRead, "columbina", "observed", "system", _fixed("routine"),
+             _file_read_summary, _file_read_memory),
     KindSpec("conversation", "delivery_status", 1, DeliveryStatus, "system", "reported", "external",
              lambda p: "notable" if p.status == "failed" else "routine", _delivery_summary, _delivery_memory,
              consumers=("memory", "learning")),

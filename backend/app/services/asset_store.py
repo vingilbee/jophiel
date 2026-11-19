@@ -140,7 +140,8 @@ def exists(user_id: uuid.UUID | str, asset_id: str) -> bool:
         return False
 
 
-def list_assets(user_id: uuid.UUID | str, *, limit: int = 20) -> list[AssetRecord]:
+def list_assets(user_id: uuid.UUID | str, *, limit: int | None = 20) -> list[AssetRecord]:
+    """The user's assets, newest first; ``limit=None`` for all of them."""
     directory = _user_dir(user_id)
     if not directory.is_dir():
         return []
@@ -151,7 +152,25 @@ def list_assets(user_id: uuid.UUID | str, *, limit: int = 20) -> list[AssetRecor
         except (OSError, ValueError, TypeError):
             continue
     records.sort(key=lambda item: item.created_at, reverse=True)
-    return records[:limit]
+    return records if limit is None else records[:limit]
+
+
+def derived_path(user_id: uuid.UUID | str, asset_id: str, suffix: str) -> Path:
+    """Where something derived from an asset lives (e.g. its extracted text, ``.pages.jsonl``). Never ``.json``:
+    ``list_assets`` reads every ``*.json`` as a record."""
+    if suffix.endswith(".json"):
+        raise ValueError("derived files must not end in .json")
+    return _user_dir(user_id) / f"{_validate_id(asset_id)}{suffix}"
+
+
+def write_derived(user_id: uuid.UUID | str, asset_id: str, suffix: str, text: str) -> None:
+    """Write a derived file atomically (readers never see half of it), fenced like every user write."""
+    path = derived_path(user_id, asset_id, suffix)
+    with storage_cleanup.allow_user_write(_root(), user_id):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
+        partial.write_text(text, encoding="utf-8")
+        partial.replace(path)
 
 
 def read_bytes(user_id: uuid.UUID | str, asset_id: str) -> tuple[bytes, AssetRecord]:

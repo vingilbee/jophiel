@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     asset_store_dir: str = "var/assets"
     asset_max_upload_mb: int = 100
     asset_list_max: int = 20
+    # Reading attached files (services/attachment_text.py): text is pulled out once, page by page, and read in
+    # bounded pieces. Pages past the limit are never extracted (the overview says so).
+    attachment_max_pages: int = 2000
+    # One read_attachment call returns at most this many characters of the file; one reply at most the second.
+    attachment_read_chars: int = 16_000
+    attachment_turn_chars: int = 48_000
     # The bridge is an explicit opt-in because it controls a desktop Blender
     # process. Keep it bound to loopback unless Blender is isolated elsewhere.
     blender_tools_enabled: bool = False

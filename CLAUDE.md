@@ -129,6 +129,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   `uv run python -m app.ai.desktop.relay`) + tls.py (its self-signed certificate)
       /tools           # MCP tool servers the agent can call
         /screen         # look_at_screen — NOT MCP; one tool on the orchestrator itself
+        /attachments    # read_attachment: her own reading of attached files (overview / pages / find, bounded
+                        #   per call and per reply) — NOT MCP; on the orchestrator when the user has readable files
         /mind           # her mind's own tools (stay_silent, think_it_over, stop_thinking, come_back_to,
                         #   drop_come_back, decide_proposal, experiment) — NOT MCP; on every evaluation
         /memory         # her working-memory tools (set_goal, update_item, note_commitment, note_intention,
@@ -215,6 +217,11 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   UNSETTLED for every consumer at once), details (untested, tried, needs, would support /
                        #   challenge), a prepared supply made current before delivery (``current``);
                        #   transcript_search.py: what was said (heard text, by speaker), her "said" search;
+                       #   attachment_text.py: attached files' text pulled out once per page (PDF via pypdfium2, Word,
+                       #   PowerPoint, Excel, text, CSV; no OCR: scanned pages marked) and read in bounded pieces;
+                       #   file_shared / file_read observations reach memory, the text stays with the file;
+                       #   attachment_memory.py: facts learned while she read a file linked to her reads of it
+                       #   (shown as file + pages when read back; a deleted file is said to be, never an error);
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
