@@ -453,31 +453,62 @@ TARGET_WORDS = {"lesson": "another lesson of hers", "fact": "a fact memory holds
 DEPTH = 3  # how far an unsettled premise is followed up a chain of lessons
 
 
-def _target_now(db: Session, user_id: uuid.UUID, kind: str, target_id: str) -> tuple[int, str, str, str] | None:
-    """(revision, status, words, what it is) of a link's target as it is now; None when it is gone."""
+def _target_record(db: Session, user_id: uuid.UUID, kind: str, target_id: str) -> Any | None:
+    """The record a link's target names (a lesson, a fact or a working item) as it is now, this user's only;
+    None when it is malformed, gone, deleted or another user's. The one place the target-reading rules live."""
     from app.db.models import SemanticMemory, WorkingItem
 
     try:
         key = uuid.UUID(str(target_id))
     except ValueError:
         return None
+    model = {"lesson": MemoryLesson, "fact": SemanticMemory, "item": WorkingItem}.get(kind)
+    if model is None:
+        return None
+    r = db.get(model, key)
+    if r is None or r.user_id != user_id or (kind == "fact" and r.status == "deleted"):
+        return None
+    return r
+
+
+def _target_fields(kind: str, r: Any) -> tuple[int, str, str, str]:
+    """(revision, status, words, what it is) of a target record."""
     if kind == "lesson":
-        r = db.get(MemoryLesson, key)
-        if r is None or r.user_id != user_id:
-            return None
         return r.revision, r.status, r.statement, TARGET_WORDS["lesson"]
     if kind == "fact":
-        r = db.get(SemanticMemory, key)
-        if r is None or r.user_id != user_id or r.status == "deleted":
-            return None
         return r.revision, r.status, r.content, TARGET_WORDS["fact"]
-    if kind == "item":
-        r = db.get(WorkingItem, key)
-        if r is None or r.user_id != user_id:
-            return None
-        whose = "her" if r.owner == "columbina" else "the user's" if r.owner == "user" else "a shared"
-        return r.revision, r.status, r.text, f"{whose} {r.kind}"
-    return None
+    whose = "her" if r.owner == "columbina" else "the user's" if r.owner == "user" else "a shared"
+    return r.revision, r.status, r.text, f"{whose} {r.kind}"
+
+
+def _target_now(db: Session, user_id: uuid.UUID, kind: str, target_id: str) -> tuple[int, str, str, str] | None:
+    """(revision, status, words, what it is) of a link's target as it is now; None when it is gone."""
+    r = _target_record(db, user_id, kind, target_id)
+    return None if r is None else _target_fields(kind, r)
+
+
+@dataclass(frozen=True)
+class RelatedTarget:
+    """A fact or working item of the user's as it is now, for learning to relate a finding to (never evidence)."""
+
+    revision: int
+    status: str
+    text: str
+    what: str
+    carryable: bool  # an open hypothesis of hers: a lesson can carry it forward (memory then closes it)
+
+
+def related_target(db: Session, user_id: uuid.UUID, kind: str, target_id: str) -> RelatedTarget | None:
+    """A fact or working item of this user's as it is now, read once; None when it is malformed, gone, deleted or
+    another user's (and for any other kind: a finding relates only to what a lesson can rest on). Read only."""
+    if kind not in ("fact", "item"):
+        return None
+    r = _target_record(db, user_id, kind, target_id)
+    if r is None:
+        return None
+    revision, status, words, what = _target_fields(kind, r)
+    carryable = kind == "item" and r.kind == "hypothesis" and r.owner == "columbina" and r.closed_at is None
+    return RelatedTarget(revision, status, words, what, carryable)
 
 
 def _rests_on(db: Session, lesson_id: uuid.UUID) -> set[uuid.UUID]:
