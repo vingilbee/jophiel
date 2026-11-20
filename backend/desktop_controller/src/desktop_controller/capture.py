@@ -15,13 +15,13 @@ away a frame taken under an older one (see ``connection``).
 ``sample`` is the reflexes' picture: the game window only, only while it is
 the foreground window, small and grey, and it never leaves the VM.
 
-``WindowsCapture`` is the real backend (Win32 via ctypes + ``mss`` for pixels);
+``WindowsCapture`` is the real backend on Windows (Win32 via ctypes + ``mss`` for pixels), ``ScreenCapture``
+the whole-screen one on macOS and Linux;
 ``FakeCapture`` draws a test picture anywhere, for tests and dry runs.
 """
 from __future__ import annotations
 
 import io
-import sys
 import threading
 from dataclasses import dataclass
 from typing import Protocol
@@ -253,8 +253,65 @@ class WindowsCapture:
         return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 
 
-def default_backend() -> CaptureBackend | None:
-    """The real backend on Windows; None elsewhere (no capture at all)."""
-    if sys.platform != "win32":
+class ScreenCapture:
+    """macOS and Linux (X11): the whole primary screen only (docs/VM_CONNECTION_PLAN.md, step 4).
+
+    There is no game-window scope here: ``game_window`` capture, observations and reflex samples say
+    ``not_found``, so game sessions don't run on these machines; the preview and general desktop control do.
+    On macOS the picture is scaled from Retina pixels to screen points, the space input uses, so a point
+    on a screenshot is where a click lands. Neither OS's own password prompts are detected: the owner's
+    "I'm signing in" switch is what stops capture there.
+    """
+
+    def __init__(self, *, retina_to_points: bool = False) -> None:
+        import mss
+
+        self._mss_factory = getattr(mss, "MSS", None) or mss.mss
+        self._local = threading.local()
+        self._to_points = retina_to_points
+
+    def _shooter(self):
+        if not hasattr(self._local, "sct"):
+            self._local.sct = self._mss_factory()
+        return self._local.sct
+
+    def _screen(self) -> tuple[Image.Image, tuple[int, int, int, int]]:
+        sct = self._shooter()
+        monitor = sct.monitors[1]  # the primary screen
+        shot = sct.grab(monitor)
+        image = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        screen = (monitor["left"], monitor["top"], monitor["width"], monitor["height"])
+        if self._to_points and image.size != (screen[2], screen[3]):
+            image = image.resize((screen[2], screen[3]), Image.Resampling.LANCZOS)
+        return image, screen
+
+    def grab(self, config: CaptureConfig) -> Grab:
+        if config.scope != "desktop":
+            return Grab("not_found")
+        try:
+            image, _ = self._screen()
+        except Exception:  # noqa: BLE001 - permission withdrawn, display gone: no picture, said so
+            return Grab("error")
+        return encode(image, config.max_width, config.max_height)
+
+    def observe(self, config: ObserveConfig) -> Grab:
+        return Grab("not_found")
+
+    def sample(self, target_process: str, size: tuple[int, int]) -> Image.Image | None:
         return None
-    return WindowsCapture()
+
+    def screenshot(self, action):
+        from .desktop import Refused
+
+        try:
+            image, screen = self._screen()
+        except Exception as exc:  # noqa: BLE001
+            raise Refused(f"couldn't capture the screen ({exc})") from None
+        return desktop_shot(image, screen, action)
+
+
+def default_backend() -> CaptureBackend | None:
+    """This machine's capture backend (``machine.capture_backend``): None when it can't capture."""
+    from .machine import capture_backend
+
+    return capture_backend()

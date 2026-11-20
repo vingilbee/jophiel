@@ -337,10 +337,11 @@ class Settings(BaseSettings):
     desktop_max_session_seconds: int = Field(default=2 * 60 * 60, gt=0, le=24 * 60 * 60)
     # Plan bounds (plan §17): steps per plan revision.
     desktop_plan_max_steps: int = Field(default=12, ge=1, le=50)
-    # Controller relay (plan §5.1): a separate process the game VM dials over
-    # TLS. Bind it to the Mac's LAN address only (e.g. 192.168.1.76), never
-    # 0.0.0.0; the default keeps it on this machine.
-    desktop_controller_bind_host: str = "127.0.0.1"
+    # Controller relay (plan §5.1, docs/VM_CONNECTION_PLAN.md): a separate process paired machines dial
+    # over TLS. Unset (the default): it listens only on the network the owner approved in the app, at
+    # that interface's current address, and stays closed elsewhere. Set: exactly this address, as before
+    # (never 0.0.0.0), and the approval is not used.
+    desktop_controller_bind_host: str | None = None
     desktop_controller_port: int = Field(default=8765, ge=1, le=65535)
     # The address the VM dials, shown with pairing codes. Defaults to the bind host.
     desktop_controller_public_host: str | None = None

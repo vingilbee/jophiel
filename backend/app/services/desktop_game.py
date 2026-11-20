@@ -844,7 +844,7 @@ def start(db: Session, user_id: uuid.UUID, *, goal: str, steps: list[dict] | Non
                         message_id=message_id) + _blockers(env)
     session, _ = sessions.start_session(db, user_id, SessionCreate(
         environment_id=env.id, profile_id=profile_id, plan=_plan(goal, steps, constraints, target),
-    ), plan_source="columbina_user_turn")
+    ), plan_source="columbina_user_turn", started_by="jophiel")
     if new_goal:
         _begin_goal(db, user_id, goal, message_id)
         db.commit()

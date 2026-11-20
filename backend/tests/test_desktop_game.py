@@ -28,8 +28,12 @@ def enabled(monkeypatch):
     monkeypatch.setattr(desktop_game, "get_settings", lambda: settings)
 
 
-def _paired_env(db, user, *, online=True, capture="allowed"):
+def _paired_env(db, user, *, online=True, capture="allowed", auto_start=True):
+    """A paired VM, set up by its owner. ``auto_start``: the owner allowed Jophiel to start sessions there
+    (her own starts need it, docs/VM_CONNECTION_PLAN.md step 3)."""
     env = svc.register_environment(db, user.id, EnvironmentCreate(display_name="Legion VM", allowed_profile_ids=["minecraft_java"]))
+    if auto_start:
+        svc.set_auto_start(db, user.id, env.id, True)
     code = link_svc.create_pairing(db, user.id, env.id).code
     token = link_svc.redeem_pairing(db, _pair_msg(code), relay_fingerprint=FP).token
     if online:
@@ -55,9 +59,14 @@ def test_summary_without_a_session(db, alice):
 
 
 def test_start_writes_the_goal_and_reports_what_blocks_it(db, alice):
-    _paired_env(db, alice, online=False, capture="blocked")
+    env = _paired_env(db, alice, online=False, capture="blocked")
+    # Her own start needs the machine connected (and the owner's switch, on here).
+    with pytest.raises(DesktopError) as offline:
+        desktop_game.start(db, alice.id, goal="Collect 5 oak logs")
+    assert offline.value.code == "offline"
+    svc.controller_online(db, env.id, controller_generation=env.controller_generation)
     reply = desktop_game.start(db, alice.id, goal="Collect 5 oak logs")
-    assert "not connected" in reply and "Show preview" in reply and "driver" not in reply
+    assert "Show preview" in reply and "driver" not in reply
     session = svc.list_sessions(db, alice.id, live_only=True)[0]
     assert session.plan["goal"] == "Collect 5 oak logs"
     assert [s["do"] for s in session.plan["steps"]] == ["Collect 5 oak logs"]  # one-step goal
@@ -493,3 +502,11 @@ def test_vm_rules_only_when_a_game_vm_is_paired():
     assert "### What you can do" in pack_only and "### What you can do" in with_vm
     assert "Playing on your game VM" not in pack_only
     assert "Playing on your game VM" in with_vm
+
+
+def test_she_cant_start_on_a_machine_whose_switch_is_off(db, alice):
+    _paired_env(db, alice, auto_start=False)
+    with pytest.raises(DesktopError) as refused:
+        desktop_game.start(db, alice.id, goal="Collect 5 oak logs")
+    assert refused.value.code == "auto_start_off"
+    assert svc.list_sessions(db, alice.id, live_only=True) == []

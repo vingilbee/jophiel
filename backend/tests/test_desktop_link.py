@@ -7,6 +7,7 @@ the real relay over real TLS on 127.0.0.1 with the real guest client.
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import ssl
 import threading
@@ -27,8 +28,12 @@ from app.services import desktop_link as link_svc
 from app.services import desktop_sessions as svc
 from app.services.desktop_link import LinkRefused
 from app.services.desktop_sessions import DesktopError
+from desktop_controller import __version__ as CONTROLLER_VERSION
 from desktop_controller import connection
+from desktop_controller.discovery import Endpoint
 from desktop_controller.link import (
+    Capability,
+    ControllerStatus,
     Hello,
     Pair,
     client_proof,
@@ -336,3 +341,98 @@ def test_the_relay_refuses_to_bind_every_interface():
     with pytest.raises(SystemExit):
         relay_module.check_bind_host("0.0.0.0")
     relay_module.check_bind_host("192.168.1.76")
+
+
+# --------------------------------------------------------------------------- #
+# Pairing without an address, the machine's status, the unpaired budget (docs/VM_CONNECTION_PLAN.md)
+# --------------------------------------------------------------------------- #
+
+
+def test_pairing_with_the_apps_fingerprint_needs_no_address(relay, database, alice, tmp_path):
+    with database() as db:
+        env = _env(db, alice)
+        code = link_svc.create_pairing(db, alice.id, env.id).code
+    here = Endpoint("127.0.0.1", relay["port"], "mdns", relay["cert"].fingerprint)
+    config = asyncio.run(connection.pair_anywhere(
+        code, relay["cert"].fingerprint.upper(), config_path=tmp_path / "c.json", browse=lambda fp: [here],
+        say=lambda *_: None))
+    assert config.environment_id == str(env.id)
+    assert config.relay_fingerprint == relay["cert"].fingerprint
+    assert (config.relay_host, config.relay_port) == ("127.0.0.1", relay["port"])
+
+
+def test_a_relay_with_another_certificate_gets_nothing_not_even_a_try_of_the_code(relay, database, alice, tmp_path):
+    with database() as db:
+        env = _env(db, alice)
+        code = link_svc.create_pairing(db, alice.id, env.id).code
+    impostor = Endpoint("127.0.0.1", relay["port"])  # stands in for a second relay: the fingerprint won't match
+    with pytest.raises(connection.LinkFailure, match="no relay with the fingerprint"):
+        asyncio.run(connection.pair_anywhere(code, "c" * 64, relay=impostor, config_path=tmp_path / "c.json"))
+    assert not (tmp_path / "c.json").exists()
+    with database() as db:
+        pairing = db.query(DesktopPairing).filter_by(environment_id=env.id).one()
+        assert pairing.failed_attempts == 0 and pairing.consumed_at is None  # nothing was sent to it
+    # The code still works with the right relay.
+    asyncio.run(connection.pair_anywhere(code, relay["cert"].fingerprint, relay=impostor,
+                                         config_path=tmp_path / "c.json"))
+
+
+def test_a_new_controller_reports_its_machine_and_the_app_keeps_it(relay, database, alice, tmp_path):
+    with database() as db:
+        env = _env(db, alice)
+        code = link_svc.create_pairing(db, alice.id, env.id).code
+    config = asyncio.run(connection.pair("127.0.0.1", relay["port"], code, config_path=tmp_path / "c.json"))
+    report = ControllerStatus(
+        machine="LEGION-VM", platform="windows", os="Windows 11",
+        capture=Capability(available=True), input=Capability(available=False, reason="no permission"),
+        startup="registered", startup_method="scheduled_task",
+    )
+
+    def saved():
+        with database() as db:
+            return db.get(DesktopEnvironment, env.id).controller_status
+
+    def run_client():
+        try:
+            asyncio.run(connection.run_once(config, machine_status=lambda: report))
+        except connection.LinkFailure:
+            pass
+
+    client = threading.Thread(target=run_client, daemon=True)
+    client.start()
+    assert _wait_for(lambda: saved() is not None)
+    assert saved()["machine"] == "LEGION-VM" and saved()["input"] == {"available": False, "reason": "no permission"}
+    with database() as db:
+        svc.revoke_environment(db, alice.id, env.id)
+    client.join(timeout=10)
+
+
+def test_an_older_controller_gets_a_welcome_it_can_parse(relay, database, alice, tmp_path):
+    with database() as db:
+        env = _env(db, alice)
+        code = link_svc.create_pairing(db, alice.id, env.id).code
+    config = asyncio.run(connection.pair("127.0.0.1", relay["port"], code, config_path=tmp_path / "c.json"))
+
+    async def welcome_for(version):
+        async with connect(config.url, ssl=connection._pinned_context(config.relay_cert_pem)) as ws:
+            await ws.send(Hello(environment_id=str(env.id), token=config.token,
+                                controller_version=version).model_dump_json())
+            return json.loads(await ws.recv())
+
+    assert "features" not in asyncio.run(welcome_for("0.11.0"))  # 0.11 forbids unknown fields
+    assert asyncio.run(welcome_for(CONTROLLER_VERSION))["features"] == ["status"]
+
+
+def test_connections_that_never_say_who_they_are_are_limited_per_address(relay):
+    async def scenario():
+        context = connection._unverified_context()
+        url = f"wss://127.0.0.1:{relay['port']}/controller"
+        held = [await connect(url, ssl=context) for _ in range(relay_module.UNPAIRED_PER_HOST)]
+        try:
+            with pytest.raises(websockets.InvalidStatus):
+                await connect(url, ssl=context, open_timeout=3)
+        finally:
+            for ws in held:
+                await ws.close()
+
+    asyncio.run(scenario())

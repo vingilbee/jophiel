@@ -281,6 +281,32 @@ class SecurityBatch(_Msg):
     channels: list[SecurityChannelRead] = Field(default_factory=list, max_length=SECURITY_MAX_CHANNELS)
 
 
+class Capability(_Msg):
+    """Whether this machine can do one thing now (see the screen, press keys), and why not."""
+
+    available: bool
+    reason: str | None = Field(default=None, max_length=200)
+
+
+ControllerPlatform = Literal["windows", "macos", "linux", "other"]
+
+
+class ControllerStatus(_Msg):
+    """What the controller reports about its machine (0.12.0+, only to a relay whose ``Welcome`` asks for
+    it): its name, OS, whether capture and input work (a missing OS permission says so here), and
+    whether it starts at login. Shown on the dashboard; never authorizes anything."""
+
+    machine: str = Field(min_length=1, max_length=64)
+    platform: ControllerPlatform
+    os: str = Field(default="", max_length=80)
+    # The desktop session's display server on Linux ("x11", "wayland"); None elsewhere.
+    display: str | None = Field(default=None, max_length=16)
+    capture: Capability
+    input: Capability
+    startup: Literal["registered", "not_registered", "unknown"] = "unknown"
+    startup_method: str | None = Field(default=None, max_length=32)
+
+
 class Heartbeat(_Msg):
     type: Literal["heartbeat"] = "heartbeat"
     # The capture setting this controller is obeying (its epoch), so the app can
@@ -292,6 +318,8 @@ class Heartbeat(_Msg):
     # The game's input mode during a session ("playing", "menu", "unknown"),
     # from the profile's detector; None without a session.
     context: str | None = Field(default=None, max_length=32)
+    # Only when the relay asked for it (``Welcome.features``), and only when it changed or now and then.
+    status: ControllerStatus | None = None
 
 
 # relay -> controller
@@ -303,9 +331,15 @@ class Paired(_Msg):
     proof: _Hex64
 
 
+RelayFeature = Literal["status"]
+
+
 class Welcome(_Msg):
     type: Literal["welcome"] = "welcome"
     controller_generation: int
+    # Sent only to controllers that know it (0.12.0+; older ones forbid unknown fields). "status": send
+    # ``Heartbeat.status``.
+    features: list[RelayFeature] | None = None
 
 
 CaptureGate = Literal["allowed", "blocked", "manual_auth"]

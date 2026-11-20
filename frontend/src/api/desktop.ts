@@ -10,6 +10,7 @@ import type {
   DesktopEnvironment,
   DesktopPairing,
   DesktopProfile,
+  DesktopRelayStatus,
   DesktopSecurityStatus,
   DesktopSession,
   DesktopSessionCreate,
@@ -42,6 +43,14 @@ export const desktopApi = {
     api.get<DesktopSecurityStatus>(`/desktop/environments/${encodeURIComponent(id)}/security`),
   revokeEnvironment: (id: string) =>
     api.post<DesktopEnvironment>(`/desktop/environments/${encodeURIComponent(id)}/revoke`),
+  /** "Allow Jophiel to start sessions" on this machine. */
+  setAutoStart: (id: string, allowed: boolean) =>
+    api.put<DesktopEnvironment>(`/desktop/environments/${encodeURIComponent(id)}/auto-start`, { allowed }),
+
+  /** The relay on this computer (owner only: 404 for anyone else). */
+  relay: () => api.get<DesktopRelayStatus>('/desktop/relay'),
+  approveRelayNetwork: (iface: string) => api.put<DesktopRelayStatus>('/desktop/relay/network', { interface: iface }),
+  forgetRelayNetwork: () => api.delete<DesktopRelayStatus>('/desktop/relay/network'),
 
   liveSessions: () => api.get<DesktopSession[]>('/desktop/sessions?live_only=true&limit=1'),
   session: (id: string) => api.get<DesktopSession>(s(id)),

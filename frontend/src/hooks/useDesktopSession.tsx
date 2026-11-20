@@ -36,8 +36,10 @@ interface DesktopSessionContextValue {
   enabled: boolean
   profiles: DesktopProfile[]
   environments: DesktopEnvironment[]
-  /** The environment the card is about: the live session's, else the first usable one. */
+  /** The environment the card is about: the live session's, else the machine picked, else the first one. */
   environment: DesktopEnvironment | null
+  /** Pick which paired machine the card shows (by its stable id); remembered in this browser. */
+  selectEnvironment: (environmentId: string) => void
   /** Latest game picture while capture is allowed; null otherwise. */
   preview: DesktopPreviewFrame | null
   /** Recent test decisions and their outcomes, newest first. */
@@ -52,11 +54,14 @@ interface DesktopSessionContextValue {
   pairing: DesktopPairing | null
   busy: boolean
   error: string | null
-  registerEnvironment: (name: string, profileIds: string[]) => Promise<void>
+  /** Resolves true once the machine is added; false if the server refused (the reason is in `error`). */
+  registerEnvironment: (name: string, profileIds: string[]) => Promise<boolean>
   start: (environmentId: string, profileId: string) => Promise<void>
   pair: (environmentId: string) => Promise<void>
   cancelPairing: () => void
   revokeEnvironment: (environmentId: string) => Promise<void>
+  /** "Allow Jophiel to start sessions" on one machine. */
+  setAutoStart: (environmentId: string, allowed: boolean) => Promise<void>
   setCapture: (gate: DesktopCaptureGate) => Promise<void>
   setCaptureScope: (scope: DesktopCaptureScope) => Promise<void>
   setSecurityMonitoring: (enabled: boolean) => Promise<void>
@@ -72,6 +77,24 @@ interface DesktopSessionContextValue {
 
 const DesktopSessionContext = createContext<DesktopSessionContextValue | null>(null)
 
+const SELECTED_KEY = 'desktop.selectedEnvironment'
+
+function readSelected(): string | null {
+  try {
+    return window.localStorage.getItem(SELECTED_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeSelected(id: string): void {
+  try {
+    window.localStorage.setItem(SELECTED_KEY, id)
+  } catch {
+    // private window or blocked storage: the choice just isn't remembered
+  }
+}
+
 function message(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
 }
@@ -85,6 +108,7 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<DesktopSessionEvent[]>([])
   const [releasePending, setReleasePending] = useState(false)
   const [pairing, setPairing] = useState<DesktopPairing | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() => readSelected())
   const [preview, setPreview] = useState<DesktopPreviewFrame | null>(null)
   const [decisions, setDecisions] = useState<DesktopDecisionReport[]>([])
   const [driver, setDriver] = useState<DesktopDriverState | null>(null)
@@ -166,9 +190,13 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   }, [liveId, adopt, refreshEvents])
 
   // Environment health while there's no live session (that poll covers it otherwise).
+  const usable = environments.filter((e) => !e.revoked_at)
+  const machines = usable.filter((e) => e.hosting_kind !== 'game_pack')
   const environment =
-    environments.find((e) => e.id === session?.environment_id && !e.revoked_at) ??
-    environments.find((e) => !e.revoked_at) ??
+    usable.find((e) => e.id === session?.environment_id) ??
+    machines.find((e) => e.id === selectedId) ??
+    machines[0] ??
+    usable[0] ??
     null
   const awaitingConfirm = Boolean(environment && environment.status === 'online' && !environment.capture_confirmed)
 
@@ -273,6 +301,13 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     profiles,
     environments,
     environment,
+    selectEnvironment: (environmentId) => {
+      setSelectedId(environmentId)
+      writeSelected(environmentId)
+      setPairing(null) // a code shown for one machine must not sit under another's name
+      pairingFor.current = null
+      setPreview(null)
+    },
     preview,
     decisions,
     driver,
@@ -282,11 +317,17 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     pairing,
     busy,
     error,
-    registerEnvironment: (name, profileIds) =>
-      run(async () => {
+    registerEnvironment: async (name, profileIds) => {
+      let added = false
+      await run(async () => {
         const env = await desktopApi.registerEnvironment(name, profileIds)
         setEnvironments((prev) => [...prev, env])
-      }),
+        setSelectedId(env.id)
+        writeSelected(env.id)
+        added = true
+      })
+      return added
+    },
     start: (environmentId, profileId) =>
       run(() =>
         desktopApi.start({
@@ -314,6 +355,11 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
         setPairing(null)
         setEnvironments((prev) => prev.map((e) => (e.id === revoked.id ? revoked : e)))
         if (session && session.environment_id === environmentId) return desktopApi.session(session.id)
+      }),
+    setAutoStart: (environmentId, allowed) =>
+      run(async () => {
+        const updated = await desktopApi.setAutoStart(environmentId, allowed)
+        setEnvironments((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
       }),
     setCapture: (gate) =>
       run(async () => {

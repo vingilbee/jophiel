@@ -9,32 +9,44 @@ plan §5.1 steps 1-4.
 
 ## 1. Mac: turn it on
 
-1. Make the Mac's LAN address stable (plan §5.1 step 6): System Settings → Wi-Fi → your network →
-   *Private Wi-Fi address* **Fixed** (or Off), plus a DHCP reservation on the router. This guide
-   assumes `192.168.1.76`.
-2. In `backend/.env`:
+1. In `backend/.env`:
 
    ```bash
    DESKTOP_AGENT_ENABLED=true
-   DESKTOP_CONTROLLER_BIND_HOST=192.168.1.76   # LAN address only; the relay refuses 0.0.0.0
+   # DESKTOP_CONTROLLER_BIND_HOST unset: the relay listens only on the network you approve (step 5)
    ```
 
-3. Database and containers (from `app/`):
+   (A fixed `DESKTOP_CONTROLLER_BIND_HOST=192.168.1.76` still works as before: the relay then uses
+   exactly that address and ignores the approval. Remove the line to switch to the approved network.)
+2. Database and containers (from `app/`):
 
    ```bash
    docker compose up -d db redis            # re-creates them bound to 127.0.0.1 only
    cd backend && uv run alembic upgrade head
    ```
 
-4. Run the backend as usual (it stays on 127.0.0.1:8000), and the relay in its own terminal:
+3. Run the backend as usual (it stays on 127.0.0.1:8000), and the relay in its own terminal:
 
    ```bash
    cd backend && uv run python -m app.ai.desktop.relay
    ```
 
    The first run creates the relay's certificate in `backend/var/desktop_relay/` and prints its
-   fingerprint. macOS asks whether Python may accept incoming connections: **Allow**.
-   Never forward port 8765 on the router.
+   fingerprint. It doesn't listen anywhere yet.
+4. Dashboard → Game session → **Relay on this computer**: approve the network once.
+   - The VM runs on another computer (the Legion): approve **this network** (`en0`, your home
+     Wi-Fi). It's identified by its router, so the relay stays closed on any other network (a café,
+     a hotspot) and reopens by itself back home. If DHCP gives the Mac a new address, the relay
+     moves with it; nothing to change on either machine.
+   - The VM runs on this Mac (UTM, Parallels, VMware Fusion): approve the **VM-only** interface
+     (`bridge100`, …). Only VMs on this Mac can reach it, so no firewall rule is needed.
+5. macOS may ask whether Python may accept incoming connections (**Allow**) and, for the
+   announcement on the network, whether it may find devices on the local network (**Allow**).
+6. On a home network, narrow the port to it: `uv run python -m app.ai.desktop.firewall show` prints
+   the pf rule and the two `sudo` commands to load it; `... firewall check` confirms it (asks for
+   your password) and the card shows the result. pf forgets the rule at restart unless you add the
+   line `show` prints to `/etc/pf.conf`. Never forward port 8765 on the router (the Mac can't check
+   that).
 
 ## 2. Mac: hand the controller to the VM
 
@@ -57,40 +69,59 @@ Stop the server (Ctrl-C) as soon as the VM has the file.
    below). From PowerShell, which avoids browser download prompts:
 
    ```powershell
-   curl.exe -o $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.11.0-py3-none-any.whl
+   curl.exe -o $HOME\Downloads\desktop_controller-0.12.0-py3-none-any.whl http://192.168.1.76:8090/desktop_controller-0.12.0-py3-none-any.whl
    ```
 
    (Or open `http://192.168.1.76:8090/` in the VM's browser and save the file.)
 3. In PowerShell, check it is the same file (the hash must match the Mac's):
 
    ```powershell
-   certutil -hashfile $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl SHA256
-   py -m pip install --user --force-reinstall $HOME\Downloads\desktop_controller-0.11.0-py3-none-any.whl
+   certutil -hashfile $HOME\Downloads\desktop_controller-0.12.0-py3-none-any.whl SHA256
+   py -m pip install --user --force-reinstall $HOME\Downloads\desktop_controller-0.12.0-py3-none-any.whl
    ```
 
 ## 4. Pair (once)
 
-1. Dashboard → Game session → **Pair game VM**. The card shows a command with a one-time code
-   (valid 10 minutes).
+1. Dashboard → Game session → **Pair this machine** (or **Add a machine** for another one). The
+   card shows a command with a one-time code (valid 10 minutes) and the relay's fingerprint; no
+   address.
 2. Run it in the VM:
 
    ```powershell
-   py -m desktop_controller pair 192.168.1.76:8765 ABCD-EFGH-JKMN
+   py -m desktop_controller pair ABCD-EFGH-JKMN --fingerprint f67f31bf…
    ```
 
-   It prints `paired with environment …` and the relay fingerprint, which should match the one
-   under *Relay fingerprint* on the card. The pairing is saved in
-   `%APPDATA%\Columbina\controller.json` (it holds the device key; don't copy it anywhere).
+   It finds the relay on the network (mDNS), checks the fingerprint *before* sending anything, so
+   only your relay is paired with, and prints `paired with environment …`. It then registers itself
+   to start at every login (a Windows logon task for your user, not elevated; the per-user Run key
+   if Task Scheduler refuses) and starts right away. `--no-startup` skips the login start,
+   `--no-start` the immediate one. If the network blocks discovery, add `--relay 192.168.1.76:8765`
+   (the card shows the current address) or `--hostname <a DNS name for the Mac>`.
+
+   The pairing is saved in `%APPDATA%\Columbina\controller.json` (it holds the device key; don't
+   copy it anywhere). A pairing file from 0.11 or older keeps working.
 
 ## 5. Connect
 
+It's already running after pairing, and starts at every login. To check on it:
+
 ```powershell
-py -m desktop_controller run
+py -m desktop_controller status            # connected / retrying (and why) / stopped; login start
+py -m desktop_controller startup show      # on | off | show
+py -m desktop_controller run               # in a console instead (refuses if one already runs)
 ```
 
-It prints `connected (generation N)` and the card turns *connected* within ~5 s. It reconnects on
-its own if the Mac or network goes away, and stops for good (with a reason) if the VM is removed
-in the app, paired again elsewhere, or the relay's certificate changes.
+The card turns *connected* within ~5 s and shows what the machine reports: its screen, keyboard and
+mouse (and why not, e.g. a missing macOS permission), and whether it starts at login. If the
+connection drops it tries the last address, then looks for the relay again, then the host name; a
+new address is kept only if the relay there has the pinned certificate. It stops for good, and
+remembers it, if the machine is removed in the app or its key stops working; it keeps retrying if
+the relay is down or the Mac is on another network.
+
+**Allow Jophiel to start sessions** on the card is off for every machine until you turn it on. Off,
+only you start sessions here; on, she can start one herself while the machine is connected, even
+with the dashboard closed. Connecting never starts a session by itself. The session's card says who
+started it.
 
 ### The preview
 
@@ -167,15 +198,27 @@ goal**, write a goal and a few steps (`what to do | when it is done`), and press
 driving**. She plays until the steps are done, she gets stuck, or you press Pause. Each step is
 one model call (about 1-2 s); timings go to `backend/var/desktop_driver.jsonl`.
 
-To start it at logon (once the manual run works): Task Scheduler → *Create Task* → trigger
-*At log on* of your user, *Run only when user is logged on* (input needs the desktop session,
-so never a service), action `pythonw.exe` with arguments `-m desktop_controller run`.
+Login start is set up by `pair` (see §4); `py -m desktop_controller startup off` removes it.
 
 ## Updating the VM program
 
 When the program changes, repeat §2 and §3 with the new file name (the version is in it,
-e.g. `desktop_controller-0.11.0-py3-none-any.whl`), then restart `run`. The pairing is kept;
-no new code is needed.
+e.g. `desktop_controller-0.12.0-py3-none-any.whl`), then restart the controller (sign out and in,
+or `startup off` / `startup on`). The pairing is kept; no new code is needed. 0.11 controllers keep
+working with a newer relay; they just don't report the machine's status.
+
+## macOS and Linux machines
+
+The same controller runs on macOS and Linux (`python3 -m pip install --user <wheel>`, then the
+pair command shown under *macOS, Linux*). Login start is a LaunchAgent on macOS
+(`~/Library/LaunchAgents/ai.jophiel.controller.plist`) and an autostart entry on Linux
+(`~/.config/autostart/jophiel-controller.desktop`). The preview shows the whole screen, and her
+desktop tools work; game sessions still need Windows (no game-window capture there).
+
+- **macOS** asks for *Screen Recording* and *Accessibility* for the Python that runs the
+  controller; until you allow both, the card says which one is missing.
+- **Linux**: X11 sessions only (input through XTest: needs `libxtst6` on Debian/Ubuntu). In a Wayland session the card says
+  capture and input aren't supported; sign in with an X11 / "Xorg" session.
 
 ## 6. Check what the VM can reach (stage B gate)
 
@@ -191,8 +234,9 @@ Test-NetConnection 192.168.1.76 -Port 6379          # TcpTestSucceeded: False   
 
 ## Turning it off
 
-- **Remove this game VM** on the card: the VM is disconnected within ~2 s and its key stops
-  working. Pair a new environment to use it again.
+- **Remove this machine** on the card: the machine is disconnected within ~2 s, its key stops
+  working, and its controller stops retrying. Pair a new environment to use it again.
+- **Forget** the approved network on the relay card: the relay closes within ~5 s.
 - Stop the relay: the VM shows *can't reach the relay* and keeps retrying; the card shows
   *not connected*.
 - Emergency: power off or suspend the VM in VMware on the Legion.
