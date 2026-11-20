@@ -263,15 +263,50 @@ def list_events(
 # --------------------------------------------------------------------------- #
 
 
+def jophiel_may_start(env: DesktopEnvironment) -> DesktopError | None:
+    """Why Jophiel may not start a session on this machine herself, or None (docs/VM_CONNECTION_PLAN.md,
+    step 3). A paired machine needs the owner's switch and its controller online; reconnecting alone
+    never starts anything."""
+    if env.hosting_kind == "game_pack":
+        return None
+    if not env.auto_start_allowed:
+        return DesktopError("auto_start_off", 403, f'the user hasn\'t allowed you to start sessions on '
+                            f'"{env.display_name}" (the switch "Allow Jophiel to start sessions" is off)')
+    if env.status != "online":
+        return DesktopError("offline", 409, f'"{env.display_name}" isn\'t connected right now')
+    return None
+
+
+def set_auto_start(db: Session, owner_user_id: uuid.UUID, environment_id: uuid.UUID,
+                   allowed: bool) -> DesktopEnvironment:
+    """The owner's per-machine switch. Turning it off stops future starts of hers, not a running session."""
+    env = _owned_environment(db, owner_user_id, environment_id, lock=True)
+    if env.revoked_at is not None:
+        raise DesktopError("not_authorized", 403, "this environment's access was revoked")
+    if env.auto_start_allowed != allowed:
+        env.auto_start_allowed = allowed
+        env.auto_start_changed_at = datetime.now(timezone.utc)
+    db.commit()
+    return env
+
+
 def start_session(
-    db: Session, owner_user_id: uuid.UUID, data: SessionCreate, *, plan_source: str = "user_api"
+    db: Session, owner_user_id: uuid.UUID, data: SessionCreate, *, plan_source: str = "user_api",
+    started_by: str = "user",
 ) -> tuple[DesktopSession, bool]:
     """Acquire the environment and create a session in ``starting``.
 
     Returns ``(session, created)``; ``created`` is False when an idempotency
     key matched an earlier identical request. The session waits in
     ``starting`` until the controller reports ready (``controller_ready``).
+
+    ``started_by="jophiel"`` (her own start) on a paired machine also needs the
+    owner's "Allow Jophiel to start sessions" switch and the machine online
+    (``jophiel_may_start``); her Minecraft pack is her own player, not a paired
+    machine, and needs neither.
     """
+    if started_by not in ("user", "jophiel"):
+        raise ValueError(f"started_by: {started_by!r}")
     settings = get_settings()
     request_hash = hashlib.sha256(data.model_dump_json(exclude={"idempotency_key"}).encode()).hexdigest()
     if data.idempotency_key:
@@ -279,9 +314,15 @@ def start_session(
         if existing is not None:
             return _replayed(existing, request_hash), False
 
-    env = _owned_environment(db, owner_user_id, data.environment_id)
+    # Her starts lock the row: the switch can't be turned off between the check and the insert.
+    env = _owned_environment(db, owner_user_id, data.environment_id, lock=started_by == "jophiel")
     if env.revoked_at is not None:
         raise DesktopError("not_authorized", 403, "this environment's access was revoked")
+    if started_by == "jophiel":
+        refusal = jophiel_may_start(env)
+        if refusal is not None:
+            db.rollback()
+            raise refusal
     if data.profile_id not in env.allowed_profile_ids:
         raise DesktopError("not_authorized", 403, f"profile {data.profile_id!r} is not allowed on this environment")
     from app.services import game_pack
@@ -321,6 +362,7 @@ def start_session(
         max_duration_seconds=max_seconds,
         idempotency_key=data.idempotency_key,
         request_hash=request_hash,
+        started_by=started_by,
     )
     db.add(session)
     _record(db, session, "desktop.session_state", {"state": "starting", "previous_state": None, "reason": None})

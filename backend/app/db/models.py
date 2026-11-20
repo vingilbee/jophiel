@@ -864,6 +864,15 @@ class DesktopEnvironment(Base):
     # Her mind's progress through this machine's security observations (services/mind_security.py).
     security_seen_through: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     security_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The owner's "Allow Jophiel to start sessions" switch (docs/VM_CONNECTION_PLAN.md, step 3): off for every
+    # pairing until the owner turns it on. Starts the owner makes never need it; reconnecting starts nothing.
+    auto_start_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                                     server_default=text("false"))
+    auto_start_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What the controller last reported about its machine (desktop_controller.link.ControllerStatus: name, OS,
+    # capture / input availability and why not, start at login). Shown, never trusted for anything.
+    controller_status: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    controller_status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -1038,6 +1047,8 @@ class DesktopSession(Base):
     # is a copy for readers that only see the plan.
     goal_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     max_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Who started it: "user" (the dashboard / API) or "jophiel" (her own start). None: before this was recorded.
+    started_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Retried start requests (e.g. a repeated tool call) return the same session.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -1057,6 +1068,7 @@ class DesktopSession(Base):
             "commentary_mode IN ('quiet', 'occasional', 'commentary')", name="ck_desktop_sessions_commentary_mode"
         ),
         CheckConstraint("autonomy IN ('continue', 'stop')", name="ck_desktop_sessions_autonomy"),
+        CheckConstraint("started_by IN ('user', 'jophiel')", name="ck_desktop_sessions_started_by"),
         ForeignKeyConstraint(["goal_item_id", "owner_user_id"], ["working_items.id", "working_items.user_id"],
                              ondelete="SET NULL (goal_item_id)", name="fk_desktop_sessions_goal_item"),
         Index("ix_desktop_sessions_goal_item", "goal_item_id", postgresql_where=text("goal_item_id IS NOT NULL")),

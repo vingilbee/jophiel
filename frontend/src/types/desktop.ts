@@ -46,6 +46,62 @@ export interface DesktopEnvironment {
   /** Security monitoring of the VM's event logs: the owner's own switch, apart from capture and input. */
   security_monitoring: boolean
   security_changed_at: string | null
+  /** The owner's "Allow Jophiel to start sessions" switch for this machine (off until turned on). */
+  auto_start_allowed: boolean
+  auto_start_changed_at: string | null
+  /** What the controller last reported about its machine (controller 0.12+); null until it does. */
+  controller_status: DesktopMachineStatus | null
+  controller_status_at: string | null
+}
+
+export interface DesktopCapability {
+  available: boolean
+  reason: string | null
+}
+
+/** A controller's report about its machine (desktop_controller.link.ControllerStatus). Display only. */
+export interface DesktopMachineStatus {
+  machine: string
+  platform: 'windows' | 'macos' | 'linux' | 'other'
+  os: string
+  /** Linux only: "x11" or "wayland". */
+  display: string | null
+  capture: DesktopCapability
+  input: DesktopCapability
+  startup: 'registered' | 'not_registered' | 'unknown'
+  startup_method: string | null
+}
+
+/** A network the relay could listen on (GET /desktop/relay). */
+export interface DesktopRelayNetwork {
+  interface: string
+  address: string
+  network: string
+  kind: 'vm_only' | 'lan'
+  recommended: boolean
+  approvable: boolean
+  note: string
+  current: boolean
+}
+
+/** The relay on this computer: where it listens, the approved network, the firewall (owner only). */
+export interface DesktopRelayStatus {
+  state: 'open' | 'closed' | 'error' | 'stopped'
+  reason: string
+  detail: string
+  /** approved: follows the network approved here; explicit: a fixed address in backend/.env. */
+  mode: 'approved' | 'explicit'
+  address: string | null
+  port: number
+  interface: string | null
+  kind: 'vm_only' | 'lan' | null
+  advertising: boolean
+  fingerprint: string
+  updated_at: string | null
+  approval: { interface: string; network: string; kind: 'vm_only' | 'lan'; approved_at: string } | null
+  networks: DesktopRelayNetwork[]
+  firewall: { state: 'not_needed' | 'present' | 'missing' | 'unverified'; checked_at?: string | null; how?: string | null }
+  cannot_verify: string[]
 }
 
 /** How security monitoring is doing (GET /desktop/environments/{id}/security). */
@@ -85,7 +141,10 @@ export interface DesktopPreviewFrame {
 export interface DesktopPairing {
   code: string
   expires_at: string
-  relay_address: string
+  /** The controller's arguments: `pair CODE --fingerprint HEX` (no address: it finds the relay itself). */
+  pair_args: string
+  /** Where the relay listens now, for `--relay` if discovery can't work; null while it's closed. */
+  relay_address: string | null
   relay_fingerprint: string
 }
 
@@ -140,6 +199,8 @@ export interface DesktopSession {
   ended_at: string | null
   /** The command took input from gameplay and the VM hasn't confirmed releasing it. */
   release_pending: boolean
+  /** Who started it; null for sessions from before this was recorded. */
+  started_by: 'user' | 'jophiel' | null
 }
 
 export interface DesktopSessionEvent {

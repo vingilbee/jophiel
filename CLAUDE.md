@@ -126,7 +126,10 @@ Columbina is a general conversational agent with a persistent identity, personal
       /desktop          # desktop agent runtime: driver.py + driver_loop.py (gameplay model loop), skill_driver.py (her hands
                         #   in a game pack), practice.py (her learner, stage H1), play_log.py (view angle +
                         #   recent play, counted by code), relay.py (TLS controller relay, own process:
-                        #   `uv run python -m app.ai.desktop.relay`) + tls.py (its self-signed certificate)
+                        #   `uv run python -m app.ai.desktop.relay`; RelaySupervisor listens only on the approved
+                        #   network, docs/VM_CONNECTION_PLAN.md) + tls.py (its self-signed certificate) + network.py
+                        #   (the approved network: where it may listen, pure decision + reading interfaces) +
+                        #   firewall.py (the LAN port rule: `uv run python -m app.ai.desktop.firewall show|check`)
       /tools           # MCP tool servers the agent can call
         /screen         # look_at_screen — NOT MCP; one tool on the orchestrator itself
         /attachments    # read_attachment: her own reading of attached files (overview / pages / find, bounded
@@ -163,7 +166,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   salience.py: whether it's worth speaking first,
                        #   desktop_sessions.py: desktop agent ownership + session state machine + plan,
                        #   desktop_link.py: desktop VM pairing codes, device tokens, controller heartbeats,
-                       #   capture gate; desktop_preview.py: latest game frame in Redis (10 s TTL);
+                       #   capture gate, the machine status controllers report; desktop_relay.py: the relay as the
+                       #   dashboard sees it (status.json, network approval, firewall check); desktop_preview.py: latest game frame in Redis (10 s TTL);
                        #   desktop_commands.py: API -> relay command stream + decision outcomes,
                        #   security_activity.py: her desktop's security logs (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md):
                        #   the owner's monitoring switch (epochs), intake from the relay, coverage, the read query;
@@ -234,7 +238,9 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   + learning-lessons (lessons from assessments) + learning-trials (desktop mode)
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
     main.py             # FastAPI app entrypoint
-  /desktop_controller   # desktop agent action contract + controller core; desktop.py = general desktop control (her hands
+  /desktop_controller   # desktop agent action contract + controller core (0.12: discovery.py finds the relay by mDNS,
+                        #   startup.py = login start per OS, machine.py = status/capabilities, input_macos.py,
+                        #   input_linux.py); desktop.py = general desktop control (her hands
                         #   on the whole VM desktop: bounded actions, released on failure); security.py = the VM's event
                         #   logs read only (wevtutil), bookmarks checked by record number, gaps/resets reported. uv workspace member (pydantic, pyyaml,
                         #   websockets only): runs in the game VM, also imported by the backend. Lives inside backend/ because
@@ -362,6 +368,7 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - `DESKTOP_AGENT_ENABLED` gates every `/api/desktop` route (404 when off). Lock order is always environment, then session. Every stop bumps `execution_generation`.
 - Desktop tests need a throwaway `TEST_DATABASE_URL` / `TEST_REDIS_URL`, never the dev DB.
 - Game learning: `services/game_learning.py` (its module docstring is the spec). A model's guess never becomes truth without evidence.
+- Relay network and paired machines (`docs/VM_CONNECTION_PLAN.md`, migration `e3a7c5d9f2b4`): unset `DESKTOP_CONTROLLER_BIND_HOST` = listen only on the owner-approved network; never a wildcard. Jophiel's own session starts need the machine's "Allow Jophiel to start sessions" switch (off by default) and the machine online; the owner's starts don't.
 
 **Her mind** (`docs/MIND_ARCHITECTURE.md`, `docs/COLUMBINA_MIND_DESIGN.md`, `docs/COLUMBINA_HARD_THINKING_PLAN.md`, `docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md`)
 - One mind decides: every wake is one evaluation of the agent loop (`services/mind_turn.py`); recall results return into the same loop; silence, background thinking, continuity and coming back later are her tools. No code decides social behaviour (no speaking gaps, hush rules or canned topics); execution checks stay.

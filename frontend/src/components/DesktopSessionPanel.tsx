@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type PointerEvent, type WheelEvent } from 
 import { Button } from './Button'
 import { desktopApi } from '../api/desktop'
 import { useDesktopSession } from '../hooks/useDesktopSession'
+import { ApiError } from '../api/client'
 import type {
   DesktopEnvironment,
   DesktopDecisionReport,
+  DesktopRelayStatus,
   DesktopSecurityStatus,
   DesktopSessionEvent,
   DesktopSessionState,
@@ -762,7 +764,7 @@ function GoalForm() {
   )
 }
 
-function RegisterForm() {
+function RegisterForm({ onDone, onCancel }: { onDone?: () => void; onCancel?: () => void }) {
   const { profiles, busy, registerEnvironment } = useDesktopSession()
   const [name, setName] = useState('Game VM')
   const [profileId, setProfileId] = useState('')
@@ -773,45 +775,81 @@ function RegisterForm() {
       className="mt-3 space-y-2"
       onSubmit={(e) => {
         e.preventDefault()
-        if (chosen) void registerEnvironment(name.trim(), [chosen])
+        if (!chosen) return
+        void registerEnvironment(name.trim(), [chosen]).then((added) => {
+          if (added) onDone?.()
+        })
       }}
     >
-      <p className="text-sm text-[#7183A3]">Add the computer Jophiel will play on.</p>
+      <p className="text-sm text-[#7183A3]">Add a computer Jophiel can use. You pair it in the next step.</p>
       <label className="block text-xs text-[#7183A3]">
         Name
         <input className={`${INPUT} mt-1`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
       </label>
       <ProfileSelect value={chosen} onChange={setProfileId} ids={profiles.map((p) => p.id)} />
-      <Button type="submit" disabled={busy || !name.trim() || !chosen}>
-        Add game VM
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={busy || !name.trim() || !chosen}>
+          Add machine
+        </Button>
+        {onCancel && (
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+      </div>
     </form>
   )
 }
+
+/** Keyboard focus for the card's plain text buttons. */
+const FOCUS_RING = 'rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#527998]'
 
 /** VM games that a game pack plays instead (mirrors backend game_pack.REPLACED_BY). */
 const RETIRED_BY_PACK = ['minecraft_java']
 
 function StartForm() {
-  const { environments, pairing, busy, start, pair, revokeEnvironment } = useDesktopSession()
+  // The relay card sits outside the switch below, so opening "Add a machine" doesn't rebuild (and refetch) it.
+  return (
+    <>
+      <StartChoices />
+      <div className="mt-2">
+        <RelayCard />
+      </div>
+    </>
+  )
+}
+
+function StartChoices() {
+  const { environments, environment, pairing, busy, start, pair, revokeEnvironment } = useDesktopSession()
+  const [adding, setAdding] = useState(false)
+  const [profileId, setProfileId] = useState('')
   const usable = environments.filter((e) => !e.revoked_at)
   const packs = usable.filter((e) => e.hosting_kind === 'game_pack')
-  const env = usable.find((e) => e.hosting_kind !== 'game_pack')
-  const [profileId, setProfileId] = useState('')
-  if (!env) return packs.length ? <PackRows packs={packs} /> : <RegisterForm />
+  const machines = usable.filter((e) => e.hosting_kind !== 'game_pack')
+  const env = environment && environment.hosting_kind !== 'game_pack' ? environment : machines[0]
+  if (!env || adding) {
+    return (
+      <>
+        {packs.length > 0 && <PackRows packs={packs} />}
+        <RegisterForm onDone={() => setAdding(false)} onCancel={env ? () => setAdding(false) : undefined} />
+      </>
+    )
+  }
   // With her own Minecraft player (the pack), Minecraft isn't played on the VM any more.
   const vmGames = env.allowed_profile_ids.filter((id) => !(packs.length && RETIRED_BY_PACK.includes(id)))
-  const chosen = profileId || vmGames[0]
+  const chosen = vmGames.includes(profileId) ? profileId : vmGames[0]
   const online = env.status === 'online'
 
   return (
     <div className="mt-3 space-y-2">
       {packs.length > 0 && <PackRows packs={packs} />}
+      <MachinePicker machines={machines} current={env} onAdd={() => setAdding(true)} />
       <p className="flex items-center gap-2 text-sm" aria-live="polite">
-        <span className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
+        <span aria-hidden="true" className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
         {env.display_name} ·{' '}
         {online ? 'connected' : env.paired_at ? 'not connected' : 'not paired yet'}
       </p>
+      {env.paired_at && <MachineReport env={env} />}
 
       {!pairing && <GamePreview />}
       {!pairing && <SecurityMonitor />}
@@ -821,10 +859,12 @@ function StartForm() {
       ) : (
         !online && (
           <Button variant={env.paired_at ? 'ghost' : 'primary'} disabled={busy} onClick={() => void pair(env.id)}>
-            {env.paired_at ? 'Pair again' : 'Pair game VM'}
+            {env.paired_at ? 'Pair again' : 'Pair this machine'}
           </Button>
         )
       )}
+
+      {env.paired_at && !pairing && <AutoStartSwitch env={env} />}
 
       {env.paired_at && !pairing && vmGames.length === 0 && (
         <p className="text-xs text-[#7183A3]">Minecraft is played as her own player (above), not on the VM.</p>
@@ -848,9 +888,302 @@ function StartForm() {
         }}
         className="block text-[11px] text-[#7183A3] underline-offset-2 hover:text-red-700 hover:underline"
       >
-        Remove this game VM
+        Remove this machine
       </button>
     </div>
+  )
+}
+
+/** Which paired machine the card is about, by its stable id. Shown once there's more than one. */
+function MachinePicker({
+  machines,
+  current,
+  onAdd,
+}: {
+  machines: DesktopEnvironment[]
+  current: DesktopEnvironment
+  onAdd: () => void
+}) {
+  const { busy, selectEnvironment } = useDesktopSession()
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      {machines.length > 1 && (
+        <label className="min-w-0 flex-1 text-xs text-[#7183A3]">
+          Machine
+          <select
+            className={`${INPUT} mt-1`}
+            value={current.id}
+            disabled={busy}
+            onChange={(e) => selectEnvironment(e.target.value)}
+          >
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name} · {m.status === 'online' ? 'connected' : m.paired_at ? 'not connected' : 'not paired'}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onAdd}
+        className={`text-[11px] text-[#7183A3] underline-offset-2 hover:text-[#23314F] hover:underline ${FOCUS_RING}`}
+      >
+        Add a machine
+      </button>
+    </div>
+  )
+}
+
+const PLATFORM: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux', other: 'Other' }
+const STARTUP_METHOD: Record<string, string> = {
+  scheduled_task: 'logon task',
+  run_key: 'Run key',
+  launch_agent: 'LaunchAgent',
+  autostart: 'autostart entry',
+}
+
+/** What the machine's controller reports: screen, keyboard and mouse, start at login (and why not). */
+function MachineReport({ env }: { env: DesktopEnvironment }) {
+  const report = env.controller_status
+  if (!report) {
+    if (env.status !== 'online') return null
+    const old = env.controller_version && olderThan(env.controller_version, [0, 12, 0])
+    return (
+      <p className="text-[11px] text-[#7183A3]">
+        {old
+          ? `Its controller (${env.controller_version}) doesn’t report screen, input or login start. Update it to see them here.`
+          : 'Waiting for the machine’s report…'}
+      </p>
+    )
+  }
+  const asOf = env.status !== 'online' && env.controller_status_at ? new Date(env.controller_status_at) : null
+  const login =
+    report.startup === 'registered'
+      ? `yes${report.startup_method ? ` (${STARTUP_METHOD[report.startup_method] ?? report.startup_method})` : ''}`
+      : report.startup === 'not_registered'
+        ? 'no'
+        : 'unknown'
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 break-words gap-y-0.5 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3 text-[11px] text-[#4C5D7D]">
+      <dt className="text-[#7183A3]">Machine</dt>
+      <dd>
+        {report.machine} · {report.os || PLATFORM[report.platform]}
+        {report.display ? ` (${report.display === 'x11' ? 'X11' : 'Wayland'})` : ''}
+      </dd>
+      <dt className="text-[#7183A3]">Screen</dt>
+      <dd>{report.capture.available ? 'can be seen' : (report.capture.reason ?? 'unavailable')}</dd>
+      <dt className="text-[#7183A3]">Keyboard, mouse</dt>
+      <dd>{report.input.available ? 'can be used' : (report.input.reason ?? 'unavailable')}</dd>
+      <dt className="text-[#7183A3]">Starts at login</dt>
+      <dd>{login}</dd>
+      {asOf && (
+        <dd className="col-span-2 text-[#7183A3]">As last reported {asOf.toLocaleString()}.</dd>
+      )}
+    </dl>
+  )
+}
+
+function olderThan(version: string, than: [number, number, number]): boolean {
+  const parts = version.split('.').map((n) => Number.parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if ((parts[i] ?? 0) !== than[i]) return (parts[i] ?? 0) < than[i]
+  }
+  return false
+}
+
+/** The owner's switch: may Jophiel start a session on this machine herself? Off for every new pairing. */
+function AutoStartSwitch({ env }: { env: DesktopEnvironment }) {
+  const { busy, setAutoStart } = useDesktopSession()
+  const id = `auto-start-${env.id}`
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3">
+      <input
+        id={id}
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 accent-[#527998]"
+        checked={env.auto_start_allowed}
+        disabled={busy}
+        onChange={(e) => void setAutoStart(env.id, e.target.checked)}
+      />
+      <label htmlFor={id} className="text-xs text-[#23314F]">
+        Allow Jophiel to start sessions here
+        <span className="mt-0.5 block text-[11px] text-[#7183A3]">
+          {env.auto_start_allowed
+            ? 'She can start a session herself whenever this machine is connected, even with this page closed. You can stop it any time.'
+            : 'Off: only you start sessions here. Connecting never starts one by itself.'}
+        </span>
+      </label>
+    </div>
+  )
+}
+
+const RELAY_STATE: Record<DesktopRelayStatus['state'], { label: string; dot: string }> = {
+  open: { label: 'listening', dot: 'bg-accent' },
+  closed: { label: 'closed', dot: 'bg-[#B8C4D6]' },
+  error: { label: 'can’t listen', dot: 'bg-red-500' },
+  stopped: { label: 'not running', dot: 'bg-[#B8C4D6]' },
+}
+
+const FIREWALL: Record<DesktopRelayStatus['firewall']['state'], string> = {
+  not_needed: 'not needed: only virtual machines on this computer can reach the port',
+  present: 'the rule admitting only this network is loaded',
+  missing: 'the rule isn’t loaded',
+  unverified: 'not verified',
+}
+
+/**
+ * The relay on this computer (owner only; hidden for anyone else): where it listens, which network the owner
+ * approved, the firewall, and what can't be checked from here. Open by itself while something needs doing.
+ */
+function RelayCard() {
+  const { busy } = useDesktopSession()
+  const [relay, setRelay] = useState<DesktopRelayStatus | null>(null)
+  const [hidden, setHidden] = useState(false)
+  const [working, setWorking] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  // Polls while shown and the tab is visible. A 404 (not the owner) hides the card and ends the polling for good.
+  useEffect(() => {
+    if (hidden) return
+    let cancelled = false
+    const load = () => {
+      if (document.hidden) return
+      desktopApi
+        .relay()
+        .then((next) => !cancelled && setRelay(next))
+        .catch((err) => {
+          if (!cancelled && err instanceof ApiError && err.status === 404) setHidden(true)
+        })
+    }
+    load()
+    const timer = window.setInterval(load, 5_000)
+    document.addEventListener('visibilitychange', load) // fresh at once when the tab comes back
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [hidden])
+
+  if (hidden || !relay) return null
+  const state = RELAY_STATE[relay.state]
+  const act = (fn: () => Promise<DesktopRelayStatus>) => {
+    setWorking(true)
+    setProblem(null)
+    fn()
+      .then(setRelay)
+      .catch((err) => setProblem(err instanceof ApiError ? err.message : 'Something went wrong. Try again.'))
+      .finally(() => setWorking(false))
+  }
+  const approve = (iface: string, kind: string) => {
+    const lan =
+      'Other devices on this network can reach the relay port (they still can’t pair without a code). ' +
+      'It stays closed on any other network.'
+    if (kind === 'lan' && !window.confirm(`Approve the network on ${iface}? ${lan}`)) return
+    act(() => desktopApi.approveRelayNetwork(iface))
+  }
+  const forget = () => {
+    const what =
+      'The relay closes and every paired machine disconnects until you approve a network again.'
+    if (!window.confirm(`Forget the approved network? ${what}`)) return
+    act(desktopApi.forgetRelayNetwork)
+  }
+  const disabled = busy || working
+
+  return (
+    <details
+      className="rounded-xl border border-[#D9E8F6] bg-[#F8FAFF] p-3 text-xs text-[#4C5D7D]"
+      open={relay.state !== 'open' || undefined}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 select-none">
+        <span aria-hidden="true" className={`h-2 w-2 rounded-full ${state.dot}`} />
+        <span className="font-medium text-[#23314F]">Relay on this computer · {state.label}</span>
+        {relay.address && (
+          <span className="font-mono text-[10px] text-[#7183A3]">
+            {relay.address}:{relay.port}
+          </span>
+        )}
+      </summary>
+      <div className="mt-2 space-y-2" aria-live="polite">
+        <p className="text-[11px]">
+          {relay.detail}
+          {relay.state === 'open' && !relay.advertising && relay.mode === 'approved'
+            ? ' Not announced on the network, so machines use their last address or --relay.'
+            : ''}
+        </p>
+        {relay.mode === 'explicit' ? (
+          <p className="text-[11px] text-[#7183A3]">
+            Uses the fixed address in <span className="font-mono">backend/.env</span> (
+            <span className="font-mono">DESKTOP_CONTROLLER_BIND_HOST</span>). Remove that line and restart the relay to
+            have it follow an approved network instead.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {relay.networks.map((n) => {
+              const approved = relay.approval?.interface === n.interface
+              return (
+                <li key={`${n.interface}-${n.address}`} className="flex flex-wrap items-start justify-between gap-2">
+                  <span className="min-w-0 flex-1">
+                    <span className="font-mono text-[#23314F]">{n.interface}</span> · {n.network}
+                    {n.kind === 'vm_only' ? ' · VM-only' : ' · this network'}
+                    {n.recommended && !approved ? ' · suggested' : ''}
+                    <span className="block text-[10px] text-[#7183A3]">{n.note}</span>
+                  </span>
+                  {approved ? (
+                    <Button variant="ghost" disabled={disabled} onClick={forget}>
+                      Approved · forget
+                    </Button>
+                  ) : (
+                    n.approvable && (
+                      <Button variant="outline" disabled={disabled} onClick={() => approve(n.interface, n.kind)}>
+                        Approve
+                      </Button>
+                    )
+                  )}
+                </li>
+              )
+            })}
+            {relay.networks.length === 0 && (
+              <li className="text-[11px] text-[#7183A3]">No network the relay could listen on right now.</li>
+            )}
+          </ul>
+        )}
+        {relay.approval && !relay.networks.some((n) => n.interface === relay.approval?.interface) && (
+          <p className="text-[11px] text-[#7183A3]">
+            Approved: <span className="font-mono">{relay.approval.interface}</span> on {relay.approval.network} (not
+            here right now).{' '}
+            <button
+              type="button"
+              disabled={disabled}
+              className={`underline underline-offset-2 hover:text-[#23314F] ${FOCUS_RING}`}
+              onClick={forget}
+            >
+              Forget it
+            </button>
+          </p>
+        )}
+        {relay.kind !== 'vm_only' && (relay.approval || relay.mode === 'explicit') && (
+          <p className="text-[11px]">
+            Firewall: {FIREWALL[relay.firewall.state]}
+            {relay.firewall.checked_at ? ` (checked ${new Date(relay.firewall.checked_at).toLocaleString()})` : ''}.
+            {relay.firewall.how && <span className="block text-[10px] text-[#7183A3]">Run {relay.firewall.how}.</span>}
+          </p>
+        )}
+        {relay.kind === 'vm_only' && <p className="text-[11px]">Firewall: {FIREWALL.not_needed}.</p>}
+        {relay.cannot_verify.map((item) => (
+          <p key={item} className="text-[10px] text-[#7183A3]">
+            Can’t be checked from here: {item}.
+          </p>
+        ))}
+        {problem && (
+          <p role="alert" className="text-[11px] text-red-700">
+            {problem}
+          </p>
+        )}
+      </div>
+    </details>
   )
 }
 
@@ -864,7 +1197,7 @@ function PackRows({ packs }: { packs: DesktopEnvironment[] }) {
         return (
           <div key={pack.id} className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-sm" aria-live="polite">
-              <span className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
+              <span aria-hidden="true" className={`h-2 w-2 rounded-full ${online ? 'bg-accent' : 'bg-[#B8C4D6]'}`} />
               Minecraft (her own player) · {online ? 'in the world' : 'not in the world'}
             </p>
             <Button
@@ -884,23 +1217,37 @@ function PackRows({ packs }: { packs: DesktopEnvironment[] }) {
 function PairingBox() {
   const { pairing, cancelPairing } = useDesktopSession()
   if (!pairing) return null
-  const command = `py -m desktop_controller pair ${pairing.relay_address} ${pairing.code}`
+  const windows = `py -m desktop_controller ${pairing.pair_args}`
+  const unix = `python3 -m desktop_controller ${pairing.pair_args}`
   const expires = new Date(pairing.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
   return (
     <div className="space-y-2 rounded-xl border border-[#DCCFF2] bg-[#F7F4FD] p-3">
-      <p className="text-xs text-[#765E94]">In the game VM, run this once (works until {expires}):</p>
+      <p className="text-xs text-[#765E94]">
+        On the machine, with the controller installed, run this once (works until {expires}). No address needed: it
+        finds this computer’s relay on the network and pairs only with it.
+      </p>
+      <p className="text-[10px] text-[#7183A3]">Windows</p>
       <code className="block rounded-md bg-white px-2 py-1.5 font-mono text-xs break-all text-[#23314F] select-all">
-        {command}
+        {windows}
+      </code>
+      <p className="text-[10px] text-[#7183A3]">macOS, Linux</p>
+      <code className="block rounded-md bg-white px-2 py-1.5 font-mono text-xs break-all text-[#23314F] select-all">
+        {unix}
       </code>
       <p className="text-xs text-[#765E94]">
-        Then keep <span className="font-mono">py -m desktop_controller run</span> going. This card switches to
-        “connected” on its own.
+        It starts right away and at every login from then on. This card switches to “connected” on its own.
       </p>
+      {pairing.relay_address && (
+        <p className="text-[11px] text-[#7183A3]">
+          If it can’t find the relay (some networks block that), add{' '}
+          <span className="font-mono">--relay {pairing.relay_address}</span>.
+        </p>
+      )}
       <details className="text-[10px] text-[#7183A3]">
         <summary className="cursor-pointer select-none">Relay fingerprint</summary>
         <p className="mt-1 font-mono break-all">{pairing.relay_fingerprint}</p>
-        <p className="mt-1">The VM prints the same fingerprint after pairing.</p>
+        <p className="mt-1">The machine prints the same fingerprint after pairing.</p>
       </details>
       <Button variant="ghost" onClick={cancelPairing}>
         Close
@@ -949,6 +1296,12 @@ function SessionView() {
         {releasePending && live && (
           <p className="mt-1 text-xs text-[#9A5B36]">
             Asked the game VM to let go of all keys — not confirmed yet.
+          </p>
+        )}
+        {session.started_by && (
+          <p className="mt-1 text-[11px] text-[#7183A3]">
+            Started by {session.started_by === 'jophiel' ? 'Jophiel' : 'you'}
+            {environment && environment.hosting_kind !== 'game_pack' ? ` on ${environment.display_name}` : ''}.
           </p>
         )}
         {session.reason_code && <p className="mt-1 font-mono text-[10px] text-[#7183A3]">reason: {session.reason_code}</p>}

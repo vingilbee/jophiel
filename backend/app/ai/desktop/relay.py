@@ -14,6 +14,18 @@ or a newer connection ends this one within one heartbeat.
 
 It carries health, preview frames, and (stage C) the session: the lease rides
 every heartbeat reply, and decisions/cancels are forwarded from the API.
+
+Where it listens (docs/VM_CONNECTION_PLAN.md, step 1): ``RelaySupervisor``
+checks every few seconds. With no ``DESKTOP_CONTROLLER_BIND_HOST`` it listens
+only on the network the owner approved in the app (``network.py``), at that
+interface's current address, rebinding when DHCP moves it and closing when
+the Mac is on any other network; it advertises itself over mDNS only there,
+only while listening. With the setting, it listens on exactly that address,
+as before. Its state goes to ``status.json`` for the dashboard.
+
+Before a connection has paired or authenticated it is held to a small
+budget: a few at a time in all and per address, and ``FIRST_MESSAGE_SECONDS``
+to say who it is.
 """
 from __future__ import annotations
 
@@ -21,16 +33,23 @@ import asyncio
 import ipaddress
 import json
 import logging
+import os
+import signal
+import socket
 import time
 import uuid
+from collections import Counter
 from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.ai.desktop.tls import ensure_relay_certificate
+from app.ai.desktop import network
+from app.ai.desktop.tls import RelayCertificate, ensure_relay_certificate, relay_dir
 from app.core.config import get_settings
 from app.services import (
     desktop_commands, desktop_control, desktop_link, desktop_preview, desktop_sessions, security_activity,
@@ -66,6 +85,7 @@ from desktop_controller.link import (
     controller_message,
     unpack_frame,
 )
+from desktop_controller.discovery import SERVICE_TYPE, TXT_FINGERPRINT, TXT_PROTOCOL
 
 log = logging.getLogger(__name__)
 
@@ -75,11 +95,37 @@ MAX_MESSAGE_BYTES = 64 * 1024
 # At most 4 frames a second per connection, whatever the controller sends.
 MIN_FRAME_INTERVAL_SECONDS = 0.25
 
+# Connections that haven't paired or authenticated yet: at most this many at once, and per address.
+UNPAIRED_LIMIT = 16
+UNPAIRED_PER_HOST = 4
+# Controllers that report their machine's status (older ones forbid Welcome.features).
+STATUS_SINCE = (0, 12, 0)
+
 SessionFactory = Callable[[], Session]
+
+
+class UnpairedGate:
+    """Counts connections that haven't said who they are yet. Refused ones cost no database work."""
+
+    def __init__(self, total: int = UNPAIRED_LIMIT, per_host: int = UNPAIRED_PER_HOST):
+        self.total, self.per_host = total, per_host
+        self.by_host: Counter[str] = Counter()
+
+    def enter(self, host: str) -> bool:
+        if sum(self.by_host.values()) >= self.total or self.by_host[host] >= self.per_host:
+            return False
+        self.by_host[host] += 1
+        return True
+
+    def leave(self, host: str) -> None:
+        self.by_host[host] -= 1
+        if self.by_host[host] <= 0:
+            del self.by_host[host]
 
 
 def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastAPI:
     app = FastAPI(title="Jophiel desktop relay", docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.unpaired = gate = UnpairedGate()
 
     async def db_call(fn, *args, **kwargs):
         def run():
@@ -93,6 +139,18 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
 
     @app.websocket("/controller")
     async def controller(ws: WebSocket) -> None:
+        host = ws.client.host if ws.client else "?"
+        if not gate.enter(host):
+            await ws.close(code=1013)  # before accepting: a plain HTTP refusal, nothing read
+            return
+        unpaired = True
+
+        def said_who() -> None:
+            nonlocal unpaired
+            if unpaired:
+                unpaired = False
+                gate.leave(host)
+
         await ws.accept()
         environment_id: uuid.UUID | None = None
         generation: int | None = None
@@ -111,8 +169,12 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             if not isinstance(first, Hello):
                 raise LinkRefused("bad_message")
             environment_id, generation = await db_call(desktop_link.authenticate, first)
+            said_who()
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
-            await ws.send_text(Welcome(controller_generation=generation).model_dump_json())
+            reports_status = _version(first.controller_version) >= STATUS_SINCE
+            await ws.send_text(Welcome(
+                controller_generation=generation, features=["status"] if reports_status else None,
+            ).model_dump_json(exclude_none=True))
             link = _SessionLink(ws, environment_id, db_call, controller_version=first.controller_version,
                                 generation=generation)
             commands = asyncio.create_task(link.forward_commands())
@@ -149,7 +211,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
                 capture = await db_call(
                     desktop_link.heartbeat, environment_id, generation,
                     gate_epoch_seen=message.gate_epoch_seen, target_state=message.target_state,
-                    context=message.context,
+                    context=message.context, machine=message.status,
                 )
                 link.last_capture = capture
                 if link.knows_security:
@@ -167,6 +229,7 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
         except WebSocketDisconnect:
             pass
         finally:
+            said_who()
             if commands is not None:
                 commands.cancel()
             if environment_id is not None and generation is not None:
@@ -468,6 +531,199 @@ def check_bind_host(host: str) -> None:
         pass  # a host name; uvicorn resolves it
 
 
+CHECK_SECONDS = network.CHECK_SECONDS
+# Total connections uvicorn takes at once (paired controllers are one each).
+CONNECTION_LIMIT = 64
+
+
+class Advertiser:
+    """The relay's mDNS (DNS-SD) advertisement, on one address only. Failing to advertise never stops
+    the relay: controllers also try their last address and a host name."""
+
+    def __init__(self, address: str, port: int, fingerprint: str):
+        self.address, self.port, self.fingerprint = address, port, fingerprint
+        self._zc = None
+        self._info = None
+
+    async def start(self) -> bool:
+        try:
+            from zeroconf import ServiceInfo
+            from zeroconf.asyncio import AsyncZeroconf
+
+            short = self.fingerprint[:8]
+            self._info = ServiceInfo(
+                SERVICE_TYPE, f"Jophiel relay {short}.{SERVICE_TYPE}",
+                addresses=[socket.inet_aton(self.address)], port=self.port,
+                properties={TXT_FINGERPRINT: self.fingerprint, TXT_PROTOCOL: PROTOCOL},
+                server=f"jophiel-relay-{short}.local.",
+            )
+            self._zc = AsyncZeroconf(interfaces=[self.address])
+            await self._zc.async_register_service(self._info)
+            return True
+        except Exception:  # noqa: BLE001 - zeroconf missing, multicast refused, name clash
+            log.warning("desktop relay: can't advertise on %s", self.address, exc_info=True)
+            await self.stop()
+            return False
+
+    async def stop(self) -> None:
+        zc, info, self._zc, self._info = self._zc, self._info, None, None
+        if zc is None:
+            return
+        try:
+            if info is not None:
+                await zc.async_unregister_service(info)
+            await zc.async_close()
+        except Exception:  # noqa: BLE001 - withdrawing from a network that's already gone
+            log.debug("desktop relay: withdrawing the advertisement failed", exc_info=True)
+
+
+def _advertisable(address: str) -> bool:
+    """Never on loopback: nothing else can reach it there."""
+    try:
+        return not ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return address != "localhost"
+
+
+def _bind(address: str, port: int) -> socket.socket:
+    check_bind_host(address)
+    info = socket.getaddrinfo(address, port, type=socket.SOCK_STREAM)[0]
+    sock = socket.socket(info[0], socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(info[4])
+        sock.listen(128)
+    except OSError:
+        sock.close()
+        raise
+    sock.setblocking(False)
+    return sock
+
+
+class RelaySupervisor:
+    """Opens, moves and closes the listener as the network changes (module docstring)."""
+
+    def __init__(self, app: FastAPI, cert: RelayCertificate, *, port: int, directory: Path,
+                 explicit_host: str | None = None, read_interfaces=network.read_interfaces,
+                 gateway_mac_for=network.neighbor_mac, advertiser=Advertiser, bind=_bind, serve=None):
+        self.app, self.cert, self.port, self.directory = app, cert, port, directory
+        self.explicit_host = explicit_host
+        self.read_interfaces, self.gateway_mac_for = read_interfaces, gateway_mac_for
+        self.make_advertiser, self.bind = advertiser, bind
+        self.serve = serve or self._serve
+        self.address: str | None = None
+        self.server: uvicorn.Server | None = None
+        self.task: asyncio.Task | None = None
+        self.advertiser: Advertiser | None = None
+        self.problem: str | None = None  # why the listener couldn't open, this time round
+        self.decision: network.Decision | None = None
+
+    def decide(self) -> network.Decision:
+        interfaces = self.read_interfaces()
+        if self.explicit_host:
+            return network.decide_explicit(self.explicit_host, interfaces)
+        return network.decide(network.load_approval(self.directory), interfaces, self.gateway_mac_for)
+
+    async def check(self) -> network.Decision:
+        decision = await asyncio.to_thread(self.decide)
+        self.decision = decision
+        alive = self.task is not None and not self.task.done()
+        if decision.address != self.address or (self.address and not alive):
+            if self.address:
+                log.info("desktop relay: closing on %s (%s)", self.address, decision.detail)
+            await self.close()
+            if decision.address:
+                await self.open(decision.address)
+        self.write_status()
+        return decision
+
+    async def open(self, address: str) -> None:
+        try:
+            sock = self.bind(address, self.port)
+        except OSError as exc:
+            self.problem = f"can't listen on {address}:{self.port}: {exc.strerror or exc}"
+            log.warning("desktop relay: %s", self.problem)
+            return
+        self.problem = None
+        self.address = address
+        self.server, self.task = self.serve(sock)
+        log.info("desktop relay: listening on %s:%s", address, self.port)
+        if _advertisable(address):
+            self.advertiser = self.make_advertiser(address, self.port, self.cert.fingerprint)
+            if not await self.advertiser.start():
+                self.advertiser = None
+
+    def _serve(self, sock: socket.socket) -> tuple[uvicorn.Server, asyncio.Task]:
+        config = uvicorn.Config(
+            self.app, ssl_certfile=str(self.cert.cert_path), ssl_keyfile=str(self.cert.key_path),
+            ws_max_size=MAX_FRAME_BYTES, proxy_headers=False, server_header=False, log_level="info",
+            lifespan="off", limit_concurrency=CONNECTION_LIMIT,
+        )
+        server = uvicorn.Server(config)
+        return server, asyncio.create_task(server.serve(sockets=[sock]))
+
+    async def close(self) -> None:
+        if self.advertiser is not None:
+            await self.advertiser.stop()
+            self.advertiser = None
+        server, task = self.server, self.task
+        self.server, self.task, self.address = None, None, None
+        if server is not None:
+            server.should_exit = True
+        if task is not None:
+            try:
+                await asyncio.wait_for(task, timeout=10)
+            except TimeoutError:
+                if server is not None:
+                    server.force_exit = True
+                await asyncio.gather(task, return_exceptions=True)
+            except BaseException:  # noqa: BLE001 - the server's own exit (SystemExit on a failed start)
+                pass
+
+    def status(self) -> dict:
+        d = self.decision
+        listening = self.address is not None
+        if listening:
+            state, reason, detail = "open", d.reason if d else "open", d.detail if d else ""
+        elif self.problem:
+            state, reason, detail = "error", "cant_listen", self.problem
+        else:
+            state, reason, detail = "closed", d.reason if d else "not_approved", d.detail if d else ""
+        return {
+            "state": state, "reason": reason, "detail": detail,
+            "mode": "explicit" if self.explicit_host else "approved",
+            "address": self.address, "port": self.port,
+            "interface": d.interface if d else None, "kind": d.kind if d else None,
+            "network": d.network if d else None,
+            "advertising": self.advertiser is not None,
+            "fingerprint": self.cert.fingerprint,
+            "unpaired_limit": {"total": UNPAIRED_LIMIT, "per_address": UNPAIRED_PER_HOST},
+            "pid": os.getpid(), "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def write_status(self) -> None:
+        network.write_status(self.directory, self.status())
+
+    async def run(self, stop: asyncio.Event) -> None:
+        try:
+            while not stop.is_set():
+                try:
+                    await self.check()
+                except SystemExit:
+                    raise
+                except Exception:  # noqa: BLE001 - a bad check must not take the relay down
+                    log.exception("desktop relay: network check failed")
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=CHECK_SECONDS)
+                except TimeoutError:
+                    pass
+        finally:
+            await self.close()
+            status = self.status()
+            status.update(state="stopped", reason="stopped", detail="the relay isn't running")
+            network.write_status(self.directory, status)
+
+
 def main() -> None:
     from app.db.session import SessionLocal
 
@@ -475,24 +731,33 @@ def main() -> None:
     settings = get_settings()
     if not settings.desktop_agent_enabled:
         raise SystemExit("the desktop agent is off; set DESKTOP_AGENT_ENABLED=true to run the relay")
-    check_bind_host(settings.desktop_controller_bind_host)
+    explicit = settings.desktop_controller_bind_host
+    if explicit:
+        check_bind_host(explicit)
     cert = ensure_relay_certificate()
     with SessionLocal() as db:
         stale = desktop_link.mark_all_offline(db)
     if stale:
         log.info("desktop relay: marked %d environment(s) offline from a previous run", stale)
     log.info("desktop relay: certificate fingerprint sha256 %s", cert.fingerprint)
-    uvicorn.run(
-        create_relay_app(SessionLocal, cert.fingerprint),
-        host=settings.desktop_controller_bind_host,
-        port=settings.desktop_controller_port,
-        ssl_certfile=str(cert.cert_path),
-        ssl_keyfile=str(cert.key_path),
-        ws_max_size=MAX_FRAME_BYTES,
-        proxy_headers=False,
-        server_header=False,
-        log_level="info",
+    if not explicit:
+        log.info("desktop relay: listening only on the network approved in the app")
+    supervisor = RelaySupervisor(
+        create_relay_app(SessionLocal, cert.fingerprint), cert, port=settings.desktop_controller_port,
+        directory=relay_dir(), explicit_host=explicit,
     )
+
+    async def run() -> None:
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
+        await supervisor.run(stop)
+
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

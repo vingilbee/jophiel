@@ -1,13 +1,23 @@
-"""The guest side of the link: pair once, then stay connected (plan §19).
+"""The guest side of the link: pair once, then stay connected (plan §19, docs/VM_CONNECTION_PLAN.md).
 
-Runs inside the game VM. ``pair`` trusts nothing until the relay proves it
+Runs on the paired machine. ``pair`` trusts nothing until the relay proves it
 knows the pairing code (see ``link``), then pins the relay's certificate and
 saves the device token. ``run`` only ever connects to that pinned certificate,
-authenticates, and heartbeats. In stage B it sends no input at all.
+authenticates, and heartbeats.
+
+Where the relay is and who it is are kept apart. Identity is the pinned
+certificate (and its fingerprint), fixed at pairing. The address is only the
+last one that worked: when it stops working the controller looks again (the
+relay's mDNS advertisement, then a DNS host name if one was given) and saves
+whatever answers *with the pinned certificate*. A relay with any other
+certificate is never talked to, so moving addresses can't hand the pairing to
+someone else. When pairing with a fingerprint (the dashboard's command), the
+controller checks it before it sends anything, so with two relays on the
+network only the one named in the command is paired with.
 
 The saved file holds a secret (the device token). It goes in the user's
 profile with owner-only permissions where the OS supports them; revoking the
-environment in the app makes it useless.
+environment in the app makes it useless, and the controller then stops trying.
 """
 from __future__ import annotations
 
@@ -27,7 +37,9 @@ import websockets
 from websockets.asyncio.client import ClientConnection, connect
 
 from . import __version__
+from . import discovery
 from .capture import CaptureBackend
+from .discovery import Endpoint
 from .desktop import INPUT_KINDS, DesktopHands
 from .profile import Profile, ProfileError, parse_profile
 from .reflexes import sample_size
@@ -41,6 +53,7 @@ from .link import (
     Cancel,
     CaptureConfig,
     ControlGrant,
+    ControllerStatus,
     DecisionCommand,
     DecisionReport,
     DesktopAction,
@@ -78,6 +91,11 @@ RECONNECT_DELAYS = (1, 2, 5, 10, 30)
 DESKTOP_DRAIN_SECONDS = 5.0
 # Refusals after which reconnecting cannot help.
 FATAL = {"not_authorized", "revoked", "superseded", "unsupported_protocol"}
+# Of those, the ones that mean this pairing is over: saved in the pairing file, so a login start stops at once.
+ENDED = {"not_authorized", "revoked"}
+# How often the machine's status (capture, input, permissions) is looked at again while connected.
+STATUS_CHECK_SECONDS = 30.0
+CONFIG_VERSION = 2
 
 
 class LinkFailure(Exception):
@@ -86,15 +104,35 @@ class LinkFailure(Exception):
 
 @dataclass
 class ControllerConfig:
+    # The last address the relay answered on (with the pinned certificate). Only a hint.
     relay_host: str
     relay_port: int
     environment_id: str
     token: str
+    # The relay's identity, pinned at pairing: never changed by finding the relay somewhere else.
     relay_cert_pem: str
+    relay_fingerprint: str = ""
+    # A DNS name to try when the saved address and mDNS both fail (networks that block multicast).
+    relay_hostname: str | None = None
+    # Set when the relay said this pairing is over (revoked, key no longer valid): nothing is retried.
+    ended: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.relay_fingerprint and self.relay_cert_pem:
+            self.relay_fingerprint = cert_fingerprint(ssl.PEM_cert_to_DER_cert(self.relay_cert_pem))
 
     @property
     def url(self) -> str:
-        return f"wss://{self.relay_host}:{self.relay_port}/controller"
+        return _url(Endpoint(self.relay_host, self.relay_port))
+
+    @property
+    def endpoint(self) -> Endpoint:
+        return Endpoint(self.relay_host, self.relay_port, "saved")
+
+
+def _url(endpoint: Endpoint) -> str:
+    host = f"[{endpoint.host}]" if ":" in endpoint.host else endpoint.host
+    return f"wss://{host}:{endpoint.port}/controller"
 
 
 def default_config_path() -> Path:
@@ -106,17 +144,75 @@ def default_config_path() -> Path:
 
 
 def save_config(config: ControllerConfig, path: Path) -> None:
+    """The pairing file, version 2: identity and endpoint in separate sections."""
+    data = {
+        "version": CONFIG_VERSION,
+        "environment_id": config.environment_id,
+        "token": config.token,
+        "relay": {"cert_pem": config.relay_cert_pem, "fingerprint": config.relay_fingerprint},
+        "endpoint": {"host": config.relay_host, "port": config.relay_port, "hostname": config.relay_hostname},
+        "ended": config.ended,
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(asdict(config), handle, indent=2)
+        json.dump(data, handle, indent=2)
+    os.replace(tmp, path)  # never a half-written pairing file
 
 
 def load_config(path: Path) -> ControllerConfig:
+    """Version 2, or the original flat file (``relay_host``, ``relay_port``, ``relay_cert_pem``, ...)."""
     try:
-        return ControllerConfig(**json.loads(path.read_text(encoding="utf-8")))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise LinkFailure(f"not paired yet: no {path}; run `desktop-controller pair` first") from None
+    if data.get("version") == CONFIG_VERSION:
+        relay, endpoint = data.get("relay") or {}, data.get("endpoint") or {}
+        return ControllerConfig(
+            relay_host=endpoint.get("host") or "", relay_port=int(endpoint.get("port") or 0),
+            environment_id=data["environment_id"], token=data["token"], relay_cert_pem=relay["cert_pem"],
+            relay_fingerprint=relay.get("fingerprint") or "", relay_hostname=endpoint.get("hostname"),
+            ended=data.get("ended"),
+        )
+    return ControllerConfig(
+        relay_host=data["relay_host"], relay_port=int(data["relay_port"]), environment_id=data["environment_id"],
+        token=data["token"], relay_cert_pem=data["relay_cert_pem"],
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Local status (what the controller is doing, readable while disconnected)
+# --------------------------------------------------------------------------- #
+
+
+def status_path_for(config_path: Path) -> Path:
+    return config_path.with_name("status.json")
+
+
+def write_status(path: Path | None, state: str, detail: str = "", *, relay: str | None = None,
+                 machine: ControllerStatus | None = None) -> None:
+    """``state``: connecting / connected / retrying / stopped. Never raises: it's only a report."""
+    if path is None:
+        return
+    data = {"state": state, "detail": detail, "relay": relay, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "pid": os.getpid()}
+    if machine is not None:
+        data["machine"] = machine.model_dump(mode="json")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def read_status(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def _pinned_context(cert_pem: str) -> ssl.SSLContext:
@@ -158,13 +254,56 @@ async def _expect(ws: ClientConnection, timeout: float):
 # --------------------------------------------------------------------------- #
 
 
-async def pair(host: str, port: int, code: str, *, config_path: Path | None = None) -> ControllerConfig:
+class WrongRelay(LinkFailure):
+    """Whatever answered there has a different certificate than the one named in the pairing command."""
+
+
+async def pair(host: str, port: int, code: str, *, config_path: Path | None = None,
+               fingerprint: str | None = None, hostname: str | None = None) -> ControllerConfig:
+    """Pair with the relay at ``host:port``. With ``fingerprint`` (the dashboard's command), nothing is sent
+    unless the relay there presents exactly that certificate."""
+    return await _pair_at(Endpoint(host, port), code, expected=fingerprint, config_path=config_path,
+                          hostname=hostname)
+
+
+async def pair_anywhere(code: str, fingerprint: str, *, relay: Endpoint | None = None, hostname: str | None = None,
+                        port: int = 8765, config_path: Path | None = None, browse=discovery.browse,
+                        say=print) -> ControllerConfig:
+    """Pair without an address: find relays (``relay`` if given, else mDNS, then ``hostname``) and pair with
+    the one whose certificate has ``fingerprint``. Others are skipped before anything is sent to them."""
+    fingerprint = discovery.normalize_fingerprint(fingerprint)
+    candidates: list[Endpoint] = [relay] if relay is not None else []
+    if relay is None:
+        say("looking for the relay on this network…")
+        candidates += await asyncio.to_thread(browse, fingerprint)
+        if hostname:
+            candidates.append(discovery.parse_endpoint(hostname, source="hostname", default_port=port))
+    if not candidates:
+        raise LinkFailure(
+            "couldn't find the relay on this network. Check the app says the relay is listening, that this "
+            "machine is on the network you approved for it, or pass --relay HOST:PORT (shown in the app)")
+    problems = []
+    for candidate in candidates:
+        try:
+            return await _pair_at(candidate, code, expected=fingerprint, config_path=config_path, hostname=hostname)
+        except WrongRelay as exc:
+            problems.append(f"{candidate}: {exc}")
+        except (OSError, ssl.SSLError, websockets.InvalidHandshake, websockets.ConnectionClosed, TimeoutError) as exc:
+            problems.append(f"{candidate}: can't connect ({exc})")
+    raise LinkFailure("no relay with the fingerprint from the app answered:\n  " + "\n  ".join(problems))
+
+
+async def _pair_at(endpoint: Endpoint, code: str, *, expected: str | None, config_path: Path | None,
+                   hostname: str | None) -> ControllerConfig:
     nonce = secrets.token_hex(16)
     async with connect(
-        f"wss://{host}:{port}/controller", ssl=_unverified_context(), max_size=MAX_MESSAGE_BYTES, open_timeout=10
+        _url(endpoint), ssl=_unverified_context(), max_size=MAX_MESSAGE_BYTES, open_timeout=10
     ) as ws:
         der = _peer_der(ws)
         fingerprint = cert_fingerprint(der)
+        if expected is not None and fingerprint != expected:
+            # Not the relay the dashboard named: it gets neither a proof nor anything else.
+            raise WrongRelay(f"a relay with a different certificate ({display_fingerprint(fingerprint)[:23]}…)")
         await ws.send(Pair(
             lookup=code_lookup(code), nonce=nonce, proof=client_proof(code, fingerprint, nonce),
             controller_version=__version__,
@@ -184,11 +323,11 @@ async def pair(host: str, port: int, code: str, *, config_path: Path | None = No
         # Whoever answered doesn't know the code: not our relay.
         raise LinkFailure("the relay could not prove it knows the code; not pairing (is something intercepting?)")
     config = ControllerConfig(
-        relay_host=host, relay_port=port, environment_id=reply.environment_id, token=reply.token,
-        relay_cert_pem=ssl.DER_cert_to_PEM_cert(der),
+        relay_host=endpoint.host, relay_port=endpoint.port, environment_id=reply.environment_id, token=reply.token,
+        relay_cert_pem=ssl.DER_cert_to_PEM_cert(der), relay_fingerprint=fingerprint, relay_hostname=hostname,
     )
     save_config(config, config_path or default_config_path())
-    print(f"paired with environment {reply.environment_id}")
+    print(f"paired with environment {reply.environment_id} (relay at {endpoint})")
     print(f"relay certificate pinned: {display_fingerprint(fingerprint)}")
     return config
 
@@ -342,6 +481,8 @@ async def run_once(
     desktop: DesktopHands | None = None,
     security: SecurityCollector | None = None,
     on_welcome=None,
+    endpoint: Endpoint | None = None,
+    machine_status=None,
 ) -> None:
     """One connection, until it ends. Raises ``LinkFailure`` with the reason.
 
@@ -350,8 +491,9 @@ async def run_once(
     ``allowed``; a frame grabbed under a setting that changed meanwhile is
     discarded, so "I'm signing in" wins over a grab already in progress.
     """
+    url = _url(endpoint) if endpoint is not None else config.url
     async with connect(
-        config.url, ssl=_pinned_context(config.relay_cert_pem), max_size=MAX_MESSAGE_BYTES, open_timeout=10
+        url, ssl=_pinned_context(config.relay_cert_pem), max_size=MAX_MESSAGE_BYTES, open_timeout=10
     ) as ws:
         await ws.send(Hello(
             environment_id=config.environment_id, token=config.token, controller_version=__version__,
@@ -363,6 +505,24 @@ async def run_once(
         if on_welcome:
             on_welcome(welcome)
         state = _CaptureState()
+        # The machine's status (capture, input, permissions, startup), for relays that ask for it.
+        wants_status = machine_status is not None and "status" in (welcome.features or [])
+        report: dict = {"sent": None, "next": None, "checked_at": 0.0}
+
+        async def status_due() -> ControllerStatus | None:
+            """The status to send with this beat: the first time, and whenever it has changed."""
+            if not wants_status:
+                return None
+            if time.monotonic() - report["checked_at"] >= STATUS_CHECK_SECONDS or report["next"] is None:
+                report["checked_at"] = time.monotonic()
+                try:
+                    report["next"] = await asyncio.to_thread(machine_status)
+                except Exception:  # noqa: BLE001 - a failed check is reported next time
+                    return None
+            if report["next"] == report["sent"]:
+                return None
+            report["sent"] = report["next"]
+            return report["next"]
 
         def sampler_for(profile: Profile) -> Sampler:
             """The reflexes' picture, under the same capture switch as everything
@@ -520,13 +680,15 @@ async def run_once(
                     # grab, so nothing is captured from here on.
                     await send(Heartbeat(
                         gate_epoch_seen=message.capture.epoch, target_state="capture_off",
-                    ).model_dump_json())
+                    ).model_dump_json(exclude_none=True))
 
         async def heartbeat() -> None:
             while True:
+                # exclude_none: a relay older than 0.12 forbids the "status" key, even as null.
                 await send(Heartbeat(
                     gate_epoch_seen=state.config.epoch, target_state=state.target_state, context=play.context(),
-                ).model_dump_json())
+                    status=await status_due(),
+                ).model_dump_json(exclude_none=True))
                 await reply(play.retry() + play.reports())
                 # Faster beats during a session keep the lease short (plan §19).
                 play.woke.clear()
@@ -622,37 +784,96 @@ async def _quiet_wait(event: asyncio.Event, seconds: float) -> None:
 async def run_forever(
     config: ControllerConfig, *, capture: CaptureBackend | None = None, input_factory: InputFactory | None = None,
     desktop: DesktopHands | None = None, security: SecurityCollector | None = None,
+    config_path: Path | None = None, status_path: Path | None = None, machine_status=None,
+    browse=discovery.browse,
 ) -> int:
-    """Reconnect with backoff until a refusal that retrying can't fix."""
+    """Reconnect with backoff until a refusal that retrying can't fix.
+
+    Each attempt tries the last address that worked, then looks for the relay again (mDNS, then the DNS
+    host name). Only an endpoint presenting the pinned certificate is ever talked to; the one that works is
+    saved as the new last address. A revoked pairing is written into the pairing file, so the next login
+    start stops at once instead of retrying forever."""
     attempt = 0
+    current: dict = {"endpoint": config.endpoint}
 
     def connected(_welcome: Welcome) -> None:
         nonlocal attempt
         attempt = 0
+        endpoint = current["endpoint"]
+        write_status(status_path, "connected", relay=str(endpoint))
+        if (endpoint.host, endpoint.port) != (config.relay_host, config.relay_port):
+            config.relay_host, config.relay_port = endpoint.host, endpoint.port
+            if config_path is not None:
+                save_config(config, config_path)
+            print(f"the relay is now at {endpoint}; saved")
 
     while True:
-        try:
-            await run_once(config, capture=capture, input_factory=input_factory, desktop=desktop,
-                           security=security, on_welcome=connected)
-        except LinkFailure as exc:
-            reason = str(exc)
-            if reason in FATAL:
-                print(f"stopped: {_explain(reason)}", file=sys.stderr)
-                return 1
-            print(f"disconnected: {reason}", file=sys.stderr)
-        except (OSError, ssl.SSLError, websockets.InvalidHandshake, websockets.ConnectionClosed, TimeoutError) as exc:
-            if isinstance(exc, ssl.SSLCertVerificationError):
-                print("stopped: the relay's certificate changed; pair again", file=sys.stderr)
-                return 1
-            print(f"can't reach the relay: {exc}", file=sys.stderr)
+        problems: list[str] = []
+        for endpoint in await _candidates(config, browse, first=attempt == 0):
+            current["endpoint"] = endpoint
+            write_status(status_path, "connecting", relay=str(endpoint))
+            try:
+                await run_once(config, capture=capture, input_factory=input_factory, desktop=desktop,
+                               security=security, on_welcome=connected, endpoint=endpoint,
+                               machine_status=machine_status)
+            except LinkFailure as exc:
+                reason = str(exc)
+                if reason in FATAL:
+                    print(f"stopped: {_explain(reason)}", file=sys.stderr)
+                    write_status(status_path, "stopped", _explain(reason), relay=str(endpoint))
+                    if reason in ENDED:
+                        config.ended = reason
+                        if config_path is not None:
+                            save_config(config, config_path)
+                    return 1
+                print(f"disconnected: {reason}", file=sys.stderr)
+                problems.append(f"disconnected: {reason}")
+                break  # it was the relay: retry it first, after the delay
+            except ssl.SSLCertVerificationError:
+                # Something else answers there now (or the relay was reset): never talk to it.
+                problems.append(f"{endpoint} has a different certificate than the relay this machine paired with")
+                continue
+            except (OSError, ssl.SSLError, websockets.InvalidHandshake, websockets.ConnectionClosed,
+                    TimeoutError) as exc:
+                problems.append(f"can't reach {endpoint}: {exc}")
+                continue
+            else:
+                break
+        detail = "; ".join(problems[-3:]) or "the relay didn't answer"
+        if problems and all("different certificate" in p for p in problems):
+            detail += (". If the relay was reset (new certificate), pair again from the app")
+        print(detail, file=sys.stderr)
+        write_status(status_path, "retrying", detail, relay=str(current["endpoint"]))
         delay = RECONNECT_DELAYS[min(attempt, len(RECONNECT_DELAYS) - 1)]
         attempt += 1
         await asyncio.sleep(delay)
 
 
+async def _candidates(config: ControllerConfig, browse, *, first: bool) -> list[Endpoint]:
+    """Where to try, in order: the last address that worked, then the relay's advertisement (only ones
+    claiming the pinned fingerprint), then the host name. On the very first attempt the saved address is
+    tried alone, so a normal start doesn't wait for discovery."""
+    saved = [config.endpoint] if config.relay_host and config.relay_port else []
+    if first and saved:
+        return saved
+    found = await asyncio.to_thread(browse, config.relay_fingerprint or None)
+    named = []
+    if config.relay_hostname:
+        try:
+            named = [discovery.parse_endpoint(config.relay_hostname, source="hostname",
+                                              default_port=config.relay_port or 8765)]
+        except ValueError:
+            named = []
+    out: list[Endpoint] = []
+    for endpoint in saved + found + named:
+        if all((e.host, e.port) != (endpoint.host, endpoint.port) for e in out):
+            out.append(endpoint)
+    return out
+
+
 def _explain(code: str) -> str:
     return {
-        "not_authorized": "this device's key isn't valid anymore; pair again",
+        "not_authorized": "this device's key isn't valid anymore; pair again from the app",
         "revoked": "access was revoked in the app",
         "superseded": "another controller connected for this environment",
         "unsupported_protocol": "the relay speaks a different version; update this controller",

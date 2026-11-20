@@ -76,6 +76,17 @@ class EnvironmentOut(BaseModel):
     # Security monitoring of the VM's event logs: the owner's own switch (apart from capture and input).
     security_monitoring: bool = False
     security_changed_at: datetime | None = None
+    # "Allow Jophiel to start sessions" on this machine (off until the owner turns it on).
+    auto_start_allowed: bool = False
+    auto_start_changed_at: datetime | None = None
+    # What the controller last reported about its machine (0.12.0+): name, OS, capture / input availability
+    # and why not, start at login. None until it reports (older controllers never do). Display only.
+    controller_status: dict | None = None
+    controller_status_at: datetime | None = None
+
+
+class AutoStartIn(_In):
+    allowed: bool
 
 
 class CaptureGateIn(_In):
@@ -111,10 +122,61 @@ class PairingOut(BaseModel):
 
     code: str
     expires_at: datetime
-    # What the VM dials: `desktop-controller pair <relay_address> <code>`.
-    relay_address: str
-    # For an optional by-eye check against what the controller prints.
+    # The controller's arguments: `pair <code> --fingerprint <hex>` (after `py -m desktop_controller` on
+    # Windows, `python3 -m desktop_controller` elsewhere). No address: the controller finds the relay on the
+    # network and pairs only with the one holding this certificate.
+    pair_args: str
+    # Where the relay listens now, for `--relay HOST:PORT` when discovery can't work; None while it's closed.
+    relay_address: str | None
+    # The relay's certificate fingerprint, colon-separated, for a by-eye check against what the controller prints.
     relay_fingerprint: str
+
+
+class RelayNetworkOut(BaseModel):
+    """A network the relay could listen on (docs/VM_CONNECTION_PLAN.md, step 1)."""
+
+    interface: str
+    address: str
+    network: str
+    kind: Literal["vm_only", "lan"]
+    recommended: bool
+    approvable: bool
+    note: str
+    current: bool
+
+
+class RelayFirewallOut(BaseModel):
+    # not_needed (VM-only) / present / missing / unverified (no check, an old check, or sudo refused)
+    state: Literal["not_needed", "present", "missing", "unverified"]
+    checked_at: datetime | None = None
+    # How to load or check it (run on this computer in a terminal).
+    how: str | None = None
+
+
+class RelayStatusOut(BaseModel):
+    # open (listening) / closed (not on the approved network, or none approved) / error (couldn't listen)
+    # / stopped (the relay isn't running)
+    state: Literal["open", "closed", "error", "stopped"]
+    reason: str
+    detail: str
+    # approved: follows the network approved here; explicit: DESKTOP_CONTROLLER_BIND_HOST in .env.
+    mode: Literal["approved", "explicit"]
+    address: str | None
+    port: int
+    interface: str | None
+    kind: Literal["vm_only", "lan"] | None
+    advertising: bool
+    fingerprint: str
+    updated_at: datetime | None
+    approval: dict | None
+    networks: list[RelayNetworkOut]
+    firewall: RelayFirewallOut
+    # Things this computer can't check for itself.
+    cannot_verify: list[str]
+
+
+class RelayNetworkIn(_In):
+    interface: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
 
 
 # --- plan ---------------------------------------------------------------------
@@ -221,6 +283,8 @@ class SessionOut(BaseModel):
     max_duration_seconds: int
     started_at: datetime
     ended_at: datetime | None
+    # "user" (the dashboard), "jophiel" (her own start), or None (before this was recorded).
+    started_by: Literal["user", "jophiel"] | None = None
     # Pause/takeover/end ask the controller to release held input. Until the
     # controller acknowledges (stage B), release is only requested, never
     # confirmed: the UI must not claim the game is safely idle.

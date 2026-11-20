@@ -37,6 +37,7 @@ from app.services.desktop_sessions import (
 )
 from desktop_controller.link import (
     CaptureConfig,
+    ControllerStatus,
     Hello,
     ObserveConfig,
     Pair,
@@ -186,6 +187,9 @@ def authenticate(db: Session, message: Hello) -> tuple[uuid.UUID, int]:
     env.status = "online"
     env.last_heartbeat_at = _now()
     env.controller_version = message.controller_version
+    # A new connection reports afresh (a 0.12+ controller with its first heartbeat; older ones never).
+    env.controller_status = None
+    env.controller_status_at = None
     db.commit()
     return env.id, env.controller_generation
 
@@ -198,10 +202,13 @@ def heartbeat(
     gate_epoch_seen: int = 0,
     target_state: str = "capture_off",
     context: str | None = None,
+    machine: ControllerStatus | None = None,
 ) -> CaptureConfig:
     """Record a heartbeat and return what the controller may capture now, or
     refuse if this connection is no longer the environment's current one
-    (revoked, re-paired, or replaced)."""
+    (revoked, re-paired, or replaced). ``machine``: the controller's report about
+    its machine, sent only when it changed; kept for the dashboard."""
+    reported = {"controller_status": machine.model_dump(mode="json"), "controller_status_at": _now()} if machine else {}
     row = db.execute(
         update(DesktopEnvironment)
         .where(
@@ -215,6 +222,7 @@ def heartbeat(
             capture_confirmed_epoch=gate_epoch_seen,
             target_state=target_state,
             input_context=context,
+            **reported,
         )
         .returning(DesktopEnvironment.capture_gate, DesktopEnvironment.capture_epoch, DesktopEnvironment.capture_scope)
     ).first()

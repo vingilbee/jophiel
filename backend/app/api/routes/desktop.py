@@ -12,12 +12,13 @@ from typing import TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, validate_origin
+from app.api.deps import get_current_user, require_owner, validate_origin
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.models import DesktopSession, User
 from app.db.session import get_db
 from app.schemas.desktop import (
+    AutoStartIn,
     CaptureGateIn,
     DecisionIn,
     DecisionSent,
@@ -28,6 +29,8 @@ from app.schemas.desktop import (
     PairingOut,
     PlanReplace,
     ProfileOut,
+    RelayNetworkIn,
+    RelayStatusOut,
     SessionCommand,
     SessionCreate,
     SessionEventOut,
@@ -38,7 +41,7 @@ from app.schemas.desktop import (
     SecurityStatusOut,
 )
 from app.ai.desktop.tls import ensure_relay_certificate
-from app.services import desktop_commands, desktop_link, desktop_preview, security_activity
+from app.services import desktop_commands, desktop_link, desktop_preview, desktop_relay, security_activity
 from app.services import desktop_sessions as service
 from desktop_controller.link import display_fingerprint
 from app.services.desktop_sessions import CommandResult, DesktopError
@@ -91,6 +94,7 @@ def _session_out(session: DesktopSession, release_pending: bool = False) -> Sess
         started_at=session.started_at,
         ended_at=session.ended_at,
         release_pending=release_pending,
+        started_by=session.started_by,
     )
 
 
@@ -135,13 +139,44 @@ def create_pairing(
 ):
     settings = get_settings()
     created = _call(desktop_link.create_pairing, db, user.id, environment_id)
-    host = settings.desktop_controller_public_host or settings.desktop_controller_bind_host
+    fingerprint = ensure_relay_certificate().fingerprint
+    pair_args = f"pair {created.code} --fingerprint {fingerprint}"
+    if settings.desktop_controller_public_host:
+        pair_args += f" --hostname {settings.desktop_controller_public_host}"
     return PairingOut(
         code=created.code,
         expires_at=created.pairing.expires_at,
-        relay_address=f"{host}:{settings.desktop_controller_port}",
-        relay_fingerprint=display_fingerprint(ensure_relay_certificate().fingerprint),
+        pair_args=pair_args,
+        relay_address=desktop_relay.current_address(),
+        relay_fingerprint=display_fingerprint(fingerprint),
     )
+
+
+@router.put("/environments/{environment_id}/auto-start", response_model=EnvironmentOut, dependencies=mutation)
+def set_auto_start(
+    environment_id: uuid.UUID, body: AutoStartIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """The owner's "Allow Jophiel to start sessions" switch for one machine."""
+    return _call(service.set_auto_start, db, user.id, environment_id, body.allowed)
+
+
+# --- the relay (the host's, owner only) ---------------------------------------
+
+
+@router.get("/relay", response_model=RelayStatusOut)
+def relay_status(_: User = Depends(require_owner)):
+    return desktop_relay.status()
+
+
+@router.put("/relay/network", response_model=RelayStatusOut, dependencies=mutation)
+def approve_relay_network(body: RelayNetworkIn, _: User = Depends(require_owner)):
+    """Approve the network an interface is on now: the relay listens there (and only there)."""
+    return _call(desktop_relay.approve, body.interface)
+
+
+@router.delete("/relay/network", response_model=RelayStatusOut, dependencies=mutation)
+def forget_relay_network(_: User = Depends(require_owner)):
+    return desktop_relay.forget()
 
 
 @router.put("/environments/{environment_id}/capture", response_model=EnvironmentOut, dependencies=mutation)
