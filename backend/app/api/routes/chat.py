@@ -292,7 +292,7 @@ def _game_fields(game) -> dict:
     """The game summary and activity line for a turn's context (none without a game VM)."""
     return {"game": game.summary if game else None, "game_activity": game.activity if game else None,
             "game_planner": game.planner if game else False,
-            "game_moment": game.moment if game else None}
+            "game_moment": game.moment if game else None, "game_idle": game.idle if game else False}
 
 
 # An utterance keeps only its most recent 60 s (16 kHz, 16-bit: ~1.9 MB), so a
@@ -1094,6 +1094,17 @@ async def chat_ws(websocket: WebSocket) -> None:
             user_message_id=user_message.id, message=content, zone=state.zone_name,
             turn_id=turn_id, voice=voice, user_name=user_name)
         recall_turn = mind.recall_turn
+        # Independent reads (each its own DB session): together, not one after another.
+        now, personality_page, working_memory, mind_state, game, (desktop, desktop_usable), security = \
+            await asyncio.gather(
+                asyncio.to_thread(mind.situation),
+                asyncio.to_thread(chat_worker._personality),
+                asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
+                asyncio.to_thread(mind.state),
+                asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True)),
+                asyncio.to_thread(desktop_control.for_turn, user_id),
+                asyncio.to_thread(security_activity.line_for, user_id, zone=state.zone_name),
+            )
 
         context = AgentRuntimeContext(
             user_id=user_id,
@@ -1106,24 +1117,25 @@ async def chat_ws(websocket: WebSocket) -> None:
             blender_enabled=settings.blender_tools_enabled,
             voice=voice,
             awareness=mind_turn.fresh_awareness(state.describe(), wake=False),
-            now=await asyncio.to_thread(mind.situation),
+            now=now,
             long_term_memory=mind.long_term_memory,
-            personality=await asyncio.to_thread(chat_worker._personality),
-            working_memory=await asyncio.to_thread(memory_manager.view_for, user_id, user_name=user_name),
+            personality=personality_page,
+            working_memory=working_memory,
             recall=mind.recall_rendered,
             recall_turn=recall_turn,
             cached_memory=mind.cached_memory,
             turn_boundary=mind.boundary(),
-            mind_state=await asyncio.to_thread(mind.state),
+            mind_state=mind_state,
             lessons=mind_turn.lessons_text(mind),
             mind=mind,
             memory_tools=True,
             source_message_id=user_message.id,
             vision_enabled=senses.vision_enabled,
             screen_image_id=senses.screen_image_id,
-            **_game_fields(await asyncio.to_thread(lambda: desktop_game.summary_for(user_id, for_reply=True))),
-            desktop=await asyncio.to_thread(desktop_control.line_for, user_id),
-            security=await asyncio.to_thread(security_activity.line_for, user_id, zone=state.zone_name),
+            **_game_fields(game),
+            desktop=desktop,
+            desktop_usable=desktop_usable,
+            security=security,
             zone=state.zone_name,
             turn_id=turn_id,
             conversation_id=resolved_id,

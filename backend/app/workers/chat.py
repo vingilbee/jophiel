@@ -222,15 +222,23 @@ async def _generate(job: ChatJob) -> None:
             channel=payload.get("channel", "web"), voice=bool(payload.get("voice", False)), job=job,
             user_name=user.name if user else None, channel_identity_id=payload.get("channel_identity_id"))
     recall_turn = mind.recall_turn
-    game = await asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True))
-    desktop = await asyncio.to_thread(desktop_control.line_for, job.user_id)
-    security = await asyncio.to_thread(security_activity.line_for, job.user_id, zone=payload.get("zone"))
-    files = await asyncio.to_thread(_readable_files, job.user_id, payload.get("asset_ids") or [])
-    working_memory = await asyncio.to_thread(memory_manager.view_for, job.user_id,
-                                             user_name=user.name if user else None)
     spoke_at = payload.get("spoke_at")
-    picture = (await asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at)
-               if game is not None and spoke_at else None)
+    # Independent reads (each its own DB session): together, not one after another.
+    (game, (desktop, desktop_usable), security, files, working_memory, picture, now, personality_page,
+     mind_state) = await asyncio.gather(
+        asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True)),
+        asyncio.to_thread(desktop_control.for_turn, job.user_id),
+        asyncio.to_thread(security_activity.line_for, job.user_id, zone=payload.get("zone")),
+        asyncio.to_thread(_readable_files, job.user_id, payload.get("asset_ids") or []),
+        asyncio.to_thread(memory_manager.view_for, job.user_id, user_name=user.name if user else None),
+        # None by itself when no game session is live.
+        asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at) if spoke_at else _none(),
+        asyncio.to_thread(mind.situation),
+        asyncio.to_thread(_personality),
+        asyncio.to_thread(mind.state),
+    )
+    if game is None or game.idle:
+        picture = None
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -248,15 +256,15 @@ async def _generate(job: ChatJob) -> None:
         # Their app's senses without its clock (a queued job's snapshot is never the clock): "Now" is read here.
         awareness=mind_turn.fresh_awareness(payload.get("awareness", ""), wake=follow_up,
                                             reported_at=payload.get("awareness_at")),
-        now=await asyncio.to_thread(mind.situation),
+        now=now,
         long_term_memory=mind.long_term_memory,
-        personality=await asyncio.to_thread(_personality),
+        personality=personality_page,
         working_memory=working_memory,
         recall=mind.recall_rendered,
         recall_turn=recall_turn,
         cached_memory=mind.cached_memory,
         turn_boundary=mind.boundary(),
-        mind_state=await asyncio.to_thread(mind.state),
+        mind_state=mind_state,
         lessons=mind_turn.lessons_text(mind),
         mind=mind,
         wake=wake_text,
@@ -269,10 +277,12 @@ async def _generate(job: ChatJob) -> None:
         game_vm=game.vm if game else False,
         game_planner=game.planner if game else False,
         game_moment=game.moment if game else None,
+        game_idle=game.idle if game else False,
         spoke_at=spoke_at,
         game_picture=picture[0] if picture else None,
         game_picture_note=picture[1] if picture else None,
         desktop=desktop,
+        desktop_usable=desktop_usable,
         security=security,
         zone=payload.get("zone"),
         turn_id=job.turn_id,
@@ -606,6 +616,10 @@ def _readable_files(user_id, attached: list[str]) -> tuple[tuple[str, str], ...]
     except Exception:  # noqa: BLE001 - a turn never fails because the file list did
         logger.exception("chat worker: listing readable files failed")
         return ()
+
+
+async def _none() -> None:
+    return None
 
 
 def _personality() -> str | None:

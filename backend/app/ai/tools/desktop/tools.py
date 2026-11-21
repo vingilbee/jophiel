@@ -106,7 +106,7 @@ async def _ask_about_frame(jpeg: bytes, question: str) -> str:
 
 def build_desktop_tools(
     user_id: uuid.UUID, event: GameEvent | None = None, *, spoke_at: float | None = None, planner: bool = False,
-    since: game_moment.Moment | None = None, message_id: uuid.UUID | None = None,
+    since: game_moment.Moment | None = None, message_id: uuid.UUID | None = None, idle: bool = False,
 ) -> list[BaseTool]:
     """Game tools for one user. ``event`` set = a background turn: no
     start_game, plans are hers (planning source, capped), resume only undoes
@@ -120,7 +120,9 @@ def build_desktop_tools(
     background turn can only ask for the plan to be looked at again (rethink_plan).
 
     ``message_id``: the user's message this reply answers; goals and promises it creates in her working
-    memory link back to it."""
+    memory link back to it.
+
+    ``idle``: she isn't playing. A reply then gets only ``start_game`` (the rest act on a game that's on)."""
     looks = 0
     said = False
     reported = ""
@@ -494,6 +496,8 @@ def build_desktop_tools(
     # Her own turns may start lessons themselves (2026-10-18, the user's choice "for now"),
     # unless GAME_PRACTICE_ASK_FIRST: then she can only offer.
     learning = [offer_to_learn] if get_settings().game_practice_ask_first else [learn_skill, stop_learning]
+    if idle and event is None:
+        return [start_game_with_planner if planner else start_game]
     if planner:
         if event is not None:
             return [look_at_my_game, how_to_make, rethink_plan, tell_my_hands, set_my_modes, play_carefully,

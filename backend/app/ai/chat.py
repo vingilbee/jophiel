@@ -195,12 +195,13 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if context.game is not None:
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
                                                 planner=context.game_planner,
-                                                since=context.game_moment, message_id=context.source_message_id))
+                                                since=context.game_moment, message_id=context.source_message_id,
+                                                idle=context.game_idle))
     # Her own desktop's hands (general desktop control): same exception, and she looks after every few
     # actions, so an extra model hop per action would make it crawl. Replies only: a background turn
     # never starts using the desktop on its own.
     hook = None
-    if context.desktop is not None and context.game_event is None and context.nudge is None:
+    if context.desktop is not None and context.desktop_usable and context.game_event is None and context.nudge is None:
         direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
                                                         conversation_id=context.conversation_id,
                                                         message_id=context.source_message_id))

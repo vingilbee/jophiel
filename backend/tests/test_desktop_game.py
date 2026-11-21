@@ -58,6 +58,21 @@ def test_summary_without_a_session(db, alice):
     assert "You are not playing right now." in summary
 
 
+def test_not_playing_carries_no_playing_context_and_only_start_game(db, alice):
+    """A turn while she isn't playing gets which games she has and the tool to start one, not how to play."""
+    from app.ai.context import AgentRuntimeContext
+    from app.ai.prompts import build_system_prompt
+    from app.ai.tools.desktop import build_desktop_tools
+
+    _paired_env(db, alice)
+    game = desktop_game.describe(db, alice.id, for_reply=True)
+    assert game.idle and game.tools
+    assert [t.name for t in build_desktop_tools(alice.id, idle=True, planner=game.planner)] == ["start_game"]
+    prompt = build_system_prompt(AgentRuntimeContext(user_id=alice.id, game=game.summary, game_idle=True), [])
+    assert "## Games" in prompt and "You are not playing right now." in prompt
+    assert "## Playing games" not in prompt and "Talking about your game" not in prompt
+
+
 def test_start_writes_the_goal_and_reports_what_blocks_it(db, alice):
     env = _paired_env(db, alice, online=False, capture="blocked")
     # Her own start needs the machine connected (and the owner's switch, on here).

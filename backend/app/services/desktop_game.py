@@ -97,6 +97,8 @@ class GameContext:
     planner: bool = False
     # The game as this summary saw it, so what changed while she wrote can be told (game_moment).
     moment: game_moment.Moment | None = None
+    # Not playing: a short summary and only the tool that starts a game.
+    idle: bool = False
 
 
 def _environments(db: Session, user_id: uuid.UUID) -> list[DesktopEnvironment]:
@@ -275,12 +277,14 @@ def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> Gam
     pack = game_pack.is_pack(env)
     vm = any(not game_pack.is_pack(e) for e in envs)
     now = time.time()
-    lines, games = _environment_lines(db, user_id, envs)
     session = _recent_session(db, user_id, env, now)
     if session is None:
-        lines.append("You are not playing right now.")
+        # Not playing: which games she has and that she can start one, nothing more. How to play, her skills and
+        # what she learned playing come with a session; a turn about anything else doesn't carry them.
         db.commit()
-        return GameContext("\n".join(lines), tools=True, vm=vm)
+        return GameContext("\n".join([*_idle_lines(envs), "You are not playing right now."]), tools=True, vm=vm,
+                           planner=pack and game_planning.enabled(), idle=True)
+    lines, games = _environment_lines(db, user_id, envs)
     lines += _session_lines(session, pack, now)
     lines += _plan_lines(db, session)
     planner = pack and game_planning.handles(session)
@@ -336,6 +340,21 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
     if has_pack:
         lines.extend(_learned_lines(db, user_id, game_experience.game_for_profile(game_pack.PACK_PROFILE_ID)))
     return lines, games
+
+
+def _idle_lines(envs: list[DesktopEnvironment]) -> list[str]:
+    """Her game environments in one line each, for a turn when she isn't playing."""
+    has_pack = any(game_pack.is_pack(e) for e in envs)
+    retired = set(game_pack.REPLACED_BY) if has_pack else set()
+    lines = []
+    for each in envs:
+        if game_pack.is_pack(each):
+            where = "the pack is running" if each.status == "online" else "the pack isn't running right now"
+            lines.append(f"Minecraft as your own player [{game_pack.PACK_PROFILE_ID}], next to the user's own "
+                         f"player: {where}.")
+        else:
+            lines.append(_vm_line(each, retired=retired)[0])
+    return lines
 
 
 def _recent_session(db: Session, user_id: uuid.UUID, env: DesktopEnvironment, now: float) -> DesktopSession | None:

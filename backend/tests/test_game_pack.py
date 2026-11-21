@@ -169,8 +169,9 @@ def test_pack_unreachable_counts_as_offline(db, alice, pack):
 
 
 def test_summary_describes_her_own_player_and_what_her_hands_do(db, alice, pack):
-    summary = desktop_game.describe(db, alice.id).summary
-    assert "Minecraft as your own player [minecraft_pack]: you're not in the world" in summary
+    idle = desktop_game.describe(db, alice.id)
+    assert idle.idle and "Minecraft as your own player [minecraft_pack]" in idle.summary
+    assert "your hands" not in idle.summary  # how to play comes with a session, not on every turn
     desktop_game.start(db, alice.id, goal="Collect 3 oak logs")
     game_pack.sync(db, pack)
     env = game_pack.ensure_environment(db, alice.id)
@@ -201,6 +202,8 @@ def test_the_user_tells_her_which_player_they_are_and_it_sticks(db, alice, bob, 
     assert "is you, not the user" in desktop_game.this_is_me(db, alice.id, player="Piqeeee")
     assert "isn't a minecraft player name" in desktop_game.this_is_me(db, alice.id, player="tear drop")
     assert desktop_game.this_is_me(db, alice.id, player="tearDrop12").startswith('Saved: the user is "tearDrop12"')
+    desktop_game.start(db, alice.id, goal="Follow tearDrop12")  # who is who is told while she plays
+    game_pack.sync(db, pack)
     summary = desktop_game.describe(db, alice.id).summary
     assert 'alice plays as "tearDrop12" (online): when they say "me", that\'s them.' in summary
     assert "probably" not in summary
@@ -334,6 +337,8 @@ def test_she_knows_what_she_cant_do_yet_and_how_her_moves_behave(db, alice, pack
                       situation="crafting a bed", advice="place a crafting table first", status="trial",
                       evidence=[]))
     db.commit()
+    desktop_game.start(db, alice.id, goal="Collect 3 oak logs")  # what she learned playing comes while she plays
+    game_pack.sync(db, pack)
     summary = desktop_game.describe(db, alice.id).summary
     assert "What you know you can't do yet (you asked for it to be built; not done): Add a safe upward-pillar action." in summary
     assert "Already built" not in summary

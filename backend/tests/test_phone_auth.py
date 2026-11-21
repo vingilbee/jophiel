@@ -277,7 +277,7 @@ def turns(socket, monkeypatch):
     monkeypatch.setattr(chat.chat_worker, "_personality", Mock(return_value=""))
     monkeypatch.setattr(chat.memory_manager, "view_for", Mock(return_value=""))
     monkeypatch.setattr(chat.desktop_game, "summary_for", Mock(return_value=None))
-    monkeypatch.setattr(chat.desktop_control, "line_for", Mock(return_value=None))
+    monkeypatch.setattr(chat.desktop_control, "for_turn", Mock(return_value=(None, False)))
     monkeypatch.setattr(chat.security_activity, "line_for", Mock(return_value=None))
     monkeypatch.setattr(chat.recall_references, "save_receipt", Mock(return_value=None))
     monkeypatch.setattr(chat.recall_references, "start_association", Mock())

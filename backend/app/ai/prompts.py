@@ -514,6 +514,27 @@ Ask the user before anything hard to undo or outward-facing: sending, buying, de
 accounts or settings. Sign-in and permission prompts are theirs: let them type passwords."""
 
 
+_DESKTOP_UNUSABLE_PROMPT = """\
+
+## Your desktop
+
+{line}
+
+You can't use it this turn, so you have no desktop tools. If the user asks for something there, say why not."""
+
+
+_GAME_IDLE_PROMPT = """\
+
+## Games
+
+You play games yourself, as your own player; the user watches and talks with you about it. Right now:
+
+{summary}
+
+When the user wants you to play, call `start_game` with the goal in their words; don't ask to confirm a clear \
+request. How to play and your game tools come once the game is on."""
+
+
 _SECURITY_PROMPT = """\
 
 ## Your desktop's security records
@@ -870,10 +891,13 @@ def build_system_prompt(
     if context.vision_enabled:
         prompt += f"\n{_VISION_PROMPT}"
     if context.desktop is not None and context.game_event is None and context.nudge is None:
-        prompt += f"\n{_DESKTOP_PROMPT.format(line=context.desktop)}"
+        template = _DESKTOP_PROMPT if context.desktop_usable else _DESKTOP_UNUSABLE_PROMPT
+        prompt += f"\n{template.format(line=context.desktop)}"
     if context.security is not None and context.game_event is None:
         prompt += f"\n{_SECURITY_PROMPT.format(line=context.security)}"
-    if context.game is not None:
+    if context.game is not None and context.game_idle:
+        prompt += f"\n{_GAME_IDLE_PROMPT.format(summary=context.game)}"
+    elif context.game is not None:
         plan_rules = _PLAN_RULES_MIND if context.game_planner else _PLAN_RULES
         prompt += f"\n{_GAME_PROMPT.format(summary=context.game, plan_rules=plan_rules)}"
         if context.game_vm:

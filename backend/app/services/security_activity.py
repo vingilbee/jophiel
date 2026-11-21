@@ -577,7 +577,8 @@ def render(result: Activity, *, zone: str | None = None, now: datetime | None = 
 
 
 def line_for(user_id: uuid.UUID, *, zone: str | None = None) -> str | None:
-    """One line about her desktop's security monitoring for a turn's context, or None (no desktop)."""
+    """One line about her desktop's security monitoring for a turn's context, or None: no desktop, or monitoring
+    off with no records left to read (then no section and no ``get_security_activity``)."""
     from app.db.session import SessionLocal
 
     if not get_settings().desktop_agent_enabled:
@@ -591,12 +592,15 @@ def line_for(user_id: uuid.UUID, *, zone: str | None = None) -> str | None:
             source = db.scalar(select(ObservationSource).where(
                 ObservationSource.user_id == user_id, ObservationSource.source == SOURCE,
                 ObservationSource.source_instance == str(env.id)))
+            kept = env.security_monitoring or _has_records(db, env)
             db.commit()
     except Exception:  # noqa: BLE001 - a turn never fails because this check did
         log.exception("security: the prompt line for %s failed", user_id)
         return None
     name = f'"{env.display_name}"'
     if not env.security_monitoring:
+        if not kept:
+            return None  # nothing collected and nothing collecting: nothing for her to read
         return (f"Security monitoring of your desktop {name} is off (only the owner can switch it on, in the "
                 "app); records collected earlier stay readable until they expire.")
     position = (source.position if source else None) or {}
@@ -613,6 +617,13 @@ def line_for(user_id: uuid.UUID, *, zone: str | None = None) -> str | None:
     since = env.security_changed_at.astimezone(zone_name).strftime("%Y-%m-%d %H:%M") if env.security_changed_at else "?"
     return (f"Security monitoring of your desktop {name} is on (since {since} {zone_name.key}; {heard}"
             + (f"; {len(unreadable)} channel(s) unreadable" if unreadable else "") + ").")
+
+
+def _has_records(db: Session, env: DesktopEnvironment) -> bool:
+    """Whether any of this desktop's security records are still kept (within retention)."""
+    horizon = _now() - timedelta(days=get_settings().observation_retention_days)
+    return db.scalar(select(Observation.id).where(*event_filter(env), Observation.occurred_at >= horizon)
+                     .limit(1)) is not None
 
 
 def as_local(moment: datetime, zone: str | None) -> datetime:

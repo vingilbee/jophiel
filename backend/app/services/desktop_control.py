@@ -301,6 +301,12 @@ def _intended_words(tool: str, intended: dict) -> str:
 
 def line_for(user_id: uuid.UUID) -> str | None:
     """Her desktop's line for a reply turn's context, or None (no desktop: no tools, no section)."""
+    return for_turn(user_id)[0]
+
+
+def for_turn(user_id: uuid.UUID) -> tuple[str | None, bool]:
+    """Her desktop's line for a reply turn's context and whether she can use it now. Not usable: the line says
+    why, and she gets neither the desktop tools nor how to use them. No desktop: ``(None, False)``."""
     from app.db.session import SessionLocal
 
     try:
@@ -309,5 +315,5 @@ def line_for(user_id: uuid.UUID) -> str | None:
             db.commit()
     except Exception:  # noqa: BLE001 - a turn never fails because the desktop check did
         log.exception("desktop control: access check for %s failed", user_id)
-        return None
-    return access.prompt_line() if access is not None else None
+        return None, False
+    return (access.prompt_line(), access.usable) if access is not None else (None, False)

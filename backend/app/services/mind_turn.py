@@ -35,7 +35,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.config import get_settings
 from app.db.models import ChatJob, ChatMessage, Conversation, CoordinatorWork, MindEvaluation, WorkingItem
 from app.db.session import SessionLocal
-from app.services import coordinator, learning_capture, recall_references
+from app.services import coordinator, learning_capture, recall, recall_references
 
 logger = logging.getLogger(__name__)
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -552,17 +552,19 @@ def _lap(ev: Evaluation, name: str, since: float) -> float:
 
 def _gather(ev: Evaluation, query: str, tries: int | None, at: float) -> None:
     ev.conversation_sequence = _safely(lambda: _sequence(ev.conversation_id), None)
-    try:
-        _memory(ev, query)
-    except Exception:  # noqa: BLE001 - both the search and the re-read failed: said to her, never an empty memory
-        logger.exception("mind_turn: the memory check failed")
-        ev.recall_turn, ev.memory_status, ev.searched = None, "failed", False
-    at = _lap(ev, "memory_ms", at)
-    if ev.memory_status != "failed":
-        from app.services import system_signals
-        system_signals.emit(ev.user_id, "memory", "mind", "memory_check", ev.trigger_message_id)
-    _lessons(ev, query)
-    at = _lap(ev, "lessons_ms", at)
+    # Memory's search and the lessons read rank by the same message: it is embedded once for both.
+    with recall.shared_embeddings():
+        try:
+            _memory(ev, query)
+        except Exception:  # noqa: BLE001 - both the search and the re-read failed: said to her, never an empty memory
+            logger.exception("mind_turn: the memory check failed")
+            ev.recall_turn, ev.memory_status, ev.searched = None, "failed", False
+        at = _lap(ev, "memory_ms", at)
+        if ev.memory_status != "failed":
+            from app.services import system_signals
+            system_signals.emit(ev.user_id, "memory", "mind", "memory_check", ev.trigger_message_id)
+        _lessons(ev, query)
+        at = _lap(ev, "lessons_ms", at)
     if get_settings().desktop_agent_enabled:
         ev.live_trial = _safely(lambda: _has_live_trial(ev.user_id), False)
     _capture(ev, tries)

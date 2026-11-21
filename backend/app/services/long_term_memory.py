@@ -6,6 +6,7 @@ is migrated to the more precise ``semantic_memories`` table.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 import math
 import re
 import uuid
@@ -59,14 +60,25 @@ it is a disagreement (below), not an update. Return no more than 12 items and re
 deserves durable memory."""
 
 
+@lru_cache(maxsize=1)
 def _client() -> OpenAI:
+    """One client per process: it keeps its connections open, so a call doesn't pay a new TLS handshake."""
     settings = get_settings()
     return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
 
 
+@lru_cache(maxsize=1)
+def _embedding_client() -> OpenAI:
+    """Embeddings sit in front of a reply: a short timeout, so a hung call can't hold her answer for minutes."""
+    return _client().with_options(timeout=EMBEDDING_TIMEOUT_SECONDS, max_retries=1)
+
+
+EMBEDDING_TIMEOUT_SECONDS = 10.0
+
+
 def _embedding(text: str) -> list[float] | None:
     try:
-        result = _client().embeddings.create(
+        result = _embedding_client().embeddings.create(
             model=get_settings().memory_embedding_model,
             input=text,
         )
