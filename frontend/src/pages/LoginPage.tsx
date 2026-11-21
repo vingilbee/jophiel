@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { Feathers } from '../components/Feathers'
 import { useAuth } from '../hooks/useAuth'
@@ -23,6 +23,8 @@ export function LoginPage() {
 
   const { signin, signup } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = (location.state as { from?: string } | null)?.from ?? '/dashboard'
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -31,7 +33,7 @@ export function LoginPage() {
     try {
       if (mode === 'signup') await signup(name, email, password)
       else await signin(email, password)
-      navigate('/chat')
+      navigate(from, { replace: true })
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : 'Something went wrong. Try again.',

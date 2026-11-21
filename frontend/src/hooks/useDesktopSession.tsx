@@ -34,6 +34,10 @@ const TERMINAL = new Set(['ended', 'failed'])
 
 interface DesktopSessionContextValue {
   enabled: boolean
+  /** Whether the server has said if desktop sessions are on: ``enabled`` only means something once 'loaded'. */
+  capabilities: 'loading' | 'loaded' | 'failed'
+  /** Ask the server again after a failed capabilities check. */
+  retryCapabilities: () => void
   profiles: DesktopProfile[]
   environments: DesktopEnvironment[]
   /** The environment the card is about: the live session's, else the machine picked, else the first one. */
@@ -102,6 +106,8 @@ function message(err: unknown): string {
 export function DesktopSessionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [enabled, setEnabled] = useState(false)
+  const [capabilities, setCapabilities] = useState<'loading' | 'loaded' | 'failed'>('loading')
+  const [capabilitiesAttempt, setCapabilitiesAttempt] = useState(0)
   const [profiles, setProfiles] = useState<DesktopProfile[]>([])
   const [environments, setEnvironments] = useState<DesktopEnvironment[]>([])
   const [session, setSession] = useState<DesktopSession | null>(null)
@@ -121,12 +127,20 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     api
       .get<{ desktop_enabled?: boolean }>('/capabilities')
-      .then((caps) => !cancelled && setEnabled(Boolean(caps.desktop_enabled)))
-      .catch(() => !cancelled && setEnabled(false))
+      .then((caps) => {
+        if (cancelled) return
+        setEnabled(Boolean(caps.desktop_enabled))
+        setCapabilities('loaded')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEnabled(false)
+        setCapabilities('failed')
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [capabilitiesAttempt])
 
   const adopt = useCallback((next: DesktopSession | null) => {
     setSession((prev) => {
@@ -298,6 +312,11 @@ export function DesktopSessionProvider({ children }: { children: ReactNode }) {
 
   const value: DesktopSessionContextValue = {
     enabled,
+    capabilities,
+    retryCapabilities: () => {
+      setCapabilities('loading')
+      setCapabilitiesAttempt((n) => n + 1)
+    },
     profiles,
     environments,
     environment,
