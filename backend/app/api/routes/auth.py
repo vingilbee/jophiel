@@ -1,5 +1,11 @@
-"""Authentication routes: signup, signin, signout, current user, delete account."""
-from app.api.deps import validate_origin
+"""Authentication routes: signup, signin, phone token, signout, current user, delete account.
+
+The web app signs in with a cookie (``/signin``); the phone app gets a bearer token (``/token``), which sets no
+cookie and so needs no Origin check. Both are the same Redis sessions (``services/auth.py``).
+"""
+from datetime import datetime, timedelta, timezone
+
+from app.api.deps import bearer_token, validate_origin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from app.core.limiter import limiter
 from sqlalchemy.orm import Session
@@ -8,7 +14,7 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.models import User
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserLogin, UserOut
+from app.schemas.user import TokenOut, TokenRequest, UserCreate, UserLogin, UserOut
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,11 +73,40 @@ def signin(
     return user
 
 
+@router.post("/token", response_model=TokenOut)
+@limiter.limit("5/minute")
+def token(request: Request, payload: TokenRequest, response: Response,
+          db: Session = Depends(get_db)) -> TokenOut:
+    """Phone sign-in: returns a bearer token for a sliding 90-day session. Sets no cookie."""
+    user = auth_service.authenticate(db, email=payload.email, password=payload.password)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+    session = auth_service.create_session(
+        user, client=auth_service.PHONE_CLIENT, device_name=payload.device_name.strip())
+    lifetime = auth_service.session_lifetime(auth_service.PHONE_CLIENT)
+    return TokenOut(token=session, user=UserOut.model_validate(user),
+                    expires_at=datetime.now(timezone.utc) + timedelta(seconds=lifetime))
+
+
 @router.post("/signout", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(validate_origin)])
 def signout(
-    request: Request, response: Response
+    request: Request, response: Response, db: Session = Depends(get_db)
 ) -> None:
+    """End this session: the bearer token's (the phone, and its device row) or the cookie's."""
     settings = get_settings()
+    phone = bearer_token(request.headers)
+    if phone:
+        from app.services import phone_devices
+        auth_service.delete_session(phone)
+        # No more notifications for this phone (best effort: the push worker also drops a dead session's device).
+        try:
+            phone_devices.forget_session(db, phone)
+        except Exception:
+            db.rollback()
+        return
     token = request.cookies.get(settings.session_cookie_name)
     if token:
         auth_service.delete_session(token)

@@ -32,3 +32,17 @@ class UserOut(BaseModel):
         """Whether the app shows her insides (mind, learning) to this user; the routes enforce it."""
         from app.core.config import get_settings
         return get_settings().is_owner(self.email)
+
+
+class TokenRequest(BaseModel):
+    """Phone sign-in: a bearer token instead of a cookie."""
+
+    email: EmailStr
+    password: str
+    device_name: str = Field(default="Phone", min_length=1, max_length=120)
+
+
+class TokenOut(BaseModel):
+    token: str
+    user: UserOut
+    expires_at: datetime

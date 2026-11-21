@@ -130,6 +130,12 @@ class SenseReport:
     vision_enabled: bool = False
     screen_image_id: str | None = None
     screen_captured_at: datetime | None = None
+    # Which app this socket is: "web" or "phone". Set from the session (a phone token is the phone), not from
+    # what a frame claims. Shown to her as a fact only; no code rule changes what she does on the phone.
+    client: str = "web"
+    # Presence (services/presence.py): on screen, and (web) the last mouse/keyboard input.
+    visible: bool | None = None
+    last_active_at: datetime | None = None
     reported_at: datetime = field(default_factory=_utcnow)
 
 
@@ -257,7 +263,9 @@ class AwarenessState:
         lines.append(f"- Eyes: {self._vision_line()}")
         lines.append(f"- Ears: {self._hearing_line()}")
 
-        if self.senses.route:
+        if self.senses.client == "phone":
+            lines.append("- The user is talking to you from the Jophiel app on their phone.")
+        elif self.senses.route:
             place = _PLACES.get(self.senses.route, f"the {self.senses.route} page")
             lines.append(f"- The user is on {place}.")
 
@@ -313,6 +321,7 @@ class AwarenessState:
                 "voice_state": self.senses.voice_state,
                 "vision_enabled": self.senses.vision_enabled,
                 "screen_image_id": self.senses.screen_image_id,
+                "client": self.senses.client,
             },
             # So the UI can show the user the caption written about their own
             # screen — the one thing about the eye they can't otherwise check.

@@ -33,6 +33,10 @@ class ChatRunRequest(BaseModel):
     # an unbounded number of photos.
     image_ids: list[str] = Field(default_factory=list, max_length=8)
     asset_ids: list[str] = Field(default_factory=list, max_length=4)
+    # The phone's clock when the user hit send (its waiting queue may hold a message for hours). Stored as
+    # ``chat_messages.written_at``, clamped to now; information only, never ordering. A resend with the same
+    # ``turn_id`` is the same message: the server answers with the original ``ack`` and saves nothing new.
+    written_at: datetime | None = None
 
 
 class ChatStopRequest(BaseModel):
@@ -153,6 +157,14 @@ class SenseUpdateRequest(BaseModel):
     # store, so a forged id degrades to "no frame".
     vision_enabled: bool = False
     screen_image_id: str | None = Field(default=None, max_length=64)
+    # Which app is reporting. Accepted for the phone's convenience, but the server records the client its
+    # session belongs to (a phone token is the phone), not this field.
+    client: Literal["web", "phone"] | None = None
+    # Presence (whether the user is at this app; phone pushes go out only when they're at none). ``visible``:
+    # on screen (web: document visibility; phone: app in the foreground). ``last_active_at``: web only, the
+    # last mouse/keyboard input (reported at most every ~30 s). Unreported counts as not visible.
+    visible: bool | None = None
+    last_active_at: datetime | None = None
 
 
 class NudgeFeedbackRequest(BaseModel):
@@ -232,8 +244,12 @@ class ChatMessageOut(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     status: Literal["completed", "partial", "cancelled", "failed"] = "completed"
-    source_channel: Literal["web", "whatsapp", "system"] = "web"
+    source_channel: Literal["web", "whatsapp", "system", "phone"] = "web"
     created_at: datetime
+    # Phone messages: the phone's clock when it was written (it may have waited offline).
+    written_at: datetime | None = None
+    # User messages: when her chat worker picked it up (the second tick).
+    seen_at: datetime | None = None
     # Photos attached to this turn, for rendering thumbnails in the transcript.
     image_ids: list[str] | None = None
     asset_ids: list[str] | None = None

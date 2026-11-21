@@ -321,6 +321,13 @@ class ChatMessage(Base, TimestampMixin):
     conversation_sequence: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default=FetchedValue()
     )
+    # The phone app's clock when the user hit send (a message can wait on the phone while the backend is
+    # unreachable). Client-reported, never in the future; information only, never used for ordering.
+    written_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When her chat worker picked this user message up (the second tick). "She started on it", not "she replied".
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Her messages: when she actually said it aloud on a live voice session (then it isn't pushed to the phone).
+    spoken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
@@ -469,6 +476,66 @@ class MessageDelivery(Base, TimestampMixin):
     claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PhoneDevice(Base, TimestampMixin):
+    """A phone app signed in with a bearer session, and where its push notifications go (FCM).
+
+    One per session: it is deleted with its session (sign-out) and when FCM says the token is dead."""
+
+    __tablename__ = "phone_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # services/auth.session_key_hash of the bearer token: the device dies with its session.
+    session_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    fcm_token: Mapped[str] = mapped_column(String(4096), unique=True, nullable=False)
+    device_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true"))
+    # Off: the push says only "Jophiel sent you a message". On: her words (trimmed) pass through Google.
+    show_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # A message notification went out since the last "clear": the next time the user is present, clear it.
+    needs_clear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PushDelivery(Base, TimestampMixin):
+    """Transactional outbox for phone pushes (services/push.py, workers/push.py).
+
+    ``message``: one of her messages, for one device; sent only if, when it is due, the user isn't present
+    anywhere and she didn't say it aloud. ``clear``: tell a device to take its notifications down."""
+
+    __tablename__ = "push_deliveries"
+    __table_args__ = (
+        UniqueConstraint("assistant_message_id", "device_id", name="uq_push_delivery_message_device"),
+        Index("ix_push_deliveries_due", "next_attempt_at", postgresql_where=text("status IN ('pending', 'sending')")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # message | clear
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_devices.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # pending -> sending -> sent | dropped (not needed: present, spoken, switched off) | failed (gave up)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now())
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 # --------------------------------------------------------------------------- #

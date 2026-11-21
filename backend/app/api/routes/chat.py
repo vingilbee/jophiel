@@ -6,9 +6,12 @@ history from the DB, streams the assistant's reply, and persists that too.
 
 WebSocket protocol
 ------------------
-Connect to ``/api/chat/ws``. Authentication uses the session cookie, sent by the
-browser on the handshake; an unauthenticated connection is rejected before
-``accept``. The connection is persistent and handles many turns. Sessions are
+Connect to ``/api/chat/ws``. Two clients use it: the web app, authenticated by the
+session cookie its browser sends on the handshake (and only from an allowed
+``Origin``), and the phone app, authenticated by ``Authorization: Bearer <token>``
+(from ``POST /api/auth/token``; no Origin needed, a bearer header can't be forged
+cross-site). A bearer header, when sent, is the only credential looked at. An
+unauthenticated connection is rejected before ``accept``. The connection is persistent and handles many turns. Sessions are
 revalidated before incoming frames and during idle waits; revocation closes
 the socket with code 1008 and cancels its active reply.
 
@@ -19,9 +22,16 @@ with one auth handshake and one reconnect story.
 Client -> server. JSON frames (discriminated by ``type``)::
 
   {"type": "run",  "conversation_id": str|null, "content": str,
-   "image_ids": [str]}                                           → generate a reply
+   "image_ids": [str], "turn_id": str|null,
+   "written_at": iso8601|null}                                   → generate a reply
+                                                                   (a resend of a saved
+                                                                   turn_id only re-acks)
   {"type": "stop", "conversation_id": str|null}                  → interrupt / barge-in
-  {"type": "sense", "timezone": str, "route": str, ...}          → report senses
+  {"type": "sense", "timezone": str, "route": str, ...,
+   "visible": bool, "last_active_at": iso8601}                   → report senses (and
+                                                                   presence: phone pushes
+                                                                   go out only when the
+                                                                   user is at no app)
   {"type": "nudge_feedback", "action": "dismiss"}                → stop initiating
   {"type": "voice_start", "conversation_id": str|null, "turn_id": str, "sample_rate": int}
   {"type": "voice_interrupt", "cancel_turn_id": str|null, "new_turn_id": str,
@@ -43,6 +53,14 @@ preceding ``voice_start``, and are ignored unless an utterance is open.
 Server -> client. JSON frames::
 
   {"type": "meta", "conversation_id": str}      (once, first)
+  {"type": "history", "conversation_id": str|null, "messages": [...]}
+                                                (on connect: the truth to merge with;
+                                                 messages carry written_at / seen_at)
+  {"type": "ack", "turn_id": str, "user_message_id": str, "conversation_id": str}
+                                                (your message is saved: one tick)
+  {"type": "seen", "message_id": str, "conversation_id": str|null}
+                                                (her chat worker picked it up: two
+                                                 ticks; to every socket of the user)
   {"type": "state", "awareness": {...}}         (on connect, on sense updates,
                                                  and on a slow heartbeat)
   {"type": "nudge_start", "conversation_id": str, "reason": str}
@@ -77,6 +95,11 @@ returns the resolved id in the ``meta`` frame. A ``stop`` frame interrupts the
 in-flight reply; partial text generated so far is persisted so it stays part of
 the history.
 
+The phone app (frontend-phone/) speaks the text half of this protocol: ``run``
+(with ``turn_id`` + ``written_at`` from its waiting queue), ``stop``, ``sense``;
+it ignores voice/audio frames, ``thought`` and the subagent frames. Its messages
+are stored with ``source_channel = "phone"`` (from the session, not a frame).
+
 REST endpoints (auth'd via `get_current_user`) let the frontend load prior
 conversations and their messages, and delete conversations.
 """
@@ -91,6 +114,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from fastapi import (
     APIRouter,
@@ -102,12 +126,13 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai import AgentRuntimeContext, prompts, stream_chat, vision
 from app.ai.integrations import google
 from app.ai.integrations.google.scopes import DRIVE, GMAIL_MODIFY
-from app.api.deps import get_current_user, validate_origin
+from app.api.deps import bearer_token, get_current_user, validate_origin
 from app.core.config import get_settings
 from app.db.models import ChatJob, User
 from app.db.session import SessionLocal, get_db
@@ -135,7 +160,7 @@ from app.services import agent_say, memory_manager
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import mind_turn, voice_target
+from app.services import mind_turn, presence, push, voice_target
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -145,6 +170,28 @@ from app.workers import chat as chat_worker
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+def _text_job_payload(content: str, image_ids: list[str], asset_ids: list[str], state) -> dict:
+    """What the chat worker is given for a typed turn."""
+    return {
+        "content": content, "image_ids": image_ids, "asset_ids": asset_ids, "voice": False,
+        "spoke_at": time.time(), "awareness": state.describe(),
+        "zone": state.zone_name, "vision_enabled": state.senses.vision_enabled,
+        "screen_image_id": state.senses.screen_image_id,
+    }
+
+
+def mark_spoken(message_id: str) -> None:
+    db = SessionLocal()
+    try:
+        push.mark_spoken(db, message_id)
+    finally:
+        db.close()
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
 
 def _nudge_frame(frame: dict) -> dict:
     if frame["type"] == "token":
@@ -409,15 +456,29 @@ def delete_conversation(
 @router.websocket("/ws")
 async def chat_ws(websocket: WebSocket) -> None:
     settings = get_settings()
-    token = websocket.cookies.get(settings.session_cookie_name)
-    origin = websocket.headers.get("origin")
+    # The phone sends a bearer header (and no Origin); the web app its cookie, from an allowed Origin. A bearer
+    # header, when present, is the only credential looked at.
+    token = bearer_token(websocket.headers)
+    if token is not None:
+        try:
+            record = await asyncio.to_thread(auth_service.get_session, token)
+        except Exception:
+            record = None
+        if record is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+    else:
+        token = websocket.cookies.get(settings.session_cookie_name)
+        origin = websocket.headers.get("origin")
+        if origin not in settings.cors_origins:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        record = None
+    # Where this socket's messages come from: the session says, never a frame.
+    session_client = (record or {}).get("client") or "web"
+    message_channel = "phone" if session_client == auth_service.PHONE_CLIENT else "web"
 
-    if origin not in settings.cors_origins:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-
-    # Resolve the session cookie to a user before accepting the socket.
+    # Resolve the session to a user before accepting the socket.
     user_id: uuid.UUID | None = None
     user_name: str | None = None
     sees_thoughts = False
@@ -521,6 +582,8 @@ async def chat_ws(websocket: WebSocket) -> None:
                         "status": message.status,
                         "source_channel": message.source_channel,
                         "created_at": message.created_at.isoformat(),
+                        "written_at": _iso(message.written_at),
+                        "seen_at": _iso(message.seen_at),
                         "image_ids": message.image_ids,
                         "asset_ids": message.asset_ids,
                     }
@@ -534,6 +597,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     # client has told us about its time zone, route, and microphone. Lives for
     # exactly as long as the socket — see services/awareness.py.
     session = awareness_service.AwarenessSession(user_id)
+    session.update(client=message_channel)
     voice_socket_id = uuid.uuid4()
 
     # Send an authoritative snapshot on every new/reconnected socket. REST
@@ -596,6 +660,8 @@ async def chat_ws(websocket: WebSocket) -> None:
                     return
                 if voice_conversation_id is not None:
                     await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, voice_open())
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(report_presence)
                 state = await asyncio.to_thread(read_awareness)
                 await send_json({"type": "state", "awareness": state.to_dict()})
                 await consider_nudging(state)
@@ -631,8 +697,9 @@ async def chat_ws(websocket: WebSocket) -> None:
         stop_event: asyncio.Event,
         audio_already_started: bool = False,
         unprompted: bool = False,
-    ) -> None:
-        """Synthesize queued clauses and stream the PCM out.
+    ) -> bool:
+        """Synthesize queued clauses and stream the PCM out. True only when every clause was synthesized and
+        sent: no stop, no disconnect, no TTS error (what "she said it aloud" means for phone pushes).
 
         Runs alongside generation so synthesis of clause N overlaps generation
         of clause N+1. A filler goes out first to cover the ~1.9s fixed onset
@@ -642,6 +709,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         started = audio_already_started
         speech_started_at = time.perf_counter()
         first_tts_chunk = True
+        complete = True
         try:
             # Acknowledge immediately while the model is still producing its
             # first clause. Previously this lived below clauses.get(), which
@@ -667,10 +735,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                 if not started:
                     await send_json(audio_start)
                     started = True
-                async for pcm in tts_service.synthesize(clause):
+                sent_bytes = 0
+                report = tts_service.SpeechReport()
+                async for pcm in tts_service.synthesize(clause, report):
                     if stop_event.is_set():
                         break
                     await send_bytes(pcm)
+                    sent_bytes += len(pcm)
                     if first_tts_chunk:
                         first_tts_chunk = False
                         logger.info(
@@ -678,12 +749,24 @@ async def chat_ws(websocket: WebSocket) -> None:
                             time.perf_counter() - speech_started_at,
                             len(clause),
                         )
+                if stop_event.is_set():
+                    return False
+                if report.failed or (clause.strip() and sent_bytes == 0):
+                    # synthesize() ends quietly when the sidecar is down or drops mid-stream: this clause
+                    # wasn't (all) said. Keep going (the rest may still be heard), but the message wasn't
+                    # spoken aloud.
+                    complete = False
         except (WebSocketDisconnect, RuntimeError):
-            return
+            return False
+        except Exception:
+            # A TTS failure ends the speech, never the socket's delivery loop.
+            logger.exception("Speech synthesis failed.")
+            return False
         finally:
             if started:
                 with contextlib.suppress(Exception):
                     await send_json({"type": "audio_end"})
+        return complete and connected and not stop_event.is_set()
 
     async def run_nudge(
         conversation_id: uuid.UUID,
@@ -749,6 +832,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 
         reply = ""
         sticker_buffer = ""
+        nudge_message_id: uuid.UUID | None = None
         try:
             async for event in stream_chat(messages=history, context=context):
                 if event["type"] == "token":
@@ -785,9 +869,24 @@ async def chat_ws(websocket: WebSocket) -> None:
                     db, user_id=user_id, conversation_id=conversation_id
                 )
                 if conversation is not None:
-                    chat_service.add_message(db, conversation=conversation, role="assistant", content=reply)
+                    nudge_message = chat_service.add_message(
+                        db, conversation=conversation, role="assistant", content=reply, commit=False)
+                    nudge_message_id = nudge_message.id
+                    push.schedule_for_message(db, user_id=user_id, conversation_id=conversation.id,
+                                              message_id=nudge_message.id)
+                    db.commit()
             finally:
                 db.close()
+
+        if speaker is not None:
+            clauses.put_nowait(None)  # sentinel: no more clauses
+            spoken = False
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                spoken = await speaker
+            if spoken and nudge_message_id is not None:
+                # Said aloud in full: not pushed to the phone.
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(mark_spoken, str(nudge_message_id))
 
         await send_json({"type": "nudge_end"})
 
@@ -818,6 +917,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                 try:
                     data = json.loads(message["data"])
                 except (TypeError, ValueError):
+                    continue
+                if data.get("kind") == "seen":
+                    # Her chat worker picked a message up (services/chat.claim_next_job): the second tick.
+                    await send_json({"type": "seen", "message_id": data.get("message_id"),
+                                     "conversation_id": data.get("conversation_id")})
                     continue
                 if data.get("kind") == "thought":
                     # Her mind (services/mind): shown in the thoughts panel (the owner's only), never
@@ -871,7 +975,12 @@ async def chat_ws(websocket: WebSocket) -> None:
                     for clause in [*feed(data["text"]), *flush()]:
                         clauses.put_nowait(clause)
                     clauses.put_nowait(None)
-                    await speak(clauses, asyncio.Event(), unprompted=True)
+                    spoken = await speak(clauses, asyncio.Event(), unprompted=True)
+                    if spoken and message_id:
+                        # All of it said aloud on a live voice session: it isn't pushed to the phone. Cut off
+                        # or failed part way, it still is (the push worker waits while a voice session is live).
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(mark_spoken, message_id)
                 await send_json({"type": "nudge_end"})
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
@@ -892,6 +1001,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         image_ids: list[str] | None = None,
         asset_ids: list[str] | None = None,
         audio_already_started: bool = False,
+        written_at: datetime | None = None,
     ) -> None:
         """Stream one reply. Persist the (possibly partial, if stopped) result."""
         turn_started_at = time.perf_counter()
@@ -930,6 +1040,8 @@ async def chat_ws(websocket: WebSocket) -> None:
                 turn_id=turn_id,
                 image_ids=attached,
                 asset_ids=attached_assets,
+                source_channel=message_channel,
+                written_at=chat_service.clamp_written_at(written_at),
             )
             await emit_event({"type": "meta", "conversation_id": str(conversation.id)})
             await emit_event({
@@ -938,6 +1050,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                 "user_message_id": str(user_message.id),
                 "conversation_id": str(conversation.id),
             })
+            # No worker in this local path: she picks it up right here.
+            if chat_service.mark_seen(db, user_message.id, datetime.now(timezone.utc)):
+                db.commit()
+            await emit_event({"type": "seen", "message_id": str(user_message.id),
+                              "conversation_id": str(conversation.id)})
             resolved_id = last_conversation_id = conversation.id
             # Derived after the user's message is persisted, so "you last spoke
             # moments ago" is true of *this* turn rather than the previous one.
@@ -1121,6 +1238,9 @@ async def chat_ws(websocket: WebSocket) -> None:
                     receipt_id = recall_references.save_receipt(
                         db, recall_turn, assistant_message_id=assistant_message_id,
                         conversation_id=resolved_id, reply=reply)
+                    if outcome_status == "completed":
+                        push.schedule_for_message(db, user_id=user_id, conversation_id=resolved_id,
+                                                  message_id=assistant_message_id)
                     db.commit()
                     recall_references.start_association(receipt_id)
                     # A stopped reply is partial model output, not a completed
@@ -1189,7 +1309,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             )
             user_message = chat_service.add_message(
                 db, conversation=conversation, role="user", content=transcript,
-                turn_id=turn_id,
+                turn_id=turn_id, source_channel=message_channel,
             )
             state = awareness_service.build(db, user_id=user_id, session=session)
             chat_service.enqueue_job(
@@ -1313,6 +1433,59 @@ async def chat_ws(websocket: WebSocket) -> None:
             background_tasks.add(teardown)
             teardown.add_done_callback(background_tasks.discard)
 
+    def saved_turn(turn_id: uuid.UUID, *, repair: bool):
+        """This user's message already saved for ``turn_id`` (blocking), or None; and whether its missing job
+        was just created. A message saved without its job (before the two were one commit) would otherwise be
+        acked forever and never answered: with the worker running, the resend creates the job."""
+        db = SessionLocal()
+        try:
+            row = chat_service.user_turn(db, user_id=user_id, turn_id=turn_id)
+            if row is None:
+                return None, False
+            # Plain values: a lost repair race rolls the session back, which expires the row.
+            saved = SimpleNamespace(id=row.id, conversation_id=row.conversation_id, seen_at=row.seen_at,
+                                    content=row.content, image_ids=row.image_ids, asset_ids=row.asset_ids)
+            if not repair:
+                return saved, False
+            if db.scalar(select(ChatJob.id).where(ChatJob.turn_id == turn_id)) is not None:
+                return saved, False
+            conversation = chat_service.get_conversation(db, user_id=user_id,
+                                                         conversation_id=saved.conversation_id)
+            if conversation is None:
+                return saved, False
+            state = awareness_service.build(db, user_id=user_id, session=session)
+            try:
+                # enqueue_job flushes: a racing repair's duplicate turn_id fails here or at the commit.
+                job = chat_service.enqueue_job(
+                    db, user_id=user_id, conversation=conversation, turn_id=turn_id, user_message_id=saved.id,
+                    payload=_text_job_payload(saved.content, saved.image_ids or [], saved.asset_ids or [], state),
+                    commit=False)
+                db.commit()
+            except IntegrityError:
+                db.rollback()  # another socket repaired it first
+                return saved, False
+            chat_service.wake_chat_worker(job.id)
+            return saved, True
+        finally:
+            db.close()
+
+    async def reack(turn_id: uuid.UUID) -> bool:
+        """A resend of a saved turn gets its original ack (and seen) back. True when it was a resend."""
+        repair = bool(settings.redis_url) and await asyncio.to_thread(chat_worker.event_bus_available)
+        saved, repaired = await asyncio.to_thread(saved_turn, turn_id, repair=repair)
+        if saved is None:
+            return False
+        if repaired:
+            task = asyncio.create_task(subscribe_turn(turn_id), name=f"chat-turn:{turn_id}")
+            subscription_tasks.append(task)
+            register_turn(task, asyncio.Event(), saved.conversation_id, turn_id)
+        await send_json({"type": "ack", "turn_id": str(turn_id), "user_message_id": str(saved.id),
+                         "conversation_id": str(saved.conversation_id)})
+        if saved.seen_at is not None:
+            await send_json({"type": "seen", "message_id": str(saved.id),
+                             "conversation_id": str(saved.conversation_id)})
+        return True
+
     current_task: asyncio.Task | None = None
     stop_event: asyncio.Event | None = None
     # The thread this socket is actually in, so an unprompted message lands in
@@ -1323,6 +1496,22 @@ async def chat_ws(websocket: WebSocket) -> None:
     def voice_open() -> bool:
         return (settings.voice_enabled and session.report.hearing_enabled
                 and session.report.voice_state in ("idle", "listening", "thinking", "speaking"))
+
+    def report_presence() -> None:
+        """This socket's presence (blocking): on screen, last input, live voice. When it makes the user
+        present where they weren't, the phone's notifications are taken down."""
+        report = session.report
+        active = report.last_active_at
+        active_at = min(time.time(), active.timestamp()) if active is not None else None
+        became_present = presence.report(user_id, voice_socket_id, client=message_channel,
+                                         visible=report.visible, last_active_at=active_at,
+                                         voice_live=voice_open())
+        if became_present:
+            db = SessionLocal()
+            try:
+                push.schedule_clear(db, user_id=user_id)
+            finally:
+                db.close()
 
     # Open-utterance state, reset on voice_start / voice_end / voice_cancel.
     utterance: bytearray | None = None
@@ -1522,7 +1711,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             # --- senses: the client describing itself ---
             if isinstance(message, SenseUpdateRequest):
-                fields = message.model_dump(exclude={"type"})
+                fields = message.model_dump(exclude={"type", "client"})
                 fields["vision_enabled"] = (
                     fields["vision_enabled"] and settings.vision_enabled
                 )
@@ -1552,6 +1741,10 @@ async def chat_ws(websocket: WebSocket) -> None:
                         await asyncio.to_thread(voice_target.claim, user_id, voice_socket_id, voice_conversation_id)
                     else:
                         await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, False)
+                try:
+                    await asyncio.to_thread(report_presence)
+                except Exception:
+                    logger.exception("Presence report failed")
                 # Echo the derived state straight back rather than making the
                 # client wait up to a heartbeat to see its own change land.
                 with contextlib.suppress(Exception):
@@ -1670,6 +1863,10 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             # --- text turn ---
             if isinstance(message, ChatRunRequest):
+                # A resend (the phone's queue retrying after a lost ack) is the
+                # same message: answer with its original ack, change nothing.
+                if message.turn_id is not None and await reack(message.turn_id):
+                    continue
                 # A message sent while thinking is an interruption followed by
                 # a new turn, never a competing generation against stale history.
                 await _stop_active_turn(user_id)
@@ -1685,6 +1882,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         message.conversation_id, message.content, next_stop,
                         voice=False, turn_id=turn_id,
                         image_ids=message.image_ids, asset_ids=message.asset_ids,
+                        written_at=message.written_at,
                     ))
                     register_turn(task, next_stop, message.conversation_id, turn_id)
                     continue
@@ -1698,22 +1896,31 @@ async def chat_ws(websocket: WebSocket) -> None:
                     conversation = chat_service.get_or_create_conversation(
                         db, user_id=user_id, conversation_id=message.conversation_id
                     )
-                    user_message = chat_service.add_message(
-                        db, conversation=conversation, role="user", content=message.content,
-                        turn_id=turn_id, image_ids=attached, asset_ids=attached_assets,
-                    )
-                    state = awareness_service.build(db, user_id=user_id, session=session)
-                    chat_service.enqueue_job(
-                        db, user_id=user_id, conversation=conversation, turn_id=turn_id,
-                        user_message_id=user_message.id,
-                        payload={
-                            "content": message.content, "image_ids": attached,
-                            "asset_ids": attached_assets, "voice": False,
-                            "spoke_at": time.time(), "awareness": state.describe(),
-                            "zone": state.zone_name, "vision_enabled": state.senses.vision_enabled,
-                            "screen_image_id": state.senses.screen_image_id,
-                        },
-                    )
+                    # The message and its job are one commit: an ack (which empties the phone's queue)
+                    # only ever goes out for a message she will answer.
+                    try:
+                        user_message = chat_service.add_message(
+                            db, conversation=conversation, role="user", content=message.content,
+                            turn_id=turn_id, image_ids=attached, asset_ids=attached_assets,
+                            source_channel=message_channel,
+                            written_at=chat_service.clamp_written_at(message.written_at),
+                            commit=False,
+                        )
+                        state = awareness_service.build(db, user_id=user_id, session=session)
+                        job = chat_service.enqueue_job(
+                            db, user_id=user_id, conversation=conversation, turn_id=turn_id,
+                            user_message_id=user_message.id,
+                            payload=_text_job_payload(message.content, attached, attached_assets, state),
+                            commit=False,
+                        )
+                        db.commit()
+                    except IntegrityError:
+                        # The same turn_id saved meanwhile (a resend racing the original).
+                        db.rollback()
+                        if not await reack(turn_id):
+                            await send_json({"type": "error", "detail": "Couldn't save that message."})
+                        continue
+                    chat_service.wake_chat_worker(job.id)
                     await send_json({"type": "meta", "conversation_id": str(conversation.id)})
                     await send_json({"type": "ack", "turn_id": str(turn_id),
                                      "user_message_id": str(user_message.id),
@@ -1727,12 +1934,14 @@ async def chat_ws(websocket: WebSocket) -> None:
         pass
     except Exception:
         # Unexpected error in the receive loop — don't let it leak past without
-        # cleaning up the in-flight task and the socket.
-        pass
+        # cleaning up the in-flight task and the socket (but never silently).
+        logger.exception("Chat socket receive loop failed; closing the socket")
     finally:
         connected = False
         heartbeat_task.cancel()
         agent_messages_task.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(presence.leave, user_id, voice_socket_id)
         if voice_conversation_id is not None:
             await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, False)
         with contextlib.suppress(asyncio.CancelledError, Exception):

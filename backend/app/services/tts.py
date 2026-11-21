@@ -178,11 +178,22 @@ def pick_filler(min_seconds: float = _TARGET_FILLER_SECONDS) -> tuple[bytes, int
         return None
 
 
-async def synthesize(text: str) -> AsyncIterator[bytes]:
+class SpeechReport:
+    """How one clause's synthesis went, for callers that must know whether it was all said aloud (phone
+    pushes skip only what was). ``failed``: the sidecar errored, before or after some audio."""
+
+    __slots__ = ("failed",)
+
+    def __init__(self) -> None:
+        self.failed = False
+
+
+async def synthesize(text: str, report: SpeechReport | None = None) -> AsyncIterator[bytes]:
     """Stream PCM for `text` from the sidecar.
 
-    Yields nothing if the sidecar is down or errors -- voice degrades to a
-    text-only reply rather than breaking the turn.
+    Yields nothing more if the sidecar is down or errors -- voice degrades to a
+    text-only reply rather than breaking the turn. The stream still ends
+    quietly; ``report`` (when given) records that it failed.
     """
     settings = get_settings()
     text = text.strip()
@@ -204,6 +215,8 @@ async def synthesize(text: str) -> AsyncIterator[bytes]:
                 async for aligned in _sample_aligned(raw_chunks()):
                     yield aligned
     except (httpx.HTTPError, OSError):
+        if report is not None:
+            report.failed = True
         return
 
 

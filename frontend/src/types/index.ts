@@ -116,6 +116,10 @@ export interface SenseReport {
   vision_enabled: boolean
   /** Newest screen frame in the image store. An id, never pixels. */
   screen_image_id: string | null
+  /** Presence: the tab is on screen. Phone pushes go out only when the user is at no app. */
+  visible?: boolean
+  /** Presence: the last mouse/keyboard input (ISO time), reported at most every 30 s. */
+  last_active_at?: string | null
 }
 
 export interface AwarenessSnapshot {
