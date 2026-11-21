@@ -1,0 +1,468 @@
+@import '@fontsource-variable/grandstander';
+
+/* The House: a golden-dusk heaven with a village of cottages on clouds. */
+
+.house-page {
+  --wood-ink: #4a2a1c;
+  --sign-cream: #fff1d0;
+  --dusk-ink: #4e3a78;
+  --cloud-line: #6f5596;
+  --focus-glow: #fff3c4;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color-scheme: light;
+  font-family: 'Grandstander Variable', ui-rounded, sans-serif;
+  color: var(--dusk-ink);
+}
+.house-page ::selection {
+  background: rgba(255, 214, 140, 0.6);
+  color: var(--wood-ink);
+}
+
+/* ---- Sky ---- */
+
+.sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #4b4690 0%, #7768b4 20%, #ae88c3 42%, #e3a6b6 61%, #f6c39d 78%, #ffdfae 100%);
+}
+.sky-sun {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 70%;
+  background: radial-gradient(ellipse 55% 60% at 50% 100%, rgba(255, 240, 200, 0.95) 0%, rgba(255, 220, 160, 0.45) 40%, rgba(255, 210, 160, 0) 75%);
+}
+.sky-stars {
+  position: absolute;
+  inset: 0;
+}
+.sky-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff8e7;
+  box-shadow: 0 0 4px rgba(255, 248, 231, 0.8);
+}
+.sky-star--twinkle {
+  animation: sky-twinkle ease-in-out infinite alternate;
+}
+@keyframes sky-twinkle {
+  to {
+    opacity: 0.12;
+  }
+}
+
+.sky-bank {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 200%;
+  display: flex;
+  flex-direction: column;
+  animation: sky-drift linear infinite;
+}
+.sky-bank svg {
+  display: block;
+  flex: none;
+  width: 100%;
+  height: var(--puffs);
+}
+/* Continues the strip's last colour to the bottom of the sky; overlaps by 1px to hide the seam. */
+.sky-bank-base {
+  flex: 1;
+  margin-top: -1px;
+  background: var(--bank-low);
+}
+.sky-bank--far {
+  height: 47%;
+  --puffs: 28%;
+  opacity: 0.5;
+  animation-duration: 280s;
+  --bank-top: #ffe6d6;
+  --bank-mid: #edc9dc;
+  --bank-low: #e2c3df;
+}
+.sky-bank--mid {
+  height: 33%;
+  --puffs: 60%;
+  opacity: 0.8;
+  animation-duration: 200s;
+  animation-direction: reverse;
+  --bank-top: #fff0e4;
+  --bank-mid: #f6e0ea;
+  --bank-low: #ead8ee;
+}
+.sky-bank--near {
+  height: 22%;
+  --puffs: 80%;
+  animation-duration: 150s;
+  --bank-top: #fffaf4;
+  --bank-mid: #f8eef6;
+  --bank-low: #efe4f4;
+}
+@keyframes sky-drift {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.sky-snow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Village layout (wide: a stage with a fixed 16:10 frame, houses placed in it) ---- */
+
+.house-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(100vw, 160svh);
+  height: min(100svh, 62.5vw);
+  transform: translate(-50%, -50%);
+}
+.house-village {
+  position: absolute;
+  inset: 0;
+}
+
+.house {
+  --w: 25%;
+  --cx: 50%;
+  --top: 20%;
+  --bob: 7s;
+  --bob-delay: 0s;
+
+  position: absolute;
+  left: calc(var(--cx) - var(--w) / 2);
+  top: var(--top);
+  width: var(--w);
+  display: block;
+  container-type: inline-size;
+  color: inherit;
+  text-decoration: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.house--system {
+  --cx: 50%;
+  --top: 5%;
+  --w: 16%;
+  --bob: 8.4s;
+  --bob-delay: -2.1s;
+}
+.house--integrations {
+  --cx: 22%;
+  --top: 21%;
+  --w: 25%;
+  --bob: 7.3s;
+  --bob-delay: -4.4s;
+}
+.house--sessions {
+  --cx: 78%;
+  --top: 21%;
+  --w: 25%;
+  --bob: 7.9s;
+  --bob-delay: -1.2s;
+}
+.house--chat {
+  --cx: 50%;
+  --top: 30%;
+  --w: 38%;
+  --bob: 6.6s;
+}
+.house-page--owner .house--integrations {
+  --cx: 19%;
+  --top: 24%;
+}
+.house-page--owner .house--sessions {
+  --cx: 81%;
+  --top: 24%;
+}
+
+.house-bob {
+  display: block;
+  position: relative;
+  animation: house-bob var(--bob) ease-in-out var(--bob-delay) infinite alternate;
+}
+@keyframes house-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-1.6cqi);
+  }
+}
+
+.house-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 2;
+  transition:
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.house-cottage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+/* The door covers the painted open doorway; it swings in when the house is entered. */
+.house-door {
+  position: absolute;
+  left: 35.09%;
+  top: 54.5%;
+  width: 5.5%;
+  height: 15.2%;
+  perspective: 600px;
+}
+.house-door img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  user-select: none;
+}
+
+.house:hover .house-art,
+.house:focus-visible .house-art {
+  transform: translateY(-1.2cqi);
+  filter: brightness(1.05) saturate(1.06) drop-shadow(0 1.5cqi 3cqi rgba(255, 196, 120, 0.35));
+}
+
+/* ---- Timber sign ---- */
+
+.house-sign {
+  position: absolute;
+  left: 50%;
+  top: 80%;
+  transform: translateX(-50%);
+  padding-top: 0.55em;
+  font-size: clamp(17px, 6.4cqi, 40px);
+  transform-origin: 50% 0;
+  white-space: nowrap;
+}
+.house-sign::before,
+.house-sign::after {
+  content: '';
+  position: absolute;
+  top: -0.25em;
+  width: 0.11em;
+  min-width: 2px;
+  height: 0.95em;
+  border-radius: 2px;
+  background: #7a5233;
+}
+.house-sign::before {
+  left: 24%;
+}
+.house-sign::after {
+  right: 24%;
+}
+.house-sign-board {
+  position: relative;
+  display: block;
+  padding: 0.14em 0.72em 0.22em;
+  border: max(2.5px, 0.08em) solid var(--wood-ink);
+  border-radius: 0.36em 0.28em 0.4em 0.26em / 0.32em 0.38em 0.28em 0.36em;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='30'%3E%3Cpath d='M-4 8Q16 4 38 8T94 6M-2 22Q14 18 30 21T70 19T96 21' fill='none' stroke='%23a4673b' stroke-width='1.6' opacity='.55'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #e0a76c 0%, #c98a55 55%, #b2733f 100%);
+  background-size: 3.2em auto, auto;
+  color: var(--sign-cream);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0.06em 0 var(--wood-ink);
+  box-shadow: 0 0.2em 0.35em -0.12em rgba(74, 42, 28, 0.5);
+}
+.house:hover .house-sign {
+  animation: house-sign-swing 900ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes house-sign-swing {
+  0% {
+    transform: translateX(-50%) rotate(0deg);
+  }
+  25% {
+    transform: translateX(-50%) rotate(-3deg);
+  }
+  55% {
+    transform: translateX(-50%) rotate(1.8deg);
+  }
+  80% {
+    transform: translateX(-50%) rotate(-0.7deg);
+  }
+  100% {
+    transform: translateX(-50%) rotate(0deg);
+  }
+}
+.house:focus-visible .house-sign-board {
+  outline: 3px solid var(--focus-glow);
+  outline-offset: 4px;
+  box-shadow:
+    0 0.2em 0.35em -0.12em rgba(74, 42, 28, 0.5),
+    0 0 0 8px rgba(255, 200, 110, 0.45);
+}
+
+/* ---- Her bed ---- */
+
+.house-bed {
+  position: absolute;
+  left: -1.5%;
+  bottom: -5%;
+  width: 29%;
+  pointer-events: none;
+}
+.house-bed svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 10px 18px rgba(111, 85, 150, 0.3));
+}
+
+/* ---- Sign out (a small cloud) ---- */
+
+.house-cloud-button {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 128px;
+  height: 52px;
+  padding: 6px 0 0;
+  border: 0;
+  background: none;
+  color: var(--dusk-ink);
+  font: 700 15px/1 'Grandstander Variable', ui-rounded, sans-serif;
+  cursor: pointer;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.house-cloud-button svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: #fff8f4;
+  stroke: var(--cloud-line);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 4px 6px rgba(78, 58, 120, 0.25));
+  transition: fill 200ms ease;
+}
+.house-cloud-button span {
+  position: relative;
+}
+.house-cloud-button:hover {
+  transform: translateY(-2px);
+}
+.house-cloud-button:hover svg {
+  fill: #ffffff;
+}
+.house-cloud-button:focus-visible {
+  outline: 3px solid var(--focus-glow);
+  outline-offset: 2px;
+  border-radius: 28px;
+}
+
+/* ---- The light of a door (lives in the signed-in layout, survives the route change) ---- */
+
+.house-light {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    circle at var(--door-x, 50%) var(--door-y, 50%),
+    #fffdf5 0%,
+    #fff6e0 32%,
+    #ffe6b4 72%,
+    #ffd492 100%
+  );
+}
+
+/* ---- Phones and tall windows: a scrolling column, Chat first, the rest two up, her bed last ---- */
+
+@media (max-width: 760px), (max-aspect-ratio: 1/1) {
+  .house-page {
+    overflow-y: auto;
+  }
+  .sky {
+    position: fixed;
+  }
+  .house-stage {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 100%;
+    height: auto;
+    transform: none;
+    padding: 84px 14px 0;
+  }
+  .house-village {
+    position: static;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  .house,
+  .house-page--owner .house {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: auto;
+    padding-bottom: 2.8em;
+  }
+  .house--chat {
+    grid-column: 1 / -1;
+  }
+  .house--system {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 62% !important;
+  }
+  .house-sign {
+    font-size: clamp(17px, 9cqi, 34px);
+  }
+  .house-bed {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: min(100%, 560px);
+    margin: 0 auto -8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .house-bob,
+  .sky-bank,
+  .sky-star--twinkle,
+  .house:hover .house-sign {
+    animation: none;
+  }
+  .house-art,
+  .house-cloud-button {
+    transition: none;
+  }
+}
+
+.house-bed svg { overflow: visible; }
+.house-sleeper {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: house-sleep-breath 4s ease-in-out infinite;
+}
+@keyframes house-sleep-breath {
+  50% { transform: scaleY(1.016); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .house-sleeper { animation: none; }
+}

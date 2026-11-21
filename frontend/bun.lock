@@ -5,6 +5,7 @@
     "": {
       "name": "frontend",
       "dependencies": {
+        "@fontsource-variable/grandstander": "^5.3.0",
         "@fontsource-variable/schibsted-grotesk": "^5.3.0",
         "react": "^19.2.7",
         "react-dom": "^19.2.7",
@@ -31,6 +32,8 @@
     "@emnapi/runtime": ["@emnapi/runtime@1.11.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw=="],
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
+
+    "@fontsource-variable/grandstander": ["@fontsource-variable/grandstander@5.3.0", "", {}, "sha512-vD2bm4My0+kgUxIZ6J+CSKMonbbxxMF0dWq4uQYJP2ZNyHC+ss1XZPu/WCRB72K15+gaLs97UfR6UWU6a2GmvA=="],
 
     "@fontsource-variable/schibsted-grotesk": ["@fontsource-variable/schibsted-grotesk@5.3.0", "", {}, "sha512-ndS6H/KICWANchlHF3q4UdZD+xrZ3Ji0rUobIuXlgvDUzDfqZDsVuXPXZb636nJZMHE9zZ9Fmwgqazm8hMB50Q=="],
 
