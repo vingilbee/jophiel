@@ -112,6 +112,8 @@ def socket_client(auth_client, monkeypatch):
     # integration coverage, but no chat worker is running to publish events.
     monkeypatch.setattr(chat.chat_worker, "event_bus_available", lambda: False)
     monkeypatch.setattr(chat, "SESSION_CHECK_SECONDS", 0.05)
+    # The mocked database has no earlier sends: every run is a new message, not a resend.
+    monkeypatch.setattr(chat.chat_service, "user_turn", lambda *a, **kw: None)
     state = Mock()
     state.to_dict.return_value = {}
     state.describe.return_value = "Test awareness"
@@ -182,8 +184,12 @@ def test_all_mutating_http_routes_require_origin():
     from app.api.deps import validate_origin
     from app.api.routes import assets, auth, chat, dashboard, images, integrations, predict
 
+    # Phone sign-in sets no cookie, so there's nothing for a forged cross-site request to ride on.
+    no_cookie = {"/auth/token"}
     for module in (assets, auth, chat, dashboard, images, integrations, predict):
         for route in module.router.routes:
+            if route.path in no_cookie:
+                continue
             if getattr(route, "methods", set()) & {"POST", "PUT", "PATCH", "DELETE"}:
                 assert any(
                     dependency.call is validate_origin
@@ -279,7 +285,7 @@ def test_logout_cancels_streaming_reply(socket_client, monkeypatch):
             frame = ws.receive_json()
             if frame["type"] == "token":
                 break
-            assert frame["type"] in ("state", "route")
+            assert frame["type"] in ("state", "route", "seen")
         else:
             pytest.fail("stream did not produce a token")
         assert client.post("/api/auth/signout", headers=headers).status_code == 204

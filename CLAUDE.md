@@ -89,8 +89,10 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   GET /api/system/watch (thoughts, memory captured, hands' goal as one log),
                         #   GET /api/system/errors (what went wrong across parts),
                         #   GET /api/system/signals[/stream] (hand-offs between parts, SSE live); owner only
-        auth.py
-      deps.py           # shared deps (get_current_user, get_current_user_optional)
+        auth.py         # signup/signin (web cookie), POST /auth/token (phone bearer token, 90-day sliding), signout
+        phone.py        # the phone app's device: PUT/PATCH/DELETE /api/phone/device (FCM token, notification switches)
+      deps.py           # shared deps (get_current_user, get_current_user_optional): bearer header or cookie;
+                        #   validate_origin passes a valid bearer (can't be forged cross-site)
     /models            # (empty — nutrition inference lives in /ai/MacroVision)
     /ai                # chatbot agent (LangChain + Anthropic) + nutrition model
       agent.py          # ChatOpenAI model + build_agent(tools) / cached get_agent()
@@ -228,10 +230,13 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   (shown as file + pages when read back; a deleted file is said to be, never an error);
                        #   memory_directory.py: her rundown by area (what_i_know), built when read;
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
+                       #   phone app (frontend-phone/PLAN_PHASE_0-3.md): phone_devices.py (a signed-in phone, one per
+                       #   bearer session), presence.py (is the user at any app: per-socket, Redis), push.py (push
+                       #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
                        #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
                        #   per wake; autonomous_speech.py: those events' delivery fences)
-    /workers           # external workers: chat, memory, whatsapp, file_deletion,
+    /workers           # external workers: chat, memory, whatsapp, file_deletion, push (phone notifications),
                        #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Columbina on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
                        #   learning (raw-capture retention) + learning-assessment

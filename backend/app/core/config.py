@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     session_cookie_name: str = "session"
     # Session lifetime in seconds (default 7 days).
     session_lifetime_seconds: int = 60 * 60 * 24 * 7
+    # Phone app sessions (bearer tokens, POST /api/auth/token): 90 days, sliding.
+    # Each authenticated request renews the lifetime once less than half is left.
+    phone_session_lifetime_seconds: int = 60 * 60 * 24 * 90
     # Set True when served over HTTPS so the cookie is only sent on TLS.
     session_cookie_secure: bool = False
     session_cookie_samesite: str = "lax"
@@ -224,6 +227,15 @@ class Settings(BaseSettings):
     chat_worker_lease_seconds: int = 900
     chat_worker_heartbeat_seconds: int = 30
     file_deletion_queue_name: str = "macrovision:file_deletion:jobs"
+
+    # --- Phone push notifications (FCM HTTP v1, frontend-phone/PLAN_PHASE_0-3.md phase 2) ---
+    # Path to the Firebase service account JSON (keep it outside the repo). Unset: no pushes are sent (they're
+    # dropped as "push not configured"); everything else about the phone app works.
+    fcm_service_account_file: str | None = None
+    # Defaults to the service account's project_id.
+    fcm_project_id: str | None = None
+    # How long a push waits before it's re-checked (presence, spoken aloud) and sent.
+    push_delay_seconds: float = 3.0
 
     # --- WhatsApp Cloud API ---
     # The webhook is inert until all required credentials are configured.

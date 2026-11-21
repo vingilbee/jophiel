@@ -111,10 +111,12 @@ def add_message(
     asset_ids: Sequence[str] | None = None,
     source_channel: str = "web",
     external_message_id: str | None = None,
+    written_at: datetime | None = None,
     commit: bool = True,
 ) -> ChatMessage:
     """Append a message to a conversation and bump its ``updated_at``."""
     message = ChatMessage(
+        written_at=written_at,
         id=message_id or uuid.uuid4(),
         conversation_id=conversation.id,
         turn_id=turn_id,
@@ -140,6 +142,24 @@ def add_message(
     else:
         db.flush()
     return message
+
+
+def clamp_written_at(value: datetime | None, now: datetime | None = None) -> datetime | None:
+    """A client-reported written-at time, never later than now (a phone's clock can be ahead)."""
+    if value is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return min(value, now)
+
+
+def user_turn(db: Session, *, user_id: uuid.UUID, turn_id: uuid.UUID) -> ChatMessage | None:
+    """This user's message already saved for ``turn_id``, if any: a resend of it is the same message."""
+    return db.scalar(
+        select(ChatMessage)
+        .join(Conversation, Conversation.id == ChatMessage.conversation_id)
+        .where(ChatMessage.turn_id == turn_id, ChatMessage.role == "user", Conversation.user_id == user_id)
+    )
 
 
 def record_heard(
@@ -304,12 +324,30 @@ def _marker(message: ChatMessage, zone: str | None, now: datetime, *, current: b
     turn = f" (turn {str(message.turn_id)[:8]})" if message.turn_id else ""
     if message.role == "user":
         what = ("CURRENT user message: the one this evaluation answers" if current else "user message")
+        what += _written_note(message)
     else:
         what = {"partial": "your reply, stopped part way", "failed": "your reply, which failed",
                 "cancelled": "your reply, stopped"}.get(message.status, "your reply")
         if message.heard_chars is not None:
             what += "; they heard only up to where it was cut off"
     return f"{_RECORD} {at}: {what}{turn}."
+
+
+# A message written this long before it reached the backend (it waited on the phone) says so in her history.
+WRITTEN_DELAY_NOTE_SECONDS = 120
+
+
+def _written_note(message: ChatMessage) -> str:
+    """"; written 9 hours before it arrived" when the phone held the message a while; otherwise nothing. A fact
+    for her to read, not a rule: what the delay means is hers to judge."""
+    written = getattr(message, "written_at", None)
+    if written is None or message.created_at is None:
+        return ""
+    delay = (_aware(message.created_at) - _aware(written)).total_seconds()
+    if delay < WRITTEN_DELAY_NOTE_SECONDS:
+        return ""
+    from app.services.awareness import _humanize
+    return f"; written {_humanize(delay)} before it arrived (it waited on their phone)"
 
 
 def _with_outcomes(db: Session, conversation_id: uuid.UUID, kept: list[tuple[datetime, ChatTurn, uuid.UUID]],
@@ -447,9 +485,40 @@ def claim_next_job(db: Session, *, lease_seconds: int) -> ChatJob | None:
     job.attempts += 1
     job.claim_token = secrets.token_urlsafe(32)
     job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+    newly_seen = mark_seen(db, job.user_message_id, now)
     db.commit()
     db.refresh(job)
+    if newly_seen:
+        announce_seen(job.user_id, job.user_message_id, job.conversation_id)
     return job
+
+
+def mark_seen(db: Session, message_id: uuid.UUID | None, at: datetime) -> bool:
+    """Stamp a user message as picked up by her (once). True when this call set it."""
+    if message_id is None:
+        return False
+    result = db.execute(
+        update(ChatMessage)
+        .where(ChatMessage.id == message_id, ChatMessage.role == "user", ChatMessage.seen_at.is_(None))
+        .values(seen_at=at)
+    )
+    return bool(result.rowcount)
+
+
+def announce_seen(user_id: uuid.UUID, message_id: uuid.UUID | None, conversation_id: uuid.UUID | None) -> None:
+    """Tell this user's open sockets (web and phone) that she picked a message up: they show the second tick.
+    Best effort: ``seen_at`` in history makes the tick right after a reload either way."""
+    settings = get_settings()
+    if not settings.redis_url or message_id is None:
+        return
+    import json
+    from app.services import agent_say
+    try:
+        redis.from_url(settings.redis_url).publish(agent_say.channel(user_id), json.dumps({
+            "kind": "seen", "message_id": str(message_id),
+            "conversation_id": str(conversation_id) if conversation_id else None}))
+    except Exception:
+        pass
 
 
 def renew_job_lease(

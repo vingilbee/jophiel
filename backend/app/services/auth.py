@@ -58,37 +58,79 @@ def _redis_for(url: str) -> redis.Redis:
 def get_redis():
     return _redis_for(get_settings().redis_url)
 
-def create_session(user: User) -> str:
-    """Create a Redis session and return the raw token for the cookie."""
-    settings = get_settings()
+PHONE_CLIENT = "phone"
+
+
+def _session_key(token: str) -> str:
+    return f"session:{hash_session_token(token)}"
+
+
+def session_key_hash(token: str) -> str:
+    """The hash a session is stored under: what other records (a phone's device row) point at."""
+    return hash_session_token(token)
+
+
+def create_session(user: User, *, client: str = "web", device_name: str | None = None) -> str:
+    """Create a Redis session and return the raw token (a cookie on the web, a bearer token on the phone).
+
+    Phone sessions last ``phone_session_lifetime_seconds`` and slide (``get_session``); web sessions keep the
+    cookie's fixed lifetime."""
     r = get_redis()
     token = generate_session_token()
-    key = f"session:{hash_session_token(token)}"
-    r.setex(
-        key,
-        timedelta(seconds=settings.session_lifetime_seconds),
-        json.dumps({
-            "user_id": str(user.id)
-        })
-    )
+    record: dict = {"user_id": str(user.id)}
+    if client == PHONE_CLIENT:
+        record.update(client=PHONE_CLIENT, device_name=device_name)
+    r.setex(_session_key(token), timedelta(seconds=session_lifetime(client)), json.dumps(record))
     return token
 
 
-def get_user_for_token(db: Session, token: str) -> User | None:
-    """Resolve a cookie token to a user, expiring stale sessions lazily."""
+def session_lifetime(client: str | None) -> int:
+    settings = get_settings()
+    return settings.phone_session_lifetime_seconds if client == PHONE_CLIENT else settings.session_lifetime_seconds
+
+
+def get_session(token: str) -> dict | None:
+    """The session record for a token (``user_id``, and ``client`` / ``device_name`` for the phone), or None.
+
+    A phone session is renewed to its full lifetime when less than half of it is left, so a phone used now and
+    then stays signed in; web sessions are never extended here."""
     r = get_redis()
-    key = f"session:{hash_session_token(token)}"
+    key = _session_key(token)
     data = r.get(key)
     if data is None:
         return None
-    user_id = json.loads(data)["user_id"]
-    return db.get(User, user_id)
+    record = json.loads(data)
+    if record.get("client") == PHONE_CLIENT:
+        lifetime = session_lifetime(PHONE_CLIENT)
+        left = r.ttl(key)
+        if isinstance(left, int) and 0 <= left < lifetime / 2:
+            r.expire(key, lifetime)
+    return record
+
+
+def session_expires_in(token: str) -> int | None:
+    """Seconds until the session ends, or None if it doesn't exist."""
+    left = get_redis().ttl(_session_key(token))
+    return left if isinstance(left, int) and left >= 0 else None
+
+
+def session_alive(session_hash: str) -> bool:
+    """Whether the session stored under this hash still exists (a phone device dies with its session)."""
+    return bool(get_redis().exists(f"session:{session_hash}"))
+
+
+def get_user_for_token(db: Session, token: str) -> User | None:
+    """Resolve a session token to a user, expiring stale sessions lazily."""
+    record = get_session(token)
+    if record is None:
+        return None
+    return db.get(User, record["user_id"])
 
 
 def delete_session(token: str) -> None:
     """Revoke the Redis session; missing or expired tokens are a no-op."""
     r = get_redis()
-    r.delete(f"session:{hash_session_token(token)}")
+    r.delete(_session_key(token))
 
 
 def delete_user(db: Session, user: User) -> None:

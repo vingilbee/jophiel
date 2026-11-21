@@ -14,6 +14,7 @@ import uuid
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import select
 
 from app.services import chat as chat_service
 from app.workers import chat as chat_worker
@@ -38,7 +39,7 @@ def voice_turn(db_env, monkeypatch):
         for token in REPLY:
             yield {"type": "token", "content": token}
 
-    async def fake_synthesize(text: str):
+    async def fake_synthesize(text: str, report=None):
         synthesized.append(text)
         try:
             for _ in range(3):
@@ -93,6 +94,37 @@ def test_audio_events_carry_their_turn_id(voice_turn) -> None:
     assert len(starts) == 1 and len(ends) == 1
     assert starts[0]["turn_id"] == ends[0]["turn_id"] == result["turn_id"]
     assert result["events"][-1]["type"] == "done"
+
+
+def test_a_spoken_reply_is_marked_spoken_so_it_is_not_pushed(voice_turn, db_env) -> None:
+    from app.db.models import ChatMessage
+
+    result = voice_turn()
+    with db_env.db() as db:
+        reply = db.scalar(select(ChatMessage).where(ChatMessage.turn_id == uuid.UUID(result["turn_id"]),
+                                                    ChatMessage.role == "assistant"))
+    assert reply.status == "completed" and reply.spoken_at is not None
+
+
+@pytest.mark.parametrize("failure", ["drops-mid-stream", "no-audio"])
+def test_a_reply_the_sidecar_did_not_fully_say_is_not_marked_spoken(voice_turn, db_env, monkeypatch,
+                                                                     failure) -> None:
+    from app.db.models import ChatMessage
+    from app.workers import chat as chat_worker
+
+    async def broken(text: str, report=None):
+        # services/tts.synthesize when the sidecar fails: the stream just ends, the report says so.
+        if failure == "drops-mid-stream":
+            yield b"\x00\x00" * 8
+        if report is not None:
+            report.failed = True
+
+    monkeypatch.setattr(chat_worker.tts_service, "synthesize", broken)
+    result = voice_turn()
+    with db_env.db() as db:
+        reply = db.scalar(select(ChatMessage).where(ChatMessage.turn_id == uuid.UUID(result["turn_id"]),
+                                                    ChatMessage.role == "assistant"))
+    assert reply.status == "completed" and reply.spoken_at is None
 
 
 def test_cancel_stops_audio_mid_clause_and_closes_the_sidecar_stream(voice_turn) -> None:
@@ -471,7 +503,7 @@ def test_a_wedged_sidecar_finishes_the_turn_as_text_quickly(voice_turn, monkeypa
     HTTP timeout. Now a silent sidecar is given up on and the reply is text."""
     calls: list[str] = []
 
-    async def wedged(text: str):
+    async def wedged(text: str, report=None):
         calls.append(text)
         await asyncio.sleep(3600)
         yield b""

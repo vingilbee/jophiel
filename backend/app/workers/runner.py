@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.services import system_status
 from app.workers import (
     agent_events, chat, desktop, file_deletion, game_practice, learning,
-    memory, mind, recall_embeddings, observation,
+    memory, mind, push, recall_embeddings, observation,
     whatsapp,
 )
 
@@ -113,6 +113,8 @@ def run(stop: threading.Event | None = None) -> None:
             # Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md): every game tick, pulled from the
             # pack in chunks and saved by the capture writer. Its own thread: a slow save never delays play or a reply.
             worker_specs.append(("trajectory", learning.trajectory_once, "macrovision:trajectory:wakeups", 2.0))
+        # Phone pushes (frontend-phone/PLAN_PHASE_0-3.md phase 2): her messages the user hasn't seen anywhere.
+        worker_specs.append(("push", push.run_once, "macrovision:push:wakeups", 1.0))
         # Embedding memory events for recall: background, batched; recall works before it catches up.
         worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                              "macrovision:recall-embeddings:wakeups", 5.0))

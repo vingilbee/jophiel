@@ -11,7 +11,7 @@ from app.core.limiter import limiter
 
 from app.ai.tools.macrovision import macrovision_mcp_lifespan, mount_macrovision_mcp
 from app.api.routes import (
-    assets, auth, chat, dashboard, desktop, images, integrations, learning, memory, system, mind, predict,
+    assets, auth, chat, dashboard, desktop, images, integrations, learning, memory, system, mind, phone, predict,
     whatsapp,
 )
 from app.core.config import get_settings
@@ -43,10 +43,23 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+def _backend_version() -> str:
+    import tomllib
+    from pathlib import Path
+    try:
+        with open(Path(__file__).resolve().parents[1] / "pyproject.toml", "rb") as file:
+            return tomllib.load(file)["project"]["version"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return "unknown"
+
+
 @app.get("/api/capabilities", tags=["health"])
-def capabilities() -> dict[str, bool]:
-    """Expose server-gated client capabilities without requiring a session."""
-    return {"voice_enabled": settings.voice_enabled, "desktop_enabled": settings.desktop_agent_enabled}
+def capabilities() -> dict[str, bool | str]:
+    """Expose server-gated client capabilities without requiring a session (the phone's About shows the
+    version; ``push_enabled`` says whether phone notifications can be sent at all)."""
+    from app.services import fcm
+    return {"voice_enabled": settings.voice_enabled, "desktop_enabled": settings.desktop_agent_enabled,
+            "push_enabled": fcm.configured(), "backend_version": _backend_version()}
 
 # Mounted at construction time so the session manager exists by the time the
 # lifespan above runs.
@@ -75,6 +88,7 @@ app.include_router(learning.router, prefix="/api")
 app.include_router(mind.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
+app.include_router(phone.router, prefix="/api")
 
 
 @app.get("/health", tags=["health"])

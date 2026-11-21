@@ -11,6 +11,7 @@ import contextlib
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from functools import lru_cache
 
 import redis
@@ -29,7 +30,7 @@ from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
 from app.services import coordinator, mind_turn, personality
-from app.services import agent_say
+from app.services import agent_say, push
 from app.ai import prompts
 from app.services import stickers
 from app.services import tts as tts_service
@@ -289,9 +290,11 @@ async def _generate(job: ChatJob) -> None:
 
     speech_cancelled = False
     speech_failed = False  # the sidecar went silent: the rest of the reply is text only
+    # Some clause wasn't fully said (the sidecar errored or sent nothing): the reply wasn't spoken aloud.
+    speech_incomplete = False
 
     async def speak(clause: str) -> None:
-        nonlocal audio_started, clauses_spoken, speech_cancelled, speech_failed, spoken_end
+        nonlocal audio_started, clauses_spoken, speech_cancelled, speech_failed, spoken_end, speech_incomplete
         # A barge-in must silence the reply now, not after the clause being
         # synthesized finishes: wait for each chunk only while not stopped, and
         # close the sidecar stream so its next request isn't queued behind this one.
@@ -309,12 +312,16 @@ async def _generate(job: ChatJob) -> None:
             mark("first_clause_emitted", clause_chars=len(clause))
             mark("tts_request_started")
         announced = False
-        async with contextlib.aclosing(tts_service.synthesize(clause)) as stream:
+        report = tts_service.SpeechReport()
+        sent_bytes = 0
+        async with contextlib.aclosing(tts_service.synthesize(clause, report)) as stream:
             limit = TTS_FIRST_CHUNK_SECONDS
             while True:
                 try:
                     pcm = await _next_unless(stream, lambda: _cancelled(turn_id), limit)
                 except StopAsyncIteration:
+                    if report.failed or (clause.strip() and sent_bytes == 0):
+                        speech_incomplete = True
                     break
                 except _Stopped:
                     speech_cancelled = True
@@ -344,6 +351,7 @@ async def _generate(job: ChatJob) -> None:
                                       "segment": segment, "text_start": text_start,
                                       "text_end": spoken_end})
                 publish(turn_id, {"type": "audio_chunk", "content": base64.b64encode(pcm).decode()})
+                sent_bytes += len(pcm)
                 if first_audio:
                     mark("redis_first_audio")
     publish(turn_id, {"type": "start", "turn_id": str(turn_id),
@@ -464,6 +472,13 @@ async def _generate(job: ChatJob) -> None:
                 receipt_id = recall_references.save_receipt(
                     db, recall_turn, assistant_message_id=assistant.id, conversation_id=job.conversation_id,
                     reply=reply)
+                if context.voice and audio_started and not speech_failed and not speech_incomplete:
+                    # Said aloud on the live voice session that asked: not pushed to the phone.
+                    assistant.spoken_at = datetime.now(timezone.utc)
+                if outcome == "completed" and context.channel != "whatsapp":
+                    # Reaches the phone if, a few seconds from now, the user isn't at any app (services/push.py).
+                    push.schedule_for_message(db, user_id=job.user_id, conversation_id=job.conversation_id,
+                                              message_id=assistant.id)
                 if outcome == "completed":
                     memory_service.schedule_consolidation(
                         db, user_id=job.user_id, conversation_id=job.conversation_id,
@@ -635,6 +650,8 @@ def _deliver_worded(job: ChatJob) -> None:
                 db, message_id=uuid.uuid5(job.turn_id, "assistant"), conversation=conversation,
                 role="assistant", content=job.payload["text"], turn_id=job.turn_id, status="completed",
                 source_channel="web", commit=False)
+            push.schedule_for_message(db, user_id=job.user_id, conversation_id=job.conversation_id,
+                                      message_id=message.id)
         if output is not None and output.status == "dispatched":
             coordinator.save_follow_up_receipt(db, job, message, "delivered" if message else "cancelled")
         if not chat_service.finish_job(db, job.id, "completed" if message else "cancelled",

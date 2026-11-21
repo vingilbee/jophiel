@@ -58,3 +58,11 @@ def _no_system_signals(monkeypatch):
 
     monkeypatch.setattr(system_signals, "_client", lambda: None)
     monkeypatch.setattr(system_status, "_client", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_presence(monkeypatch):
+    """Presence (services/presence.py) never reaches the dev Redis; tests that check it install their own."""
+    from app.services import presence
+
+    monkeypatch.setattr(presence, "_client", lambda: None)
