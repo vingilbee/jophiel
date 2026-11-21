@@ -138,6 +138,8 @@ def run(stop: threading.Event | None = None) -> None:
         # Her mind: a tick about once a second over every source (services/mind.py; Minecraft only with
         # desktop mode, where it also records its ticks), on its own thread so it never delays a reply or her hands.
         worker_specs.append(("mind", mind.run_once, "macrovision:mind:wakeups", 1.0))
+        # Her replies' connections opened before the first message, and kept warm between turns.
+        chat.start()
         for name, callback, queue, interval in worker_specs:
             thread = threading.Thread(
                 target=_work_loop, args=(name, callback, queue, stop, interval), name=f"worker-{name}",

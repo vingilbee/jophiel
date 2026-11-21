@@ -66,3 +66,11 @@ def _no_presence(monkeypatch):
     from app.services import presence
 
     monkeypatch.setattr(presence, "_client", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_chat_warmup(monkeypatch):
+    """The chat worker's warm-up and keep-warm pings (workers/chat.py ``start``) would reach OpenAI: off."""
+    from app.workers import chat as chat_worker
+
+    monkeypatch.setattr(chat_worker, "start", lambda: None)

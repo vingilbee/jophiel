@@ -25,6 +25,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import create_react_agent
 
+from app.ai import openai_http
 from app.core.config import get_settings
 
 # Tools available to every user regardless of what they've connected.
@@ -58,6 +59,9 @@ def get_chat_model(model: str | None = None) -> ChatOpenAI:
         kwargs["reasoning_effort"] = settings.chat_reasoning_effort
     if settings.openai_api_key:
         kwargs["api_key"] = settings.openai_api_key
+    # Connections kept between turns (and per event loop): app/ai/openai_http.py.
+    kwargs["http_client"] = openai_http.sync_client()
+    kwargs["http_async_client"] = openai_http.async_client()
     return ChatOpenAI(**kwargs)
 
 

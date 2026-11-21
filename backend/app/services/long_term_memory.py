@@ -63,8 +63,12 @@ deserves durable memory."""
 @lru_cache(maxsize=1)
 def _client() -> OpenAI:
     """One client per process: it keeps its connections open, so a call doesn't pay a new TLS handshake."""
+    from app.ai import openai_http
+
     settings = get_settings()
-    return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
+    http = openai_http.sync_client()  # idle connections kept past httpx's 5 s
+    return OpenAI(api_key=settings.openai_api_key, http_client=http) if settings.openai_api_key else OpenAI(
+        http_client=http)
 
 
 @lru_cache(maxsize=1)
