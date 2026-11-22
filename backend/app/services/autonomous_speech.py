@@ -33,7 +33,7 @@ from app.db.models import (
 )
 
 # Sources whose events belong to a conversation rather than a game (premise and repeat fences).
-CONVERSATIONAL = ("conversation", "security")
+CONVERSATIONAL = ("conversation", "security", "phone")
 from app.services import agent_say, coordinator, desktop_preview, voice_target
 
 
@@ -46,10 +46,24 @@ def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, D
     if source == "security" and activity_id:
         investigation = db.get(SecurityInvestigation, activity_id)
         target = investigation.conversation_id if investigation and investigation.user_id == user_id else None
+    if source == "phone":
+        target = _phone_conversation(db, user_id)
     conversation = db.get(Conversation, target) if target else None
     if conversation is None or conversation.user_id != user_id:
         return None, session
     return conversation, session
+
+
+def _phone_conversation(db, user_id) -> uuid.UUID | None:
+    """Where a thought about their phone goes: the conversation the phone app is in (it shows the latest one;
+    services/phone_state.py keeps the one its socket last used), else their latest conversation."""
+    from app.services import chat as chat_service, phone_state
+
+    state = phone_state.read(user_id)
+    if state is not None and state.conversation_id is not None:
+        return state.conversation_id
+    conversations = chat_service.list_conversations(db, user_id=user_id)
+    return conversations[0].id if conversations else None
 
 
 PREMISE_KEYS = ("conflict", "item", "revision", "investigation")

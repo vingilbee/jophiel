@@ -85,9 +85,9 @@ def sources() -> list:
     """Every source her mind reads (polled and event ones, live and shadow)."""
     global _sources
     if _sources is None:
-        from app.services import mind_conversation, mind_minecraft, mind_security
+        from app.services import mind_conversation, mind_minecraft, mind_phone, mind_security
 
-        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE, mind_security.SOURCE]
+        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE, mind_security.SOURCE, mind_phone.SOURCE]
     return _sources
 
 
@@ -137,6 +137,16 @@ def recent_thoughts(db: Session, session_id: uuid.UUID, now: datetime, limit: in
     rows = db.scalars(
         select(MindThought).where(MindThought.session_id == session_id, MindThought.created_at >= now - THOUGHT_WINDOW,
                                   MindThought.status != "dropped")
+        .order_by(MindThought.created_at.desc()).limit(limit)).all()
+    return [{"level": r.level, "text": r.text, "said": r.said, "status": r.status, "conclusion": r.conclusion_kind,
+             "at": r.created_at.timestamp()} for r in reversed(rows)]
+
+
+def activity_thoughts(db: Session, scope: Scope, now: datetime, limit: int = THOUGHTS_IN_TICK) -> list[dict]:
+    """Her recent thoughts about an activity that isn't a game session (her phone): by source and activity."""
+    rows = db.scalars(
+        select(MindThought).where(MindThought.source == scope.source, MindThought.activity_id == scope.activity,
+                                  MindThought.created_at >= now - THOUGHT_WINDOW, MindThought.status != "dropped")
         .order_by(MindThought.created_at.desc()).limit(limit)).all()
     return [{"level": r.level, "text": r.text, "said": r.said, "status": r.status, "conclusion": r.conclusion_kind,
              "at": r.created_at.timestamp()} for r in reversed(rows)]
@@ -257,7 +267,10 @@ def run_once() -> None:
             polled = source.poll(db)
             if polled is None:
                 continue  # the source is unreachable: no tick, and the next one starts fresh
-            _forget_gone(source, {scope.activity for scope, _ in polled})
+            # A source that ticks only what's due (her phone) says which activities are still live; otherwise
+            # what it polled is what's live.
+            live = source.live_activities() if hasattr(source, "live_activities") else None
+            _forget_gone(source, live if live is not None else {scope.activity for scope, _ in polled})
             for scope, payload in polled:
                 try:
                     tick(db, source, scope, payload, time.time())
@@ -289,15 +302,22 @@ def tick(db: Session | None, source: Source, scope: Scope, payload: Any, at: flo
     mind = _minds.setdefault(scope.activity, ActivityMind())
     now = datetime.fromtimestamp(at, timezone.utc)
     thinking = thinking_about(scope.key)
-    thoughts = recent_thoughts(db, source.thought_session(scope), now) if source.thought_session(scope) else []
+    if source.thought_session(scope):
+        thoughts = recent_thoughts(db, source.thought_session(scope), now)
+    else:
+        thoughts = activity_thoughts(db, scope, now) if db is not None else []
     moment = source.moment(db, scope, payload, mind.previous, at, thoughts=thoughts, thinking=thinking)
     mind.previous = source.previous(moment)
     mind.tick_no += 1
 
     gate, fallback, thinkers = _gates()
-    result = gate.decide(moment.text, source.gate_situation())
-    if result.error and fallback is not gate:
-        result = fallback.decide(moment.text, source.gate_situation())
+    if getattr(source, "gate_needs_news", False) and not moment.fresh:
+        # A source that sits unchanged for hours (her phone): nothing new isn't worth a model call.
+        result = g.GateResult("skipped", "none", reason="nothing new")
+    else:
+        result = gate.decide(moment.text, source.gate_situation())
+        if result.error and fallback is not gate:
+            result = fallback.decide(moment.text, source.gate_situation())
     raw = g.level_from(result, settings.mind_think_threshold)
     level = g.capped(raw, moment.pressure)
     note = None
@@ -322,7 +342,7 @@ def tick(db: Session | None, source: Source, scope: Scope, payload: Any, at: flo
             if level == "react":
                 mind.last_react_at, mind.last_danger = at, moment.danger
             action = level
-    if action == "none" and _quiet_due(mind, scope, moment, thinking, at):
+    if action == "none" and source.thinks_when_quiet() and _quiet_due(mind, scope, moment, thinking, at):
         _start_quick(mind, source, scope, "quiet", moment, at, thinkers and thinkers["light"])
         action = "quiet"
     if mind.user is None:
@@ -386,13 +406,15 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             said = None
             outcome = None
             saved = save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
-                                 text=thought.text, status=status, kind=thought.kind)
+                                 text=thought.text, status=status, kind=thought.kind, source=scope.source,
+                                 activity_id=scope.activity)
             if thought.say and status == "done":
                 from app.services import autonomous_speech
                 outcome = autonomous_speech.submit(
                     db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
                     event_id=saved.id, text=thought.say, reasons=[f"{level}: {thought.text}"],
-                    ttl=STALE_AFTER[level], **source.speaking(db, scope))
+                    ttl=source.say_ttl() if hasattr(source, "say_ttl") else STALE_AFTER[level],
+                    **source.speaking(db, scope))
             _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,

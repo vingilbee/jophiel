@@ -481,6 +481,13 @@ class Settings(BaseSettings):
     # A shadow source's thoughts go only here (never saved, said or shown). No shadow source runs today:
     # conversation is live (services/mind_conversation.py).
     mind_shadow_log_path: str = "var/mind_shadow.jsonl"
+    # Her phone as a source (services/mind_phone.py, services/phone_state.py): a tick whenever what the phone
+    # reports changes, and a heartbeat this often otherwise (time alone changes some of it). A phone that hasn't
+    # reported for PHONE_STATE_KEEP_HOURS is no longer ticked (what it last said stays readable, marked as old).
+    phone_tick_seconds: float = Field(default=60.0, ge=5, le=3600)
+    phone_state_keep_hours: float = Field(default=24.0, ge=1, le=720)
+    # How long a line one of her phone thoughts proposed may wait for her mind before it's no longer worth saying.
+    phone_say_ttl_seconds: float = Field(default=120.0, ge=10, le=3600)
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of a game pack's plan.

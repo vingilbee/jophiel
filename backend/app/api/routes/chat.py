@@ -160,7 +160,7 @@ from app.services import agent_say, memory_manager
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import mind_turn, presence, push, voice_target
+from app.services import mind_turn, phone_state, presence, push, voice_target
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -602,8 +602,12 @@ async def chat_ws(websocket: WebSocket) -> None:
 
     # Send an authoritative snapshot on every new/reconnected socket. REST
     # remains available as a fallback if the snapshot query fails.
+    history_conversation_id: uuid.UUID | None = None
     try:
-        await send_json(await asyncio.to_thread(read_history))
+        history = await asyncio.to_thread(read_history)
+        await send_json(history)
+        if history.get("conversation_id"):
+            history_conversation_id = uuid.UUID(history["conversation_id"])
     except Exception:
         logger.exception("WebSocket history bootstrap failed; using REST fallback")
 
@@ -1504,6 +1508,9 @@ async def chat_ws(websocket: WebSocket) -> None:
     # the conversation the user is looking at rather than an arbitrary one.
     last_conversation_id: uuid.UUID | None = None
     voice_conversation_id: uuid.UUID | None = None
+    # The phone fields this socket has sent since the app last went live (on screen or a call): only those does a
+    # live frame confirm as of now. A field stored from before (yesterday's place) stays as old as it is.
+    phone_live_fields: set[str] = set()
 
     def voice_open() -> bool:
         return (settings.voice_enabled and session.report.hearing_enabled
@@ -1723,7 +1730,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             # --- senses: the client describing itself ---
             if isinstance(message, SenseUpdateRequest):
-                fields = message.model_dump(exclude={"type", "client"})
+                fields = message.model_dump(exclude={"type", "client", "phone"})
                 fields["vision_enabled"] = (
                     fields["vision_enabled"] and settings.vision_enabled
                 )
@@ -1757,6 +1764,21 @@ async def chat_ws(websocket: WebSocket) -> None:
                     await asyncio.to_thread(report_presence)
                 except Exception:
                     logger.exception("Presence report failed")
+                if message_channel == "phone":
+                    # What the phone says about itself, and the conversation it's in (where her phone thoughts go).
+                    phone_fields = message.phone.fields() if message.phone else {}
+                    if session.report.visible or voice_open():
+                        phone_live_fields |= set(phone_fields) & set(phone_state.FIELDS)
+                    else:
+                        phone_live_fields.clear()
+                    try:
+                        await asyncio.to_thread(
+                            phone_state.report, user_id, phone_fields,
+                            conversation_id=voice_conversation_id or last_conversation_id or history_conversation_id,
+                            zone=message.timezone, observed_at=message.phone.observed_at if message.phone else None,
+                            confirm=frozenset(phone_live_fields))
+                    except Exception:
+                        logger.exception("Phone state report failed")
                 # Echo the derived state straight back rather than making the
                 # client wait up to a heartbeat to see its own change land.
                 with contextlib.suppress(Exception):

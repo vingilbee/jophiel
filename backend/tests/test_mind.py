@@ -294,7 +294,7 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
     mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert said == ["zombie, left!"]
     assert saved[-1] | {} == {"user_id": uid, "session_id": sid, "level": "react", "text": "zombie on my left",
-                              "status": "done", "kind": "next"}
+                              "status": "done", "kind": "next", "source": "minecraft", "activity_id": sid}
     monkeypatch.setattr(mind.time, "time", lambda: 110.0)  # landed 10 s late: a react is stale by then
     mind._think_quick(mind_minecraft.SOURCE, scope, "react", "tick", 100.0, Thinker("zombie, left!"))
     assert saved[-1]["status"] == "stale" and saved[-1].get("said") is None and len(said) == 1
