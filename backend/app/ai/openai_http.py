@@ -8,7 +8,13 @@ Two things the defaults get wrong for a conversation:
   worker covers by keeping its connections warm for a while after a turn (``workers/chat.py``).
 - **An async connection belongs to the event loop that opened it.** The async client here keeps one connection
   pool per running loop, so one cached client is safe to share between the chat worker's long-lived loop, the
-  API's loop and the ``asyncio.run`` loops of other workers; each reuses only its own connections.
+  API's loop and short-lived loops of other workers; each reuses only its own connections. A short-lived loop
+  runs under ``run`` (below), which closes that loop's pools before the loop ends: an idle pooled connection
+  holds its loop, so a pool left behind would keep its socket open for the worker's lifetime. Pools of loops
+  closed some other way are dropped the next time any pool is looked up.
+- **Proxies from the environment** (``HTTP(S)_PROXY``, ``ALL_PROXY``, ``NO_PROXY``): httpx reads them only when
+  it builds its own transport. The sync client keeps httpx's transport (only the limits change); the async
+  client mounts its per-loop pools along the same routes httpx would, read once when the client is built.
 - **A streamed reply's connection was never reused**: the SDK closes a stream with its last bytes unread
   (``_ReadTailOnClose``).
 """
@@ -16,8 +22,11 @@ from __future__ import annotations
 
 import asyncio
 import weakref
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 import httpx
+from httpx._utils import get_environment_proxies  # what httpx itself mounts when it builds its transport
 # The SDK imports its resources lazily, on first use. The chat worker's warm-up touches them from its own threads
 # while a turn may be doing the same: two threads importing one module at once can fail ("KeyError:
 # 'openai.resources'", the embedding lost for that turn). Imported here, once, when this module loads.
@@ -30,18 +39,28 @@ KEEPALIVE_SECONDS = 120.0
 LIMITS = httpx.Limits(max_connections=1000, max_keepalive_connections=100, keepalive_expiry=KEEPALIVE_SECONDS)
 
 
-class _PerLoopTransport(httpx.AsyncBaseTransport):
-    """One pooled transport per running event loop (a pool can't be used from another loop)."""
+T = TypeVar("T")
+_ALL: weakref.WeakSet[_PerLoopTransport] = weakref.WeakSet()
 
-    def __init__(self) -> None:
-        self._by_loop: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncHTTPTransport] = (
-            weakref.WeakKeyDictionary())
+
+class _PerLoopTransport(httpx.AsyncBaseTransport):
+    """One pooled transport per running event loop (a pool can't be used from another loop), direct or via
+    ``proxy``."""
+
+    def __init__(self, proxy: httpx.Proxy | None = None) -> None:
+        self._proxy = proxy
+        # A plain dict, not weak keys: a pooled connection references its loop, so a weak key would never go.
+        self._by_loop: dict[asyncio.AbstractEventLoop, httpx.AsyncHTTPTransport] = {}
+        _ALL.add(self)
 
     def _transport(self) -> httpx.AsyncHTTPTransport:
         loop = asyncio.get_running_loop()
         transport = self._by_loop.get(loop)
         if transport is None:
-            transport = self._by_loop[loop] = httpx.AsyncHTTPTransport(limits=LIMITS)
+            # Pools of loops already closed can't be closed from here; dropped, the collector closes their sockets.
+            for closed in [other for other in self._by_loop if other.is_closed()]:
+                del self._by_loop[closed]
+            transport = self._by_loop[loop] = httpx.AsyncHTTPTransport(limits=LIMITS, proxy=self._proxy)
         return transport
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -51,10 +70,28 @@ class _PerLoopTransport(httpx.AsyncBaseTransport):
         return response
 
     async def aclose(self) -> None:
-        loop = asyncio.get_running_loop()
-        transport = self._by_loop.pop(loop, None)
+        transport = self._by_loop.pop(asyncio.get_running_loop(), None)
         if transport is not None:
             await transport.aclose()
+
+
+async def close_loop_pools() -> None:
+    """Close the running loop's pools in every async client here (before a short-lived loop ends)."""
+    for per_loop in list(_ALL):
+        try:
+            await per_loop.aclose()
+        except Exception:  # noqa: BLE001 - closing is best effort; the rest still close
+            pass
+
+
+def run(main: Coroutine[Any, Any, T]) -> T:
+    """``asyncio.run`` for a short-lived loop that may call OpenAI: its connections are closed before it ends."""
+    async def wrapped() -> T:
+        try:
+            return await main
+        finally:
+            await close_loop_pools()
+    return asyncio.run(wrapped())
 
 
 class _ReadTailOnClose(httpx.AsyncByteStream):
@@ -94,8 +131,15 @@ class _ReadTailOnClose(httpx.AsyncByteStream):
 
 
 def sync_client() -> httpx.Client:
-    return DefaultHttpxClient(transport=httpx.HTTPTransport(limits=LIMITS))
+    # No transport of our own: httpx builds its transport and the environment's proxy routes with these limits.
+    return DefaultHttpxClient(limits=LIMITS)
 
 
 def async_client() -> httpx.AsyncClient:
-    return DefaultAsyncHttpxClient(transport=_PerLoopTransport())
+    # An explicit transport turns httpx's environment proxies off, so the same routes are mounted here, each a
+    # per-loop pool; ``NO_PROXY`` hosts map to None, which httpx sends through the default (direct) transport.
+    mounts: dict[str, httpx.AsyncBaseTransport | None] = {
+        pattern: None if url is None else _PerLoopTransport(httpx.Proxy(url=url))
+        for pattern, url in get_environment_proxies().items()
+    }
+    return DefaultAsyncHttpxClient(transport=_PerLoopTransport(), mounts=mounts)

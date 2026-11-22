@@ -74,6 +74,73 @@ def test_each_event_loop_gets_its_own_connection_pool():
     assert openai_http.LIMITS.keepalive_expiry == openai_http.KEEPALIVE_SECONDS > 5
 
 
+def test_a_short_lived_loop_closes_its_pools_before_it_ends():
+    transport = openai_http._PerLoopTransport()
+    closed = []
+
+    async def use():
+        pool = transport._transport()
+        original = pool.aclose
+
+        async def aclose():
+            closed.append(pool)
+            await original()
+        pool.aclose = aclose
+        return pool
+
+    pool = openai_http.run(use())
+    assert closed == [pool]  # closed on its own loop, before asyncio.run returned
+    assert transport._by_loop == {}  # nothing left holding that loop or its sockets
+
+
+def test_pools_of_loops_closed_elsewhere_are_dropped():
+    transport = openai_http._PerLoopTransport()
+
+    async def pool():
+        return transport._transport()
+
+    asyncio.run(pool())  # plain asyncio.run: its pool is left behind
+    assert len(transport._by_loop) == 1
+    asyncio.run(pool())
+    assert len(transport._by_loop) == 1  # the closed loop's pool went when the next was made
+
+
+def _route(client, url):
+    return client._transport_for_url(httpx.URL(url))
+
+
+def test_clients_route_through_the_environments_proxy_except_no_proxy_hosts(monkeypatch):
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+                 "http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+    monkeypatch.setenv("NO_PROXY", "localhost,.svc.local")
+
+    sync = openai_http.sync_client()
+    assert _route(sync, "https://api.openai.com/v1") is not sync._transport  # via the proxy
+    assert _route(sync, "https://memory.svc.local/x") is sync._transport  # NO_PROXY: direct
+    assert sync._transport._pool._keepalive_expiry == openai_http.KEEPALIVE_SECONDS
+
+    client = openai_http.async_client()
+    proxied = _route(client, "https://api.openai.com/v1")
+    assert isinstance(proxied, openai_http._PerLoopTransport) and proxied is not client._transport
+    assert proxied._proxy.url == httpx.URL("http://proxy.internal:3128")
+    assert _route(client, "https://memory.svc.local/x") is client._transport
+    assert _route(client, "http://localhost:8000/") is client._transport
+
+    async def pool():
+        return proxied._transport()
+    assert openai_http.run(pool())._pool._proxy_url is not None  # httpcore's proxy pool, per loop
+
+
+def test_without_proxy_settings_everything_goes_direct(monkeypatch):
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+                 "http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    client = openai_http.async_client()
+    assert _route(client, "https://api.openai.com/v1") is client._transport
+
+
 def test_a_job_on_the_long_lived_loop_leaves_nothing_running_but_the_keep_warm(monkeypatch):
     seen = {}
 
