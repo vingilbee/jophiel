@@ -38,6 +38,8 @@ class Result:
     outcome: str
     detail: str | None = None
     retry_after: float | None = None
+    # Ordinary pushes may retry. A one-shot action needs to know if the original send might have landed.
+    delivery_unknown: bool = False
 
 
 def _b64(data: bytes) -> str:
@@ -97,7 +99,8 @@ def configured() -> bool:
     return bool(get_settings().fcm_service_account_file)
 
 
-def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None = None) -> Result:
+def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None = None,
+         ttl_seconds: int | None = None) -> Result:
     """Send one data-only message to one device. Never raises for provider errors: the result says what to
     do next."""
     own = client is None
@@ -108,15 +111,18 @@ def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None
             project = _credentials.project_id()
         except NotConfigured as exc:
             return Result("failed", str(exc))
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
+        except (httpx.HTTPError, KeyError, ValueError, OSError) as exc:
             return Result("retry", f"FCM credentials: {exc}", 60.0)
         message = {"message": {"token": device_token, "data": {k: str(v) for k, v in data.items()},
                                "android": {"priority": "HIGH"}}}
+        if ttl_seconds is not None:
+            message["message"]["android"]["ttl"] = f"{ttl_seconds}s"
         try:
             response = client.post(f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
                                    headers={"Authorization": f"Bearer {access}"}, json=message)
         except httpx.HTTPError as exc:
-            return Result("retry", f"FCM unreachable: {exc}")
+            before_send = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout))
+            return Result("retry", f"FCM unreachable: {exc}", delivery_unknown=not before_send)
         return _result(response)
     finally:
         if own:
@@ -148,7 +154,7 @@ def _result(response: httpx.Response) -> Result:
             wait = float(retry_after) if retry_after else None
         except ValueError:
             wait = None
-        return Result("retry", detail, wait)
+        return Result("retry", detail, wait, delivery_unknown=response.status_code in (502, 504))
     return Result("failed", detail)
 
 

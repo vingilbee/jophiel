@@ -236,6 +236,8 @@ class Settings(BaseSettings):
     fcm_project_id: str | None = None
     # How long a push waits before it's re-checked (presence, spoken aloud) and sent.
     push_delay_seconds: float = 3.0
+    # Server-only key for Routes, Places (New), and Geocoding.
+    google_maps_api_key: str | None = None
 
     # --- WhatsApp Cloud API ---
     # The webhook is inert until all required credentials are configured.

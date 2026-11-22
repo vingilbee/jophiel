@@ -26,7 +26,7 @@ from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
 from app.core.config import get_settings
 from app.db.models import ChatMessage, Conversation
-from app.services import phone_state
+from app.services import phone_actions, phone_state
 
 NAME = "phone"
 PHONE = Situation(
@@ -171,26 +171,28 @@ class PhoneSource:
     def enabled(self) -> bool:
         return True
 
-    def poll(self, db: Session) -> list[tuple[Scope, Any]] | None:
-        """Users whose phone is due a tick: what it reports changed (checked every loop, Redis only), or its
-        heartbeat came round."""
+    def poll(self, db: Session | None) -> list[tuple[Scope, Any]] | None:
+        """Users whose phone is due a tick after a state change, a late action outcome, or its heartbeat."""
         import time
 
         now = time.time()
         every = get_settings().phone_tick_seconds
         out = []
         live = set()
-        for user_id in phone_state.users(now=now):
+        action_news = phone_actions.pending_news(db) if db is not None else {}
+        for user_id in set(phone_state.users(now=now)) | action_news.keys():
             live.add(user_id)
             state = phone_state.read(user_id, now=now)
-            if state is None:
+            updates = action_news.get(user_id, [])
+            if state is None and not updates:
                 continue
+            state = state or phone_state.PhoneState()
             seen = self._seen.get(user_id)
             current = snapshot(state)
-            if seen is not None and seen[0] == current and now - seen[1] < every:
+            if not updates and seen is not None and seen[0] == current and now - seen[1] < every:
                 continue
             self._seen[user_id] = (current, now)
-            out.append((scope_of(user_id), state))
+            out.append((scope_of(user_id), (state, updates) if updates else state))
         for user_id in list(self._seen):
             if user_id not in live:
                 self._seen.pop(user_id, None)
@@ -206,14 +208,14 @@ class PhoneSource:
                thoughts: list[dict], thinking: str | None) -> Moment:
         from app.services import mind_ticks
 
-        state: phone_state.PhoneState = payload
+        state, action_news = payload if isinstance(payload, tuple) else (payload, [])
         zone = _zone(state)
         local = datetime.fromtimestamp(at, zone or timezone.utc)
         theirs = _last_message_at(db, scope.user_id, "user")
         hers = _last_message_at(db, scope.user_id, "assistant")
         current = {**snapshot(state), "part_of_day": part_of_day(local.hour),
                    "quiet": quiet_band(at - theirs if theirs is not None else None)}
-        fresh = news(current, previous, state)
+        fresh = [*(text for _, text in action_news), *news(current, previous, state)]
         talk = mind_ticks.recent_talk(db, scope.user_id, datetime.fromtimestamp(at, timezone.utc)) if db else []
 
         text = [f"TIME\n- {local:%H:%M} on {local:%A %d %B}, {current['part_of_day']}"
@@ -242,13 +244,13 @@ class PhoneSource:
         changed = [k for k in current if previous is not None and current.get(k) != previous.get(k)]
         return Moment("\n\n".join(text), "calm", fresh, changed, "; ".join(fresh)[:200], can_act=False,
                       talk=talk, capture=lambda: {**snapshot(state), "_user": scope.user_id},
-                      data={"snapshot": current})
+                      data={"snapshot": current, "action_news": [activity_id for activity_id, _ in action_news]})
 
     def previous(self, moment: Moment) -> Any:
         return moment.data["snapshot"]
 
     def after_tick(self, scope: Scope, moment: Moment, number: int, decision: dict) -> None:
-        return None
+        phone_actions.acknowledge_news(moment.data["action_news"])
 
     def gate_situation(self) -> Situation:
         return PHONE

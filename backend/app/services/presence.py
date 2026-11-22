@@ -113,7 +113,8 @@ def phone_app(user_id: uuid.UUID | str, *, now: float | None = None) -> dict | N
 
 
 def report(user_id: uuid.UUID | str, socket_id: uuid.UUID | str, *, client: str, visible: bool | None,
-           last_active_at: float | None, voice_live: bool, now: float | None = None) -> bool:
+           last_active_at: float | None, voice_live: bool, now: float | None = None,
+           phone_session_hash: str | None = None) -> bool:
     """Record this socket's state. True when this made the user present where they weren't before (time to
     take the phone's notifications down)."""
     redis_client = _client()
@@ -122,6 +123,8 @@ def report(user_id: uuid.UUID | str, socket_id: uuid.UUID | str, *, client: str,
     now = time.time() if now is None else now
     entry = {"client": client, "visible": bool(visible), "last_active_at": last_active_at,
              "voice_live": bool(voice_live), "expires": now + ENTRY_SECONDS}
+    if client == "phone" and phone_session_hash is not None:
+        entry.update(phone_session_hash=phone_session_hash, socket_id=str(socket_id))
     try:
         key = _key(user_id)
         stored = redis_client.hgetall(key) or {}
@@ -135,6 +138,21 @@ def report(user_id: uuid.UUID | str, socket_id: uuid.UUID | str, *, client: str,
     except redis.RedisError:
         logger.warning("presence: could not record socket %s", socket_id)
         return False
+
+
+def action_socket(user_id: uuid.UUID) -> tuple[str, str] | None:
+    """The newest known live phone connection that can receive an action."""
+    client = _client()
+    if client is None:
+        return None
+    now = time.time()
+    candidates = [entry for entry in _entries(client, user_id)
+                  if entry.get("phone_session_hash") and entry["expires"] >= now]
+    if not candidates:
+        return None
+    phone = max(candidates, key=lambda entry: (entry.get("last_active_at") or entry["expires"] - ENTRY_SECONDS,
+                                               entry["expires"], entry["socket_id"]))
+    return phone["phone_session_hash"], phone["socket_id"]
 
 
 def leave(user_id: uuid.UUID | str, socket_id: uuid.UUID | str) -> None:

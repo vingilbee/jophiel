@@ -503,6 +503,21 @@ class PhoneDevice(Base, TimestampMixin):
         DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class PhoneActivity(Base, TimestampMixin):
+    """A quiet conversation entry about a phone action."""
+
+    __tablename__ = "phone_activity"
+    __table_args__ = (
+        Index("ix_phone_activity_mind_pending", "created_at", postgresql_where=text("mind_pending")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    mind_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+
+
 class PushDelivery(Base, TimestampMixin):
     """Transactional outbox for phone pushes (services/push.py, workers/push.py).
 

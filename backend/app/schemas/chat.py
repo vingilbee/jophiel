@@ -18,7 +18,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from app.schemas.phone import PhoneStateReport
+from app.schemas.phone import PhoneActionResultFrame, PhoneStateReport
 
 
 class ChatRunRequest(BaseModel):
@@ -235,7 +235,8 @@ ChatWSMessage = Annotated[
     | VoiceHeardReport
     | VoiceEndRequest
     | VoiceCancelRequest
-    | VoiceLatencyReport,
+    | VoiceLatencyReport
+    | PhoneActionResultFrame,
     Field(discriminator="type"),
 ]
 chat_ws_message_adapter: TypeAdapter[ChatWSMessage] = TypeAdapter(ChatWSMessage)
@@ -247,6 +248,7 @@ class ChatMessageOut(BaseModel):
     id: uuid.UUID
     turn_id: uuid.UUID | None = None
     role: Literal["user", "assistant"]
+    kind: Literal["phone_activity"] | None = None
     content: str
     status: Literal["completed", "partial", "cancelled", "failed"] = "completed"
     source_channel: Literal["web", "whatsapp", "system", "phone"] = "web"

@@ -5,16 +5,23 @@ Bearer-authenticated phone sessions only (``POST /api/auth/token``): the device 
 registered it and is deleted with it (sign-out, ``DELETE``). Business logic is in services/phone_devices.py.
 """
 from dataclasses import dataclass
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import bearer_token, get_current_user, validate_origin
+from app.core.limiter import limiter
 from app.db.models import PhoneDevice, User
 from app.db.session import get_db
-from app.schemas.phone import DeviceOut, DeviceRegister, DeviceUpdate, PhoneStateOut, PhoneStateReport
+from app.schemas.phone import (
+    DeviceOut, DeviceRegister, DeviceUpdate, PhoneActionResult, PhoneActionResultFrame, PhonePlaceOut,
+    PhoneStateOut, PhoneStateReport,
+)
 from app.services import auth as auth_service
-from app.services import phone_devices, phone_state
+from app.services import google_maps, phone_actions, phone_devices, phone_state
 
 router = APIRouter(prefix="/phone", tags=["phone"])
 
@@ -70,8 +77,54 @@ def delete_device(db: Session = Depends(get_db), session: PhoneSession = Depends
 
 
 @router.put("/state", response_model=PhoneStateOut, dependencies=[Depends(validate_origin)])
-def report_state(payload: PhoneStateReport, session: PhoneSession = Depends(phone_session)) -> PhoneStateOut:
+def report_state(payload: PhoneStateReport, session: PhoneSession = Depends(phone_session),
+                 db: Session = Depends(get_db)) -> PhoneStateOut:
     """What the phone says about itself (only the fields sent change): from the background, where there's no
     socket. While the app is open the same fields ride on its ``sense`` frames."""
     changed = phone_state.report(session.user.id, payload.fields(), observed_at=payload.observed_at)
+    phone_devices.mark_seen(db, session.user.id, auth_service.session_key_hash(session.token))
     return PhoneStateOut(changed=changed)
+
+
+@router.post("/actions/{action_id}/result", status_code=status.HTTP_204_NO_CONTENT)
+async def post_action_result(
+    action_id: UUID, request: Request, session: PhoneSession = Depends(phone_session),
+) -> None:
+    # Validate locally so a rejected payload is never echoed in FastAPI's automatic validation response.
+    # Accept the same envelope as the socket as well as the status/reason/data body.
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and ("type" in body or "action_id" in body):
+            payload = PhoneActionResultFrame.model_validate(body)
+            if payload.action_id != action_id:
+                raise ValueError
+        else:
+            payload = PhoneActionResult.model_validate(body)
+    except (ValidationError, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid phone action result") from None
+    try:
+        accepted = await run_in_threadpool(
+            phone_actions.accept_result, session.user.id, auth_service.session_key_hash(session.token),
+            action_id, payload,
+        )
+    except phone_actions.InvalidResult:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid phone action result") from None
+    except phone_actions.ResultUnavailable:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Phone action result unavailable") from None
+    if not accepted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Phone action not found")
+
+
+@router.get("/places/search", response_model=list[PhonePlaceOut])
+@limiter.limit("30/minute")
+def search_places(request: Request, response: Response, q: str = Query(min_length=1, max_length=300),
+                  session: PhoneSession = Depends(phone_session)) -> list[PhonePlaceOut]:
+    query = q.strip()
+    if not query:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter a place or an address")
+    try:
+        places = google_maps.search(query)
+    except google_maps.MapsUnavailable:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Maps is unavailable right now") from None
+    return [PhonePlaceOut(name=place.name, address=place.address, lat=place.point[0], lng=place.point[1])
+            for place in places]
