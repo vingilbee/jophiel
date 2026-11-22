@@ -52,6 +52,7 @@ from app.ai.tools.security import build_security_tools
 from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
 from app.ai.tools.mind import build_mind_tools
+from app.ai.tools.phone import build_phone_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -259,6 +260,9 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
                                                         conversation_id=context.conversation_id,
                                                         message_id=context.source_message_id))
         hook = screenshot_hook
+    if (settings.redis_url and context.source_message_id is not None and context.conversation_id is not None
+            and context.game_event is None and context.nudge is None and context.wake is None):
+        direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id))
     # Her desktop's security records: read only, so on follow-ups too (she checks before presenting a finding as
     # current); never on game-event turns.
     if context.security is not None and context.game_event is None:

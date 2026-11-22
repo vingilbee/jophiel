@@ -5,6 +5,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import redis as redis_lib
@@ -419,7 +420,7 @@ def test_the_rest_endpoint_records_a_background_report(redis):
     from app.api.routes import phone as phone_route
 
     session = SimpleNamespace(user=SimpleNamespace(id=USER), token="t")
-    out = phone_route.report_state(PhoneStateReport(screen="on", locked=False), session=session)
+    out = phone_route.report_state(PhoneStateReport(screen="on", locked=False), session=session, db=Mock())
     assert out.changed == ["screen", "locked"]
     assert phone_state.read(USER).get("locked") is False
 
@@ -441,6 +442,9 @@ def test_a_phone_between_ticks_keeps_what_the_next_tick_compares_against(redis, 
 
         def rollback(self):
             pass
+
+        def execute(self, _statement):
+            return []
 
     monkeypatch.setattr(mind, "SessionLocal", Db)
     monkeypatch.setattr(mind, "prune", lambda db: 0)

@@ -97,7 +97,8 @@ def configured() -> bool:
     return bool(get_settings().fcm_service_account_file)
 
 
-def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None = None) -> Result:
+def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None = None,
+         ttl_seconds: int | None = None) -> Result:
     """Send one data-only message to one device. Never raises for provider errors: the result says what to
     do next."""
     own = client is None
@@ -112,6 +113,8 @@ def send(device_token: str, data: dict[str, str], *, client: httpx.Client | None
             return Result("retry", f"FCM credentials: {exc}", 60.0)
         message = {"message": {"token": device_token, "data": {k: str(v) for k, v in data.items()},
                                "android": {"priority": "HIGH"}}}
+        if ttl_seconds is not None:
+            message["message"]["android"]["ttl"] = f"{ttl_seconds}s"
         try:
             response = client.post(f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
                                    headers={"Authorization": f"Bearer {access}"}, json=message)

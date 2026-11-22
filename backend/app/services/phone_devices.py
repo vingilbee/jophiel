@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update as sql_update
 from sqlalchemy.orm import Session
 
 from app.db.models import PhoneDevice
@@ -18,6 +18,21 @@ from app.services import auth as auth_service
 
 def for_session(db: Session, token: str) -> PhoneDevice | None:
     return db.scalar(select(PhoneDevice).where(PhoneDevice.session_hash == auth_service.session_key_hash(token)))
+
+
+def action_device(db: Session, user_id: uuid.UUID, session_hash: str | None) -> PhoneDevice | None:
+    query = select(PhoneDevice).where(PhoneDevice.user_id == user_id)
+    if session_hash is not None:
+        query = query.where(PhoneDevice.session_hash == session_hash)
+    devices = db.scalars(query.order_by(PhoneDevice.last_seen_at.desc(), PhoneDevice.id))
+    return next((device for device in devices if auth_service.session_alive(device.session_hash)), None)
+
+
+def mark_seen(db: Session, user_id: uuid.UUID, session_hash: str) -> None:
+    db.execute(sql_update(PhoneDevice).where(
+        PhoneDevice.user_id == user_id, PhoneDevice.session_hash == session_hash
+    ).values(last_seen_at=func.now()))
+    db.commit()
 
 
 def register(db: Session, *, user_id: uuid.UUID, token: str, fcm_token: str,

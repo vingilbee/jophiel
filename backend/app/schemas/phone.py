@@ -57,3 +57,32 @@ class PhoneStateReport(BaseModel):
 
 class PhoneStateOut(BaseModel):
     changed: list[str]
+
+
+class PhoneActionData(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    lat: float = Field(ge=-90, le=90, strict=True, repr=False)
+    lng: float = Field(ge=-180, le=180, strict=True, repr=False)
+    accuracy_m: float | None = Field(default=None, ge=0, repr=False)
+    fix_at: datetime | None = Field(default=None, repr=False)
+
+
+class PhoneActionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["done", "notified", "refused", "expired", "failed"]
+    reason: str | None = Field(default=None, max_length=80, repr=False)
+    data: PhoneActionData | None = Field(default=None, repr=False)
+
+
+class PhoneActionResultFrame(PhoneActionResult):
+    type: Literal["phone_action_result"]
+    action_id: uuid.UUID
+
+
+class PhonePlaceOut(BaseModel):
+    name: str
+    address: str
+    lat: float
+    lng: float

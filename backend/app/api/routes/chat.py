@@ -120,6 +120,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -137,6 +138,7 @@ from app.core.config import get_settings
 from app.db.models import ChatJob, User
 from app.db.session import SessionLocal, get_db
 from app.schemas.chat import (
+    ChatMessageOut,
     ChatRunRequest,
     ChatStopRequest,
     ConversationDetailOut,
@@ -152,6 +154,7 @@ from app.schemas.chat import (
     VoiceStartRequest,
     chat_ws_message_adapter,
 )
+from app.schemas.phone import PhoneActionResultFrame
 from app.services import asset_store, desktop_control, google_account, image_store, salience, security_activity
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
@@ -160,7 +163,7 @@ from app.services import agent_say, memory_manager
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import mind_turn, phone_state, presence, push, voice_target
+from app.services import mind_turn, phone_actions, phone_devices, phone_state, presence, push, voice_target
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -416,6 +419,7 @@ def list_conversations(
 )
 def get_conversation(
     conversation_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -427,6 +431,12 @@ def get_conversation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
+    token = bearer_token(request.headers)
+    if token and (auth_service.get_session(token) or {}).get("client") == auth_service.PHONE_CLIENT:
+        detail = ConversationDetailOut.model_validate(conversation)
+        detail.messages.extend(phone_actions.history(db, conversation_id))
+        detail.messages.sort(key=lambda message: message.created_at)
+        return detail
     return conversation
 
 
@@ -477,6 +487,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     # Where this socket's messages come from: the session says, never a frame.
     session_client = (record or {}).get("client") or "web"
     message_channel = "phone" if session_client == auth_service.PHONE_CLIENT else "web"
+    phone_session_hash = auth_service.session_key_hash(token) if message_channel == "phone" else None
 
     # Resolve the session to a user before accepting the socket.
     user_id: uuid.UUID | None = None
@@ -500,6 +511,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 
     connected = True
     session_revoked = False
+    phone_action_ready = False
 
     def session_is_valid() -> bool:
         db = SessionLocal()
@@ -570,6 +582,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                 if conversation is not None
                 else None
             )
+            messages = detail.messages if detail else []
+            if detail is not None and phone_session_hash is not None:
+                messages = [ChatMessageOut.model_validate(message) for message in messages]
+                messages.extend(phone_actions.history(db, detail.id))
+                messages.sort(key=lambda message: message.created_at)
             return {
                 "type": "history",
                 "conversation_id": str(conversation.id) if conversation else None,
@@ -578,6 +595,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         "id": str(message.id),
                         "turn_id": str(message.turn_id) if message.turn_id else None,
                         "role": message.role,
+                        **({"kind": message.kind} if getattr(message, "kind", None) else {}),
                         "content": message.content,
                         "status": message.status,
                         "source_channel": message.source_channel,
@@ -587,7 +605,7 @@ async def chat_ws(websocket: WebSocket) -> None:
                         "image_ids": message.image_ids,
                         "asset_ids": message.asset_ids,
                     }
-                    for message in (detail.messages if detail else [])
+                    for message in messages
                 ],
             }
         finally:
@@ -932,6 +950,11 @@ async def chat_ws(websocket: WebSocket) -> None:
                     # spoken and never a message, so it doesn't wait for a reply to finish.
                     if sees_thoughts:
                         await send_json({"type": "thought", "thought": data.get("thought")})
+                    continue
+                if data.get("kind") == "phone_activity":
+                    if phone_session_hash is not None:
+                        data["type"] = data.pop("kind")
+                        await send_json(data)
                     continue
                 if target_socket := data.get("voice_socket_id"):
                     if target_socket != str(voice_socket_id) or data["conversation_id"] != str(voice_conversation_id):
@@ -1522,15 +1545,38 @@ async def chat_ws(websocket: WebSocket) -> None:
         report = session.report
         active = report.last_active_at
         active_at = min(time.time(), active.timestamp()) if active is not None else None
+        action_presence = {"phone_session_hash": phone_session_hash} if phone_action_ready else {}
         became_present = presence.report(user_id, voice_socket_id, client=message_channel,
                                          visible=report.visible, last_active_at=active_at,
-                                         voice_live=voice_open())
+                                         voice_live=voice_open(), **action_presence)
         if became_present:
             db = SessionLocal()
             try:
                 push.schedule_clear(db, user_id=user_id)
             finally:
                 db.close()
+
+    async def deliver_phone_actions() -> None:
+        nonlocal phone_action_ready
+        if phone_session_hash is None or not settings.redis_url:
+            return
+        import redis.asyncio as aioredis
+        from redis import RedisError
+
+        try:
+            async with aioredis.from_url(settings.redis_url, socket_connect_timeout=2) as client:
+                async with client.pubsub() as pubsub:
+                    await pubsub.subscribe(phone_actions.socket_channel(voice_socket_id))
+                    async for message in pubsub.listen():
+                        if message["type"] == "subscribe":
+                            phone_action_ready = True
+                            await asyncio.to_thread(report_presence)
+                        elif message["type"] == "message" and await check_session():
+                            await send_json(json.loads(message["data"]))
+        except RedisError:
+            logger.warning("Phone action socket subscription interrupted")
+        finally:
+            phone_action_ready = False
 
     # Open-utterance state, reset on voice_start / voice_end / voice_cancel.
     utterance: bytearray | None = None
@@ -1632,6 +1678,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     # so this is UTC and senses-off) and keep it ticking for the clock.
     heartbeat_task = asyncio.create_task(heartbeat())
     agent_messages_task = asyncio.create_task(deliver_agent_messages())
+    phone_actions_task = asyncio.create_task(deliver_phone_actions())
     with contextlib.suppress(Exception):
         await push_state()
 
@@ -1700,6 +1747,15 @@ async def chat_ws(websocket: WebSocket) -> None:
                 message = chat_ws_message_adapter.validate_json(raw_text)
             except (ValueError, ValidationError):
                 await send_json({"type": "error", "detail": "Invalid message payload."})
+                continue
+
+            if isinstance(message, PhoneActionResultFrame):
+                if phone_session_hash is not None:
+                    try:
+                        await asyncio.to_thread(phone_actions.accept_result, user_id, phone_session_hash,
+                                                message.action_id, message)
+                    except (phone_actions.InvalidResult, phone_actions.ResultUnavailable):
+                        await send_json({"type": "phone_action_result_error", "action_id": str(message.action_id)})
                 continue
 
             # --- stop / barge-in ---
@@ -1974,8 +2030,18 @@ async def chat_ws(websocket: WebSocket) -> None:
         connected = False
         heartbeat_task.cancel()
         agent_messages_task.cancel()
+        phone_actions_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await phone_actions_task
         with contextlib.suppress(Exception):
             await asyncio.to_thread(presence.leave, user_id, voice_socket_id)
+        if phone_session_hash is not None and not session_revoked:
+            with contextlib.suppress(Exception):
+                def mark_phone_seen():
+                    with SessionLocal() as db:
+                        phone_devices.mark_seen(db, user_id, phone_session_hash)
+
+                await asyncio.to_thread(mark_phone_seen)
         if voice_conversation_id is not None:
             await asyncio.to_thread(voice_target.refresh, user_id, voice_socket_id, False)
         with contextlib.suppress(asyncio.CancelledError, Exception):
