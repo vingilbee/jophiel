@@ -40,7 +40,6 @@ PHONE = Situation(
     },
 )
 QUIET_BANDS = ((12 * 3600, "12 h"), (6 * 3600, "6 h"), (3 * 3600, "3 h"), (3600, "1 h"))
-STALE_REPORT_SECONDS = 30 * 60
 TALK_LINES = 4
 
 
@@ -121,9 +120,16 @@ def news(now: dict[str, Any], before: dict[str, Any] | None, state: phone_state.
     if now.get("motion") != before.get("motion") and now.get("motion") is not None:
         out.append({"still": "Stopped moving", "vehicle": "Now in a vehicle"}.get(now["motion"],
                                                                                   f"Started {now['motion']}"))
-    if now.get("place") != before.get("place") and "place" in state.values:
-        place, was = now.get("place"), before.get("place")
-        out.append(f"Arrived at {place}" if place else f"Left {was}" if was else "Not at a named place")
+    # ``place``: a named place, AWAY (the phone confirmed they left every named place), or None (unknown: location
+    # off or unavailable). Losing sight of where they are is never news: only a confirmed departure is "Left".
+    if now.get("place") != before.get("place") and now.get("place") is not None:
+        place, was = now["place"], before.get("place")
+        if place != phone_state.AWAY:
+            out.append(f"Arrived at {place}")
+        elif was is not None and was != phone_state.AWAY:
+            out.append(f"Left {was}")
+        else:
+            out.append("Not at any of their named places")
     if moved("part_of_day"):
         out.append(f"It's {now['part_of_day']} now")
     if moved("quiet"):

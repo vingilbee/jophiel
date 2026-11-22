@@ -29,7 +29,7 @@ class DeviceOut(BaseModel):
 
 class PhoneStateReport(BaseModel):
     """What the phone says about itself (services/phone_state.py). Partial: only the fields sent are reported, an
-    explicit null means "no longer known" (no place, motion unknown). Descriptive only, like every sense: it shapes
+    explicit null means "no longer known" (motion unknown, location off; a confirmed departure is ``place: "away"``). Descriptive only, like every sense: it shapes
     what she knows, never what she's allowed to do. ``observed_at``: when the phone saw it (a batch sent late from
     the background), clamped by the server."""
 
@@ -45,7 +45,8 @@ class PhoneStateReport(BaseModel):
     dnd: bool | None = None
     ringer: Literal["normal", "vibrate", "silent"] | None = None
     motion: Literal["still", "walking", "running", "cycling", "vehicle"] | None = None
-    # A named place the user set on the phone ("home", "work"), never coordinates.
+    # A named place the user set on the phone ("home", "work"), never coordinates. "away": the phone confirmed
+    # they're at none of their named places (left home); null: where they are isn't known (location off).
     place: str | None = Field(default=None, max_length=60)
     observed_at: datetime | None = None
 

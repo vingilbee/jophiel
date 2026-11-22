@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+import redis as redis_lib
 from pydantic import ValidationError
 
 from app.ai.mind import gates as g
@@ -15,12 +16,49 @@ from app.schemas.phone import PhoneStateReport
 from app.services import mind, mind_hard, mind_phone, phone_state, presence
 
 
+class FakePipeline:
+    """WATCH / MULTI / EXEC as Redis does them: commands before ``multi`` run at once, after it they're queued, and
+    ``execute`` fails with WatchError when a watched key was written since it was watched."""
+
+    def __init__(self, fake):
+        self.fake, self.watched, self.queued = fake, {}, None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def watch(self, key):
+        self.watched[key] = self.fake.versions.get(key, 0)
+
+    def multi(self):
+        self.queued = []
+
+    def __getattr__(self, name):
+        command = getattr(self.fake, name)
+        if self.queued is None:
+            return command
+        return lambda *a, **kw: self.queued.append((command, a, kw))
+
+    def execute(self):
+        if any(self.fake.versions.get(key, 0) != seen for key, seen in self.watched.items()):
+            raise redis_lib.WatchError("watched key changed")
+        return [command(*a, **kw) for command, a, kw in self.queued]
+
+
 class FakeRedis:
     def __init__(self):
         self.hashes: dict[str, dict[str, str]] = {}
         self.lists: dict[str, list[str]] = {}
+        self.versions: dict[str, int] = {}
+        self.on_read = None  # a hook run once inside the next hgetall (another report landing meanwhile)
+
+    def pipeline(self):
+        return FakePipeline(self)
 
     def hset(self, key, field=None, value=None, mapping=None):
+        self.versions[key] = self.versions.get(key, 0) + 1
         target = self.hashes.setdefault(key, {})
         if mapping:
             target.update(mapping)
@@ -28,7 +66,11 @@ class FakeRedis:
             target[field] = value
 
     def hgetall(self, key):
-        return dict(self.hashes.get(key, {}))
+        seen = dict(self.hashes.get(key, {}))
+        hook, self.on_read = self.on_read, None
+        if hook is not None:
+            hook()
+        return seen
 
     def hdel(self, key, *fields):
         for f in fields:
@@ -84,9 +126,29 @@ def test_unknown_fields_are_ignored_and_a_late_older_observation_never_wins(redi
     late = datetime.fromtimestamp(NOW - 300, timezone.utc)  # seen before the report that's already in
     assert phone_state.report(USER, {"place": "work"}, observed_at=late, now=NOW + 10) == []
     assert phone_state.read(USER).get("place") == "home"
-    # An observed_at in the future or more than a day old is taken as now.
+    # An observed_at in the future is taken as now; a late one keeps its own time, however late.
     assert phone_state._observed(datetime.fromtimestamp(NOW + 99, timezone.utc), NOW) == NOW
-    assert phone_state._observed(datetime.fromtimestamp(NOW - 2 * 86400, timezone.utc), NOW) == NOW
+    assert phone_state._observed(datetime.fromtimestamp(NOW - 2 * 86400, timezone.utc), NOW) == NOW - 2 * 86400
+
+
+def test_a_report_queued_for_more_than_a_day_never_overwrites_a_newer_one(redis):
+    # Yesterday's "unplugged", held offline, arrives after today's "charging": today's stands, nothing changed.
+    assert phone_state.report(USER, {"charging": True}, now=NOW) == ["charging"]
+    yesterday = datetime.fromtimestamp(NOW - 30 * 3600, timezone.utc)
+    assert phone_state.report(USER, {"charging": False}, observed_at=yesterday, now=NOW + 60) == []
+    assert phone_state.read(USER).get("charging") is True
+    assert redis.lists[phone_state.MIND_WAKEUPS] == ["phone"]
+
+
+def test_two_reports_at_once_never_roll_a_field_back(redis):
+    # The socket reads the hash with an older "unplugged"; before it writes, the REST endpoint lands a newer
+    # "charging". The socket's write must notice, read again, and lose to the newer observation.
+    older = datetime.fromtimestamp(NOW - 60, timezone.utc)
+    newer = datetime.fromtimestamp(NOW - 10, timezone.utc)
+    redis.on_read = lambda: phone_state.report(USER, {"charging": True}, observed_at=newer, now=NOW)
+    assert phone_state.report(USER, {"charging": False}, observed_at=older, now=NOW) == []
+    state = phone_state.read(USER)
+    assert state.get("charging") is True and state.since("charging") == NOW - 10
 
 
 def test_explicit_null_clears_and_the_app_comes_from_presence(redis):
@@ -121,11 +183,36 @@ def test_describe_says_how_old_it_is(redis):
     phone_state.report(USER, {"battery": 18, "charging": False, "network": "wifi", "wifi_name": "Home",
                               "motion": "walking", "place": "home"}, now=NOW)
     text = "\n".join(phone_state.describe(phone_state.read(USER, now=NOW + 5), NOW + 5))
-    assert "reported just now" in text and "Battery: 18%, not charging (for 5 s)" in text
+    assert "Last heard from the phone just now" in text and "Battery: 18%, not charging (for 5 s)." in text
     assert 'Wi-Fi "Home"' in text and "walking" in text and "Place: home" in text
     stale = "\n".join(phone_state.describe(phone_state.read(USER), NOW + 3600))
-    assert "last reported 1 h ago: what it said may no longer be true" in stale
+    assert "Last heard from the phone 1 h ago." in stale
+    assert "Battery: 18%, not charging (for 1 h); last confirmed 1 h ago, may no longer be true." in stale
     assert phone_state.describe(None, NOW) == []
+
+
+def test_an_empty_frame_never_makes_an_old_reading_look_current(redis):
+    # Yesterday's battery, then a background place report and an empty frame from a socket not watching: the
+    # phone is in touch now, but the battery is still a day old and said to be.
+    phone_state.report(USER, {"battery": 40, "charging": False}, now=NOW)
+    phone_state.report(USER, {"place": "home"}, now=NOW + 86400)
+    phone_state.report(USER, {}, now=NOW + 86400 + 30)
+    text = "\n".join(phone_state.describe(phone_state.read(USER), NOW + 86400 + 30))
+    assert "Last heard from the phone just now." in text
+    assert "Battery: 40%, not charging (for 1 d); last confirmed 1 d ago, may no longer be true." in text
+    assert "Place: home (for 30 s)." in text
+
+
+def test_a_live_frame_confirms_every_field_the_phone_watches(redis):
+    # App on screen: the phone watches every field and sends only changes, so an empty frame confirms them all.
+    phone_state.report(USER, {"battery": 40, "headphones": True}, now=NOW)
+    assert phone_state.report(USER, {}, live=True, now=NOW + 7200) == []
+    state = phone_state.read(USER)
+    assert state.values["headphones"].as_of == NOW + 7200 and state.since("headphones") == NOW
+    assert "may no longer be true" not in "\n".join(phone_state.describe(state, NOW + 7200))
+    # Confirmed live, an older background event arriving late doesn't overturn it.
+    late = datetime.fromtimestamp(NOW + 3600, timezone.utc)
+    assert phone_state.report(USER, {"headphones": False}, observed_at=late, now=NOW + 7300) == []
 
 
 def test_the_report_schema_is_partial_and_strict():
@@ -163,10 +250,20 @@ def test_what_a_person_would_notice_is_news():
     state = state_with(battery=23, charging=True, place="home")
     lines = mind_phone.news(snap(app="open", locked=False, charging=True), snap(), state)
     assert lines == ["They opened the Jophiel app", "They unlocked their phone", "Plugged in to charge (battery 23%)"]
-    assert mind_phone.news(snap(place=None), snap(place="home"), state_with(place=None)) == ["Left home"]
+    assert mind_phone.news(snap(place="away"), snap(place="home"), state_with(place="away")) == ["Left home"]
+    assert mind_phone.news(snap(place="work"), snap(place="away"), state_with(place="work")) == ["Arrived at work"]
     assert mind_phone.news(snap(place="work"), snap(place=None), state_with(place="work")) == ["Arrived at work"]
+    assert mind_phone.news(snap(place="away"), snap(place=None), state_with(place="away")) == [
+        "Not at any of their named places"]
     assert mind_phone.news(snap(quiet="3 h"), snap(quiet="1 h"), state) == ["No message from them for 3 h now"]
     assert mind_phone.news(snap(voice=True), snap(), state) == ["A voice call with you started"]
+
+
+def test_losing_sight_of_where_they_are_is_not_a_departure():
+    # Location off at home: null means unknown, not "left". No news, and "Now" says it's unknown.
+    assert mind_phone.news(snap(place=None), snap(place="home"), state_with(place=None)) == []
+    assert "- Place: unknown (for 0 s)." in phone_state.lines(state_with(place=None), NOW)
+    assert "- Place: none of their named places (for 0 s)." in phone_state.lines(state_with(place="away"), NOW)
 
 
 def test_a_number_moving_isnt_news_but_a_band_is():
@@ -257,7 +354,7 @@ def test_a_change_is_read_by_the_gate_and_a_thought_follows(ticking):
 def test_a_react_becomes_a_light_thought_on_the_phone(ticking):
     gate = Gate("react")
     ticking.run(gate, NOW, place="home")
-    record = ticking.run(gate, NOW + 10, place=None)
+    record = ticking.run(gate, NOW + 10, place="away")
     assert record["level"] == "light"  # no body to react with
 
 
@@ -302,7 +399,7 @@ def test_her_minds_now_shows_the_phone(redis):
     assert mind_turn._phone(ev, datetime.fromtimestamp(NOW, timezone.utc)) == []
     phone_state.report(USER, {"battery": 12, "charging": False}, now=NOW)
     lines = mind_turn._phone(ev, datetime.fromtimestamp(NOW + 120, timezone.utc))
-    assert lines[0] == "- The phone last reported 2 min ago." and any("Battery: 12%" in line for line in lines)
+    assert lines[0] == "- Last heard from the phone 2 min ago." and any("Battery: 12%" in line for line in lines)
 
 
 def test_the_rest_endpoint_records_a_background_report(redis):

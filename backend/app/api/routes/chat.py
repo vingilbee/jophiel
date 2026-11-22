@@ -1755,7 +1755,8 @@ async def chat_ws(websocket: WebSocket) -> None:
                         await asyncio.to_thread(
                             phone_state.report, user_id, message.phone.fields() if message.phone else {},
                             conversation_id=voice_conversation_id or last_conversation_id or history_conversation_id,
-                            zone=message.timezone, observed_at=message.phone.observed_at if message.phone else None)
+                            zone=message.timezone, observed_at=message.phone.observed_at if message.phone else None,
+                            live=session.report.visible or voice_open())
                     except Exception:
                         logger.exception("Phone state report failed")
                 # Echo the derived state straight back rather than making the

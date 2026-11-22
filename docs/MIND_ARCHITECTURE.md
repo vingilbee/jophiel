@@ -38,8 +38,10 @@ due or arrived.
   tied to and its status, earlier postponements with their reasons, earlier attempts and whether anything was
   delivered, and what changed since it was first set (messages, evaluations); what isn't recorded is said unknown.
   The awareness snapshot loses its clock line (and, on a wake, is labelled as reported earlier).
-  THEIR PHONE: what the phone last reported about itself (`phone_state.describe`), always with how long ago, and
-  marked as possibly no longer true after 30 min; left out when the phone never reported.
+  THEIR PHONE: what the phone last reported about itself (`phone_state.describe`): when it was last in touch, and
+  each reading marked as possibly no longer true once the phone hasn't confirmed it for 30 min (a report over the
+  socket while the app is on screen or a call is on confirms every field; a background report only its own);
+  left out when the phone never reported.
 - The conversation: one turn per stored message, never merged, each preceded by an app record of when it was said
   (`chat.get_history(records=True)`; the one being answered is marked CURRENT). An evaluation that left no message
   (silence, nothing written, cancelled or failed) appears in place as an app record (`mind_evaluations`), never as
@@ -116,7 +118,8 @@ the app is open or a call is live comes from presence. Both readers use the same
   pushes the mind worker's wakeup) and on a heartbeat (`PHONE_TICK_SECONDS`, 60 s) for what time alone moves.
 - News is what a person would notice: the app opened or closed, a call, unlocked, plugged in or unplugged, the
   battery entering a lower band (not a percent moving), headphones, network, Do Not Disturb, moving, arriving or
-  leaving a named place, the part of the day, a longer quiet stretch (1 / 3 / 6 / 12 h). A first tick (a restart, a
+  leaving a named place (leaving is only `place: "away"`, a departure the phone confirmed; `null` is "unknown",
+  never news), the part of the day, a longer quiet stretch (1 / 3 / 6 / 12 h). A first tick (a restart, a
   phone seen again) is the baseline, not news.
 - A tick with nothing new doesn't reach the gate (`gate_needs_news`: no model call), and the phone never starts
   quiet thoughts (`thinks_when_quiet` is False): a phone sits unchanged for hours. Pressure is always calm and there
