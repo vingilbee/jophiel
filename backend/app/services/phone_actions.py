@@ -251,7 +251,7 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
             client.set(_pending_key(action_id), json.dumps(pending), ex=EXPIRES_SECONDS + RESULT_GRACE_SECONDS)
             frame = {
                 "type": "phone_action", "action_id": str(action_id), "action": action, "args": args,
-                "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat(),
+                "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat(timespec="milliseconds"),
             }
             delivery = _send(client, user_id, session_hash, socket_id, frame, expires)
             if delivery in ("failed", "unregistered"):

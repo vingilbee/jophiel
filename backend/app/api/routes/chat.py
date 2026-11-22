@@ -114,8 +114,10 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from threading import Lock
 from types import SimpleNamespace
 
+from anyio import CancelScope
 from fastapi import (
     APIRouter,
     Depends,
@@ -512,6 +514,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     connected = True
     session_revoked = False
     phone_action_ready = False
+    presence_lock = Lock()
 
     def session_is_valid() -> bool:
         db = SessionLocal()
@@ -1545,16 +1548,24 @@ async def chat_ws(websocket: WebSocket) -> None:
         report = session.report
         active = report.last_active_at
         active_at = min(time.time(), active.timestamp()) if active is not None else None
-        action_presence = {"phone_session_hash": phone_session_hash} if phone_action_ready else {}
-        became_present = presence.report(user_id, voice_socket_id, client=message_channel,
-                                         visible=report.visible, last_active_at=active_at,
-                                         voice_live=voice_open(), **action_presence)
+        with presence_lock:
+            # A cancelled await doesn't stop its Redis thread. Fence it against socket teardown.
+            if not connected:
+                return
+            action_presence = {"phone_session_hash": phone_session_hash} if phone_action_ready else {}
+            became_present = presence.report(user_id, voice_socket_id, client=message_channel,
+                                             visible=report.visible, last_active_at=active_at,
+                                             voice_live=voice_open(), **action_presence)
         if became_present:
             db = SessionLocal()
             try:
                 push.schedule_clear(db, user_id=user_id)
             finally:
                 db.close()
+
+    def leave_presence() -> None:
+        with presence_lock:
+            presence.leave(user_id, voice_socket_id)
 
     async def deliver_phone_actions() -> None:
         nonlocal phone_action_ready
@@ -2031,10 +2042,10 @@ async def chat_ws(websocket: WebSocket) -> None:
         heartbeat_task.cancel()
         agent_messages_task.cancel()
         phone_actions_task.cancel()
+        with CancelScope(shield=True), contextlib.suppress(Exception):
+            await asyncio.to_thread(leave_presence)
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await phone_actions_task
-        with contextlib.suppress(Exception):
-            await asyncio.to_thread(presence.leave, user_id, voice_socket_id)
         if phone_session_hash is not None and not session_revoked:
             with contextlib.suppress(Exception):
                 def mark_phone_seen():
