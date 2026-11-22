@@ -91,7 +91,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   GET /api/system/signals[/stream] (hand-offs between parts, SSE live); owner only
         auth.py         # signup/signin (web cookie), POST /auth/token (phone bearer token, 90-day sliding), signout
         phone.py        # the phone app's device: PUT/PATCH/DELETE /api/phone/device (FCM token, notification switches);
-                        #   PUT /api/phone/state (what the phone reports about itself from the background)
+                        #   PUT /api/phone/state (what the phone reports about itself from the background);
+                        #   POST /api/phone/notifications (its notifications, phase 8); action results
       deps.py           # shared deps (get_current_user, get_current_user_optional): bearer header or cookie;
                         #   validate_origin passes a valid bearer (can't be forged cross-site)
     /models            # (empty — nutrition inference lives in /ai/MacroVision)
@@ -235,7 +236,10 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   memory_upkeep.py: duplicate facts merged on the memory worker;
                        #   phone app (frontend-phone/PLAN_PHASE_0-3.md): phone_devices.py (a signed-in phone, one per
                        #   bearer session), presence.py (is the user at any app: per-socket, Redis),
-                       #   phone_state.py (what the phone reports about itself, latest value per field, Redis) +
+                       #   phone_state.py (what the phone reports about itself, latest value per field, Redis; phase 8: media,
+                       #   navigation, the Messages switch) + phone_notifications.py (its notifications, Redis only,
+                       #   news labelled someone else's words; a turn they cause gets no device action) +
+                       #   phone_actions.py (one-shot actions on the phone: socket or push, lines in the chat) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);

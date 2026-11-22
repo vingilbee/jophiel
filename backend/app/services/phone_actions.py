@@ -30,7 +30,7 @@ from app.core.config import get_settings
 from app.db.models import Conversation, PhoneActivity
 from app.db.session import SessionLocal
 from app.schemas.chat import ChatMessageOut
-from app.schemas.phone import PhoneActionResult
+from app.schemas.phone import PhoneActionData, PhoneActionDraft, PhoneActionOpened, PhoneActionResult
 from app.services import agent_say, fcm, phone_devices, presence
 
 log = logging.getLogger(__name__)
@@ -42,9 +42,22 @@ ACTIVITY_RETRIES = "phone:action:activity-retries"
 ACTIVITY_RETRY_SECONDS = 5
 ACTIVITY_RETRY_BATCH = 25
 WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10}
+DEFAULT_WAIT_SECONDS = 10
+# A push has to wake the app before it can answer: wait this long at least once the action went by FCM.
+PUSH_WAIT_SECONDS = 20
 COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
+# What each action is called in "unavailable / sent, no answer yet" lines.
+LABELS = {
+    "navigate_to": "Maps action", "get_position": "Phone location request", "resolve_saved_place": "Saved place request",
+    "media_control": "Media control", "set_volume": "Volume change", "set_alarm": "Alarm", "set_timer": "Timer",
+    "dismiss_notification": "Dismissing the notification", "set_ringer": "Ringer change",
+    "set_dnd": "Do Not Disturb change", "reply_notification": "Reply", "open_app": "Opening the app",
+    "open_link": "Opening the link", "play_music": "Spotify request", "whatsapp_draft": "WhatsApp draft",
+}
+# Actions that put something on the screen: from the background the phone may post a notification instead.
+OPENING_ACTIONS = {"navigate_to", "open_app", "open_link", "play_music", "whatsapp_draft"}
 REASONS = {
-    "switched_off": "phone actions or location sharing are switched off",
+    "switched_off": "that's switched off in the phone's settings",
     "location_off": "location is off",
     "no_permission": "location permission is missing",
     "locked": "phone locked",
@@ -53,7 +66,18 @@ REASONS = {
     "timeout": "the phone couldn't get a location fix in time",
     "not_found": "there's no saved place with that name",
     "ambiguous": "more than one saved place has that name",
+    "no_notification_access": "the app has no notification access",
+    "no_dnd_access": "the app has no Do Not Disturb access",
+    "no_contacts_access": "the app has no contacts access",
+    "notification_gone": "the notification is gone",
+    "no_reply_button": "the notification has no reply button",
+    "no_media_session": "nothing is playing that can be controlled",
+    "app_not_found": "no app with that name is installed",
+    "stale": "the notification changed since",
+    "replies_paused": "their Messages switch is off (replies paused)",
 }
+LOCATION_REASONS = {**REASONS, "switched_off": "phone actions or location sharing are switched off"}
+ACTION_REASONS = {"ambiguous": "more than one match", "timeout": "the phone ran out of time"}
 
 
 @dataclass(frozen=True)
@@ -146,22 +170,31 @@ def acknowledge_news(activity_ids: list[uuid.UUID]) -> None:
 
 def _record_activity(
     client: redis.Redis | None, user_id: uuid.UUID, conversation_id: uuid.UUID, activity_id: uuid.UUID,
-    text: str, *, late: bool = False, occurred_at: datetime | None = None,
+    text: str, *, late: bool = False, occurred_at: datetime | None = None, replace: bool = False,
 ) -> None:
+    """Write one chat line (once per id). ``replace``: a late answer taking the place of the "sent, no answer
+    yet" line it settles (same id: the phone updates the line it shows instead of adding one)."""
     occurred_at = occurred_at or datetime.now(timezone.utc).replace(tzinfo=None)
     with SessionLocal.begin() as db:
         # Use an insert-select so deleting the conversation doesn't recreate it or leave an orphan.
         values = select(literal(activity_id), Conversation.id, literal(text), literal(late), literal(occurred_at))
         values = values.where(Conversation.id == conversation_id, Conversation.user_id == user_id)
-        created_at = db.scalar(
-            insert(PhoneActivity).from_select(["id", "conversation_id", "content", "mind_pending", "created_at"], values)
-            .on_conflict_do_nothing(index_elements=[PhoneActivity.id]).returning(PhoneActivity.created_at)
-        )
+        statement = insert(PhoneActivity).from_select(
+            ["id", "conversation_id", "content", "mind_pending", "created_at"], values)
+        if replace:
+            # Keep the line's place (its created_at); only a changed text is news again.
+            statement = statement.on_conflict_do_update(
+                index_elements=[PhoneActivity.id], set_={"content": statement.excluded.content, "mind_pending": True},
+                where=PhoneActivity.content != statement.excluded.content)
+        else:
+            statement = statement.on_conflict_do_nothing(index_elements=[PhoneActivity.id])
+        created_at = db.scalar(statement.returning(PhoneActivity.created_at))
     if created_at is not None and client is not None:
         try:
             client.publish(agent_say.channel(user_id), json.dumps({
                 "kind": "phone_activity", "conversation_id": str(conversation_id),
                 "message_id": str(activity_id), "text": text, "created_at": created_at.isoformat(),
+                **({"replaces": True} if replace else {}),
             }))
         except redis.RedisError:
             # The activity is still available in history.
@@ -214,11 +247,68 @@ def record_position_use(user_id: uuid.UUID, conversation_id: uuid.UUID, outcome:
     _try_record(_client(), user_id, conversation_id, outcome.action_id, "Used your location once")
 
 
-def _result_text(action: str, status: str, reason: str | None, name: str) -> str:
-    why = REASONS.get(reason or "")
+def _why(action: str, reason: str | None) -> str | None:
+    if action in COORDINATE_ACTIONS or action == "navigate_to":
+        return LOCATION_REASONS.get(reason or "")
+    return ACTION_REASONS.get(reason or "") or REASONS.get(reason or "")
+
+
+def _quote(text: str | None) -> str:
+    return f"'{text}'" if text else "''"
+
+
+def _done_text(action: str, view: dict, data: dict | None) -> str:
+    """What happened, as the chat line says it (replies with their full text)."""
+    data = data or {}
+    if action == "media_control":
+        return {"play": "Pressed play", "pause": "Paused the music", "next": "Skipped to the next track",
+                "previous": "Went back a track"}.get(view.get("command"), "Controlled the music")
+    if action == "set_volume":
+        return f"Set media volume to {view.get('level')}%"
+    if action == "set_alarm":
+        label = f" ({view['label']})" if view.get("label") else ""
+        days = f" on {', '.join(view['days'])}" if view.get("days") else ""
+        return f"Set an alarm for {view.get('time')}{days}{label}"
+    if action == "set_timer":
+        label = f" ({view['label']})" if view.get("label") else ""
+        return f"Set a timer for {view.get('duration')}{label}"
+    if action == "dismiss_notification":
+        return f"Dismissed a notification from {view.get('who') or 'an app'}"
+    if action == "set_ringer":
+        return f"Set the ringer to {view.get('mode')}"
+    if action == "set_dnd":
+        return "Turned Do Not Disturb " + ("on" if view.get("on") else "off")
+    if action == "reply_notification":
+        return f"Replied to {view.get('who') or 'them'}: {_quote(view.get('text'))}"
+    if action == "open_app":
+        return f"Opened {data.get('opened') or view.get('name')}"
+    if action == "open_link":
+        return f"Opened {view.get('url')}"
+    if action == "play_music":
+        return f"Asked Spotify to play {_quote(view.get('query'))}"
+    if action == "whatsapp_draft":
+        if data.get("target") == "picker":
+            return f"Opened WhatsApp with a draft, to pick the chat: {_quote(view.get('text'))}"
+        to = f" to {view['to']}" if view.get("to") else ""
+        return f"Drafted a WhatsApp message{to} (you press send): {_quote(view.get('text'))}"
+    return f"Opened Maps → {view.get('name') or 'destination'}"
+
+
+def _failed_text(action: str) -> str:
+    return {
+        "media_control": "Couldn't control the music", "set_volume": "Couldn't change the volume",
+        "set_alarm": "Couldn't set the alarm", "set_timer": "Couldn't set the timer",
+        "dismiss_notification": "Couldn't dismiss the notification", "set_ringer": "Couldn't change the ringer",
+        "set_dnd": "Couldn't change Do Not Disturb", "reply_notification": "Couldn't send the reply",
+        "open_app": "Couldn't open the app", "open_link": "Couldn't open the link",
+        "play_music": "Couldn't play that on Spotify", "whatsapp_draft": "Couldn't make the WhatsApp draft",
+    }.get(action, "Couldn't open Maps")
+
+
+def _result_text(action: str, status: str, reason: str | None, view: dict, data: dict | None = None) -> str:
+    why = _why(action, reason)
     if status == "expired":
-        return {"navigate_to": "Maps action expired", "get_position": "Phone location request expired",
-                "resolve_saved_place": "Saved place request expired"}[action]
+        return f"{LABELS[action]} expired"
     if action == "get_position":
         return "Phone returned a location" if status == "done" else (
             f"Couldn't get your location ({why})" if why else "Couldn't get your location")
@@ -226,19 +316,20 @@ def _result_text(action: str, status: str, reason: str | None, name: str) -> str
         return "Checked a saved place" if status == "done" else (
             f"Couldn't look up the saved place ({why})" if why else "Couldn't look up the saved place")
     if status == "done":
-        return f"Opened Maps → {name}"
+        return _done_text(action, view, data)
     suffix = f" ({why})" if why else ""
     if status == "notified":
-        return f"Couldn't open Maps{suffix}, sent a notification"
-    return f"Couldn't open Maps{suffix}"
+        return f"{_failed_text(action)}{suffix}, sent a notification"
+    return f"{_failed_text(action)}{suffix}"
 
 
 def _send(
     client: redis.Redis, user_id: uuid.UUID, session_hash: str, socket_id: str | None, frame: dict,
     expires: float,
 ) -> str:
+    """``socket`` (a live socket took it), ``push`` (FCM accepted it), ``uncertain`` or ``failed``."""
     if socket_id and client.publish(socket_channel(socket_id), json.dumps(frame)):
-        return "sent"
+        return "socket"
     # If that socket went away before publication, use only the same phone. Once a socket accepts publication,
     # never try another transport or phone, even if no reply comes.
     with SessionLocal() as db:
@@ -251,8 +342,13 @@ def _send(
     with httpx.Client(timeout=4.0) as http:
         result = fcm.send(token, data, client=http, ttl_seconds=ttl)
     if result.outcome == "sent":
-        return "sent"
+        return "push"
     return "uncertain" if result.delivery_unknown else "failed"
+
+
+def dispatch_line_id(action_id: uuid.UUID) -> uuid.UUID:
+    """The id of an action's "sent, no answer yet" line: a late answer replaces that line."""
+    return uuid.uuid5(action_id, "dispatch")
 
 
 def _record_late(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID, action_id: uuid.UUID,
@@ -260,7 +356,7 @@ def _record_late(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.
     text = reply["text"]
     if action == "get_position" and reply["status"] == "done":
         text = "Phone returned a location after the lookup timed out"
-    _record_activity(client, user_id, conversation_id, action_id, text, late=True)
+    _record_activity(client, user_id, conversation_id, dispatch_line_id(action_id), text, late=True, replace=True)
 
 
 def _close_waiter(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID,
@@ -277,15 +373,21 @@ def _close_waiter(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid
 
 
 def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict, *,
-        target: tuple[str, str | None] | None = None) -> Outcome:
+        target: tuple[str, str | None] | None = None, view: dict | None = None) -> Outcome:
+    """Send one action to the user's phone and wait for its answer. ``view``: what the chat line says about it
+    (defaults to ``args``; a reply's line names who it went to). The wait is the action's own, longer once it went
+    by push (the app has to wake first)."""
     action_id = uuid.uuid4()
     client = _client()
-    target_label = {"navigate_to": "Maps action", "get_position": "Phone location request",
-                    "resolve_saved_place": "Saved place request"}[action]
+    target_label = LABELS[action]
+    if view is None:
+        # Never a coordinate in the stored action: Maps and location lines need only the name.
+        view = {"name": args.get("name")} if action in COORDINATE_ACTIONS | {"navigate_to"} else args
+    view = {k: v for k, v in view.items() if v is not None}
 
     def failed(status: str, text: str) -> Outcome:
-        # A separate ID lets a late arrival add the definitive outcome.
-        receipt_id = uuid.uuid5(action_id, "dispatch") if status == "unconfirmed" else action_id
+        # The "no answer yet" line has its own ID: a late answer replaces it with the definitive outcome.
+        receipt_id = dispatch_line_id(action_id) if status == "unconfirmed" else action_id
         _try_record(client, user_id, conversation_id, receipt_id, text)
         return Outcome(status, action_id, text)
 
@@ -303,11 +405,12 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
             replies.subscribe(channel)
             if replies.get_message(timeout=2) is None:
                 return failed("failed", f"{target_label} unavailable")
-            deadline = time.time() + WAIT_SECONDS[action]
-            expires = time.time() + EXPIRES_SECONDS
+            started = time.time()
+            deadline = started + WAIT_SECONDS.get(action, DEFAULT_WAIT_SECONDS)
+            expires = started + EXPIRES_SECONDS
             pending = {
                 "user": str(user_id), "session": session_hash, "conversation": str(conversation_id),
-                "action": action, "deadline": deadline,
+                "action": action, "deadline": deadline, "view": view,
                 "name": args.get("name") or "destination",
                 "public_key": _public_key(private) if private else None,
                 "waiter_records_activity": True,
@@ -322,6 +425,11 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
             if delivery == "failed":
                 client.delete(_pending_key(action_id))
                 return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
+            if delivery in ("push", "uncertain") and started + PUSH_WAIT_SECONDS > deadline:
+                # The phone has to be woken first. Move the deadline the result endpoint checks too, so an
+                # answer inside the longer wait isn't taken as late.
+                deadline = started + PUSH_WAIT_SECONDS
+                client.set(_pending_key(action_id), json.dumps({**pending, "deadline": deadline}), ex=ACTION_TTL)
             while (remaining := deadline - time.time()) > 0:
                 message = replies.get_message(ignore_subscribe_messages=True, timeout=remaining)
                 if not message:
@@ -340,13 +448,30 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
         return failed("failed", f"{target_label} unavailable")
     if delivery == "failed":
         return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
-    state = "sent" if delivery == "sent" else "delivery unconfirmed"
+    state = "sent" if delivery in ("socket", "push") else "delivery unconfirmed"
     outcome = failed("unconfirmed", f"{target_label} {state}, no answer yet. It may or may not have happened.")
     try:
         _close_waiter(client, user_id, conversation_id, action_id, action)
     except (redis.RedisError, SQLAlchemyError):
         log.warning("Phone action waiter closure could not be recorded")
     return outcome
+
+
+def _valid_result(action: str, result: PhoneActionResult) -> bool:
+    """The answer fits the action: coordinates only (and always) from a coordinate action that's done, an app's
+    label only from ``open_app``, a draft's target only from ``whatsapp_draft``; "notified" only from an action
+    that opens something on the screen."""
+    if result.status == "notified" and action not in OPENING_ACTIONS:
+        return False
+    data = result.data
+    if action in COORDINATE_ACTIONS and result.status == "done":
+        return isinstance(data, PhoneActionData)
+    if data is None:
+        return True
+    if result.status != "done":
+        return False
+    return ((action == "open_app" and isinstance(data, PhoneActionOpened))
+            or (action == "whatsapp_draft" and isinstance(data, PhoneActionDraft)))
 
 
 def accept_result(
@@ -366,15 +491,17 @@ def accept_result(
             return False
         action = pending["action"]
         conversation_id = uuid.UUID(pending["conversation"])
-        needs_point = action in COORDINATE_ACTIONS and result.status == "done"
-        if needs_point != (result.data is not None) or (result.status == "notified" and action != "navigate_to"):
+        if not _valid_result(action, result):
             raise InvalidResult
+        needs_point = action in COORDINATE_ACTIONS and result.status == "done"
         with client.lock(f"{key}:lock", timeout=10, blocking_timeout=2):
             if raw := client.get(f"{key}:answered"):
                 if raw != b"1" and client.exists(f"{key}:closed"):
                     _record_late(client, user_id, conversation_id, action_id, action, json.loads(raw))
                 return True
-            text = _result_text(action, result.status, result.reason, pending["name"])
+            view = pending.get("view") or {"name": pending["name"]}
+            data = result.data.model_dump() if result.data is not None and not needs_point else None
+            text = _result_text(action, result.status, result.reason, view, data)
             reply = {"status": result.status, "text": text}
             summary = json.dumps(reply)
             if time.time() >= pending["deadline"] or client.exists(f"{key}:closed"):

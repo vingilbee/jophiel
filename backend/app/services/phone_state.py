@@ -30,7 +30,7 @@ from app.services import presence
 log = logging.getLogger(__name__)
 
 FIELDS = ("screen", "locked", "battery", "charging", "headphones", "network", "wifi_name", "dnd", "ringer",
-          "motion", "place")
+          "motion", "place", "media", "navigation", "messages_on")
 USERS_KEY = "phone_state:users"
 MIND_WAKEUPS = "macrovision:mind:wakeups"  # the mind worker's queue (workers/runner.py): a change ticks at once
 WRITE_TRIES = 5  # a report's compare-and-write, retried when another report changed the hash under it
@@ -323,7 +323,43 @@ def lines(state: PhoneState, now: float) -> list[str]:
         place = state.get("place")
         what = "unknown" if place is None else "none of their named places" if place == AWAY else place
         line(f"- Place: {what}{held('place')}", "place")
+    media = state.get("media")
+    if isinstance(media, dict):
+        line(f"- Media: {now_playing(media)}{held('media')}", "media")
+    navigation = state.get("navigation")
+    if isinstance(navigation, dict):
+        line(f"- Maps trip under way{held('navigation')}: {trip(navigation)}", "navigation")
+    if state.get("messages_on") is False:
+        line("- Their Messages switch is off: your replies and drafts to other people are paused", "messages_on")
     return out
+
+
+def _short(value: Any, limit: int = 80) -> str:
+    words = " ".join(str(value or "").split())
+    return words if len(words) <= limit else words[: limit - 1] + "…"
+
+
+def now_playing(media: dict) -> str:
+    """What's playing, in words ("playing 'Song' by Artist on Spotify")."""
+    title, artist, app = _short(media.get("title")), _short(media.get("artist")), _short(media.get("app"), 40)
+    what = f'"{title}"' if title else "something"
+    if artist:
+        what += f" by {artist}"
+    if app:
+        what += f" on {app}"
+    return f"{media.get('state') or 'playing'} {what}"
+
+
+def trip(navigation: dict) -> str:
+    """The next Maps step and time left, in words."""
+    parts = []
+    if navigation.get("next_step"):
+        step = _short(navigation["next_step"], 160)
+        parts.append(f"next, {step}" + (f" ({_short(navigation['distance_text'], 30)})"
+                                         if navigation.get("distance_text") else ""))
+    if navigation.get("eta_text"):
+        parts.append(_short(navigation["eta_text"], 60))
+    return "; ".join(parts) or "no step known"
 
 
 def describe(state: PhoneState | None, now: float) -> list[str]:

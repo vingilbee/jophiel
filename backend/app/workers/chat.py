@@ -270,6 +270,7 @@ async def _generate(job: ChatJob) -> None:
         lessons=mind_turn.lessons_text(mind),
         mind=mind,
         wake=wake_text,
+        third_party=mind.third_party,
         memory_tools=True,
         source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),

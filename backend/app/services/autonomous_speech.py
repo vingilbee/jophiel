@@ -71,10 +71,12 @@ SAME_WORDS = 0.6  # shared content words, of the shorter: the same thing in othe
 
 
 def submit(db, *, user_id, activity_id, source, event_id, text, reasons, commentary_mode,
-           question=False, ttl=120, premise=None, wake="thought", extra=None) -> str:
+           question=False, ttl=120, premise=None, wake="thought", extra=None, third_party=False) -> str:
     """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision); checked again
     before the mind is woken and before anything is stored. ``wake``: why it wakes her (``thought``, ``proposal``,
-    ``conflict``, ``finding``). ``extra``: what the producer needs back in that evaluation (a proposal's keys)."""
+    ``conflict``, ``finding``). ``extra``: what the producer needs back in that evaluation (a proposal's keys). ``third_party``: it came
+    from someone else's words (a phone notification): the evaluation it wakes gets no device action, nor does
+    anything it schedules (app/ai/chat.py)."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
     voice_socket = None
@@ -115,7 +117,7 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
         input={"schema_version": 1, "source_refs": [f"event:{event}"], "autonomous": True, "wake": wake,
                "extra": extra or {}, "source": source, "event_id": event, "reasons": reasons,
                "commentary_mode": commentary_mode, "channel": "web", "message": "Autonomous proposal",
-               "voice_socket_id": voice_socket,
+               "voice_socket_id": voice_socket, **({"third_party": True} if third_party else {}),
                "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
     db.commit()

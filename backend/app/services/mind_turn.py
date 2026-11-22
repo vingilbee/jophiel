@@ -91,6 +91,12 @@ class Evaluation:
         return self.reason != "user_message"
 
     @property
+    def third_party(self) -> bool:
+        """Woken by someone else's words (a phone notification), directly or through what such a wake started or
+        scheduled: no device action this evaluation (app/ai/chat.py), and whatever it starts carries the same."""
+        return self.is_wake and bool(((self.wake or {}).get("input") or {}).get("third_party"))
+
+    @property
     def recall_rendered(self) -> str | None:
         return self.recall_turn.rendered if self.searched and self.recall_turn is not None else None
 
@@ -282,6 +288,9 @@ def _situation(db, ev: Evaluation, now: datetime) -> str:
     phone = _phone(ev, now)
     if phone:
         lines += ["", "THEIR PHONE (what it reports about itself)", *phone]
+    notifications = _notifications(ev, now)
+    if notifications:
+        lines += ["", *notifications]
     lines.append("")
     lines.append("EVENT")
     if not ev.is_wake:
@@ -316,6 +325,20 @@ def _phone(ev: Evaluation, now: datetime) -> list[str]:
         return phone_state.describe(phone_state.read(ev.user_id, now=now.timestamp()), now.timestamp())
     except Exception:  # noqa: BLE001 - unknown is left out, never guessed
         logger.exception("mind_turn: reading their phone failed")
+        return []
+
+
+def _notifications(ev: Evaluation, now: datetime) -> list[str]:
+    """The notifications still on their phone (services/phone_notifications.py), always as someone else's words.
+    Their text only when the user wrote this turn, or when a notification is what woke her; on her other own turns
+    who and where only, so nobody else's words sit in a turn that can act on the phone."""
+    from app.services import phone_notifications
+
+    try:
+        return phone_notifications.section(ev.user_id, with_text=not ev.is_wake or ev.third_party,
+                                           now=now.timestamp())
+    except Exception:  # noqa: BLE001 - unknown is left out, never guessed
+        logger.exception("mind_turn: reading their phone's notifications failed")
         return []
 
 

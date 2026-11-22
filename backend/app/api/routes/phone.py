@@ -17,11 +17,11 @@ from app.core.limiter import limiter
 from app.db.models import PhoneDevice, User
 from app.db.session import get_db
 from app.schemas.phone import (
-    DeviceOut, DeviceRegister, DeviceUpdate, PhoneActionResult, PhoneActionResultFrame, PhonePlaceOut,
-    PhoneStateOut, PhoneStateReport,
+    DeviceOut, DeviceRegister, DeviceUpdate, PhoneActionResult, PhoneActionResultFrame, PhoneNotificationsFrame,
+    PhoneNotificationsOut, PhoneNotificationsReport, PhonePlaceOut, PhoneStateOut, PhoneStateReport,
 )
 from app.services import auth as auth_service
-from app.services import google_maps, phone_actions, phone_devices, phone_state
+from app.services import google_maps, phone_actions, phone_devices, phone_notifications, phone_state
 
 router = APIRouter(prefix="/phone", tags=["phone"])
 
@@ -84,6 +84,24 @@ def report_state(payload: PhoneStateReport, session: PhoneSession = Depends(phon
     changed = phone_state.report(session.user.id, payload.fields(), observed_at=payload.observed_at)
     phone_devices.mark_seen(db, session.user.id, auth_service.session_key_hash(session.token))
     return PhoneStateOut(changed=changed)
+
+
+@router.post("/notifications", response_model=PhoneNotificationsOut, dependencies=[Depends(validate_origin)])
+async def report_notifications(request: Request, session: PhoneSession = Depends(phone_session),
+                               db: Session = Depends(get_db)) -> PhoneNotificationsOut:
+    """What changed among the phone's notifications, from the background (the same body as the socket's
+    ``phone_notifications`` frame, ``type`` optional). Kept in Redis only (services/phone_notifications.py)."""
+    # Validated here so a rejected payload (other people's messages) is never echoed in a validation response.
+    try:
+        body = await request.json()
+        payload = (PhoneNotificationsFrame.model_validate(body) if isinstance(body, dict) and "type" in body
+                   else PhoneNotificationsReport.model_validate(body))
+    except (ValidationError, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid phone notifications") from None
+    posted, removed = await run_in_threadpool(phone_notifications.report, session.user.id, payload)
+    await run_in_threadpool(phone_devices.mark_seen, db, session.user.id,
+                            auth_service.session_key_hash(session.token))
+    return PhoneNotificationsOut(posted=posted, removed=removed)
 
 
 @router.post("/actions/{action_id}/result", status_code=status.HTTP_204_NO_CONTENT)

@@ -11,6 +11,10 @@ call starting, the phone unlocked, plugged in or unplugged, the battery entering
 network, Do Not Disturb, moving, a named place, the part of the day, a longer quiet stretch. A first tick (a worker
 restart, a phone seen again) is the baseline, not news. No pressure is ever "urgent" here and nothing is a problem
 for hard thinking: code reports facts; whether any of it matters is her mind's.
+
+Phase 8: what's playing starting or stopping, a Maps trip starting or ending, the Messages switch, and the phone's
+notifications (services/phone_notifications.py: a new message, a removal), always as someone else's words. A moment
+with a posted notification is ``third_party``: the wake it leads to gets no device action (app/ai/chat.py).
 """
 from __future__ import annotations
 
@@ -26,7 +30,7 @@ from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
 from app.core.config import get_settings
 from app.db.models import ChatMessage, Conversation
-from app.services import phone_actions, phone_state
+from app.services import phone_actions, phone_notifications, phone_state
 
 NAME = "phone"
 PHONE = Situation(
@@ -76,7 +80,15 @@ def snapshot(state: phone_state.PhoneState) -> dict[str, Any]:
         "charging": state.get("charging"), "headphones": state.get("headphones"),
         "network": (state.get("network"), state.get("wifi_name")), "dnd": state.get("dnd"),
         "ringer": state.get("ringer"), "motion": state.get("motion"), "place": state.get("place"),
+        # What's playing (the app and playing / paused, not each track) and whether a Maps trip is under way (not
+        # each step): what a person notices; the track and the step are read in "THEIR PHONE".
+        "media": _media(state.get("media")), "navigating": isinstance(state.get("navigation"), dict) or None,
+        "messages_on": state.get("messages_on"),
     }
+
+
+def _media(value) -> tuple | None:
+    return (value.get("app"), value.get("state")) if isinstance(value, dict) else None
 
 
 def _network(value) -> str:
@@ -130,6 +142,21 @@ def news(now: dict[str, Any], before: dict[str, Any] | None, state: phone_state.
             out.append(f"Left {was}")
         else:
             out.append("Not at any of their named places")
+    if now.get("media") != before.get("media") and "media" in now:
+        media = state.get("media")
+        if isinstance(media, dict):
+            out.append(f"Media: {phone_state.now_playing(media)}")
+        elif before.get("media") is not None:
+            out.append("Nothing is playing on the phone now")
+    if now.get("navigating") != before.get("navigating") and "navigating" in now:
+        if now.get("navigating"):
+            out.append(f"A Maps trip started: {phone_state.trip(state.get('navigation'))}")
+        elif before.get("navigating"):
+            out.append("The Maps trip ended")
+    if moved("messages_on"):
+        out.append("They turned their Messages switch " + ("back on: replies and drafts to other people are allowed"
+                                                           if now["messages_on"] else
+                                                           "off: your replies and drafts to other people are paused"))
     if moved("part_of_day"):
         out.append(f"It's {now['part_of_day']} now")
     if moved("quiet"):
@@ -184,15 +211,16 @@ class PhoneSource:
             live.add(user_id)
             state = phone_state.read(user_id, now=now)
             updates = action_news.get(user_id, [])
-            if state is None and not updates:
+            notes = phone_notifications.pending_news(user_id)
+            if state is None and not updates and not notes:
                 continue
             state = state or phone_state.PhoneState()
             seen = self._seen.get(user_id)
             current = snapshot(state)
-            if not updates and seen is not None and seen[0] == current and now - seen[1] < every:
+            if not updates and not notes and seen is not None and seen[0] == current and now - seen[1] < every:
                 continue
             self._seen[user_id] = (current, now)
-            out.append((scope_of(user_id), (state, updates) if updates else state))
+            out.append((scope_of(user_id), (state, updates, notes) if updates or notes else state))
         for user_id in list(self._seen):
             if user_id not in live:
                 self._seen.pop(user_id, None)
@@ -208,14 +236,15 @@ class PhoneSource:
                thoughts: list[dict], thinking: str | None) -> Moment:
         from app.services import mind_ticks
 
-        state, action_news = payload if isinstance(payload, tuple) else (payload, [])
+        state, action_news, notes = (payload + ([],))[:3] if isinstance(payload, tuple) else (payload, [], [])
         zone = _zone(state)
         local = datetime.fromtimestamp(at, zone or timezone.utc)
         theirs = _last_message_at(db, scope.user_id, "user")
         hers = _last_message_at(db, scope.user_id, "assistant")
         current = {**snapshot(state), "part_of_day": part_of_day(local.hour),
                    "quiet": quiet_band(at - theirs if theirs is not None else None)}
-        fresh = [*(text for _, text in action_news), *news(current, previous, state)]
+        fresh = [*(text for _, text in action_news), *news(current, previous, state),
+                 *phone_notifications.news_lines(notes)]
         talk = mind_ticks.recent_talk(db, scope.user_id, datetime.fromtimestamp(at, timezone.utc)) if db else []
 
         text = [f"TIME\n- {local:%H:%M} on {local:%A %d %B}, {current['part_of_day']}"
@@ -228,6 +257,10 @@ class PhoneSource:
         if said:
             text[0] += f"\n- In chat: {', '.join(said)}."
         text.append("THEIR PHONE\n" + "\n".join(phone_state.describe(state, at)))
+        # What else is on the phone: who and where only (the words of a new one are under NEW, labelled).
+        shown = phone_notifications.section(scope.user_id, with_text=False, now=at)
+        if shown:
+            text.append("\n".join(shown))
         if fresh:
             text.append("NEW SINCE THE LAST MOMENT\n" + "\n".join(f"- {line}" for line in fresh))
         else:
@@ -244,13 +277,18 @@ class PhoneSource:
         changed = [k for k in current if previous is not None and current.get(k) != previous.get(k)]
         return Moment("\n\n".join(text), "calm", fresh, changed, "; ".join(fresh)[:200], can_act=False,
                       talk=talk, capture=lambda: {**snapshot(state), "_user": scope.user_id},
-                      data={"snapshot": current, "action_news": [activity_id for activity_id, _ in action_news]})
+                      data={"snapshot": current, "action_news": [activity_id for activity_id, _ in action_news],
+                            "notification_news": len(notes),
+                            # Someone else's words are in this moment: what it leads to is theirs, not the user's
+                            # (no device action, however far it's carried: app/ai/chat.py).
+                            "third_party": phone_notifications.has_third_party(notes)})
 
     def previous(self, moment: Moment) -> Any:
         return moment.data["snapshot"]
 
     def after_tick(self, scope: Scope, moment: Moment, number: int, decision: dict) -> None:
         phone_actions.acknowledge_news(moment.data["action_news"])
+        phone_notifications.acknowledge_news(scope.user_id, moment.data.get("notification_news", 0))
 
     def gate_situation(self) -> Situation:
         return PHONE
