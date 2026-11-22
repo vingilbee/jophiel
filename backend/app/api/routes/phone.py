@@ -1,4 +1,5 @@
-"""The phone app's device: where its push notifications go, and its notification switches.
+"""The phone app's device: where its push notifications go, and its notification switches; and what the phone
+reports about itself while the app isn't open (``PUT /api/phone/state``; services/phone_state.py).
 
 Bearer-authenticated phone sessions only (``POST /api/auth/token``): the device row belongs to the session that
 registered it and is deleted with it (sign-out, ``DELETE``). Business logic is in services/phone_devices.py.
@@ -11,9 +12,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import bearer_token, get_current_user, validate_origin
 from app.db.models import PhoneDevice, User
 from app.db.session import get_db
-from app.schemas.phone import DeviceOut, DeviceRegister, DeviceUpdate
+from app.schemas.phone import DeviceOut, DeviceRegister, DeviceUpdate, PhoneStateOut, PhoneStateReport
 from app.services import auth as auth_service
-from app.services import phone_devices
+from app.services import phone_devices, phone_state
 
 router = APIRouter(prefix="/phone", tags=["phone"])
 
@@ -66,3 +67,11 @@ def update_device(payload: DeviceUpdate, db: Session = Depends(get_db),
 @router.delete("/device", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(validate_origin)])
 def delete_device(db: Session = Depends(get_db), session: PhoneSession = Depends(phone_session)) -> None:
     phone_devices.forget_session(db, session.token)
+
+
+@router.put("/state", response_model=PhoneStateOut, dependencies=[Depends(validate_origin)])
+def report_state(payload: PhoneStateReport, session: PhoneSession = Depends(phone_session)) -> PhoneStateOut:
+    """What the phone says about itself (only the fields sent change): from the background, where there's no
+    socket. While the app is open the same fields ride on its ``sense`` frames."""
+    changed = phone_state.report(session.user.id, payload.fields(), observed_at=payload.observed_at)
+    return PhoneStateOut(changed=changed)

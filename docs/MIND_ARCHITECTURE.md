@@ -38,6 +38,8 @@ due or arrived.
   tied to and its status, earlier postponements with their reasons, earlier attempts and whether anything was
   delivered, and what changed since it was first set (messages, evaluations); what isn't recorded is said unknown.
   The awareness snapshot loses its clock line (and, on a wake, is labelled as reported earlier).
+  THEIR PHONE: what the phone last reported about itself (`phone_state.describe`), always with how long ago, and
+  marked as possibly no longer true after 30 min; left out when the phone never reported.
 - The conversation: one turn per stored message, never merged, each preceded by an app record of when it was said
   (`chat.get_history(records=True)`; the one being answered is marked CURRENT). An evaluation that left no message
   (silence, nothing written, cancelled or failed) appears in place as an app record (`mind_evaluations`), never as
@@ -100,6 +102,30 @@ observations, tips reach her hands, and anything to say or ask becomes a `though
 in that evaluation. Quiet time in a live game starts a thought whose topic is hers to choose (no canned topics). A
 conversation is not a background source: messages wake her directly, and coming back to a conversation is
 `come_back_to`.
+
+### Her phone (2026-11-21)
+
+The user's phone is a polled source (`services/mind_phone.py`) over one state (`services/phone_state.py`: Redis,
+latest value per field with when it began and when it was last confirmed; never a history). The phone reports
+screen, lock, battery, charging, headphones, network, Do Not Disturb, ringer, motion and a named place in its `sense`
+frames while the app is open and over `PUT /api/phone/state` (bearer, phone sessions only) when it isn't; whether
+the app is open or a call is live comes from presence. Both readers use the same words: the source's ticks and the
+"Now" of every evaluation.
+
+- One activity per user (`uuid5(user, "jophiel:phone")`), ticked as soon as a report changes something (the report
+  pushes the mind worker's wakeup) and on a heartbeat (`PHONE_TICK_SECONDS`, 60 s) for what time alone moves.
+- News is what a person would notice: the app opened or closed, a call, unlocked, plugged in or unplugged, the
+  battery entering a lower band (not a percent moving), headphones, network, Do Not Disturb, moving, arriving or
+  leaving a named place, the part of the day, a longer quiet stretch (1 / 3 / 6 / 12 h). A first tick (a restart, a
+  phone seen again) is the baseline, not news.
+- A tick with nothing new doesn't reach the gate (`gate_needs_news`: no model call), and the phone never starts
+  quiet thoughts (`thinks_when_quiet` is False): a phone sits unchanged for hours. Pressure is always calm and there
+  are no hard problems of its own; a react becomes light (no body).
+- A thought's line wakes her mind in the conversation the phone app is in (else their latest), with the conversation
+  fences (`autonomous_speech.CONVERSATIONAL`) and `PHONE_SAY_TTL_SECONDS` (120 s) to be said; a thought whose moment
+  the phone has left (plugged in again) is kept as stale and not said.
+- Not yet: the phone app sending these fields (step 1 of the phone side) and reporting from the background (a native
+  service); transitions recorded as observations for memory.
 
 ## Records
 

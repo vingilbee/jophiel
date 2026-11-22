@@ -279,6 +279,9 @@ def _situation(db, ev: Evaluation, now: datetime) -> str:
                          .order_by(ChatMessage.conversation_sequence.desc()).limit(1))
         if last is not None and (ev.is_wake or last.id != ev.trigger_message_id):
             lines.append(f"- Their latest message was at {_when(last.created_at, zone, now)}.")
+    phone = _phone(ev, now)
+    if phone:
+        lines += ["", "THEIR PHONE (what it reports about itself)", *phone]
     lines.append("")
     lines.append("EVENT")
     if not ev.is_wake:
@@ -303,6 +306,17 @@ def _situation(db, ev: Evaluation, now: datetime) -> str:
         if changed:
             lines += ["", f"CHANGES SINCE IT STARTED ({_when(work.created_at, zone, now)})", *changed]
     return "\n".join(lines)
+
+
+def _phone(ev: Evaluation, now: datetime) -> list[str]:
+    """Their phone as it last reported (services/phone_state.py), read now; nothing when it never reported."""
+    from app.services import phone_state
+
+    try:
+        return phone_state.describe(phone_state.read(ev.user_id, now=now.timestamp()), now.timestamp())
+    except Exception:  # noqa: BLE001 - unknown is left out, never guessed
+        logger.exception("mind_turn: reading their phone failed")
+        return []
 
 
 def _due(db, ev: Evaluation, work: CoordinatorWork, zone: str | None, now: datetime) -> list[str]:

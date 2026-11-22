@@ -96,6 +96,22 @@ def voice_live(user_id: uuid.UUID | str, *, now: float | None = None) -> bool:
         return False
 
 
+def phone_app(user_id: uuid.UUID | str, *, now: float | None = None) -> dict | None:
+    """The phone app as its sockets say: ``app`` open (on screen) / background (connected, not on screen) /
+    closed (no socket), and ``voice`` (a live voice session on the phone). None when Redis can't be read: unknown,
+    never "closed"."""
+    client = _client()
+    if client is None:
+        return None
+    now = time.time() if now is None else now
+    try:
+        entries = [e for e in _entries(client, user_id) if e.get("client") == "phone" and e.get("expires", 0) >= now]
+    except redis.RedisError:
+        return None
+    app = "open" if any(e.get("visible") for e in entries) else ("background" if entries else "closed")
+    return {"app": app, "voice": any(e.get("voice_live") for e in entries)}
+
+
 def report(user_id: uuid.UUID | str, socket_id: uuid.UUID | str, *, client: str, visible: bool | None,
            last_active_at: float | None, voice_live: bool, now: float | None = None) -> bool:
     """Record this socket's state. True when this made the user present where they weren't before (time to

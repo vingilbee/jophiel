@@ -18,6 +18,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from app.schemas.phone import PhoneStateReport
+
 
 class ChatRunRequest(BaseModel):
     """Start generating a reply to a new user message."""
@@ -165,6 +167,9 @@ class SenseUpdateRequest(BaseModel):
     # last mouse/keyboard input (reported at most every ~30 s). Unreported counts as not visible.
     visible: bool | None = None
     last_active_at: datetime | None = None
+    # The phone app only: what the phone says about itself (services/phone_state.py), the same fields as
+    # ``PUT /api/phone/state``. Ignored from a web socket.
+    phone: PhoneStateReport | None = None
 
 
 class NudgeFeedbackRequest(BaseModel):
