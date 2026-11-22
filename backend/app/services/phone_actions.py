@@ -72,6 +72,7 @@ REASONS = {
     "notification_gone": "the notification is gone",
     "no_reply_button": "the notification has no reply button",
     "no_media_session": "nothing is playing that can be controlled",
+    "not_clearable": "that notification can't be dismissed",
     "app_not_found": "no app with that name is installed",
     "stale": "the notification changed since",
     "replies_paused": "their Messages switch is off (replies paused)",

@@ -99,6 +99,32 @@ def test_overlapping_snapshots_and_older_revisions_count_once(channel):
     assert live.revision == 2 and len(live.messages) == 2
 
 
+def test_a_reply_written_on_the_phone_is_not_someone_elses_news(channel):
+    post(channel, {"posted": [RINA]})
+    phone_notifications.acknowledge_news(channel.user, len(phone_notifications.pending_news(channel.user)))
+    wakeups = channel.bus.llen(phone_state.MIND_WAKEUPS)
+    # The user (or she, through the reply button) answers: the phone shows it as the owner's message.
+    you = {"event_id": "e_you", "sender": "You", "sender_id": "owner", "identity": None, "in_contacts": False,
+           "text": "yes, on my way", "at": "2026-11-22T19:04:00+07:00"}
+    answered = {**RINA, "revision": 2, "messages": [*RINA["messages"], you]}
+    assert post(channel, {"posted": [answered]}).status_code == 200
+    assert phone_notifications.pending_news(channel.user) == []
+    assert channel.bus.llen(phone_state.MIND_WAKEUPS) == wakeups
+    [live] = phone_notifications.live(channel.user)
+    assert live.sender == "Rina"
+    [line] = phone_notifications.describe([live], with_text=True)
+    assert '"Rina" (WhatsApp), 1 message' in line
+    assert line.endswith(': "are you coming tonight?", answered from the phone since')
+    assert "on my way" not in line
+    # Rina writes again: only her words are news, still hers.
+    again = {**answered, "revision": 3, "messages": [*answered["messages"], {
+        **RINA["messages"][0], "event_id": "e_3", "text": "great!", "at": "2026-11-22T19:05:00+07:00"}]}
+    post(channel, {"posted": [again]})
+    [news] = phone_notifications.pending_news(channel.user)
+    assert [line["text"] for line in news["lines"]] == ["great!"]
+    assert phone_notifications.news_lines([news])[0].endswith('"great!"')
+
+
 def test_removed_and_all_removed(channel):
     post(channel, {"posted": [RINA, {**RINA, "key": "n_bank", "app": "Bank", "title": "Payment", "text": "Rp 50.000",
                                      "messages": [], "conversation": None, "conversation_id": None,

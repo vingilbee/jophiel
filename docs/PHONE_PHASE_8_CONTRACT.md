@@ -28,6 +28,9 @@ phone session; same body, `type` optional). Response `{"posted": n, "removed": n
 
 - Unknown fields are refused (`extra=forbid`). `conversation_identity` is `shortcut` or `title`, and `identity` is
   `contact` or `name`. At most 5 messages per notification, 50 posted and 200 removed per report.
+- Messages written on the phone (the user's own reply, or hers through a reply button) carry `sender_id: "owner"`.
+  They are never news and never wake her. Her "Now" shows the last message from someone else, with "answered from
+  the phone since" when the conversation's latest message is the owner's.
 - **Switching the Notifications sense off**: send `{"all_removed": true}` once.
 - Send a `revision` that goes up on every update of a key: an older revision arriving late is ignored.
 
@@ -61,7 +64,7 @@ Optional args are left out, never sent as null.
 - `data` is accepted only on `done`: `open_app` → `{"opened": "<label>"}`, `whatsapp_draft` →
   `{"target": "contact" | "picker"}`. Coordinate actions are unchanged. Any other `data` gets `422`.
 - Reasons with their own wording: `no_notification_access`, `no_dnd_access`, `no_contacts_access`,
-  `notification_gone`, `no_reply_button`, `no_media_session`, `app_not_found`, `ambiguous`, `switched_off`,
+  `notification_gone`, `no_reply_button`, `no_media_session`, `not_clearable`, `app_not_found`, `ambiguous`, `switched_off`,
   `stale`, `replies_paused` (and the phase 7 ones).
 - **Before sending**, the backend checks that a reply or dismiss names a notification still in its store, that a
   reply has `can_reply`, and that `messages_on` isn't false for replies and drafts. The phone still runs its own
