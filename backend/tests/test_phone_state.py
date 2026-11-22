@@ -204,15 +204,28 @@ def test_an_empty_frame_never_makes_an_old_reading_look_current(redis):
 
 
 def test_a_live_frame_confirms_every_field_the_phone_watches(redis):
-    # App on screen: the phone watches every field and sends only changes, so an empty frame confirms them all.
+    # App on screen: the phone watches what it sent this live stretch and sends only changes, so an empty frame
+    # confirms those.
     phone_state.report(USER, {"battery": 40, "headphones": True}, now=NOW)
-    assert phone_state.report(USER, {}, live=True, now=NOW + 7200) == []
+    assert phone_state.report(USER, {}, confirm=frozenset({"battery", "headphones"}), now=NOW + 7200) == []
     state = phone_state.read(USER)
     assert state.values["headphones"].as_of == NOW + 7200 and state.since("headphones") == NOW
     assert "may no longer be true" not in "\n".join(phone_state.describe(state, NOW + 7200))
     # Confirmed live, an older background event arriving late doesn't overturn it.
     late = datetime.fromtimestamp(NOW + 3600, timezone.utc)
     assert phone_state.report(USER, {"headphones": False}, observed_at=late, now=NOW + 7300) == []
+
+
+def test_a_live_frame_never_confirms_what_this_live_stretch_hasnt_sent(redis):
+    # Yesterday: home. Today the phone comes back live without a location reading: its battery is confirmed, the
+    # place stays a day old and is said to be.
+    phone_state.report(USER, {"place": "home"}, now=NOW)
+    phone_state.report(USER, {"battery": 70}, confirm=frozenset({"battery"}), now=NOW + 86400)
+    phone_state.report(USER, {}, confirm=frozenset({"battery"}), now=NOW + 86400 + 60)
+    state = phone_state.read(USER)
+    assert state.values["place"].as_of == NOW and state.values["battery"].as_of == NOW + 86400 + 60
+    assert "Place: home (for 1 d); last confirmed 1 d ago, may no longer be true." in "\n".join(
+        phone_state.describe(state, NOW + 86400 + 60))
 
 
 def test_the_report_schema_is_partial_and_strict():

@@ -1496,6 +1496,9 @@ async def chat_ws(websocket: WebSocket) -> None:
     # the conversation the user is looking at rather than an arbitrary one.
     last_conversation_id: uuid.UUID | None = None
     voice_conversation_id: uuid.UUID | None = None
+    # The phone fields this socket has sent since the app last went live (on screen or a call): only those does a
+    # live frame confirm as of now. A field stored from before (yesterday's place) stays as old as it is.
+    phone_live_fields: set[str] = set()
 
     def voice_open() -> bool:
         return (settings.voice_enabled and session.report.hearing_enabled
@@ -1751,12 +1754,17 @@ async def chat_ws(websocket: WebSocket) -> None:
                     logger.exception("Presence report failed")
                 if message_channel == "phone":
                     # What the phone says about itself, and the conversation it's in (where her phone thoughts go).
+                    phone_fields = message.phone.fields() if message.phone else {}
+                    if session.report.visible or voice_open():
+                        phone_live_fields |= set(phone_fields) & set(phone_state.FIELDS)
+                    else:
+                        phone_live_fields.clear()
                     try:
                         await asyncio.to_thread(
-                            phone_state.report, user_id, message.phone.fields() if message.phone else {},
+                            phone_state.report, user_id, phone_fields,
                             conversation_id=voice_conversation_id or last_conversation_id or history_conversation_id,
                             zone=message.timezone, observed_at=message.phone.observed_at if message.phone else None,
-                            live=session.report.visible or voice_open())
+                            confirm=frozenset(phone_live_fields))
                     except Exception:
                         logger.exception("Phone state report failed")
                 # Echo the derived state straight back rather than making the

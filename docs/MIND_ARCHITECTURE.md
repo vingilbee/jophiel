@@ -39,8 +39,9 @@ due or arrived.
   delivered, and what changed since it was first set (messages, evaluations); what isn't recorded is said unknown.
   The awareness snapshot loses its clock line (and, on a wake, is labelled as reported earlier).
   THEIR PHONE: what the phone last reported about itself (`phone_state.describe`): when it was last in touch, and
-  each reading marked as possibly no longer true once the phone hasn't confirmed it for 30 min (a report over the
-  socket while the app is on screen or a call is on confirms every field; a background report only its own);
+  each reading marked as possibly no longer true once the phone hasn't confirmed it for 30 min (while the app is on
+  screen or a call is on, a socket frame confirms the fields the phone has sent since it went live; a background
+  report only its own);
   left out when the phone never reported.
 - The conversation: one turn per stored message, never merged, each preceded by an app record of when it was said
   (`chat.get_history(records=True)`; the one being answered is marked CURRENT). An evaluation that left no message

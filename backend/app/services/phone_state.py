@@ -84,10 +84,11 @@ def _observed(observed_at: datetime | None, now: float) -> float:
     return min(at, now)
 
 
-def _merge(stored: dict, fields: dict, at: float, confirm_at: float | None = None) -> tuple[dict, list[str]]:
+def _merge(stored: dict, fields: dict, at: float, confirm: frozenset[str] = frozenset(),
+           confirm_at: float = 0.0) -> tuple[dict, list[str]]:
     """The hash fields to write for one report over what's stored, and the state fields whose value changed.
-    ``confirm_at``: the phone is reporting every field live (it sends only changes), so what it didn't send still
-    holds as of then."""
+    ``confirm``: fields the phone is watching live (it sends only changes), so what it didn't send this time still
+    holds as of ``confirm_at``."""
     updates, changed = {}, []
     for name, value in fields.items():
         if name not in FIELDS:
@@ -100,8 +101,8 @@ def _merge(stored: dict, fields: dict, at: float, confirm_at: float | None = Non
             continue  # an older observation arriving after a newer one: the newer stands
         updates[name] = json.dumps({"value": value, "since": at, "as_of": at})
         changed.append(name)
-    if confirm_at is not None:
-        for name in FIELDS:
+    for name in confirm:
+        if name in FIELDS:
             old = _load(stored.get(name))
             if name not in updates and old is not None and old.as_of < confirm_at:
                 updates[name] = json.dumps({"value": old.value, "since": old.since, "as_of": confirm_at})
@@ -109,14 +110,14 @@ def _merge(stored: dict, fields: dict, at: float, confirm_at: float | None = Non
 
 
 def _write(client: redis.Redis, key: str, fields: dict, at: float, extra: dict,
-           confirm_at: float | None) -> list[str]:
+           confirm: frozenset[str], confirm_at: float) -> list[str]:
     """Compare and write in one transaction: two reports at once (the socket and the REST endpoint) can't both read
     the same state and then land in the wrong order. Retried when the hash changed under it."""
     for _ in range(WRITE_TRIES):
         with client.pipeline() as pipe:
             try:
                 pipe.watch(key)
-                updates, changed = _merge(_decoded(pipe.hgetall(key) or {}), fields, at, confirm_at)
+                updates, changed = _merge(_decoded(pipe.hgetall(key) or {}), fields, at, confirm, confirm_at)
                 pipe.multi()
                 pipe.hset(key, mapping={**updates, **extra})
                 pipe.expire(key, int(get_settings().phone_state_keep_hours * 3600 * 7))
@@ -128,15 +129,16 @@ def _write(client: redis.Redis, key: str, fields: dict, at: float, extra: dict,
 
 
 def report(user_id: uuid.UUID | str, fields: dict, *, conversation_id: uuid.UUID | None = None,
-           zone: str | None = None, observed_at: datetime | None = None, live: bool = False,
-           now: float | None = None) -> list[str]:
+           zone: str | None = None, observed_at: datetime | None = None,
+           confirm: frozenset[str] = frozenset(), now: float | None = None) -> list[str]:
     """Record what the phone reported (only the fields given; unknown names ignored). Returns the fields whose
     value changed. A change wakes the mind worker so her phone source ticks now, not at its next heartbeat. No Redis:
     nothing is kept, and nothing changed.
 
-    ``live``: the report came over the app's socket while the app is on screen or a call is on, when the phone
-    watches every field and sends what changes; every field it holds is then confirmed as of now, even in a frame
-    that carries none. A background report (``live`` False) confirms only the fields it sends. ``_reported_at`` is
+    ``confirm``: the fields the phone has sent over this socket since the app last went live (on screen or a
+    call), which it now watches and sends only when they change; each is confirmed as of now, even by a frame that
+    carries none. Only those: a field stored from before (yesterday's place, when the phone came back without a
+    location reading) stays as old as it is. A background report confirms only the fields it sends. ``_reported_at`` is
     only when the phone was last in touch, never how current a reading is: that's each field's ``as_of``."""
     client = _client()
     if client is None:
@@ -149,7 +151,7 @@ def report(user_id: uuid.UUID | str, fields: dict, *, conversation_id: uuid.UUID
     if zone:
         extra[ZONE] = json.dumps(zone)
     try:
-        changed = _write(client, _key(user_id), fields, at, extra, now if live else None)
+        changed = _write(client, _key(user_id), fields, at, extra, confirm, now)
         client.hset(USERS_KEY, str(user_id), json.dumps(now))
         if changed:
             client.rpush(MIND_WAKEUPS, "phone")
