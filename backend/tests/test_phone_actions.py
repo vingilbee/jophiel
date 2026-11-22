@@ -15,6 +15,7 @@ import pytest
 import redis
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from app.ai import chat as ai_chat
 from app.ai.context import AgentRuntimeContext
@@ -22,6 +23,7 @@ from app.ai.tools import phone as tools
 from app.api.routes import chat, phone
 from app.core.config import get_settings
 from app.services import auth, fcm, google_maps, mind_phone, phone_actions, phone_devices, presence
+from app.workers import push as push_worker
 from db_support import create_conversation, create_user, database  # noqa: F401
 
 
@@ -32,6 +34,7 @@ def channel(database, monkeypatch):
         pytest.skip("Set TEST_REDIS_URL to exercise real Redis actions")
     settings = get_settings().model_copy(update={"redis_url": url, "google_maps_api_key": "test-key"})
     with redis.from_url(url) as bus:
+        monkeypatch.setattr(phone_actions, "_client", lambda: bus)
         for module in (chat, phone_actions, google_maps, tools):
             monkeypatch.setattr(module, "get_settings", lambda: settings)
         monkeypatch.setattr(auth, "get_redis", lambda: bus)
@@ -115,6 +118,49 @@ def test_socket_targets_live_phone_and_unblocks_navigation_tool(channel, monkeyp
     assert channel.client.get(path, headers=headers(channel.web)).json()["messages"] == []
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         assert receive(ws, "history")["messages"][0]["kind"] == "phone_activity"
+
+
+def test_confirmed_activity_survives_postgres_failure(channel, monkeypatch):
+    monkeypatch.setattr(phone_actions, "ACTIVITY_RETRY_SECONDS", 0)
+    monkeypatch.setattr(push_worker.push, "run_once", lambda: False)
+    record = phone_actions._record_activity
+    writes = 0
+
+    def flaky_record(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes <= 2:
+            raise OperationalError(None, None, OSError("PostgreSQL unavailable"))
+        return record(*args, **kwargs)
+
+    monkeypatch.setattr(phone_actions, "_record_activity", flaky_record)
+    with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
+        receive(ws, "history")
+        wait_for_phone(channel.user)
+        with ThreadPoolExecutor() as executor:
+            result = executor.submit(phone_actions.act, channel.user, channel.conversation, "navigate_to",
+                                     {"name": "Museum"})
+            frame = receive(ws, "phone_action")
+            action_id = uuid.UUID(frame["action_id"])
+            url = result_url(action_id)
+            auth_headers = headers(channel.token)
+            assert channel.client.post(url, headers=auth_headers, json={"status": "done"}).status_code == 204
+            assert result.result(timeout=5).status == "done"
+        assert channel.client.post(url, headers=auth_headers, json={"status": "failed"}).status_code == 204
+        push_worker.run_once()
+        assert writes == 2
+        assert channel.bus.zcard(phone_actions.ACTIVITY_RETRIES) == 1
+        key = phone_actions._pending_key(action_id)
+        channel.bus.delete(key, f"{key}:answered")
+        push_worker.run_once()
+        push_worker.run_once()
+        assert writes == 3
+        assert channel.bus.zcard(phone_actions.ACTIVITY_RETRIES) == 0
+        assert receive(ws, "phone_activity")["text"] == "Opened Maps → Museum"
+    with channel.db() as db:
+        [activity] = phone_actions.history(db, channel.conversation)
+        assert activity.id == action_id and activity.content == "Opened Maps → Museum"
+        assert phone_actions.pending_news(db) == {}
 
 
 def test_push_timeout_and_late_result_reach_phone_mind_once(channel, monkeypatch):

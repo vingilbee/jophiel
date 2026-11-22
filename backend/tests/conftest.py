@@ -69,6 +69,14 @@ def _no_presence(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_phone_action_redis(monkeypatch):
+    """Only phone action integration tests connect to their own Redis."""
+    from app.services import phone_actions
+
+    monkeypatch.setattr(phone_actions, "_client", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_chat_warmup(monkeypatch):
     """The chat worker's warm-up and keep-warm pings (workers/chat.py ``start``) would reach OpenAI: off."""
     from app.workers import chat as chat_worker

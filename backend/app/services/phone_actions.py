@@ -38,6 +38,9 @@ log = logging.getLogger(__name__)
 EXPIRES_SECONDS = 60
 RESULT_GRACE_SECONDS = 60
 ACTION_TTL = EXPIRES_SECONDS + RESULT_GRACE_SECONDS
+ACTIVITY_RETRIES = "phone:action:activity-retries"
+ACTIVITY_RETRY_SECONDS = 5
+ACTIVITY_RETRY_BATCH = 25
 WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10}
 COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
 REASONS = {
@@ -170,7 +173,33 @@ def _try_record(
     try:
         _record_activity(client, user_id, conversation_id, activity_id, text)
     except SQLAlchemyError:
-        log.warning("Phone activity could not be written")
+        if client is not None:
+            # Retain the history line independently of the short-lived action and its reply.
+            entry = json.dumps([str(user_id), str(conversation_id), str(activity_id), text])
+            try:
+                client.zadd(ACTIVITY_RETRIES, {entry: time.time()}, nx=True)
+                return
+            except redis.RedisError:
+                pass
+        log.warning("Phone activity could not be written or queued for retry")
+
+
+def retry_activities() -> None:
+    """Retry failed history writes with the original IDs so multiple workers can safely overlap."""
+    client = _client()
+    if client is None:
+        return
+    try:
+        for entry in client.zrangebyscore(ACTIVITY_RETRIES, "-inf", time.time(), start=0, num=ACTIVITY_RETRY_BATCH):
+            user_id, conversation_id, activity_id, text = json.loads(entry)
+            try:
+                _record_activity(client, uuid.UUID(user_id), uuid.UUID(conversation_id), uuid.UUID(activity_id), text)
+            except SQLAlchemyError:
+                client.zadd(ACTIVITY_RETRIES, {entry: time.time() + ACTIVITY_RETRY_SECONDS}, xx=True)
+                break
+            client.zrem(ACTIVITY_RETRIES, entry)
+    except redis.RedisError:
+        log.warning("Phone activity retries unavailable")
 
 
 def record_position_use(user_id: uuid.UUID, conversation_id: uuid.UUID, outcome: Outcome) -> None:
