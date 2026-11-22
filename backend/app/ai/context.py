@@ -168,6 +168,8 @@ class AgentRuntimeContext:
     # without a paired desktop (then no section and no ``get_security_activity``). ``zone``: the user's IANA time
     # zone when the client reported one, for showing record times in their time.
     security: str | None = None
+    # Their phone's senses as one line (services/phone_notifications.prompt_line): None when they have no phone.
+    phone: str | None = None
     zone: str | None = None
 
     # --- Speaking first ---

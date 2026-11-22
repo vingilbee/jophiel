@@ -29,7 +29,7 @@ from app.ai.mind.contracts import Moment, Rhythm, Scope
 from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
 from app.core.config import get_settings
-from app.db.models import ChatMessage, Conversation
+from app.db.models import ChatMessage, Conversation, WorkingItem
 from app.services import phone_actions, phone_notifications, phone_state
 
 NAME = "phone"
@@ -39,7 +39,8 @@ PHONE = Situation(
         "none": "nothing new, a number moving (battery down a percent), the same place and the same quiet",
         "react": "something on the phone that needs them right now and won't wait (it's about to die mid-call)",
         "light": "they opened the app or picked up the phone, came home or left, plugged in late at night, put "
-                 "headphones on, started moving, a long quiet stretch ended or began, the evening started",
+                 "headphones on, started moving, a long quiet stretch ended or began, the evening started, a message or "
+                 "notification arrived (above all one you're waiting for)",
         "hard": "something in what the phone says doesn't add up with what they told you",
     },
 )
@@ -164,6 +165,22 @@ def news(now: dict[str, Any], before: dict[str, Any] | None, state: phone_state.
     return out
 
 
+PROMISES_SHOWN = 6
+
+
+def open_promises(db: Session | None, user_id: uuid.UUID) -> list[str]:
+    """Her promises still open and her own intentions, newest first: what she's waiting for. Read into a moment
+    that brings a notification, so "tell me when Rina writes" is with her when Rina does."""
+    if db is None:
+        return []
+    rows = db.scalars(select(WorkingItem).where(
+        WorkingItem.user_id == user_id, WorkingItem.closed_at.is_(None),
+        ((WorkingItem.kind == "commitment") & (WorkingItem.owner == "columbina")) | (WorkingItem.kind == "intention"))
+        .order_by(WorkingItem.created_at.desc()).limit(PROMISES_SHOWN))
+    return [("- You promised: " if row.kind == "commitment" else "- You meant to: ") + " ".join(row.text.split())[:200]
+            for row in rows]
+
+
 def _last_message_at(db: Session | None, user_id: uuid.UUID, role: str) -> float | None:
     if db is None:
         return None
@@ -265,6 +282,10 @@ class PhoneSource:
             text.append("NEW SINCE THE LAST MOMENT\n" + "\n".join(f"- {line}" for line in fresh))
         else:
             text.append("NEW SINCE THE LAST MOMENT\n- nothing")
+        if notes:
+            promises = open_promises(db, scope.user_id)
+            if promises:
+                text.append("WHAT YOU'RE WAITING FOR (your open promises and intentions)\n" + "\n".join(promises))
         if talk:
             text.append("RECENT TALK\n" + "\n".join(
                 f"- {'They' if m['role'] == 'user' else 'You'}: {' '.join(m['content'].split())[:200]}"

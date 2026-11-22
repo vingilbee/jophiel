@@ -35,6 +35,18 @@ RINA = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _forget_this_phone(request):
+    """Leave no phone behind in the shared test Redis: other tests' phone sources poll every user listed there."""
+    ns = request.getfixturevalue("channel") if "channel" in request.fixturenames else None
+    yield
+    if ns is not None:
+        user = str(ns.user)
+        ns.bus.hdel(phone_state.USERS_KEY, user)
+        ns.bus.delete(phone_state._key(user), phone_notifications._key(user), phone_notifications._news_key(user),
+                      phone_notifications._sense_key(user))
+
+
 def post(channel, body, token=None):
     return channel.client.post("/api/phone/notifications", headers=headers(token or channel.token), json=body)
 
@@ -353,3 +365,39 @@ def test_report_ignores_older_revision_without_redis_side_effects():
     assert phone_notifications._posted_news(old, same) is None
     assert json.dumps(phone_notifications._posted_news(None, old)["lines"]) == json.dumps(
         [{"sender": "Rina", "text": "are you coming tonight?"}])
+
+
+# --------------------------------------------------------------------------- #
+# She knows her own sense, and what she's waiting for is with her when it arrives
+# --------------------------------------------------------------------------- #
+
+def test_her_prompt_says_whether_notifications_reach_her(channel):
+    from app.ai import prompts
+
+    assert phone_notifications.prompt_line(channel.user) is None  # no phone has reported
+    phone_state.report(channel.user, {"screen": "on"})
+    assert phone_notifications.prompt_line(channel.user).startswith("Notifications: not shared right now")
+    post(channel, {"posted": [RINA]})
+    line = phone_notifications.prompt_line(channel.user)
+    assert line.startswith("Notifications: shared from their phone") and "reaches you" in line
+    prompt = prompts.build_system_prompt(AgentRuntimeContext(channel.user, phone=line))
+    assert "## Their phone" in prompt and "note_commitment" in prompt and "you can; say so plainly" in prompt
+    assert "## Their phone" not in prompts.build_system_prompt(AgentRuntimeContext(channel.user))
+    post(channel, {"all_removed": True})
+    assert phone_notifications.prompt_line(channel.user).startswith("Notifications: not shared right now")
+
+
+def test_a_notification_moment_carries_what_she_promised_to_watch_for(channel):
+    from app.services import memory_manager
+
+    with channel.db() as db:
+        memory_manager.note_commitment(db, channel.user, "Tell them when a WhatsApp message arrives")
+        db.commit()
+    post(channel, {"posted": [RINA]})
+    _, _, moment = moment_for(channel)
+    assert ("WHAT YOU'RE WAITING FOR (your open promises and intentions)\n"
+            "- You promised: Tell them when a WhatsApp message arrives") in moment.text
+    phone_notifications.acknowledge_news(channel.user, 1)
+    phone_state.report(channel.user, {"screen": "off"})
+    _, _, quiet = moment_for(channel)
+    assert "WHAT YOU'RE WAITING FOR" not in quiet.text  # only with a notification

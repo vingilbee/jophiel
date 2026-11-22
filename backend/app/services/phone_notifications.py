@@ -50,6 +50,10 @@ def _news_key(user_id: uuid.UUID | str) -> str:
     return f"phone_notifications:news:{user_id}"
 
 
+def _sense_key(user_id: uuid.UUID | str) -> str:
+    return f"phone_notifications:sense:{user_id}"
+
+
 def _client() -> redis.Redis | None:
     return presence._client()
 
@@ -202,6 +206,11 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
             raise redis.WatchError(f"{key} kept changing")
         # Her phone source ticks users whose phone was in touch; a notification is contact.
         client.hset(phone_state.USERS_KEY, str(user_id), json.dumps(now))
+        # Whether the sense is on, for her prompt: any report says it is, "all removed" that it was switched off.
+        if payload.all_removed and not payload.posted:
+            client.delete(_sense_key(user_id))
+        else:
+            client.set(_sense_key(user_id), json.dumps(now), ex=_keep_seconds())
         if news:
             client.rpush(phone_state.MIND_WAKEUPS, "phone")
             client.ltrim(phone_state.MIND_WAKEUPS, -100, -1)
@@ -210,6 +219,19 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
         return 0, 0
     removed = len([d for d in deletes if d not in writes])
     return len(writes), removed
+
+
+def sensing(user_id: uuid.UUID | str) -> float | None:
+    """When the phone last reported its notifications (the sense is on), or None: never, switched off since, longer
+    ago than PHONE_NOTIFICATION_KEEP_HOURS, or unknown."""
+    client = _client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(_sense_key(user_id))
+        return float(json.loads(raw)) if raw else None
+    except (redis.RedisError, TypeError, ValueError):
+        return None
 
 
 def live(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Notification] | None:
@@ -359,3 +381,17 @@ def section(user_id: uuid.UUID | str, *, with_text: bool, now: float | None = No
              if with_text else "ON THEIR PHONE: NOTIFICATIONS (who and where only)")
     return [label, *lines]
 
+
+
+def prompt_line(user_id: uuid.UUID | str, *, now: float | None = None) -> str | None:
+    """Her phone senses as her prompt states them (app/ai/prompts.py ``_PHONE_PROMPT``); None when the user has no
+    phone that ever reported."""
+    now = time.time() if now is None else now
+    since = sensing(user_id)
+    if since is None and phone_state.read(user_id, now=now) is None:
+        return None
+    if since is None:
+        return ("Notifications: not shared right now (the sense is off on the phone, or it hasn't sent any yet): "
+                "you can't see what lands on it until it is.")
+    return (f"Notifications: shared from their phone (last report {phone_state.span(now - since)} ago): what lands "
+            "on it reaches you.")

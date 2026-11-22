@@ -152,6 +152,12 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **What her "Now" shows**: the notifications still on the phone. Their text appears when the user wrote this turn or
   a notification woke her. On her other own turns she gets who and where only, so no one else's words reach a turn
   that can act on the phone.
+- **She knows her sense**: when the user has a phone, her prompt has a "Their phone" section
+  (`prompts._PHONE_PROMPT`). It states whether notifications are shared right now
+  (`phone_notifications.prompt_line`: any report turns it on, `all_removed` turns it off) and that new ones reach
+  her. A "tell me when X arrives" request is kept as a promise (`note_commitment`), and a phone moment bringing a
+  notification lists her open promises and intentions ("WHAT YOU'RE WAITING FOR"). That way the quick thought, and
+  the wake it leads to, connect the message to the request. Whether to speak stays hers.
 - **Phone state** gains `media` (`{app, title, artist, state: playing|paused}`), `navigation`
   (`{next_step, distance_text, eta_text}`) and `messages_on` (the phone's Messages switch: false = her replies and
   drafts to other people are paused). These are news when what's playing starts or stops, when a trip starts or
