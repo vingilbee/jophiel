@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 EXPIRES_SECONDS = 60
 RESULT_GRACE_SECONDS = 60
+ACTION_TTL = EXPIRES_SECONDS + RESULT_GRACE_SECONDS
 WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10}
 COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
 REASONS = {
@@ -211,7 +212,31 @@ def _send(
         return "failed"
     data = {**frame, "args": json.dumps(frame["args"], separators=(",", ":"))}
     with httpx.Client(timeout=4.0) as http:
-        return fcm.send(token, data, client=http, ttl_seconds=ttl).outcome
+        result = fcm.send(token, data, client=http, ttl_seconds=ttl)
+    if result.outcome == "sent":
+        return "sent"
+    return "uncertain" if result.delivery_unknown else "failed"
+
+
+def _record_late(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID, action_id: uuid.UUID,
+                 action: str, reply: dict) -> None:
+    text = reply["text"]
+    if action == "get_position" and reply["status"] == "done":
+        text = "Phone returned a location after the lookup timed out"
+    _record_activity(client, user_id, conversation_id, action_id, text, late=True)
+
+
+def _close_waiter(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID,
+                  action_id: uuid.UUID, action: str) -> None:
+    key = _pending_key(action_id)
+    # Pair this transaction with the receiver's write of :answered and check of :closed. Whichever
+    # runs second sees both markers. The saved reply contains only its status and human-readable text.
+    with client.pipeline() as transaction:
+        transaction.set(f"{key}:closed", "1", ex=ACTION_TTL)
+        transaction.get(f"{key}:answered")
+        _, raw = transaction.execute()
+    if raw and raw != b"1":
+        _record_late(client, user_id, conversation_id, action_id, action, json.loads(raw))
 
 
 def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict, *,
@@ -229,6 +254,7 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
 
     if client is None:
         return failed("failed", f"{target_label} unavailable")
+    delivery = None
     try:
         target = target or target_for(user_id)
         if target is None:
@@ -247,14 +273,16 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 "action": action, "deadline": deadline,
                 "name": args.get("name") or "destination",
                 "public_key": _public_key(private) if private else None,
+                "waiter_records_activity": True,
             }
-            client.set(_pending_key(action_id), json.dumps(pending), ex=EXPIRES_SECONDS + RESULT_GRACE_SECONDS)
+            client.set(_pending_key(action_id), json.dumps(pending), ex=ACTION_TTL)
             frame = {
                 "type": "phone_action", "action_id": str(action_id), "action": action, "args": args,
                 "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat(timespec="milliseconds"),
             }
+            delivery = "uncertain"  # a transport error during publication may leave the delivery unknown
             delivery = _send(client, user_id, session_hash, socket_id, frame, expires)
-            if delivery in ("failed", "unregistered"):
+            if delivery == "failed":
                 client.delete(_pending_key(action_id))
                 return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
             while (remaining := deadline - time.time()) > 0:
@@ -266,10 +294,22 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 if private is not None and "point" in result:
                     point = tuple(json.loads(_cipher(private, result["key"], action_id)
                                              .decrypt(result["point"].encode())))
+                if action != "get_position" or result["status"] != "done":
+                    _try_record(client, user_id, conversation_id, action_id, result["text"])
                 return Outcome(result["status"], action_id, result["text"], point)
     except (redis.RedisError, SQLAlchemyError, InvalidToken):
         log.warning("Phone action transport interrupted")
-    return failed("unconfirmed", f"{target_label} sent, no answer yet. It may or may not have happened.")
+    if delivery is None:
+        return failed("failed", f"{target_label} unavailable")
+    if delivery == "failed":
+        return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
+    state = "sent" if delivery == "sent" else "delivery unconfirmed"
+    outcome = failed("unconfirmed", f"{target_label} {state}, no answer yet. It may or may not have happened.")
+    try:
+        _close_waiter(client, user_id, conversation_id, action_id, action)
+    except (redis.RedisError, SQLAlchemyError):
+        log.warning("Phone action waiter closure could not be recorded")
+    return outcome
 
 
 def accept_result(
@@ -279,7 +319,6 @@ def accept_result(
     client = _client()
     if client is None:
         raise ResultUnavailable
-    received = time.time()
     key = _pending_key(action_id)
     try:
         raw = client.get(key)
@@ -289,30 +328,41 @@ def accept_result(
         if pending["user"] != str(user_id) or pending["session"] != session_hash:
             return False
         action = pending["action"]
+        conversation_id = uuid.UUID(pending["conversation"])
+        needs_point = action in COORDINATE_ACTIONS and result.status == "done"
+        if needs_point != (result.data is not None) or (result.status == "notified" and action != "navigate_to"):
+            raise InvalidResult
         with client.lock(f"{key}:lock", timeout=10, blocking_timeout=2):
-            if client.exists(f"{key}:answered"):
+            if raw := client.get(f"{key}:answered"):
+                if raw != b"1" and client.exists(f"{key}:closed"):
+                    _record_late(client, user_id, conversation_id, action_id, action, json.loads(raw))
                 return True
-            needs_point = action in COORDINATE_ACTIONS and result.status == "done"
-            if needs_point != (result.data is not None):
-                raise InvalidResult
-            late = received >= pending["deadline"]
             text = _result_text(action, result.status, result.reason, pending["name"])
             reply = {"status": result.status, "text": text}
-            if needs_point and not late:
+            summary = json.dumps(reply)
+            if time.time() >= pending["deadline"] or client.exists(f"{key}:closed"):
+                with client.pipeline() as transaction:
+                    transaction.set(f"{key}:closed", "1", ex=ACTION_TTL)
+                    transaction.set(f"{key}:answered", summary, ex=ACTION_TTL)
+                    transaction.execute()
+                _record_late(client, user_id, conversation_id, action_id, action, reply)
+                return True
+            # An action already in flight during rollout may still have an older reply worker.
+            if not pending.get("waiter_records_activity") and (action != "get_position" or not needs_point):
+                _record_activity(client, user_id, conversation_id, action_id, text)
+            if needs_point:
                 private = X25519PrivateKey.generate()
                 reply["key"] = _public_key(private)
                 reply["point"] = _cipher(private, pending["public_key"], action_id).encrypt(
                     json.dumps([result.data.lat, result.data.lng]).encode()
                 ).decode()
-            if action == "get_position" and needs_point and late:
-                text = "Phone returned a location after the lookup timed out"
-            if action != "get_position" or not needs_point or late:
-                _record_activity(client, user_id, uuid.UUID(pending["conversation"]), action_id, text, late=late)
             with client.pipeline() as transaction:
-                transaction.set(f"{key}:answered", "1", ex=EXPIRES_SECONDS + RESULT_GRACE_SECONDS)
-                if not late:
-                    transaction.publish(_reply_channel(action_id), json.dumps(reply))
-                transaction.execute()
+                transaction.set(f"{key}:answered", summary, ex=ACTION_TTL)
+                transaction.exists(f"{key}:closed")
+                transaction.publish(_reply_channel(action_id), json.dumps(reply))
+                _, closed, listeners = transaction.execute()
+            if closed or not listeners:
+                _close_waiter(client, user_id, conversation_id, action_id, action)
             return True
     except (redis.RedisError, SQLAlchemyError):
         raise ResultUnavailable from None

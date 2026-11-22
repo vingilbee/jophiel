@@ -148,6 +148,67 @@ def test_push_timeout_and_late_result_reach_phone_mind_once(channel, monkeypatch
         assert phone_actions.pending_news(db) == {}
 
 
+@pytest.mark.parametrize(("failure", "expected"), [("oauth", "failed"), ("quota", "failed"),
+                                                   ("read_timeout", "unconfirmed")])
+def test_fcm_distinguishes_rejected_sends_from_uncertain_delivery(channel, monkeypatch, failure, expected):
+    monkeypatch.setitem(phone_actions.WAIT_SECONDS, "navigate_to", 0)
+    attempts = []
+
+    def token(client):
+        if failure == "oauth":
+            raise httpx.ReadTimeout("OAuth exchange timed out")
+        return "access"
+
+    def post(client, url, **kwargs):
+        attempts.append(url)
+        if failure == "read_timeout":
+            raise httpx.ReadTimeout("No response from FCM")
+        return httpx.Response(429, json={"error": {"status": "QUOTA_EXCEEDED"}})
+
+    monkeypatch.setattr(fcm._credentials, "access_token", token)
+    monkeypatch.setattr(fcm._credentials, "project_id", lambda: "test")
+    monkeypatch.setattr(fcm.httpx.Client, "post", post)
+    outcome = phone_actions.act(channel.user, channel.conversation, "navigate_to", {"name": "Museum"})
+    assert outcome.status == expected
+    assert len(attempts) == (0 if failure == "oauth" else 1)
+    pending = phone_actions._pending_key(outcome.action_id)
+    if expected == "failed":
+        assert outcome.text == "Couldn't send the maps action to the phone"
+        assert not channel.bus.exists(pending)
+    else:
+        assert "delivery unconfirmed" in outcome.text
+        assert channel.bus.exists(pending)
+
+
+def test_answer_published_before_deadline_reaches_mind_if_waiter_did_not_consume_it(channel, monkeypatch):
+    clock = [time.time()]
+    monkeypatch.setattr(phone_actions, "time", SimpleNamespace(time=lambda: clock[0]))
+    point = {"lat": 21.127331, "lng": 34.872212}
+    result = {"status": "done", "data": point}
+    auth_headers = headers(channel.other_phone)
+
+    def push(token, data, *, client, ttl_seconds):
+        # The phone answers before the send call returns. Redis accepted the publication, but the
+        # worker's wait has elapsed by the time it can drain its subscription.
+        assert channel.client.post(result_url(data["action_id"]), headers=auth_headers, json=result).status_code == 204
+        clock[0] += 20
+        return fcm.Result("sent")
+
+    monkeypatch.setattr(fcm, "send", push)
+    outcome = phone_actions.act(channel.user, channel.conversation, "get_position", {})
+    assert outcome.status == "unconfirmed" and outcome.point is None
+    with channel.db() as db:
+        assert phone_actions.pending_news(db)[channel.user] == [
+            (outcome.action_id, "Phone returned a location after the lookup timed out")
+        ]
+        phone_actions.acknowledge_news([outcome.action_id])
+        assert channel.client.post(result_url(outcome.action_id), headers=auth_headers, json=result).status_code == 204
+        assert phone_actions.pending_news(db) == {}
+    for key in channel.bus.scan_iter(phone_actions._pending_key(outcome.action_id) + "*"):
+        metadata = channel.bus.get(key).decode()
+        assert all(str(coord) not in metadata for coord in point.values())
+
+
 def test_position_reply_is_encrypted_and_only_activity_is_persisted(channel, monkeypatch):
     point = (21.127331, 34.872212)
     room = channel.conversation
@@ -166,6 +227,7 @@ def test_position_reply_is_encrypted_and_only_activity_is_persisted(channel, mon
                 assert listener.get_message(timeout=2)["type"] == "subscribe"
                 url = result_url(action_id)
                 auth_headers = headers(channel.token)
+                assert channel.client.post(url, headers=auth_headers, json={"status": "notified"}).status_code == 422
                 rejected = channel.client.post(url, headers=auth_headers, json={
                     "status": "done", "data": {"lat": 91.12345, "lng": 34.872212}
                 })
@@ -211,6 +273,8 @@ def test_saved_destination_is_resolved_on_the_phone_that_opens_maps(channel):
             }))
             resolve = receive(ws, "phone_action")
             assert resolve["action"] == "resolve_saved_place" and resolve["args"] == {"name": "Work"}
+            assert channel.client.post(result_url(resolve["action_id"]), headers=headers(channel.token),
+                                       json={"status": "notified"}).status_code == 422
             ws.send_json({"type": "phone_action_result", "action_id": resolve["action_id"], "status": "done",
                           "data": {"lat": 49.15, "lng": -123.75}})
             frame = receive(ws, "phone_action")
@@ -274,3 +338,46 @@ def test_route_and_nearby_return_only_human_readable_location_data(monkeypatch):
                        "opening_hours": ["Monday: 9 AM–5 PM"], "place_id": "pharmacy-id",
                        "approx_distance_m": google_maps.distance_m(position, (21.13, 34.87))}]
     assert [request["travelMode"] for request in calls[:2]] == ["TWO_WHEELER", "DRIVE"]
+
+
+def test_place_ids_resolve_in_a_fresh_turn(monkeypatch):
+    settings = get_settings().model_copy(update={"google_maps_api_key": "test-key"})
+    monkeypatch.setattr(tools, "get_settings", lambda: settings)
+    monkeypatch.setattr(google_maps, "get_settings", lambda: settings)
+    place = {"id": "museum-id", "displayName": {"text": "Museum"},
+             "location": {"latitude": 49.15, "longitude": -123.75}}
+    searches = []
+
+    def post(url, *, json, headers, timeout):
+        if url == google_maps.PLACES_URL:
+            searches.append(json["textQuery"])
+            return httpx.Response(200, json={"places": [place]})
+        assert url == google_maps.ROUTES_URL
+        assert json["origin"] == {"placeId": "station-id"} and json["destination"] == {"placeId": "museum-id"}
+        return httpx.Response(200, json={"routes": [{"distanceMeters": 250, "duration": "60s"}]})
+
+    def get(url, *, headers, timeout):
+        assert url.startswith(google_maps.PLACE_DETAILS_URL + "/")
+        assert headers["X-Goog-FieldMask"] == "id,displayName,formattedAddress,location"
+        return httpx.Response(200, json=place) if url.endswith("/museum-id") else httpx.Response(404)
+
+    def act(user, conversation, action, args, **kwargs):
+        assert action == "navigate_to"
+        assert args == {"name": "Museum", "lat": 49.15, "lng": -123.75, "query": None, "mode": "drive",
+                        "place_id": "museum-id"}
+        return phone_actions.Outcome("done", uuid.uuid4(), "Opened Maps → Museum")
+
+    monkeypatch.setattr(google_maps.httpx, "post", post)
+    monkeypatch.setattr(google_maps.httpx, "get", get)
+    monkeypatch.setattr(phone_actions, "act", act)
+    user, room = uuid.uuid4(), uuid.uuid4()
+    _, _, search, _ = tools.build_phone_tools(user, room)
+    [result] = json.loads(asyncio.run(search.ainvoke({"query": "Museum"})))
+    navigate, route, *_ = tools.build_phone_tools(user, room)
+    destination = {"destination_place_id": result["place_id"]}
+    assert "250 m" in asyncio.run(route.ainvoke({**destination, "origin_place_id": "station-id"}))
+    assert asyncio.run(navigate.ainvoke({"action": "navigate_to", **destination})) == "Opened Maps → Museum"
+    assert asyncio.run(navigate.ainvoke({"action": "navigate_to", "destination_place_id": "invalid-id"})) == (
+        "Maps couldn't find that place ID."
+    )
+    assert searches == ["Museum"]

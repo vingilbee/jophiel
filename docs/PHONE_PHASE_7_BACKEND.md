@@ -37,6 +37,8 @@ Phone chat receives `{type: "phone_activity", conversation_id, message_id, text,
 
 Settings can make a bearer-authenticated `GET /api/phone/places/search?q=...` request. The response is an array of `{name, address, lat, lng}` objects using the basic Places fields.
 
+Chat tools can reuse a known Google Maps place ID across replies. Use `destination_place_id` for navigation or routes and `origin_place_id` for a route's starting point. Navigation resolves an uncached ID through Place Details (New).
+
 ## Deploying
 
 1. Apply the Alembic migration from the backend directory with `alembic upgrade head`. The API and chat/mind workers use the new `phone_activity` table.

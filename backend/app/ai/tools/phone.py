@@ -40,39 +40,49 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID) -> list[Ba
             await asyncio.to_thread(phone_actions.record_position_use, user_id, conversation_id, outcome)
         return outcome
 
-    async def waypoint(value: str, saved: bool, target: tuple[str, str | None] | None = None) -> Waypoint | str:
+    async def waypoint(value: str | None, saved: bool, place_id: str | None,
+                       target: tuple[str, str | None] | None = None) -> Waypoint | str:
         if saved:
             result = await ask("resolve_saved_place", {"name": value}, target)
             return Waypoint(point=result.point) if result.point is not None else result.text
-        if value in found:
-            return Waypoint(place_id=found[value].place_id)
+        if place_id or value in found:
+            return Waypoint(place_id=place_id or value)
         return Waypoint(address=value)
 
     @tool
     async def phone_action(
-        action: Literal["navigate_to"], destination: str, mode: Mode = "drive",
-        saved_place: bool = False,
+        action: Literal["navigate_to"], destination: str | None = None, mode: Mode = "drive",
+        saved_place: bool = False, destination_place_id: str | None = None,
     ) -> str:
         """Start Google Maps navigation on the user's phone for this destination.
 
-        Destination is a place name, an address, or a place_id returned by search_places.
+        Use destination for a place name or address. Use destination_place_id for a Maps ID
+        returned by search_places, including one from an earlier reply.
         Set saved_place for one of the user's saved names, such as home or work. Pick mode from
         the user's request and recent motion, defaulting to drive. A new trip replaces the current trip.
         """
-        value = _query(destination)
-        if not value:
-            return "A navigation destination is needed."
+        value = _query(destination or "")
+        place_id = destination_place_id.strip() if destination_place_id is not None else None
+        if not (value or place_id) or (destination_place_id is not None and (not place_id or saved_place)):
+            return "Choose a navigation destination by name, address, saved name, or Google Maps place ID."
         target = await asyncio.to_thread(phone_actions.target_for, user_id) if saved_place else None
         place = None
         point = None
         if saved_place:
-            result = await waypoint(value, True, target)
+            result = await waypoint(value, True, None, target)
             if isinstance(result, str):
                 return result
             point = result.point
         else:
-            place = found.get(value)
-            if place is None and get_settings().google_maps_api_key:
+            place = found.get(place_id or value)
+            if place is None and place_id:
+                try:
+                    place = await asyncio.to_thread(google_maps.place_details, place_id, country=mode == "two_wheeler")
+                except google_maps.MapsUnavailable:
+                    return MAPS_UNAVAILABLE
+                if place is None:
+                    return "Maps couldn't find that place ID."
+            elif place is None and get_settings().google_maps_api_key:
                 try:
                     matches = await asyncio.to_thread(google_maps.search, value, country=mode == "two_wheeler")
                     place = matches[0] if matches else None
@@ -97,41 +107,46 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID) -> list[Ba
             "query": value if point is None else None,
             "mode": mode,
         }
-        if place and place.place_id:
-            args["place_id"] = place.place_id
+        if place and (place.place_id or place_id):
+            args["place_id"] = place.place_id or place_id
         outcome = await ask(action, args, target)
         return f"{TWO_WHEELER_FALLBACK} {outcome.text}" if fell_back else outcome.text
 
     @tool
     async def get_route(
-        destination: str, origin: str | None = None, mode: Mode = "drive",
+        destination: str | None = None, origin: str | None = None, mode: Mode = "drive",
         origin_saved_place: bool = False, destination_saved_place: bool = False,
+        destination_place_id: str | None = None, origin_place_id: str | None = None,
     ) -> str:
         """Estimate travel time and distance. Driving and supported two-wheeler routes account for live traffic.
 
         Use the requested travel mode or pick from recent motion, defaulting to drive. Omit origin to use
-        the phone's position once. Pass an address, a place_id from search_places, or set the relevant
-        saved_place flag when origin or destination is a saved name such as home or work.
+        the phone's position once. Pass an address, give a Google Maps ID in origin_place_id or
+        destination_place_id, or set the relevant saved_place flag for a saved name such as home or work.
         """
         if not get_settings().google_maps_api_key:
             return MAPS_UNAVAILABLE
-        value = _query(destination)
+        value = _query(destination) if destination is not None else None
         start = _query(origin) if origin is not None else None
-        if not value or start == "" or (origin_saved_place and start is None):
+        end_id = destination_place_id.strip() if destination_place_id is not None else None
+        start_id = origin_place_id.strip() if origin_place_id is not None else None
+        if (not (value or end_id) or (start == "" and not start_id) or (origin_saved_place and start is None)
+                or (origin_place_id is not None and (not start_id or origin_saved_place))
+                or (destination_place_id is not None and (not end_id or destination_saved_place))):
             return "A valid route destination and starting point are needed."
         target = None
         if origin_saved_place or destination_saved_place:
             target = await asyncio.to_thread(phone_actions.target_for, user_id)
-        end = await waypoint(value, destination_saved_place, target)
+        end = await waypoint(value, destination_saved_place, end_id, target)
         if isinstance(end, str):
             return end
-        if start is None:
+        if start is None and start_id is None:
             result = await position(target)
             if result.point is None:
                 return result.text
             beginning = Waypoint(point=result.point)
         else:
-            beginning = await waypoint(start, origin_saved_place, target)
+            beginning = await waypoint(start, origin_saved_place, start_id, target)
             if isinstance(beginning, str):
                 return beginning
         try:

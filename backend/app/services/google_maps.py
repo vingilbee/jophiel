@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from math import asin, cos, radians, sin, sqrt
 from typing import Literal
 from urllib.error import URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import httpx
@@ -23,10 +23,12 @@ TWO_WHEELER_REGIONS = frozenset(
     "AR BD BJ BO BR CL CO CR DZ EC EG GH GT HK HN ID IN KE KH LA LK MM MX MY NG NI "
     "PE PH PK PY RW SG TG TH TN TW UG UY VN ZA".split()
 )
-PLACES_URL = "https://places.googleapis.com/v1/places:searchText"
+PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places"
+PLACES_URL = f"{PLACE_DETAILS_URL}:searchText"
 ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 GEOCODING_URL = "https://geocode.googleapis.com/v4/geocode/location"
-BASIC_FIELDS = "places.id,places.displayName,places.formattedAddress,places.location"
+PLACE_FIELDS = ("id", "displayName", "formattedAddress", "location")
+BASIC_FIELDS = ",".join(f"places.{field}" for field in PLACE_FIELDS)
 HOURS_FIELDS = ",places.currentOpeningHours.openNow,places.regularOpeningHours.weekdayDescriptions"
 TIMEOUT = 5.0
 
@@ -109,23 +111,34 @@ def search(query: str, *, near: Point | None = None, hours: bool = False, countr
     if near is not None:
         body["locationBias"] = {"circle": {"center": _lat_lng(near), "radius": 5000.0}}
     values = _response_data(_post(PLACES_URL, body, fields))
-    places = []
-    for item in values.get("places", []):
-        location = item.get("location") or {}
-        # Protobuf JSON can omit zero fields.
-        if "location" not in item:
-            continue
-        name = item.get("displayName", {}).get("text")
-        if not name:
-            continue
-        point = (location.get("latitude", 0.0), location.get("longitude", 0.0))
-        places.append(Place(
-            name=name, address=item.get("formattedAddress", ""), point=point, place_id=item.get("id", ""),
-            country=_country(item, "shortText"),
-            open_now=item.get("currentOpeningHours", {}).get("openNow"),
-            hours=tuple(item.get("regularOpeningHours", {}).get("weekdayDescriptions", [])),
-        ))
-    return places
+    return [place for item in values.get("places", []) if (place := _place(item)) is not None]
+
+
+def place_details(place_id: str, *, country: bool = False) -> Place | None:
+    fields = ",".join(PLACE_FIELDS) + (",addressComponents" if country else "")
+    try:
+        url = f"{PLACE_DETAILS_URL}/{quote(place_id, safe='')}"
+        response = httpx.get(url, headers=_headers(fields), timeout=TIMEOUT)
+    except httpx.HTTPError:
+        raise MapsUnavailable from None
+    if response.status_code == 404:
+        return None
+    return _place(_response_data(response))
+
+
+def _place(item: dict) -> Place | None:
+    location = item.get("location")
+    name = item.get("displayName", {}).get("text")
+    if location is None or not name:
+        return None
+    # Protobuf JSON can omit zero fields.
+    point = (location.get("latitude", 0.0), location.get("longitude", 0.0))
+    return Place(
+        name=name, address=item.get("formattedAddress", ""), point=point, place_id=item.get("id", ""),
+        country=_country(item, "shortText"),
+        open_now=item.get("currentOpeningHours", {}).get("openNow"),
+        hours=tuple(item.get("regularOpeningHours", {}).get("weekdayDescriptions", [])),
+    )
 
 
 def _country(result: dict, field: str) -> str | None:
