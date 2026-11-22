@@ -96,6 +96,8 @@ Columbina is a general conversational agent with a persistent identity, personal
     /models            # (empty — nutrition inference lives in /ai/MacroVision)
     /ai                # chatbot agent (LangChain + Anthropic) + nutrition model
       agent.py          # ChatOpenAI model + build_agent(tools) / cached get_agent()
+      openai_http.py    # HTTP clients for OpenAI calls before a reply: 120 s keep-alive, one pool per event loop,
+                        #   streamed replies closed so their connection is reused
       chat.py           # stream_chat / complete_chat; assembles the orchestrator per turn
       context.py        # AgentRuntimeContext (user_id + per-user integration handles)
       messages.py       # role/content <-> LangChain message conversions

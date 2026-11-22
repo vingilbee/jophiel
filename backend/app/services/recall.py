@@ -35,6 +35,8 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -86,11 +88,31 @@ def _fingerprint(*parts) -> str:
     return hashlib.sha256("|".join("" if p is None else str(p) for p in parts).encode()).hexdigest()[:16]
 
 
+_shared_embeddings: ContextVar[dict[str, list[float] | None] | None] = ContextVar("recall_shared_embeddings",
+                                                                                  default=None)
+
+
+@contextmanager
+def shared_embeddings():
+    """Within this block a text is embedded once, however many readers ask (one evaluation's memory search and
+    its lessons read the same message). Scoped to the block, never a process cache."""
+    token = _shared_embeddings.set({})
+    try:
+        yield
+    finally:
+        _shared_embeddings.reset(token)
+
+
 def embed(text: str) -> list[float] | None:
     """The query's embedding (None when unavailable). Separate so tests and outages can replace it."""
     from app.services.long_term_memory import _embedding
 
-    return _embedding(text)
+    shared = _shared_embeddings.get()
+    if shared is None:
+        return _embedding(text)
+    if text not in shared:
+        shared[text] = _embedding(text)
+    return shared[text]
 
 
 def event_embedding_text(label: str | None, text: str) -> str:

@@ -265,6 +265,14 @@ def test_the_prompt_has_a_desktop_section_only_with_a_desktop():
     assert "## Your desktop" in prompt and "Legion" in prompt and "can see and use it" in prompt
 
 
+def test_an_unusable_desktop_is_a_line_without_how_to_use_it():
+    uid = uuid.uuid4()
+    line = DesktopAccess(uuid.uuid4(), "Legion", False, "allowed", False).prompt_line()
+    prompt = build_system_prompt(AgentRuntimeContext(user_id=uid, desktop=line, desktop_usable=False), [])
+    assert "## Your desktop" in prompt and "controller is offline" in prompt
+    assert "Look, act, check" not in prompt and "no desktop tools" in prompt
+
+
 def test_access_explains_why_not():
     assert DesktopAccess(uuid.uuid4(), "VM", False, "allowed", False).why_not().endswith("(its controller is offline)")
     assert "switched off" in DesktopAccess(uuid.uuid4(), "VM", True, "blocked", False).why_not()

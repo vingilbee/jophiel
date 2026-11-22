@@ -32,7 +32,9 @@ from typing import Any
 
 from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.sessions import create_session
+from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
+from mcp.types import Tool as MCPTool
 
 from app.ai.agent import build_agent, get_agent
 from app.ai.context import AgentRuntimeContext
@@ -101,6 +103,55 @@ def _resolve_connections(context: AgentRuntimeContext) -> dict[str, dict]:
     return connections
 
 
+# What each MCP server offers, listed once per process. A server's tool list is fixed in its code, but listing it
+# means starting it (a stdio server is a new process: ~0.7-0.9 s each) — on every turn, before her first word, even
+# when she never delegates. The tools are rebuilt per turn over this turn's connection (fresh tokens), and each
+# call opens its own session over it, exactly as before.
+_MCP_TOOL_DEFINITIONS: dict[str, list[MCPTool]] = {}
+
+
+async def _server_tools(name: str, connection: dict) -> list[BaseTool]:
+    definitions = _MCP_TOOL_DEFINITIONS.get(name)
+    if definitions is None:
+        async with create_session(connection) as session:
+            await session.initialize()
+            definitions, cursor = [], None
+            for _ in range(100):  # pages
+                page = await session.list_tools(cursor=cursor)
+                definitions.extend(page.tools or [])
+                cursor = page.nextCursor
+                if not cursor:
+                    break
+        _MCP_TOOL_DEFINITIONS[name] = definitions
+    return [convert_mcp_tool_to_langchain_tool(None, definition, connection=connection, server_name=name)
+            for definition in definitions]
+
+
+async def prime_tool_definitions() -> None:
+    """List every enabled specialist server's tools once, before the first turn needs them (the chat worker's
+    warm-up). Placeholder credentials: listing reads no account. A server that won't list now is listed on the
+    first turn that has it, as before."""
+    import uuid
+
+    settings = get_settings()
+    connections: dict[str, dict] = {}
+    if settings.macrovision_tools_enabled:
+        connections["macrovision"] = {"url": macrovision_mcp_url(), "scope_token": mint_scope_token(uuid.uuid4())}
+    if settings.gmail_tools_enabled:
+        connections["gmail"] = {"access_token": "listing-only"}
+    if settings.drive_tools_enabled:
+        connections["drive"] = {key: "" for key in ("openai_api_key", "image_model", "public_image_base",
+                                                    "image_signing_key")} | {
+            "access_token": "listing-only", "user_id": "listing-only",
+            "asset_store_dir": getattr(settings, "asset_store_dir", "var/assets"),
+            "image_store_dir": getattr(settings, "image_store_dir", "var/images")}
+    config = build_server_config(connections)
+    results = await asyncio.gather(*(_server_tools(name, config[name]) for name in config), return_exceptions=True)
+    for name, result in zip(config, results):
+        if isinstance(result, BaseException):
+            logger.info("Specialist %r not listed at start (%s); its first turn lists it.", name, result)
+
+
 async def _load_subagent_tools(
     server_config: dict[str, dict],
     specs: Sequence[SubAgentSpec],
@@ -114,13 +165,14 @@ async def _load_subagent_tools(
     split. A server that won't start drops just its sub-agent — the rest of the
     turn proceeds, matching how Gmail already degrades.
     """
-    client = MultiServerMCPClient(server_config)
     tools_by_server: dict[str, list[BaseTool]] = {}
-    for name in server_config:
-        try:
-            tools_by_server[name] = await client.get_tools(server_name=name)
-        except Exception:
-            logger.exception("Could not load MCP tools for %r; skipping it.", name)
+    loaded = await asyncio.gather(*(_server_tools(name, server_config[name]) for name in server_config),
+                                  return_exceptions=True)
+    for name, result in zip(server_config, loaded):
+        if isinstance(result, BaseException):
+            logger.error("Could not load MCP tools for %r; skipping it.", name, exc_info=result)
+        else:
+            tools_by_server[name] = result
 
     subagent_tools: list[BaseTool] = []
     for spec in specs:
@@ -164,12 +216,13 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     """Yield ``(agent, specs)`` for this user's turn.
 
     The specs come back too so the prompt can describe exactly the specialists
-    that were actually wired up — if a server failed to start, the model is
-    told about it by omission rather than being offered a tool that isn't there.
+    that were actually wired up — if a server's tools couldn't be listed, the
+    model is told about it by omission rather than being offered a tool that
+    isn't there. (A server's list is read once per process, ``_server_tools``:
+    one that breaks later fails its calls, said back to her as a tool error.)
 
-    Tools may hold live MCP sessions opened for this call only; ``get_tools()``
-    opens and closes per server internally, so there's nothing to leak past
-    this block.
+    Each MCP tool call opens and closes its own session over this turn's
+    connection, so there's nothing to leak past this block.
 
     ``queue``, if given, lets subagent tools push their own live token chunks
     back to the caller's stream as they're generated — see build_subagent_tool.
@@ -195,12 +248,13 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if context.game is not None:
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
                                                 planner=context.game_planner,
-                                                since=context.game_moment, message_id=context.source_message_id))
+                                                since=context.game_moment, message_id=context.source_message_id,
+                                                idle=context.game_idle))
     # Her own desktop's hands (general desktop control): same exception, and she looks after every few
     # actions, so an extra model hop per action would make it crawl. Replies only: a background turn
     # never starts using the desktop on its own.
     hook = None
-    if context.desktop is not None and context.game_event is None and context.nudge is None:
+    if context.desktop is not None and context.desktop_usable and context.game_event is None and context.nudge is None:
         direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
                                                         conversation_id=context.conversation_id,
                                                         message_id=context.source_message_id))

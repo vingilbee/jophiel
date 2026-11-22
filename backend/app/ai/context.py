@@ -139,6 +139,8 @@ class AgentRuntimeContext:
     # The game as the summary saw it (``app.services.game_moment.Moment``): her game
     # tools tell her what changed since, and a reply it outdates gets corrected.
     game_moment: Any = None
+    # Not playing: a short summary, no playing rules, and only the tool that starts a game.
+    game_idle: bool = False
     # A background turn about the game (no user message): her game tools
     # become the background set (with ``say``) and the prompt says why she woke.
     game_event: GameEvent | None = None
@@ -154,6 +156,8 @@ class AgentRuntimeContext:
     # One line about her paired Windows desktop (connected? can she see and use it?), from
     # ``services/desktop_control.access_for``. None without one: then no section and no desktop tools.
     desktop: str | None = None
+    # Whether she can use it now (``DesktopAccess.usable``). Not usable: the line alone, no tools.
+    desktop_usable: bool = True
     # The turn and conversation her desktop actions belong to (their experience records link to them).
     turn_id: uuid.UUID | None = None
     conversation_id: uuid.UUID | None = None

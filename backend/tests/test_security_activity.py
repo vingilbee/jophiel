@@ -163,6 +163,19 @@ def test_a_stored_batch_is_kept_once_however_often_it_is_replayed(db, alice):
     assert [(r.status, r.first_record, r.last_record) for r in rows] == [("covered", 10, 11)]
 
 
+def test_the_turn_line_is_left_out_when_monitoring_is_off_and_nothing_was_kept(db, alice):
+    env = _paired(db, alice)
+    assert S.line_for(alice.id) is None  # off, never collected: no section, no tool
+    S.set_monitoring(db, alice.id, env.id, True)
+    assert "is on" in S.line_for(alice.id)
+    db.refresh(env)
+    since = env.security_changed_at
+    S.ingest(db, env.id, 1, _batch(env.security_epoch, _read("Security", since, since + timedelta(seconds=5),
+                                                              [_event(1, since + timedelta(seconds=1))])))
+    S.set_monitoring(db, alice.id, env.id, False)
+    assert "stay readable" in S.line_for(alice.id)  # off, but records are kept: she can still read them
+
+
 def test_nothing_from_before_monitoring_started_is_collected(db, alice):
     env, since = _monitored(db, alice)
     early = _event(1, since - timedelta(minutes=5))

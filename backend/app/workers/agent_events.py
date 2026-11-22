@@ -7,10 +7,10 @@ one planning call, services/game_planning).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 
+from app.ai import openai_http
 from app.db.session import SessionLocal
 from app.services import agent_events, game_events, game_planning
 
@@ -26,8 +26,9 @@ def run_once() -> bool:
         reasons, payload = agent_events.reasons_of(job), dict(job.payload)
     try:
         if source == "desktop":
-            asyncio.run(game_events.run(user_id, uuid.UUID(payload["session_id"]), reasons,
-                                        plan_revision=payload.get("plan_revision")))
+            # A loop per event: its OpenAI connections are closed with it (app/ai/openai_http.py).
+            openai_http.run(game_events.run(user_id, uuid.UUID(payload["session_id"]), reasons,
+                                            plan_revision=payload.get("plan_revision")))
         elif source == game_planning.SOURCE:
             outcome = game_planning.run(user_id, uuid.UUID(payload["session_id"]), reasons, payload,
                                         job_id=job_id, try_number=try_number)
