@@ -146,14 +146,15 @@ def acknowledge_news(activity_ids: list[uuid.UUID]) -> None:
 
 def _record_activity(
     client: redis.Redis | None, user_id: uuid.UUID, conversation_id: uuid.UUID, activity_id: uuid.UUID,
-    text: str, *, late: bool = False,
+    text: str, *, late: bool = False, occurred_at: datetime | None = None,
 ) -> None:
+    occurred_at = occurred_at or datetime.now(timezone.utc).replace(tzinfo=None)
     with SessionLocal.begin() as db:
         # Use an insert-select so deleting the conversation doesn't recreate it or leave an orphan.
-        values = select(literal(activity_id), Conversation.id, literal(text), literal(late)).where(
-            Conversation.id == conversation_id, Conversation.user_id == user_id)
+        values = select(literal(activity_id), Conversation.id, literal(text), literal(late), literal(occurred_at))
+        values = values.where(Conversation.id == conversation_id, Conversation.user_id == user_id)
         created_at = db.scalar(
-            insert(PhoneActivity).from_select(["id", "conversation_id", "content", "mind_pending"], values)
+            insert(PhoneActivity).from_select(["id", "conversation_id", "content", "mind_pending", "created_at"], values)
             .on_conflict_do_nothing(index_elements=[PhoneActivity.id]).returning(PhoneActivity.created_at)
         )
     if created_at is not None and client is not None:
@@ -170,12 +171,13 @@ def _record_activity(
 def _try_record(
     client: redis.Redis | None, user_id: uuid.UUID, conversation_id: uuid.UUID, activity_id: uuid.UUID, text: str,
 ) -> None:
+    occurred_at = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
-        _record_activity(client, user_id, conversation_id, activity_id, text)
+        _record_activity(client, user_id, conversation_id, activity_id, text, occurred_at=occurred_at)
     except SQLAlchemyError:
         if client is not None:
             # Retain the history line independently of the short-lived action and its reply.
-            entry = json.dumps([str(user_id), str(conversation_id), str(activity_id), text])
+            entry = json.dumps([str(user_id), str(conversation_id), str(activity_id), text, occurred_at.isoformat()])
             try:
                 client.zadd(ACTIVITY_RETRIES, {entry: time.time()}, nx=True)
                 return
@@ -185,15 +187,21 @@ def _try_record(
 
 
 def retry_activities() -> None:
-    """Retry failed history writes with the original IDs so multiple workers can safely overlap."""
+    """Retry history writes with their original message IDs and timestamps."""
     client = _client()
     if client is None:
         return
     try:
-        for entry in client.zrangebyscore(ACTIVITY_RETRIES, "-inf", time.time(), start=0, num=ACTIVITY_RETRY_BATCH):
-            user_id, conversation_id, activity_id, text = json.loads(entry)
+        entries = client.zrangebyscore(
+            ACTIVITY_RETRIES, "-inf", time.time(), start=0, num=ACTIVITY_RETRY_BATCH, withscores=True)
+        for entry, due_at in entries:
+            user_id, conversation_id, activity_id, text, *timestamp = json.loads(entry)
+            # Older queued entries only have the scheduling score as a time reference.
+            occurred_at = (datetime.fromisoformat(timestamp[0]) if timestamp
+                           else datetime.fromtimestamp(due_at, timezone.utc).replace(tzinfo=None))
             try:
-                _record_activity(client, uuid.UUID(user_id), uuid.UUID(conversation_id), uuid.UUID(activity_id), text)
+                _record_activity(client, uuid.UUID(user_id), uuid.UUID(conversation_id), uuid.UUID(activity_id),
+                                 text, occurred_at=occurred_at)
             except SQLAlchemyError:
                 client.zadd(ACTIVITY_RETRIES, {entry: time.time() + ACTIVITY_RETRY_SECONDS}, xx=True)
                 break

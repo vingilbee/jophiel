@@ -163,6 +163,37 @@ def test_confirmed_activity_survives_postgres_failure(channel, monkeypatch):
         assert phone_actions.pending_news(db) == {}
 
 
+def test_retried_timeout_activity_stays_before_late_confirmation(channel, monkeypatch):
+    monkeypatch.setitem(phone_actions.WAIT_SECONDS, "navigate_to", 0)
+    monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: fcm.Result("sent"))
+    record = phone_actions._record_activity
+    timeout_at = None
+
+    def fail_first_write(*args, **kwargs):
+        nonlocal timeout_at
+        if timeout_at is None:
+            timeout_at = kwargs["occurred_at"]
+            raise OperationalError(None, None, OSError("PostgreSQL unavailable"))
+        return record(*args, **kwargs)
+
+    monkeypatch.setattr(phone_actions, "_record_activity", fail_first_write)
+    outcome = phone_actions.act(channel.user, channel.conversation, "navigate_to", {"name": "Museum"})
+    assert outcome.status == "unconfirmed"
+    auth_headers = headers(channel.other_phone)
+    assert channel.client.post(result_url(outcome.action_id), headers=auth_headers,
+                               json={"status": "done"}).status_code == 204
+    with channel.db() as db:
+        [confirmation] = phone_actions.history(db, channel.conversation)
+        assert confirmation.content == "Opened Maps → Museum"
+    phone_actions.retry_activities()
+    path = f"/api/chat/conversations/{channel.conversation}"
+    timeout, confirmation = channel.client.get(path, headers=auth_headers).json()["messages"]
+    assert timeout["content"] == outcome.text
+    assert timeout["created_at"] == timeout_at.isoformat()
+    assert confirmation["content"] == "Opened Maps → Museum"
+    assert timeout["created_at"] < confirmation["created_at"]
+
+
 def test_push_timeout_and_late_result_reach_phone_mind_once(channel, monkeypatch):
     monkeypatch.setitem(phone_actions.WAIT_SECONDS, "navigate_to", 0.15)
     sent = []
