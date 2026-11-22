@@ -138,7 +138,8 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **Notifications** (`services/phone_notifications.py`): a `phone_notifications` socket frame or
   `POST /api/phone/notifications` (same body, `type` optional; returns `{posted, removed}`). Posted ones go to Redis
   (one hash per user, a field per key; an older `revision` never replaces a newer one); removed ones are deleted;
-  `all_removed: true` (the Notifications sense switched off) deletes them all. TTL
+  `all_removed: true` (the Notifications sense switched off) deletes them all, and the news still queued
+  with them (only "cleared" is left). TTL
   `PHONE_NOTIFICATION_KEEP_HOURS` (24 h). Never in the database. She refers to one by a short handle
   (`notif:1a2b3c4d`, a hash of the phone's key), never by the key.
 - **News**: each change is queued for her phone source, which ticks at once. A chat notification is news only for

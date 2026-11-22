@@ -182,10 +182,12 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
         for _ in range(WRITE_TRIES):
             with client.pipeline() as pipe:
                 try:
-                    pipe.watch(key)
+                    pipe.watch(key, _news_key(user_id))
                     stored = {(k.decode() if isinstance(k, bytes) else k): v for k, v in (pipe.hgetall(key) or {}).items()}
                     writes, deletes, news = {}, [], []
-                    if payload.all_removed and stored:
+                    # Switched off: nothing it reported before is still known, the words in queued news included.
+                    drop_news = payload.all_removed and bool(pipe.llen(_news_key(user_id)))
+                    if payload.all_removed and (stored or drop_news):
                         deletes = list(stored)
                         news.append({"kind": "cleared"})
                         stored = {}
@@ -214,8 +216,11 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     if writes:
                         pipe.hset(key, mapping=writes)
                     pipe.expire(key, _keep_seconds())
+                    if drop_news:
+                        pipe.delete(_news_key(user_id))
                     for entry in news:
-                        pipe.rpush(_news_key(user_id), json.dumps({**entry, "at": now}, ensure_ascii=False))
+                        pipe.rpush(_news_key(user_id), json.dumps({**entry, "id": uuid.uuid4().hex, "at": now},
+                                                                  ensure_ascii=False))
                     if news:
                         pipe.ltrim(_news_key(user_id), -NEWS_KEEP, -1)
                         pipe.expire(_news_key(user_id), _keep_seconds())
@@ -266,19 +271,36 @@ def live(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Notifica
     except redis.RedisError:
         return None
     keep = _keep_seconds()
-    out, old = [], []
+    out, old = [], {}
     for raw_key, raw in stored.items():
         entry = Notification.load(raw)
         if entry is None or now - entry.received_at > keep:
-            old.append(raw_key)
+            old[raw_key] = raw
             continue
         out.append(entry)
     if old:
-        try:
-            client.hdel(_key(user_id), *old)
-        except redis.RedisError:
-            pass
+        _drop_expired(client, _key(user_id), old)
     return sorted(out, key=lambda n: n.arrived_at, reverse=True)
+
+
+def _drop_expired(client: redis.Redis, key: str, old: dict) -> None:
+    """Delete the expired fields read, only those still holding what was read: a report that refreshed one since
+    keeps it. A field changed meanwhile is left for the next read."""
+    try:
+        with client.pipeline() as pipe:
+            pipe.watch(key)
+            fields = list(old)
+            current = pipe.hmget(key, fields)
+            same = [f for f, raw in zip(fields, current) if raw is not None and raw == old[f]]
+            if not same:
+                return
+            pipe.multi()
+            pipe.hdel(key, *same)
+            pipe.execute()
+    except redis.WatchError:
+        pass  # a report wrote meanwhile: the next read cleans up what's still expired
+    except redis.RedisError:
+        pass
 
 
 def find(user_id: uuid.UUID | str, handle: str) -> Notification | None:
@@ -299,22 +321,65 @@ def pending_news(user_id: uuid.UUID | str) -> list[dict]:
         rows = client.lrange(_news_key(user_id), 0, -1) or []
     except redis.RedisError:
         return []
-    out = []
-    for raw in rows:
-        try:
-            out.append(json.loads(raw))
-        except (TypeError, ValueError):
-            out.append({"kind": "unreadable"})
-    return out
+    return [_news_entry(raw) for raw in rows]
 
 
-def acknowledge_news(user_id: uuid.UUID | str, count: int) -> None:
-    """Drop the ``count`` oldest news items (the ones a tick read): anything newer stays for the next tick."""
-    client = _client()
-    if client is None or count <= 0:
-        return
+def _row_id(raw) -> str:
+    """A queued row's own identity: its ``id``, or (a row without one) a hash of the row itself."""
     try:
-        client.ltrim(_news_key(user_id), count, -1)
+        data = json.loads(raw)
+        if isinstance(data, dict) and data.get("id"):
+            return str(data["id"])
+    except (TypeError, ValueError):
+        pass
+    return "raw:" + hashlib.sha256(raw if isinstance(raw, bytes) else str(raw).encode()).hexdigest()[:16]
+
+
+def _news_entry(raw) -> dict:
+    try:
+        entry = json.loads(raw)
+        if not isinstance(entry, dict):
+            raise ValueError
+    except (TypeError, ValueError):
+        entry = {"kind": "unreadable"}
+    return {**entry, "id": _row_id(raw)}
+
+
+def news_ids(news: list[dict]) -> list[str]:
+    """The ids of news items as ``pending_news`` gave them: what a tick that read them acknowledges."""
+    return [entry["id"] for entry in news if entry.get("id")]
+
+
+def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> None:
+    """Drop exactly the news items a tick read (their ids, or the items themselves): anything queued since, and
+    anything it didn't read, stays for the next tick, however the queue moved meanwhile (trimmed when full,
+    emptied when the sense was switched off)."""
+    client = _client()
+    ids = {item["id"] if isinstance(item, dict) else item for item in read or []}
+    ids.discard(None)
+    if client is None or not ids:
+        return
+    key = _news_key(user_id)
+    try:
+        for _ in range(WRITE_TRIES):
+            with client.pipeline() as pipe:
+                try:
+                    pipe.watch(key)
+                    rows = pipe.lrange(key, 0, -1) or []
+                    kept = [raw for raw in rows if _row_id(raw) not in ids]
+                    if len(kept) == len(rows):
+                        return
+                    ttl = pipe.ttl(key)
+                    pipe.multi()
+                    pipe.delete(key)
+                    if kept:
+                        pipe.rpush(key, *kept)
+                        pipe.expire(key, ttl if ttl and ttl > 0 else _keep_seconds())
+                    pipe.execute()
+                    return
+                except redis.WatchError:
+                    continue
+        log.warning("phone_notifications: news kept changing while acknowledged for user %s", user_id)
     except redis.RedisError:
         log.warning("phone_notifications: news could not be acknowledged for user %s", user_id)
 

@@ -299,7 +299,7 @@ class PhoneSource:
         return Moment("\n\n".join(text), "calm", fresh, changed, "; ".join(fresh)[:200], can_act=False,
                       talk=talk, capture=lambda: {**snapshot(state), "_user": scope.user_id},
                       data={"snapshot": current, "action_news": [activity_id for activity_id, _ in action_news],
-                            "notification_news": len(notes),
+                            "notification_news": phone_notifications.news_ids(notes),
                             # Someone else's words are in this moment: what it leads to is theirs, not the user's
                             # (no device action, however far it's carried: app/ai/chat.py).
                             "third_party": phone_notifications.has_third_party(notes),
@@ -311,7 +311,7 @@ class PhoneSource:
 
     def after_tick(self, scope: Scope, moment: Moment, number: int, decision: dict) -> None:
         phone_actions.acknowledge_news(moment.data["action_news"])
-        phone_notifications.acknowledge_news(scope.user_id, moment.data.get("notification_news", 0))
+        phone_notifications.acknowledge_news(scope.user_id, moment.data.get("notification_news") or [])
 
     def gate_situation(self) -> Situation:
         return PHONE

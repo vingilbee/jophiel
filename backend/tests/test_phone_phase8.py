@@ -86,7 +86,7 @@ def test_posted_notification_is_live_news_labelled_as_someone_elses_words(channe
 
 def test_overlapping_snapshots_and_older_revisions_count_once(channel):
     post(channel, {"posted": [RINA]})
-    phone_notifications.acknowledge_news(channel.user, len(phone_notifications.pending_news(channel.user)))
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user))
     second = {**RINA, "revision": 2, "messages": [*RINA["messages"], {
         "event_id": "e_2", "sender": "Rina", "sender_id": "p_rina", "identity": "contact", "in_contacts": True,
         "text": "we're at the usual place", "at": "2026-11-22T19:03:00+07:00"}]}
@@ -101,7 +101,7 @@ def test_overlapping_snapshots_and_older_revisions_count_once(channel):
 
 def test_a_reply_written_on_the_phone_is_not_someone_elses_news(channel):
     post(channel, {"posted": [RINA]})
-    phone_notifications.acknowledge_news(channel.user, len(phone_notifications.pending_news(channel.user)))
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user))
     wakeups = channel.bus.llen(phone_state.MIND_WAKEUPS)
     # The user (or she, through the reply button) answers: the phone shows it as the owner's message.
     you = {"event_id": "e_you", "sender": "You", "sender_id": "owner", "identity": None, "in_contacts": False,
@@ -129,7 +129,7 @@ def test_removed_and_all_removed(channel):
     post(channel, {"posted": [RINA, {**RINA, "key": "n_bank", "app": "Bank", "title": "Payment", "text": "Rp 50.000",
                                      "messages": [], "conversation": None, "conversation_id": None,
                                      "can_reply": False}]})
-    phone_notifications.acknowledge_news(channel.user, 2)
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user)[:2])
     assert post(channel, {"removed": [{"key": "n_rina", "reason": "cleared"}, {"key": "unknown"}]}).json() == {
         "posted": 0, "removed": 1}
     [news] = phone_notifications.pending_news(channel.user)
@@ -138,10 +138,64 @@ def test_removed_and_all_removed(channel):
     assert moment.fresh == [f'Notification [{phone_notifications.ref("n_rina")}] from "Rina" (WhatsApp) is gone '
                             "from the phone, cleared: already seen or dealt with there"]
     assert moment.data["third_party"] is False
-    phone_notifications.acknowledge_news(channel.user, 1)
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user)[:1])
     post(channel, {"all_removed": True})
     assert phone_notifications.live(channel.user) == []
     assert [n["kind"] for n in phone_notifications.pending_news(channel.user)] == ["cleared"]
+
+
+def test_switching_the_sense_off_drops_the_words_still_queued(channel):
+    """PR #47 review: unread news kept someone else's text after the sense was switched off."""
+    post(channel, {"posted": [RINA]})
+    post(channel, {"all_removed": True})
+    queued = phone_notifications.pending_news(channel.user)
+    assert [n["kind"] for n in queued] == ["cleared"]
+    assert "are you coming tonight?" not in json.dumps(queued)
+    # Only news queued (its notification already gone): switching off still drops it.
+    post(channel, {"posted": [RINA]})
+    post(channel, {"removed": [{"key": "n_rina"}]})
+    post(channel, {"all_removed": True})
+    assert [n["kind"] for n in phone_notifications.pending_news(channel.user)] == ["cleared"]
+
+
+def test_a_tick_acknowledges_only_the_news_it_read(channel):
+    """PR #47 review: acknowledging by count dropped news the tick never read when the queue moved meanwhile."""
+    post(channel, {"posted": [RINA]})
+    source, scope, moment = moment_for(channel)
+    # Meanwhile: switched off and on again, and a new message arrives.
+    post(channel, {"all_removed": True})
+    post(channel, {"posted": [{**RINA, "key": "n_budi", "conversation_id": "c_budi", "title": "Budi",
+                               "conversation": "Budi", "messages": [{**RINA["messages"][0], "event_id": "e_9",
+                                                                     "sender": "Budi", "sender_id": "p_budi",
+                                                                     "text": "hello?"}]}]})
+    source.after_tick(scope, moment, 1, {})
+    kinds = [(n["kind"], n.get("key")) for n in phone_notifications.pending_news(channel.user)]
+    assert kinds == [("cleared", None), ("posted", "n_budi")]
+    # A full queue trimmed meanwhile: the tick's news is gone already, the rest stays.
+    read = phone_notifications.pending_news(channel.user)[:1]
+    channel.bus.lpop(phone_notifications._news_key(channel.user))
+    phone_notifications.acknowledge_news(channel.user, read)
+    assert [n.get("key") for n in phone_notifications.pending_news(channel.user)] == ["n_budi"]
+
+
+def test_expiry_cleanup_keeps_a_notification_refreshed_meanwhile(channel, monkeypatch):
+    """PR #47 review: live() deleted fields it read as expired even when a report had just refreshed them."""
+    old = time.time() - 48 * 3600
+    phone_notifications.report(channel.user, PhoneNotificationsReport(posted=[RINA]), now=old)
+    real = channel.bus.hgetall
+
+    def refreshed_meanwhile(key):
+        stored = real(key)
+        phone_notifications.report(channel.user, PhoneNotificationsReport(posted=[{**RINA, "revision": 2}]))
+        return stored
+
+    client = phone_notifications._client()
+    monkeypatch.setattr(phone_notifications, "_client", lambda: client)
+    monkeypatch.setattr(client, "hgetall", refreshed_meanwhile)
+    assert phone_notifications.live(channel.user) == []  # what it read was expired
+    monkeypatch.setattr(client, "hgetall", real)
+    [kept] = phone_notifications.live(channel.user)
+    assert kept.revision == 2
 
 
 def test_socket_frame_reaches_the_store_and_web_sockets_and_bad_bodies_are_refused(channel):
@@ -424,7 +478,7 @@ def test_a_notification_moment_carries_what_she_promised_to_watch_for(channel):
     _, _, moment = moment_for(channel)
     assert ("WHAT YOU'RE WAITING FOR (your open promises and intentions)\n"
             "- You promised: Tell them when a WhatsApp message arrives") in moment.text
-    phone_notifications.acknowledge_news(channel.user, 1)
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user)[:1])
     phone_state.report(channel.user, {"screen": "off"})
     _, _, quiet = moment_for(channel)
     assert "WHAT YOU'RE WAITING FOR" not in quiet.text  # only with a notification
