@@ -740,6 +740,11 @@ def render_wake(info: dict) -> str:
                  r.get("conclusion") or ""]
     elif info.get("autonomous"):
         lines = ["A thought of your own, from your background thinking (not a user request):"]
+        if inp.get("arrived"):
+            handles = ", ".join(f"[{h}]" for h in inp["arrived"])
+            lines = [f"A notification just arrived on their phone ({handles}; under ON THEIR PHONE in \"Now\", "
+                     "with when it arrived). This is real news from their phone, not something you inferred. Your "
+                     "background thinking noticed it, with what you're waiting for, and thought:"]
         if r.get("question"):
             lines.append(f"A question you'd consider asking them: {r['question']}")
         elif r.get("conclusion"):

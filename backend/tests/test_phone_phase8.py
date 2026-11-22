@@ -78,7 +78,8 @@ def test_posted_notification_is_live_news_labelled_as_someone_elses_words(channe
     assert line.endswith('"are you coming tonight?"')
     assert moment.data["third_party"] is True
     # The live list in the moment says who and where only.
-    assert f'- [{handle}] "Rina" (WhatsApp), 1 message, can be replied to' in moment.text
+    assert f'- [{handle}] "Rina" (WhatsApp), 1 message, can be replied to, latest message arrived 0 s ago' in moment.text
+    assert moment.data["arrived"] == [handle]
     source.after_tick(scope, moment, 1, {})
     assert phone_notifications.pending_news(channel.user) == []
 
@@ -401,3 +402,31 @@ def test_a_notification_moment_carries_what_she_promised_to_watch_for(channel):
     phone_state.report(channel.user, {"screen": "off"})
     _, _, quiet = moment_for(channel)
     assert "WHAT YOU'RE WAITING FOR" not in quiet.text  # only with a notification
+
+
+def test_a_notification_wake_says_it_arrived_and_when(channel):
+    """Seen live 2026-11-22: a wake about "hello?" read as her own guess, and the message as one already there."""
+    post(channel, {"posted": [RINA]}, )
+    first = phone_notifications.live(channel.user)[0].arrived_at
+    later = first + 600
+    # The same snapshot again later (a revision bump): it still arrived when it first did.
+    phone_notifications.report(channel.user, PhoneNotificationsReport.model_validate(
+        {"posted": [{**RINA, "revision": 2}]}), now=later)
+    [live] = phone_notifications.live(channel.user, now=later)
+    assert live.arrived_at == first
+    assert phone_notifications.describe([live], with_text=False, now=later)[0].endswith(
+        "latest message arrived 10 min ago")
+    with channel.db() as db:
+        autonomous_speech.submit(
+            db, user_id=channel.user, activity_id=mind_phone.activity_of(channel.user), source="phone",
+            event_id=uuid.uuid4(), text="She replied on WhatsApp", reasons=["light: the reply I was watching for"],
+            commentary_mode="occasional", third_party=True, arrived=[live.ref])
+        work = db.query(CoordinatorWork).filter(CoordinatorWork.user_id == channel.user).one()
+        assert work.input["arrived"] == [live.ref] and "are you coming" not in json.dumps(work.input)
+        text = coordinator.render_wake({"autonomous": True, "input": dict(work.input), "result": work.result,
+                                        "reason": "thought"})
+    assert text.startswith(f"A notification just arrived on their phone ([{live.ref}];")
+    assert "not something you inferred" in text and "She replied on WhatsApp" in text
+    plain = coordinator.render_wake({"autonomous": True, "input": {}, "result": {"conclusion": "x"},
+                                     "reason": "thought"})
+    assert plain.startswith("A thought of your own")

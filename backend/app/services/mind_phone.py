@@ -302,7 +302,9 @@ class PhoneSource:
                             "notification_news": len(notes),
                             # Someone else's words are in this moment: what it leads to is theirs, not the user's
                             # (no device action, however far it's carried: app/ai/chat.py).
-                            "third_party": phone_notifications.has_third_party(notes)})
+                            "third_party": phone_notifications.has_third_party(notes),
+                            # Which notifications just arrived (handles only): the wake this leads to names them.
+                            "arrived": phone_notifications.arrived(notes)})
 
     def previous(self, moment: Moment) -> Any:
         return moment.data["snapshot"]
