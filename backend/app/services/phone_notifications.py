@@ -75,15 +75,19 @@ def _news_key(user_id: uuid.UUID | str) -> str:
 
 
 def _missed_key(user_id: uuid.UUID | str) -> str:
+    """An earlier build's missed count (decremented as she was told). Never written now: a report or an
+    acknowledgement folds it into the marks' ``missed`` and deletes it."""
     return f"phone_notifications:missed:{user_id}"
 
 
 def _marks_key(user_id: uuid.UUID | str) -> str:
-    """Where the queue stands, a hash of sequence numbers: ``seq`` (the last given to a queued item: each item's id
-    carries its own, rising), ``trimmed`` (the highest a full queue trimmed) and ``floor`` (none at or below it is
-    ever taken back out of the missed count: switched off since, or already taken back). A tick that read an item
-    later trimmed takes it back out of the missed count when it acknowledges (``acknowledge_news``): a constant
-    size, whatever was trimmed, and nothing an in-flight tick read is ever forgotten."""
+    """Where the queue stands, one hash, one TTL: ``seq`` (the last number given to a queued item: each item's id
+    carries its own, rising), ``trimmed`` (the highest a full queue trimmed), ``floor`` (none at or below it is
+    ever taken back: switched off since, or already taken back), and the missed count as running totals that
+    only grow: ``missed`` (items trimmed unread), ``taken`` (of those, read by a tick before the trim: not
+    missed after all) and ``told`` (how much of ``missed - taken`` she has been told), with ``epoch`` (bumped by a
+    switch-off, which zeroes the totals). Unread = missed - taken - told. Every acknowledgement only raises
+    ``told`` to a mark and ``floor`` past what it took back, so applying it again changes nothing."""
     return f"phone_notifications:marks:{user_id}"
 
 
@@ -230,6 +234,7 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     pipe.watch(key, _news_key(user_id), _marks_key(user_id))
                     marks = pipe.hgetall(_marks_key(user_id)) or {}
                     last_seq = _mark(marks, "seq")
+                    legacy = int(pipe.get(_missed_key(user_id)) or 0)
                     stored = {(k.decode() if isinstance(k, bytes) else k): v for k, v in (pipe.hgetall(key) or {}).items()}
                     # applied: each posted snapshot as applied, in order, with the owner messages it shows for the
                     # first time (two snapshots of one key in a report each keep their own).
@@ -275,13 +280,14 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                             trimmed_to = _seq(_row_id(pipe.lindex(_news_key(user_id), overflow - 1)))
                         else:  # every queued item and the first of these new ones
                             trimmed_to = last_seq + overflow - left
-                    marks_out = {"seq": last_seq + len(news)}
+                    marks_out = {"seq": last_seq + len(news),
+                                 "missed": _mark(marks, "missed") + legacy + max(overflow, 0)}
                     if trimmed_to is not None:
                         marks_out["trimmed"] = max(trimmed_to, _mark(marks, "trimmed"))
                     if drop_news or payload.all_removed:
                         # Nothing queued before the switch-off is taken back, nor any missed count told before it.
-                        marks_out["floor"] = last_seq
-                        marks_out["epoch"] = _mark(marks, "epoch") + 1
+                        marks_out.update(floor=last_seq, epoch=_mark(marks, "epoch") + 1, taken=0, told=0,
+                                         missed=max(overflow, 0))
                     pipe.multi()
                     if deletes:
                         pipe.hdel(key, *deletes)
@@ -290,16 +296,15 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     pipe.expire(key, _keep_seconds())
                     if drop_news:
                         pipe.delete(_news_key(user_id))
+                    if legacy:
+                        pipe.delete(_missed_key(user_id))  # folded into the marks
                     if payload.all_removed:
                         # (LEGACY_TRIMMED: a set an earlier build kept; DEL takes any type.)
                         pipe.delete(_missed_key(user_id), LEGACY_TRIMMED + str(user_id))
-                    if overflow > 0:
-                        pipe.incrby(_missed_key(user_id), overflow)
-                        pipe.expire(_missed_key(user_id), _keep_seconds())
                     for number, entry in enumerate(news, start=last_seq + 1):
                         pipe.rpush(_news_key(user_id), json.dumps(
                             {**entry, "id": f"s{number}.{uuid.uuid4().hex[:12]}", "at": now}, ensure_ascii=False))
-                    if news or "floor" in marks_out:
+                    if news or legacy or "floor" in marks_out:
                         pipe.hset(_marks_key(user_id), mapping=marks_out)
                         pipe.expire(_marks_key(user_id), _keep_seconds())
                     if news:
@@ -408,13 +413,17 @@ def pending_news(user_id: uuid.UUID | str) -> list[dict]:
             pipe.multi()
             pipe.lrange(_news_key(user_id), 0, -1)
             pipe.get(_missed_key(user_id))
-            pipe.hget(_marks_key(user_id), "epoch")
-            rows, missed, epoch = pipe.execute()
-        rows, missed, epoch = rows or [], int(missed or 0), int(epoch or 0)
+            pipe.hgetall(_marks_key(user_id))
+            rows, legacy, marks = pipe.execute()
+        rows, legacy, marks = rows or [], int(legacy or 0), marks or {}
     except (redis.RedisError, ValueError):
         return []
-    # The count's id carries the switch-off epoch: told before a switch-off, it's never subtracted after it.
-    lost = [{"kind": "missed", "count": missed, "id": f"{MISSED_ID}:{missed}:{epoch}"}] if missed > 0 else []
+    # What she'd be told: the missed total net of take-backs, as a mark (``told`` rises to it when acknowledged),
+    # and the switch-off epoch (told before a switch-off, it's never applied after it).
+    net = _mark(marks, "missed") + legacy - _mark(marks, "taken")
+    unread = net - _mark(marks, "told")
+    lost = ([{"kind": "missed", "count": unread, "id": f"{MISSED_ID}:{net}:{_mark(marks, 'epoch')}"}]
+            if unread > 0 else [])
     return [*lost, *(_news_entry(raw) for raw in rows)]
 
 
@@ -447,16 +456,17 @@ def news_ids(news: list[dict]) -> list[str]:
 def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> None:
     """Drop exactly the news items a tick read (their ids, or the items themselves): anything queued since, and
     anything it didn't read, stays for the next tick, however the queue moved meanwhile (trimmed when full,
-    emptied when the sense was switched off). The missed count loses what she was told, and every item she read
-    that a full queue trimmed since (she saw it: it isn't missed): gone from the queue, its sequence above
-    ``floor`` and at most ``trimmed`` (``_marks_key``). One transaction over the queue, the count and the marks: a
+    emptied when the sense was switched off). What she was told of the missed count is marked (``told`` rises to
+    it), and every item she read that a full queue trimmed since is taken back (she saw it: it isn't missed):
+    gone from the queue, its sequence above ``floor`` and at most ``trimmed`` (``_marks_key``). Safe to retry:
+    applying the same acknowledgement again changes nothing. One transaction over the queue and the marks: a
     report landing meanwhile makes it retry."""
     client = _client()
     ids = {item["id"] if isinstance(item, dict) else item for item in read or []}
     ids.discard(None)
     if client is None or not ids:
         return
-    told: list[tuple[int, int]] = []  # (count, epoch) she was told
+    told: list[tuple[int, int]] = []  # (net missed mark, epoch) she was told
     for missed in [i for i in ids if str(i).startswith(MISSED_ID + ":")]:
         ids.discard(missed)
         try:
@@ -476,15 +486,25 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
                     kept = [raw for raw, row_id in zip(rows, row_ids) if row_id not in ids]
                     gone = [i for i in ids if i not in present]
                     seen_trimmed: list[int] = []
-                    marks = pipe.hgetall(marks_key) or {} if gone or told else {}
+                    marks = pipe.hgetall(marks_key) or {}
+                    legacy = int(pipe.get(missed_key) or 0)
                     if gone:
                         floor, trimmed = _mark(marks, "floor"), _mark(marks, "trimmed")
                         seen_trimmed = [n for n in map(_seq, gone) if n is not None and floor < n <= trimmed]
-                    current = sum(count for count, epoch in told if epoch == _mark(marks, "epoch"))
-                    left = None
-                    if current or seen_trimmed:
-                        left = int(pipe.get(missed_key) or 0) - current - len(seen_trimmed)
-                    if len(kept) == len(rows) and left is None:
+                    marks_out: dict[str, int] = {}
+                    if legacy:
+                        marks_out["missed"] = _mark(marks, "missed") + legacy
+                    marked = max((net for net, epoch in told if epoch == _mark(marks, "epoch")), default=0)
+                    if marked > _mark(marks, "told"):
+                        marks_out["told"] = marked
+                    if seen_trimmed:
+                        marks_out["taken"] = _mark(marks, "taken") + len(seen_trimmed)
+                    # The floor moves past everything this tick read (a tick reads the oldest first): whatever is
+                    # gone of it later went with this acknowledgement, so a retry takes nothing back.
+                    read_to = max((n for n in map(_seq, ids) if n is not None), default=0)
+                    if read_to > _mark(marks, "floor"):
+                        marks_out["floor"] = read_to
+                    if len(kept) == len(rows) and not marks_out:
                         return
                     ttl = pipe.ttl(key) if len(kept) != len(rows) else None
                     pipe.multi()
@@ -493,14 +513,12 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
                         if kept:
                             pipe.rpush(key, *kept)
                             pipe.expire(key, ttl if ttl and ttl > 0 else _keep_seconds())
-                    if left is not None:
-                        # More missed since stays for the next moment; the key goes only when nothing is left.
-                        if left > 0:
-                            pipe.set(missed_key, left, keepttl=True)
-                        else:
-                            pipe.delete(missed_key)
-                    if seen_trimmed:  # taken back once: a repeated acknowledgement takes nothing more
-                        pipe.hset(marks_key, "floor", max(seen_trimmed))
+                    if legacy:
+                        pipe.delete(missed_key)  # folded into the marks
+                    if marks_out:
+                        pipe.hset(marks_key, mapping=marks_out)
+                        if legacy or not marks:  # a hash this creates expires like the queue
+                            pipe.expire(marks_key, _keep_seconds())
                     pipe.execute()
                     return
                 except redis.WatchError:

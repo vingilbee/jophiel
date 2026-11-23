@@ -433,7 +433,7 @@ def test_a_tick_still_in_flight_after_many_trims_keeps_what_it_read(channel, mon
         report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
     marks = phone_notifications._marks_key(channel.user)
     assert channel.bus.hlen(marks) <= 3
-    assert int(channel.bus.get(phone_notifications._missed_key(channel.user))) == 10
+    assert int(channel.bus.hget(marks, "missed")) == 10
     phone_notifications.acknowledge_news(channel.user, news)
     after = phone_notifications.pending_news(channel.user)
     assert [(e["kind"], e.get("count")) for e in after] == [("missed", 8), ("posted", None), ("posted", None)]
@@ -468,10 +468,12 @@ def test_nothing_queued_before_a_switch_off_is_taken_back_out_of_the_missed_coun
 
 
 def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
-    key = phone_notifications._missed_key(channel.user)
-    channel.bus.set(key, 3, ex=600)
+    """An earlier build's count (3) is folded in; 2 more trimmed while she acknowledges make the transaction retry
+    and stay for her next moment."""
+    channel.bus.set(phone_notifications._missed_key(channel.user), 3, ex=600)
     [missed] = phone_notifications.pending_news(channel.user)
-    # A report adds 2 while she reads: the first transaction sees the change and retries.
+    assert missed["count"] == 3
+    marks = phone_notifications._marks_key(channel.user)
     real = channel.bus.pipeline
     raced = []
 
@@ -483,16 +485,37 @@ def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, 
 
             def watch_then_race(*keys):
                 watch(*keys)
-                channel.bus.incrby(key, 2)
+                channel.bus.hincrby(marks, "missed", 2)
             pipe.watch = watch_then_race
         return pipe
 
     monkeypatch.setattr(channel.bus, "pipeline", pipeline)
     phone_notifications.acknowledge_news(channel.user, [missed])
-    assert int(channel.bus.get(key)) == 2 and 0 < channel.bus.ttl(key) <= 600
     monkeypatch.setattr(channel.bus, "pipeline", real)
-    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user))
-    assert not channel.bus.exists(key)
+    assert not channel.bus.exists(phone_notifications._missed_key(channel.user))
+    [later] = phone_notifications.pending_news(channel.user)
+    assert later["count"] == 2
+    phone_notifications.acknowledge_news(channel.user, [later])
+    assert phone_notifications.pending_news(channel.user) == []
+
+
+def test_acknowledging_the_same_tick_again_changes_nothing(channel, monkeypatch):
+    """after_tick retried (a worker restart, a lost reply): the missed count she was told and the items she read
+    that were trimmed since are applied once."""
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
+    for n in range(4):  # n_0, n_1 trimmed unread
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    news = phone_notifications.pending_news(channel.user)  # told 2 missed; reads n_2, n_3
+    assert news[0]["count"] == 2
+    report(channel, chat("n_4", "c_4", "Chat 4", burst(40, 1, sender_id="p_4")))  # trims n_2: read, not missed
+    for _ in range(3):
+        phone_notifications.acknowledge_news(channel.user, news)
+    assert [e.get("key") for e in phone_notifications.pending_news(channel.user)] == ["n_4"]
+    # Two more trimmed unread (n_4 and n_5) after that: counted, and a late retry of the old tick doesn't eat them.
+    for n in (5, 6, 7):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    phone_notifications.acknowledge_news(channel.user, news)
+    assert phone_notifications.pending_news(channel.user)[0]["count"] == 2
 
 
 def test_the_hourly_cap_holds_news_and_drops_none(channel, _settings):
