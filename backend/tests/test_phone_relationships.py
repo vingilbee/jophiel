@@ -751,3 +751,42 @@ def test_a_failure_reading_the_evidence_holds_the_reply(env, monkeypatch):
     judge = Judge({"send": True})
     held = RC.check_reply(env.user, ref(DM_KEY), "hey!", model=judge)
     assert not held.send and "couldn't be read" in held.why and judge.seen == []
+
+
+def test_without_every_time_merged_notifications_answer_no_one(env):
+    now = datetime.now(timezone.utc)
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=now - timedelta(minutes=5))))
+    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
+                                                                conversation="Band")
+    # A second notification of the same group, Rina's newer message without a time: Budi (timed, earlier) is never
+    # taken for the one she's answering.
+    report(env, chat(BAND_KEY + "_2", "c_band", "Band", [message("e_b9", "Rina", "p_rina", "where is he?")],
+                     group=True))
+    seen = RC.material_for(env.user, ref(BAND_KEY))
+    assert len(seen.messages) == 2  # both notifications read as one conversation
+    assert seen.recipient is None and seen.authorized == []
+
+
+def test_one_notification_answers_its_last_message_timed_or_not(env):
+    now = datetime.now(timezone.utc)
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=now - timedelta(minutes=5)),
+                     message("e_b2", "Rina", "p_rina", "where is he?")))
+    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
+                                                                conversation="Band")
+    seen = RC.material_for(env.user, ref(BAND_KEY))
+    assert seen.recipient == "Rina" and seen.authorized == []
+
+
+def test_two_people_with_the_same_name_stay_two_people(env):
+    report(env, band(message("e_b1", "Rina", "p_rina", "I'm bringing snacks"),
+                     message("e_b2", "Rina", "p_rina2", "I'll drive us there")))
+    for event, words in (("e_b1", "I'm bringing snacks"), ("e_b2", "I'll drive us there")):
+        phone_relationships.note_exchange(env.user, ref(BAND_KEY), about=[msg("c_band", event)], addressed="everyone",
+                                          meaning="a plan for saturday", their_words=words)
+    seen = RC.material_for(env.user, ref(BAND_KEY))
+    speakers = {who for who, _ in seen.their_words}
+    assert len(speakers) == 2 and all(who.startswith("Rina (person:") for who in speakers)
+    # The same label in the messages, the quotes and the one she's answering.
+    assert seen.recipient in speakers and dict((w, who) for who, w in seen.their_words)["I'll drive us there"] == \
+        seen.recipient
+    assert any(line.endswith(': "I\'ll drive us there"') and seen.recipient in line for line in seen.messages)

@@ -24,7 +24,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Iterable
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -137,29 +137,77 @@ def _scope(db, user_id: uuid.UUID, conversation_id: str, recipient_sender: str |
     return _Scope(conversation, members, recipient)
 
 
-def _answering(user_id: uuid.UUID, notifications: list) -> str | None:
+def _answering(notifications: list, lines: list) -> str | None:
     """The sender of the newest message in the conversation, the one she'd be answering; none when that message is
-    the user's or hers, or its sender is unknown. Never an earlier speaker: their authorizations aren't this
-    reply's."""
-    lines = phone_relationships._lines(user_id, notifications)
-    # Oldest first; equal times (one report's messages) keep the phone's order, so the last one wins a tie.
-    newest = max(enumerate(lines), key=lambda il: (il[1].at.timestamp() if il[1].at else 0.0, il[0]),
-                 default=(None, None))[1]
+    the user's or hers, its sender is unknown, or which message is newest isn't known. Never an earlier speaker:
+    their authorizations aren't this reply's. One notification: the phone's own order says (its last message is
+    the newest, timed or not). Several: only times order them, so every message needs one."""
+    if not lines:
+        return None
+    if len(notifications) == 1:
+        messages = notifications[0].messages or []
+        if not messages:
+            return None
+        last = phone_people.echo_id(messages[-1])
+        newest = next((line for line in lines if line.event_id == last), None)
+    elif any(line.at is None for line in lines):
+        return None
+    else:  # equal times keep the order read, so the later one wins a tie
+        newest = max(enumerate(lines), key=lambda il: (il[1].at.timestamp(), il[0]))[1]
     if newest is None or newest.from_phone or not newest.sender_id:
         return None
     return newest.sender_id
 
 
-def _messages(user_id: uuid.UUID, notifications: list, sent: list[PhoneOutbound], now: float) -> list[str]:
+class _Labels:
+    """One label per person, the same in every part of the material: their name, with their handle when another
+    person in the conversation (or quoted there) shows the same name, so two Rinas stay two people."""
+
+    def __init__(self, db, user_id: uuid.UUID, scope: _Scope, senders: Iterable[str]):
+        self.db, self.user_id = db, user_id
+        senders = {s for s in senders if s and s != phone_people.OWNER_SENDER}
+        keys = db.scalars(select(PhonePersonKey).where(PhonePersonKey.user_id == user_id,
+                                                       PhonePersonKey.sender_id.in_(senders))).all() if senders else []
+        self.by_sender = {k.sender_id: k.person_id for k in keys}
+        people = set(scope.members) | set(self.by_sender.values())
+        people |= set(db.scalars(select(PhoneExchange.person_id).where(
+            PhoneExchange.user_id == user_id, PhoneExchange.conversation_id == scope.conversation.id)))
+        self.names = {pid: self._name(pid) for pid in people}
+        counts: dict[str, int] = {}
+        for name in self.names.values():
+            counts[name.casefold()] = counts.get(name.casefold(), 0) + 1
+        self.shared = {name for name, count in counts.items() if count > 1}
+
+    def _name(self, person_id: uuid.UUID) -> str:
+        person = self.db.get(PhonePerson, person_id)
+        return phone_relationships._clean(person.display_name, 40) if person and person.display_name else ""
+
+    def person(self, person_id: uuid.UUID) -> str:
+        name = self.names.get(person_id)
+        if name is None:
+            name = self.names[person_id] = self._name(person_id)
+        handle = phone_people.handle(person_id)
+        if not name:
+            return handle
+        return f"{name} ({handle})" if name.casefold() in self.shared else name
+
+    def sender(self, line) -> str:
+        person_id = self.by_sender.get(line.sender_id)
+        if person_id is not None:
+            return self.person(person_id)
+        return f"{phone_relationships._clean(line.sender, 40) or 'someone'} (not recorded yet)"
+
+
+def _messages(lines: list, sent: list[PhoneOutbound], labels: _Labels, now: float) -> list[str]:
     rows: list[tuple[float, str]] = []
-    for line in phone_relationships._lines(user_id, notifications):
+    for line in lines:
         at = line.at.timestamp() if line.at else now
         if line.from_phone:
             if line.hers:
                 continue  # her send, listed from her own record below
             who = "the user (from their phone)"
         else:
-            who = f'"{phone_relationships._clean(line.sender, 40)}"'
+            who = labels.sender(line)
         rows.append((at, f"{phone_state.span(now - at)} ago, {who}: "
                          f"\"{phone_relationships._clean(line.text, phone_relationships.TEXT_CHARS)}\""))
     for o in sent:
@@ -168,17 +216,11 @@ def _messages(user_id: uuid.UUID, notifications: list, sent: list[PhoneOutbound]
     return [text for _, text in sorted(rows)[-MESSAGES_SHOWN:]]
 
 
-def _their_words(db, user_id: uuid.UUID, scope: _Scope) -> list[tuple[str, str]]:
-    """The people's own words noted in this conversation, each with who said it: from her readings there and behind
-    live lessons learned there (``for_phone_audience`` gives a lesson's words only where it was learned)."""
-    names: dict[uuid.UUID, str] = {}
-
-    def who(person_id: uuid.UUID) -> str:
-        if person_id not in names:
-            person = db.get(PhonePerson, person_id)
-            names[person_id] = (phone_relationships._clean(person.display_name, 40) if person and person.display_name
-                                else phone_people.handle(person_id))
-        return names[person_id]
+def _their_words(db, user_id: uuid.UUID, scope: _Scope, labels: _Labels) -> list[tuple[str, str]]:
+    """The people's own words noted in this conversation, each with who said it (``_Labels``): from her readings
+    there and behind live lessons learned there (``for_phone_audience`` gives a lesson's words only where it was
+    learned)."""
+    who = labels.person
 
     out = [(who(x.person_id), x.their_words) for x in db.scalars(select(PhoneExchange).where(
         PhoneExchange.user_id == user_id, PhoneExchange.conversation_id == scope.conversation.id,
@@ -200,13 +242,13 @@ def _authorized(db, user_id: uuid.UUID, scope: _Scope) -> list[str]:
         .order_by(PhoneDisclosure.created_at)))
 
 
-def _requests(db, user_id: uuid.UUID, scope: _Scope) -> list[str]:
+def _requests(db, user_id: uuid.UUID, scope: _Scope, labels: _Labels) -> list[str]:
     out = []
     for person_id in scope.members:
         for b in phone_relationships.active_boundaries(db, user_id, person_id, scope.conversation.id):
             here = b.conversation_id == scope.conversation.id
             who = ("the person she's answering" if scope.recipient and person_id == scope.recipient.id
-                   else f"someone here ({phone_people.handle(person_id)})")
+                   else f"someone here ({labels.person(person_id)})")
             what = f"asked her to leave {b.topic} alone" if b.topic else "asked for space"
             out.append(f"{who} {what}" + (f': "{b.words}"' if here else " (said elsewhere)"))
     return out
@@ -220,17 +262,19 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
     n, same = phone_relationships._conversation_notifications(user_id, handle)
     if n is None or not n.conversation_id:
         raise Unavailable("there's no conversation behind that notification on the phone now")
+    lines = phone_relationships._lines(user_id, same)
     with SessionLocal() as db:
-        scope = _scope(db, user_id, n.conversation_id, _answering(user_id, same))
+        scope = _scope(db, user_id, n.conversation_id, _answering(same, lines))
+        labels = _Labels(db, user_id, scope, (line.sender_id for line in lines))
         sent = list(reversed(db.scalars(select(PhoneOutbound).where(
             PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == n.conversation_id,
             PhoneOutbound.status == "sent").order_by(PhoneOutbound.created_at.desc()).limit(MESSAGES_SHOWN)).all()))
         return Material(
             audience=phone_notifications.who(n) + (" (a group)" if n.is_group else " (a direct chat)"),
             is_group=bool(n.is_group),
-            recipient=phone_relationships._clean(scope.recipient.display_name, 40) if scope.recipient else None,
-            messages=_messages(user_id, same, sent, now), their_words=_their_words(db, user_id, scope),
-            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope))
+            recipient=labels.person(scope.recipient.id) if scope.recipient else None,
+            messages=_messages(lines, sent, labels, now), their_words=_their_words(db, user_id, scope, labels),
+            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels))
 
 
 def _judge(system: str, user: str) -> Verdict:
