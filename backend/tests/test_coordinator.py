@@ -80,6 +80,11 @@ def env(db_env, monkeypatch, tmp_path):
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", lambda *a, **k: None)
     monkeypatch.setattr(coordinator, "_wake", lambda: None)
+    # The promise check's model (services/promise_check.py), scripted: by default what she says carries out every
+    # promise it's asked about; tests of the check itself script it more strictly.
+    from app.services import promise_check
+    monkeypatch.setattr(promise_check, "_judge", lambda task: promise_check.Reading(promises=[
+        promise_check.Verdict(item=p["id"], kept=True) for p in task["promises"]]))
     with db_env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)
@@ -343,7 +348,10 @@ def test_a_reconsideration_about_an_item_goes_when_the_item_closes_and_moves_whe
         moved = await use("come_back_to", what="remind them about their mum", asked_by="user", in_seconds=10800,
                           item=ref)
         assert "replaces the time you had set" in moved
-        closed = await memory["update_item"].ainvoke({"item": ref, "status": "fulfilled",
+        early = await memory["update_item"].ainvoke({"item": ref, "status": "fulfilled",
+                                                     "reason": "they called her already"})
+        assert early.startswith("Not done") and "hasn't come" in early  # not hers to have kept before its time
+        closed = await memory["update_item"].ainvoke({"item": ref, "status": "cancelled",
                                                       "reason": "they called her already"})
         assert "dropped" in closed
         return "Noted."
@@ -354,7 +362,7 @@ def test_a_reconsideration_about_an_item_goes_when_the_item_closes_and_moves_whe
         statuses = sorted((w.status, w.error_code) for w in db.scalars(select(CoordinatorWork)))
         item = db.scalar(select(WorkingItem).where(WorkingItem.kind == "commitment"))
     assert statuses == [("cancelled", "item_closed"), ("cancelled", "rescheduled")]
-    assert item.status == "fulfilled"
+    assert item.status == "cancelled"
 
 
 def test_a_promise_she_keeps_on_her_own_can_be_closed_in_that_wake(env):
@@ -478,7 +486,7 @@ def test_a_requested_check_in_wakes_her_with_its_origin_commitment_deadline_and_
         assert "aren't waiting on you" not in prompt and "A due commitment is something you" in prompt
         result = await _promise_tools(context)["update_item"].ainvoke(
             {"item": wake.input["item"][:8], "status": "fulfilled", "reason": "asked them"})
-        assert result.startswith("Done:") and "it opens again" in result
+        assert result.startswith("Noted:") and "once what you say now reaches them" in result
         return "Is Lantern Finch ready?"
 
     env.scripts.append(check_in)

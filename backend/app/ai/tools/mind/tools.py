@@ -137,17 +137,35 @@ def build_mind_tools(ev) -> list[BaseTool]:
                 raise ValueError(f"that {entry.kind} is already {entry.status}")
             kept = ""
             inherited_item = (moving.input or {}).get("item") if moving is not None else None
+            if entry is None and inherited_item is None and asked_by == "user" and getattr(ev, "promises", None):
+                # The promise she just noted in this evaluation is the one this keeps the time of: one promise,
+                # one wake, never a second copy.
+                found = db.get(memory_manager.WorkingItem, ev.promises[-1])
+                if found is not None and found.closed_at is None:
+                    entry = found
+                    kept = f' It keeps the time of your promise [{memory_manager.ref(entry)}].'
             if entry is None and inherited_item is None and asked_by == "user":
                 # What they asked for is a promise of hers: kept where promises live, so it can be fulfilled,
                 # revised or cancelled like any other.
                 try:
                     entry = memory_manager.note_commitment(
-                        db, ev.user_id, what, owner="columbina",
+                        db, ev.user_id, what, owner="columbina", due_at=due,
                         source=memory_manager.Source("message", ev.trigger_message_id)
                         if ev.trigger_message_id and not ev.is_wake else None)
                     kept = f' Kept as your promise [{memory_manager.ref(entry)}].'
                 except memory_manager.MemoryError as exc:
                     kept = f" (Not kept as a promise: {exc.message}.)"
+            promise = entry
+            if promise is None and inherited_item:
+                promise = db.get(memory_manager.WorkingItem, uuid.UUID(inherited_item))
+            if (promise is not None and promise.kind == "commitment" and promise.owner == "columbina"
+                    and promise.closed_at is None and promise.due_at != due):
+                # A promise's time is its wake's time: moving one moves the other. Words already on their way for
+                # the earlier time don't keep it at the new one.
+                promise.due_at = due
+                memory_manager.drop_wait(promise, "its time moved")
+                if promise.status == "needs_review":
+                    promise.status, promise.status_reason = "open", None
             follow_up = None
             if phone:
                 from app.services import phone_replies

@@ -283,10 +283,13 @@ def nominate(db: Session, user_id: uuid.UUID, *, source: str, activity: uuid.UUI
 
 
 def propose(db: Session, row: LearningAssessment, revision: int, follow_up: dict, inquiry: dict) -> str | None:
-    """A reviewer's follow-up as an open item of hers (a question to ask, or a hypothesis to check by observation
-    or practice), so her mind can take it up or not. One per assessment while it stays open. In the caller's
-    transaction (a savepoint). Returns the item ref, or None."""
-    from app.services import memory_manager
+    """A reviewer's follow-up (a question to ask, or a hypothesis to check by observation or practice), handed to
+    memory as a ``learning.follow_up_proposed`` observation: ``thought_memory`` matches it against her open and
+    recently closed items of that kind (the same question asked again is restated, never added twice; one already
+    answered isn't reopened) and keeps it as an open item of hers, so her mind can take it up or not. One per
+    assessment while its item stays open. In the caller's transaction (a savepoint). Returns the observation ref,
+    the open item's ref, or None."""
+    from app.services import memory_manager, observation
 
     if not follow_up.get("propose") or not follow_up.get("text"):
         return None
@@ -297,10 +300,12 @@ def propose(db: Session, row: LearningAssessment, revision: int, follow_up: dict
         WorkingItem.reason.like(f"{marker}%")).limit(1))
     if existing is not None:
         return f"item:{existing.id}"
-    alternatives = "; ".join(inquiry.get("alternatives") or [])
-    reason = (f"{marker}, revision {revision}: it could resolve {follow_up.get('resolves') or 'what records leave open'}"
-              + (f"; other explanations: {alternatives}" if alternatives else "")
-              + ". A proposal: whether and when is her choice.")[:1000]
+    messages: list[str] = []
+    if row.conversation_id is not None and (row.trigger or {}).get("up_to_seq") is not None:
+        messages = [str(m) for m in db.scalars(select(ChatMessage.id).where(
+            ChatMessage.conversation_id == row.conversation_id,
+            ChatMessage.conversation_sequence <= int(row.trigger["up_to_seq"]))
+            .order_by(ChatMessage.conversation_sequence.desc()).limit(6))][::-1]
     try:
         with db.begin_nested():
             context_id = None
@@ -308,9 +313,18 @@ def propose(db: Session, row: LearningAssessment, revision: int, follow_up: dict
                 session = db.get(DesktopSession, row.game_session_id)
                 if session is not None:
                     context_id = memory_manager.game_context(db, session).id
-            entry = memory_manager.add_item(db, row.user_id, kind=kind, text_=follow_up["text"], owner="columbina",
-                                            epistemic="inferred", context_id=context_id, reason=reason)
-            return f"item:{entry.id}"
+            if context_id is None:
+                context_id = memory_manager.focused(db, row.user_id).id
+            found = observation.record(db, observation.Report(
+                user_id=row.user_id, source="learning", source_instance=str(row.id),
+                source_event_key=f"follow_up:{revision}", kind="follow_up_proposed", context_id=context_id,
+                payload={"assessment_id": str(row.id), "revision": revision,
+                         "kind": follow_up.get("kind") if follow_up.get("kind") in FOLLOW_UP_KIND else "question",
+                         "text": follow_up["text"], "resolves": follow_up.get("resolves") or None,
+                         "alternatives": list(inquiry.get("alternatives") or [])[:6], "messages": messages,
+                         "session_id": str(row.game_session_id) if row.game_session_id else None},
+                session_id=row.game_session_id))
+            return f"observation:{found}" if found is not None else None
     except Exception:  # noqa: BLE001 - a proposal that can't be kept is logged, never a failed assessment
         log.exception("learning review: follow-up of assessment %s was not kept", row.id)
         return None

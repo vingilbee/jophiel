@@ -90,10 +90,12 @@ def supersede_older(user_id: uuid.UUID, conversation_id: uuid.UUID | None, trigg
         return 0
     try:
         with SessionLocal() as db:
-            rows = list(db.scalars(select(CoordinatorWork).where(
+            rows = [row for row in db.scalars(select(CoordinatorWork).where(
                 CoordinatorWork.user_id == user_id, CoordinatorWork.conversation_id == conversation_id,
                 CoordinatorWork.status.in_(ACTIVE), CoordinatorWork.kind.in_(("mind", "recall")),
-                CoordinatorWork.trigger_message_id.is_distinct_from(trigger_message_id)).with_for_update()))
+                CoordinatorWork.trigger_message_id.is_distinct_from(trigger_message_id)).with_for_update())
+                # Work a promise of hers waits for outlives the turn, like a promise does.
+                if not awaiting(db, row)]
             for row in rows:
                 row.status, row.error_code = "superseded", "new_user_message"
                 row.cancellation_generation += 1
@@ -428,6 +430,8 @@ def _conclude(work_id: uuid.UUID) -> None:
             db.commit()
         trigger = _trigger(db, work)
         newer = 0
+        if awaiting(db, work):
+            trigger = None  # a promise waits for it: what it ends with is owed whatever was said since
         if trigger is not None and trigger.conversation_sequence is not None:
             newer = db.scalar(select(func.count()).select_from(ChatMessage).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
@@ -464,7 +468,8 @@ def _dispatch_follow_up(work: CoordinatorWork) -> None:
         if current is None or current.status not in ("completed", "failed", "expired") or not evidence_current(db, current, lock=True):
             return
         trigger = _trigger(db, current)
-        if work.kind != "wake" and trigger and db.scalar(select(ChatMessage.id).where(
+        promised = awaiting(db, current)
+        if work.kind != "wake" and trigger and not promised and db.scalar(select(ChatMessage.id).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
                 ChatMessage.conversation_sequence > trigger.conversation_sequence).limit(1)):
             return
@@ -475,6 +480,16 @@ def _dispatch_follow_up(work: CoordinatorWork) -> None:
         if output is None:
             db.rollback()
             return  # already dispatched (a retry or a second worker)
+        for promise in promised:
+            # What the promise waited for happened (its end is recorded with how it ended): it can be kept now.
+            from app.services import memory_manager
+            promise.trigger_met_at = _now()
+            if current.status != "completed":
+                promise.status_reason = f"what it waited for ended without a result ({current.status})"
+            memory_manager.record_event(
+                db, work.user_id, kind="item_changed", text=f"What your promise waited for happened "
+                f"({current.status}): {promise.text}", epistemic="reported", context_id=promise.context_id,
+                item_id=promise.id, dedupe_key=f"promise:{promise.id}:met:{work.id}")
         conversation = db.get(Conversation, work.conversation_id)
         request = db.scalar(select(ChatJob).where(ChatJob.turn_id == work.request_id))
         base = request.payload if request is not None else {}
@@ -617,6 +632,76 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     return row
 
 
+def promise_wake(db, ev, entry, *, reason: str | None = None) -> CoordinatorWork:
+    """The durable wake a timed promise of hers needs, at its due time, in the evaluation's conversation: one per
+    promise (an existing live one for the item is moved, never doubled). ``ev``: the evaluation that kept or changed
+    it (``mind_turn.Evaluation``). The caller commits, with the promise, so they are kept together."""
+    if entry.due_at is None:
+        raise ValueError("it has no time")
+    if ev is None or ev.conversation_id is None:
+        raise ValueError("there's no conversation to come back to it in")
+    return schedule_wake(
+        db, user_id=entry.user_id, conversation_id=ev.conversation_id, about=entry.text, due_at=entry.due_at,
+        item_id=entry.id, origin=f"turn:{ev.request_id}", zone=ev.zone, channel=ev.channel,
+        channel_identity_id=ev.channel_identity_id, asked_by="user",
+        origin_message=ev.trigger_message_id if not ev.is_wake else None, reason=reason,
+        third_party=ev.third_party)
+
+
+MAX_REARMS = 6  # how often a promise's wake comes back after attempts that weren't delivered: then it waits for her
+
+
+def rearm_promise(db, user_id: uuid.UUID, item_id: uuid.UUID, *, delay_seconds: float,
+                  reason: str) -> CoordinatorWork | None:
+    """A promise of hers whose attempt wasn't delivered (it failed, their message cut it off, the channel couldn't
+    deliver it) comes due again after ``delay_seconds``, as a revision of its wake's chain, so its only wake is never
+    used up by an attempt that didn't reach them. Bounded (``MAX_REARMS``). Nothing when it is closed, already has a
+    live wake, or never had one. The caller commits."""
+    from app.db.models import WorkingItem
+
+    entry = db.get(WorkingItem, item_id)
+    if entry is None or entry.user_id != user_id or entry.kind != "commitment" or entry.owner != "columbina" \
+            or entry.closed_at is not None or promise_wake_of(db, user_id, item_id) is not None:
+        return None
+    last = db.scalar(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake",
+        CoordinatorWork.input["item"].astext == str(item_id)).order_by(CoordinatorWork.created_at.desc())
+        .limit(1).with_for_update())
+    if last is None:
+        return None
+    rearms = sum(1 for r in (last.input or {}).get("revisions") or [] if r.get("retry"))
+    if rearms >= MAX_REARMS:
+        return None
+    inp = last.input or {}
+    row = schedule_wake(db, user_id=user_id, conversation_id=last.conversation_id, about=inp.get("about") or entry.text,
+                        due_at=_now() + timedelta(seconds=delay_seconds), zone=inp.get("zone"),
+                        channel=inp.get("channel") or "web", moves=last,
+                        reason=f"{reason} (again {rearms + 1} of {MAX_REARMS})")
+    revisions = list(row.input["revisions"])
+    revisions[-1] = {**revisions[-1], "retry": True}
+    row.input = {**row.input, "revisions": revisions}
+    entry.due_at = row.next_attempt_at  # the promise's time is its wake's time
+    return row
+
+
+def promise_wake_of(db, user_id: uuid.UUID, item_id: uuid.UUID) -> CoordinatorWork | None:
+    """The live wake that keeps a promise's time, if any."""
+    return db.scalar(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE),
+        CoordinatorWork.input["item"].astext == str(item_id)).order_by(CoordinatorWork.created_at.desc()).limit(1))
+
+
+def awaiting(db, work: CoordinatorWork) -> list:
+    """Open promises waiting for this work (its request) to end: ``trigger.kind == "work"``."""
+    from app.db.models import WorkingItem
+
+    return list(db.scalars(select(WorkingItem).where(
+        WorkingItem.user_id == work.user_id, WorkingItem.kind == "commitment", WorkingItem.closed_at.is_(None),
+        WorkingItem.trigger["kind"].astext == "work",
+        (WorkingItem.trigger["request_id"].astext == str(work.request_id))
+        | (WorkingItem.trigger["work_id"].astext == str(work.id)))))
+
+
 def find_wake(db, user_id: uuid.UUID, key: str, *, also: uuid.UUID | str | None = None) -> CoordinatorWork | None:
     """A wake by the id shown to her (or its prefix): one still pending, or ``also`` (the one that woke her)."""
     key = (key or "").removeprefix("wake:").strip().lower()
@@ -707,7 +792,9 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
             if not autonomous_speech.valid(db, work):
                 return False, None
         trigger = _trigger(db, work)
-        if work.kind != "wake" and trigger is not None and trigger.conversation_sequence is not None:
+        promised = awaiting(db, work)
+        if work.kind != "wake" and trigger is not None and trigger.conversation_sequence is not None \
+                and not promised:
             newer = db.scalar(select(func.count()).select_from(ChatMessage).where(
                 ChatMessage.conversation_id == work.conversation_id, ChatMessage.role == "user",
                 ChatMessage.conversation_sequence > trigger.conversation_sequence)) or 0
@@ -717,7 +804,9 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
                 "reason": wake_reason(work), "input": dict(work.input), "work_id": str(work.id),
                 "activity_id": str(work.activity_id) if work.activity_id else None,
                 "message": work.input.get("message", ""), "autonomous": work.input.get("autonomous", False),
-                "late": work.status == "expired" and work.kind == "wake"}
+                "late": work.status == "expired" and work.kind == "wake",
+                "awaiting": [{"item": str(p.id), "text": p.text, "done_when": p.done_when,
+                              "when": (p.trigger or {}).get("text")} for p in promised]}
         if work.input.get("autonomous"):
             from app.services import autonomous_speech
             info["speech_facts"] = autonomous_speech.facts(db, work)
@@ -748,7 +837,14 @@ def render_wake(info: dict) -> str:
         if inp.get("item"):
             lines.append(f"It is about the item [{inp['item'][:8]}] in your working memory.")
         return "\n".join(lines)
-    if reason == "proposal":
+    if reason == "question":
+        premise = (inp.get("premise") or {}).get("item") or ""
+        lines = [f"An open question of yours [{premise[:8]}] that you haven't asked them yet (from your own thinking or "
+                 "learning, not from them):", r.get("question") or r.get("conclusion") or "",
+                 "Whether it still matters, and whether now is the moment, is yours: ask it (once, in your own words), "
+                 "come back to it later (come_back_to with its item), let it go (update_item: stale or dropped), or "
+                 "stay silent. Nothing is lost if you leave it: it stays in your working memory."]
+    elif reason == "proposal":
         lines = ["Another part of you has a proposal for you to decide on (nobody asked the user):", r.get("conclusion") or ""]
     elif reason == "conflict":
         lines = ["Memory noticed something that doesn't fit (nothing is settled, memory changed nothing):",
@@ -777,6 +873,11 @@ def render_wake(info: dict) -> str:
                 lines.append(f"What you'd ask them: {r['question']}")
     if r.get("evidence_status"):
         lines.append(f"Memory: {_EVIDENCE_WORDS.get(r['evidence_status'], r['evidence_status'])}.")
+    for p in info.get("awaiting") or ():
+        done = f" (done when: {p['done_when']})" if p.get("done_when") else ""
+        lines.append(f"Your promise [{p['item'][:8]}] was waiting for this ({p.get('when')}): \"{p['text']}\"{done}. "
+                     "It's owed now: keep it (mark it fulfilled in the reply that does it), or if it can't be kept, "
+                     "say so honestly.")
     lines += [f"- {fact}" for fact in info.get("speech_facts") or ()]
     return "\n".join(line for line in lines if line)
 
