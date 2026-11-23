@@ -373,6 +373,32 @@ def test_a_full_queue_says_how_much_went_unread_and_acknowledges_only_what_she_w
     assert phone_notifications.pending_news(channel.user) == []
 
 
+def test_the_queue_and_the_missed_count_are_read_together(channel, monkeypatch):
+    """A report trimming the queue between the two reads would show an item and count it missed too: both are
+    read in one MULTI/EXEC, so a trim lands wholly before or after."""
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
+    for n in range(2):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    calls = []
+    real = channel.bus.pipeline
+
+    def pipeline(*args, **kwargs):
+        pipe = real(*args, **kwargs)
+        calls.append(pipe)
+        return pipe
+
+    monkeypatch.setattr(channel.bus, "pipeline", pipeline)
+    news = phone_notifications.pending_news(channel.user)
+    assert len(calls) == 1 and calls[0].transaction  # one MULTI/EXEC, not two separate reads
+    monkeypatch.setattr(channel.bus, "pipeline", real)
+    report(channel, chat("n_2", "c_2", "Chat 2", burst(20, 1, sender_id="p_2")))  # trims n_0, counts it
+    shown = [entry.get("key") for entry in news]
+    assert shown == ["n_0", "n_1"]
+    after = phone_notifications.pending_news(channel.user)
+    assert [(e["kind"], e.get("count"), e.get("key")) for e in after] == [
+        ("missed", 1, None), ("posted", None, "n_1"), ("posted", None, "n_2")]
+
+
 def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
     key = phone_notifications._missed_key(channel.user)
     channel.bus.set(key, 3, ex=600)

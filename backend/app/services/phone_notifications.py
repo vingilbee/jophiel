@@ -348,13 +348,18 @@ def find(user_id: uuid.UUID | str, handle: str) -> Notification | None:
 
 def pending_news(user_id: uuid.UUID | str) -> list[dict]:
     """News queued since her phone source last ticked, oldest first; first of all, when the queue was ever full,
-    how many older items were dropped unread (``missed``)."""
+    how many older items were dropped unread (``missed``). Both read in one transaction: a report trimming the
+    queue lands wholly before or after, so nothing is both read and counted as missed (or neither)."""
     client = _client()
     if client is None:
         return []
     try:
-        rows = client.lrange(_news_key(user_id), 0, -1) or []
-        missed = int(client.get(_missed_key(user_id)) or 0)
+        with client.pipeline() as pipe:
+            pipe.multi()
+            pipe.lrange(_news_key(user_id), 0, -1)
+            pipe.get(_missed_key(user_id))
+            rows, missed = pipe.execute()
+        rows, missed = rows or [], int(missed or 0)
     except (redis.RedisError, ValueError):
         return []
     lost = [{"kind": "missed", "count": missed, "id": f"{MISSED_ID}:{missed}"}] if missed > 0 else []
