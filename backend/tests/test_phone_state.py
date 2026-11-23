@@ -83,6 +83,10 @@ class FakeRedis:
     def rpush(self, key, value):
         self.lists.setdefault(key, []).append(value)
 
+    def lrange(self, key, start, end):
+        items = self.lists.get(key, [])
+        return items[start:] if end == -1 else items[start:end + 1]
+
     def ltrim(self, key, start, end):
         self.lists[key] = self.lists.get(key, [])[start:] if end == -1 else self.lists.get(key, [])[start:end + 1]
 
@@ -330,7 +334,7 @@ def ticking(redis, monkeypatch, tmp_path):
         monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(mind.desktop_preview, "redis_client", lambda: None)
     quick = []
-    monkeypatch.setattr(mind._pool, "submit", lambda fn, source, scope, level, text, at, thinker: (
+    monkeypatch.setattr(mind._pool, "submit", lambda fn, source, scope, level, text, at, thinker, *_rest: (
         quick.append((level, text)), setattr(mind._minds[scope.activity], "quick_busy", False)))
     mind._minds.clear()
     mind_hard.reset()

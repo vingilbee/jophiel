@@ -32,7 +32,7 @@ from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
 from app.services import coordinator, mind_turn, personality
-from app.services import agent_say, push
+from app.services import agent_say, phone_notifications, push
 from app.ai import prompts
 from app.services import stickers
 from app.services import tts as tts_service
@@ -227,7 +227,7 @@ async def _generate(job: ChatJob) -> None:
     spoke_at = payload.get("spoke_at")
     # Independent reads (each its own DB session): together, not one after another.
     (game, (desktop, desktop_usable), security, files, working_memory, picture, now, personality_page,
-     mind_state) = await asyncio.gather(
+     mind_state, phone) = await asyncio.gather(
         asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True)),
         asyncio.to_thread(desktop_control.for_turn, job.user_id),
         asyncio.to_thread(security_activity.line_for, job.user_id, zone=payload.get("zone")),
@@ -238,6 +238,7 @@ async def _generate(job: ChatJob) -> None:
         asyncio.to_thread(mind.situation),
         asyncio.to_thread(_personality),
         asyncio.to_thread(mind.state),
+        asyncio.to_thread(_phone_line, job.user_id),
     )
     if game is None or game.idle:
         picture = None
@@ -270,6 +271,7 @@ async def _generate(job: ChatJob) -> None:
         lessons=mind_turn.lessons_text(mind),
         mind=mind,
         wake=wake_text,
+        third_party=mind.third_party,
         memory_tools=True,
         source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),
@@ -286,6 +288,7 @@ async def _generate(job: ChatJob) -> None:
         desktop=desktop,
         desktop_usable=desktop_usable,
         security=security,
+        phone=phone,
         zone=payload.get("zone"),
         turn_id=job.turn_id,
         conversation_id=job.conversation_id,
@@ -618,6 +621,15 @@ def _readable_files(user_id, attached: list[str]) -> tuple[tuple[str, str], ...]
     except Exception:  # noqa: BLE001 - a turn never fails because the file list did
         logger.exception("chat worker: listing readable files failed")
         return ()
+
+
+def _phone_line(user_id: uuid.UUID) -> str | None:
+    """Her phone senses for the prompt; never fails a turn (unknown is left out)."""
+    try:
+        return phone_notifications.prompt_line(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Reading the phone's senses failed")
+        return None
 
 
 async def _none() -> None:

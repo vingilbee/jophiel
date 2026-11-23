@@ -46,6 +46,10 @@ Client -> server. JSON frames (discriminated by ``type``)::
   {"type": "voice_cancel"}                                       → discard utterance
   {"type": "voice_latency", "turn_id": str, "outcome": str, "marks": {...}}
                                                                  → browser timing marks
+  {"type": "phone_action_result", "action_id": str, "status": str, ...}  → a phone action's outcome
+  {"type": "phone_notifications", "posted": [...], "removed": [...], "all_removed": bool}
+                                                                 → phone only: its notifications
+                                                                   (services/phone_notifications.py)
 
 Binary frames are raw 16-bit mono PCM at the ``sample_rate`` declared by the
 preceding ``voice_start``, and are ignored unless an utterance is open.
@@ -156,7 +160,7 @@ from app.schemas.chat import (
     VoiceStartRequest,
     chat_ws_message_adapter,
 )
-from app.schemas.phone import PhoneActionResultFrame
+from app.schemas.phone import PhoneActionResultFrame, PhoneNotificationsFrame
 from app.services import asset_store, desktop_control, google_account, image_store, salience, security_activity
 from app.services import auth as auth_service
 from app.services import awareness as awareness_service
@@ -165,7 +169,9 @@ from app.services import agent_say, memory_manager
 from app.services import desktop_game
 from app.services import long_term_memory as memory_service
 from app.services import recall_references
-from app.services import mind_turn, phone_actions, phone_devices, phone_state, presence, push, voice_target
+from app.services import (
+    mind_turn, phone_actions, phone_devices, phone_notifications, phone_state, presence, push, voice_target,
+)
 from app.services import stickers
 from app.services import stt as stt_service
 from app.services import tts as tts_service
@@ -1767,6 +1773,15 @@ async def chat_ws(websocket: WebSocket) -> None:
                                                 message.action_id, message)
                     except (phone_actions.InvalidResult, phone_actions.ResultUnavailable):
                         await send_json({"type": "phone_action_result_error", "action_id": str(message.action_id)})
+                continue
+
+            # --- the phone's notifications (phase 8): Redis only, news for her phone source ---
+            if isinstance(message, PhoneNotificationsFrame):
+                if phone_session_hash is not None:
+                    try:
+                        await asyncio.to_thread(phone_notifications.report, user_id, message)
+                    except Exception:
+                        logger.exception("Phone notifications report failed")
                 continue
 
             # --- stop / barge-in ---

@@ -41,6 +41,7 @@ def channel(database, monkeypatch):
         monkeypatch.setattr(presence, "_client", lambda: bus)
         monkeypatch.setattr(chat, "_active_jobs_for_user", lambda user_id: [])
         monkeypatch.setattr(chat, "AWARENESS_HEARTBEAT_SECONDS", 60)
+        monkeypatch.setattr(phone_actions, "PUSH_WAIT_SECONDS", 0)
         monkeypatch.setattr(chat.awareness_service, "build", lambda *args, **kwargs: SimpleNamespace(
             to_dict=lambda: {}))
         with database() as db:
@@ -185,13 +186,13 @@ def test_retried_timeout_activity_stays_before_late_confirmation(channel, monkey
     with channel.db() as db:
         [confirmation] = phone_actions.history(db, channel.conversation)
         assert confirmation.content == "Opened Maps → Museum"
+    # The queued "no answer yet" line comes back after the answer settled it: it never overwrites the answer.
     phone_actions.retry_activities()
     path = f"/api/chat/conversations/{channel.conversation}"
-    timeout, confirmation = channel.client.get(path, headers=auth_headers).json()["messages"]
-    assert timeout["content"] == outcome.text
-    assert timeout["created_at"] == timeout_at.isoformat()
-    assert confirmation["content"] == "Opened Maps → Museum"
-    assert timeout["created_at"] < confirmation["created_at"]
+    [line] = channel.client.get(path, headers=auth_headers).json()["messages"]
+    assert line["id"] == str(phone_actions.dispatch_line_id(outcome.action_id))
+    assert line["content"] == "Opened Maps → Museum"
+    assert timeout_at is not None
 
 
 def test_push_timeout_and_late_result_reach_phone_mind_once(channel, monkeypatch):
@@ -217,7 +218,10 @@ def test_push_timeout_and_late_result_reach_phone_mind_once(channel, monkeypatch
         }).status_code == 204
     source = mind_phone.PhoneSource()
     with channel.db() as db:
-        assert len(phone_actions.history(db, channel.conversation)) == 2
+        # The late answer replaced the "sent, no answer yet" line instead of adding one.
+        [line] = phone_actions.history(db, channel.conversation)
+        assert line.id == phone_actions.dispatch_line_id(outcome.action_id)
+        assert line.content == "Couldn't open Maps (phone locked), sent a notification"
         [(scope, payload)] = source.poll(db)
         moment = source.moment(db, scope, payload, None, time.time(), thoughts=[], thinking=None)
         assert moment.fresh == ["Couldn't open Maps (phone locked), sent a notification"]
@@ -275,10 +279,11 @@ def test_answer_published_before_deadline_reaches_mind_if_waiter_did_not_consume
     outcome = phone_actions.act(channel.user, channel.conversation, "get_position", {})
     assert outcome.status == "unconfirmed" and outcome.point is None
     with channel.db() as db:
+        line = phone_actions.dispatch_line_id(outcome.action_id)
         assert phone_actions.pending_news(db)[channel.user] == [
-            (outcome.action_id, "Phone returned a location after the lookup timed out")
+            (line, "Phone returned a location after the lookup timed out")
         ]
-        phone_actions.acknowledge_news([outcome.action_id])
+        phone_actions.acknowledge_news([line])
         assert channel.client.post(result_url(outcome.action_id), headers=auth_headers, json=result).status_code == 204
         assert phone_actions.pending_news(db) == {}
     for key in channel.bus.scan_iter(phone_actions._pending_key(outcome.action_id) + "*"):
@@ -373,7 +378,11 @@ def test_maps_tools_are_registered_only_on_direct_replies(monkeypatch):
             return names
 
     assert asyncio.run(registered(reply)) == {"phone_action", "get_route", "search_places", "where_am_i"}
-    assert asyncio.run(registered(replace(reply, wake="late result"))) == set()
+    # Her own turns get the quiet actions (tests/test_phone_phase8.py checks which); a turn someone else's words
+    # caused gets none, nor do nudges.
+    own = replace(reply, source_message_id=None, wake="late result")
+    assert asyncio.run(registered(own)) == {"phone_action", "get_route", "search_places", "where_am_i"}
+    assert asyncio.run(registered(replace(own, third_party=True))) == set()
     assert asyncio.run(registered(replace(reply, nudge="say hello"))) == set()
 
 

@@ -55,7 +55,7 @@ def brain(monkeypatch, tmp_path):
         hard.append(problem), setattr(att, "running", problem), setattr(att, "running_scope", scope),
         setattr(att, "last_started_at", at)))
     monkeypatch.setattr(mind_minecraft.desktop_commands, "load_driver_state", lambda sid: driver)
-    monkeypatch.setattr(mind._pool, "submit", lambda fn, source, scope, level, text, at, thinker: (
+    monkeypatch.setattr(mind._pool, "submit", lambda fn, source, scope, level, text, at, thinker, *_rest: (
         quick.append(level), setattr(mind._minds[scope.activity], "quick_busy", False)))
     mind._minds.clear()
     mind_hard.reset()

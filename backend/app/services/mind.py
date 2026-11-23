@@ -367,7 +367,10 @@ def _start_quick(mind: ActivityMind, source: Source, scope: Scope, level: str, m
     mind.quick_busy = True
     mind.last_quick_at = at
     mind.quick_since = moment.capture() if moment.capture else None
-    _pool.submit(_think_quick, source, scope, level, moment.text, at, thinker)
+    # Someone else's words in the moment (a notification): whatever it leads to is theirs, not the user's.
+    data = moment.data if isinstance(moment.data, dict) else {}
+    cause = {"third_party": bool(data.get("third_party")), "arrived": list(data.get("arrived") or [])}
+    _pool.submit(_think_quick, source, scope, level, moment.text, at, thinker, cause)
 
 
 def _quiet_due(mind: ActivityMind, scope: Scope, moment: Moment, thinking: str | None, at: float) -> bool:
@@ -382,7 +385,11 @@ def _quiet_due(mind: ActivityMind, scope: Scope, moment: Moment, thinking: str |
     return not any(m.get("role") == "user" and at - m.get("at", 0) < USER_TURN_SECONDS for m in moment.talk)
 
 
-def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float, thinker) -> None:
+def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float, thinker,
+                 cause: dict | None = None) -> None:
+    """``cause``: what in the moment came from outside her (``third_party``: someone else's words; ``arrived``:
+    the notifications that just arrived), carried to the wake her line leads to."""
+    cause = cause or {}
     mind = _minds.setdefault(scope.activity, ActivityMind())
     try:
         with SessionLocal() as db:
@@ -414,6 +421,7 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
                     db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
                     event_id=saved.id, text=thought.say, reasons=[f"{level}: {thought.text}"],
                     ttl=source.say_ttl() if hasattr(source, "say_ttl") else STALE_AFTER[level],
+                    third_party=bool(cause.get("third_party")), arrived=cause.get("arrived") or None,
                     **source.speaking(db, scope))
             _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,

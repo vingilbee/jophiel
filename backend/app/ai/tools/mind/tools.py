@@ -66,7 +66,7 @@ def build_mind_tools(ev) -> list[BaseTool]:
                 user_id=ev.user_id, conversation_id=ev.conversation_id, request_id=ev.request_id,
                 trigger_message_id=ev.trigger_message_id, with_recall=bool(look_up_memory_first),
                 work_input={"message": ev.message, "think_about": words, "zone": ev.zone, "channel": ev.channel,
-                            "user_name": ev.user_name,
+                            "user_name": ev.user_name, **({"third_party": True} if ev.third_party else {}),
                             "cached_memory": ev.recall_turn.rendered if ev.recall_turn is not None else None,
                             "evidence_versions": {r["ref"]: f"{r['fingerprint']}:{r['applicability']}:"
                                                             f"{int(r['corrected'])}" for r in ev.memory_refs}},
@@ -148,7 +148,7 @@ def build_mind_tools(ev) -> list[BaseTool]:
                 item_id=entry.id if entry is not None else None, origin=f"turn:{ev.request_id}", zone=ev.zone,
                 channel=ev.channel, channel_identity_id=ev.channel_identity_id, asked_by="user" if asked_by == "user" else "mind",
                 origin_message=ev.trigger_message_id if not ev.is_wake else None,
-                their_urgency=their_urgency, moves=moving, reason=reason)
+                their_urgency=their_urgency, moves=moving, reason=reason, third_party=ev.third_party)
             ev.scheduled.append(str(row.id))
             if moving is not None:
                 ev.deferred.append({"from": str(moving.id), "to": str(row.id), "reason": reason})

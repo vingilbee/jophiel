@@ -260,9 +260,13 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
                                                         conversation_id=context.conversation_id,
                                                         message_id=context.source_message_id))
         hook = screenshot_hook
-    if (settings.redis_url and context.source_message_id is not None and context.conversation_id is not None
-            and context.game_event is None and context.nudge is None and context.wake is None):
-        direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id))
+    # Her phone (app/ai/tools/phone.py): every action on a reply to the user; the quiet ones on her own turns (a
+    # wake); none at all on a turn someone else's words caused (a notification, or what such a wake started or
+    # scheduled), however it was carried; never on game events (other players' chat) or nudges.
+    phone_reply = context.source_message_id is not None and context.wake is None
+    if (settings.redis_url and context.conversation_id is not None and not context.third_party
+            and context.game_event is None and context.nudge is None and (phone_reply or context.wake is not None)):
+        direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id, own_turn=not phone_reply))
     # Her desktop's security records: read only, so on follow-ups too (she checks before presenting a finding as
     # current); never on game-event turns.
     if context.security is not None and context.game_event is None:

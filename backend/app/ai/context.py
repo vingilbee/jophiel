@@ -109,6 +109,9 @@ class AgentRuntimeContext:
     lessons: str | None = None
     mind: Any = None
     wake: str | None = None
+    # Woken by someone else's words (a phone notification), or by what such a wake started or scheduled: no device
+    # action at all this turn (app/ai/chat.py; docs/PHONE_PHASE_8_AFFINITY.md O1).
+    third_party: bool = False
     # The clock and what caused this evaluation (``mind_turn.situation``): read fresh when the evaluation runs,
     # never from a queued job's awareness snapshot.
     now: str | None = None
@@ -165,6 +168,8 @@ class AgentRuntimeContext:
     # without a paired desktop (then no section and no ``get_security_activity``). ``zone``: the user's IANA time
     # zone when the client reported one, for showing record times in their time.
     security: str | None = None
+    # Their phone's senses as one line (services/phone_notifications.prompt_line): None when they have no phone.
+    phone: str | None = None
     zone: str | None = None
 
     # --- Speaking first ---

@@ -490,6 +490,12 @@ class Settings(BaseSettings):
     phone_state_keep_hours: float = Field(default=24.0, ge=1, le=720)
     # How long a line one of her phone thoughts proposed may wait for her mind before it's no longer worth saying.
     phone_say_ttl_seconds: float = Field(default=120.0, ge=10, le=3600)
+    # Phase 8 (frontend-phone/PLAN_PHASE_8.md): notifications still on the phone are kept in Redis this long at
+    # most (never in the database). Replies to other people on her own turns stay off until the affinity
+    # delivery checks pass (docs/PHONE_PHASE_8_AFFINITY.md); the backend agent turns this on, not a phone switch.
+    # Replies the user asks for work regardless.
+    phone_notification_keep_hours: float = Field(default=24.0, ge=1, le=72)
+    phone_autonomous_replies: bool = False
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of a game pack's plan.

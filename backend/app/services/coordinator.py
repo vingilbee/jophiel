@@ -521,7 +521,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                   channel: str = "web", channel_identity_id: uuid.UUID | str | None = None,
                   asked_by: str = "mind", origin_message: uuid.UUID | None = None,
                   their_urgency: str | None = None, moves: CoordinatorWork | None = None,
-                  reason: str | None = None) -> CoordinatorWork:
+                  reason: str | None = None, third_party: bool = False) -> CoordinatorWork:
     """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
     The caller commits.
 
@@ -532,7 +532,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     moves that item's wake the same way. ``asked_by``: ``user`` (a check-in they asked for: a commitment) or ``mind``
     (her own idea: optional). ``due_at`` is the deadline she set; ``scheduled_at`` is when she set it.
     ``channel_identity_id``: who to deliver to off the web (a WhatsApp identity); a wake has no request of its own
-    to read it from, so it is kept here and carried through revisions."""
+    to read it from, so it is kept here and carried through revisions. ``third_party``: chosen on a turn someone
+    else's words woke (a phone notification): the wake gets no device action either, through every revision."""
     now = _now()
     if due_at.tzinfo is None:
         raise ValueError("a due time needs its time zone")
@@ -561,7 +562,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         old = dict(moves.input or {})
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
-                                             "first_scheduled_at", "item", "channel_identity_id")}
+                                             "first_scheduled_at", "item", "channel_identity_id", "third_party")}
         revisions = list(old.get("revisions") or [])
         revisions.append({"at": now.isoformat(), "from_wake": str(moves.id), "from_due": old.get("due_at"),
                           "to_due": due_at.isoformat(), "reason": why,
@@ -592,7 +593,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                "zone": zone, "channel": channel,
                "channel_identity_id": (str(channel_identity_id) if channel_identity_id else None)
                or inherited.get("channel_identity_id"),
-               "moved": moved, "revisions": revisions[-12:]})
+               "moved": moved, "revisions": revisions[-12:],
+               **({"third_party": True} if third_party or inherited.get("third_party") else {})})
     db.add(row)
     db.flush()
     _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": item, "chain": chain,
@@ -738,6 +740,11 @@ def render_wake(info: dict) -> str:
                  r.get("conclusion") or ""]
     elif info.get("autonomous"):
         lines = ["A thought of your own, from your background thinking (not a user request):"]
+        if inp.get("arrived"):
+            handles = ", ".join(f"[{h}]" for h in inp["arrived"])
+            lines = [f"A notification just arrived on their phone ({handles}; under ON THEIR PHONE in \"Now\", "
+                     "with when it arrived). This is real news from their phone, not something you inferred. Your "
+                     "background thinking noticed it, with what you're waiting for, and thought:"]
         if r.get("question"):
             lines.append(f"A question you'd consider asking them: {r['question']}")
         elif r.get("conclusion"):
