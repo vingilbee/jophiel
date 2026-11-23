@@ -62,10 +62,8 @@ class Judge:
 
 @pytest.fixture
 def b3(env, monkeypatch):
-    """Autonomous replies on, the Messages switch on, one signed-in phone session, the dispatch recorded."""
-    settings = phone_replies.get_settings().model_copy(update={"phone_autonomous_replies": True})
-    state = {"settings": settings, "phone": {"messages_on": True}, "session": ("session-a", None)}
-    monkeypatch.setattr(phone_replies, "get_settings", lambda: state["settings"])
+    """The Messages switch on, one signed-in phone session, the dispatch recorded."""
+    state = {"phone": {"messages_on": True}, "session": ("session-a", None)}
     monkeypatch.setattr(phone_replies.phone_state, "read", lambda user_id, **kw: state["phone"])
     monkeypatch.setattr(phone_replies.phone_actions, "target_for", lambda user_id: state["session"])
     phone = Phone()
@@ -168,15 +166,12 @@ def test_a_hold_an_error_or_an_oversized_draft_sends_nothing_and_nothing_is_cut(
     assert len(b3.phone.frames) == 1
 
 
-def test_switches_paused_or_unknown_and_the_flag_off_send_nothing(b3):
+def test_the_messages_switch_off_or_unknown_sends_nothing(b3):
     report(b3.env, rina_dm(message("e_r1", "Rina", "p_rina", "hi!")))
     found = targets(b3)
     for phone in ({"messages_on": False}, {}, None):
         b3.state["phone"] = phone
         assert "Messages switch isn't on" in answer(b3, ref(DM_KEY), "hi Rina!", found)
-    b3.state["phone"] = {"messages_on": True}
-    b3.state["settings"] = b3.state["settings"].model_copy(update={"phone_autonomous_replies": False})
-    assert "aren't enabled" in answer(b3, ref(DM_KEY), "hi Rina!", found)
     assert b3.phone.frames == [] and outbound(b3) == []
 
 
@@ -365,7 +360,7 @@ def test_a_request_for_space_reaches_the_check_on_a_follow_up(b3):
 # Which turns get the tool
 # --------------------------------------------------------------------------- #
 
-def test_the_reply_tool_only_on_bound_wakes_with_the_flag_and_never_with_device_actions(monkeypatch):
+def test_the_reply_tool_only_on_bound_wakes_and_never_with_device_actions(monkeypatch):
     import asyncio
 
     from app.ai import chat as ai_chat
@@ -393,15 +388,14 @@ def test_the_reply_tool_only_on_bound_wakes_with_the_flag_and_never_with_device_
     unbound = SimpleNamespace(**{**bound.__dict__, "reply_targets": []})
     theirs = AgentRuntimeContext(uuid.uuid4(), conversation_id=uuid.uuid4(), wake="a notification",
                                  third_party=True, mind=bound)
-    assert "reply_notification" in names(theirs, phone_autonomous_replies=True)
-    assert "phone_action" not in names(theirs, phone_autonomous_replies=True)
-    assert "reply_notification" not in names(theirs)  # off by default
-    assert "reply_notification" not in names(replace(theirs, mind=unbound), phone_autonomous_replies=True)
+    assert "reply_notification" in names(theirs)
+    assert "phone_action" not in names(theirs)
+    assert "reply_notification" not in names(replace(theirs, mind=unbound))
     own = replace(theirs, third_party=False)
-    assert "reply_notification" not in names(own, phone_autonomous_replies=True)
+    assert "reply_notification" not in names(own)
     reply = AgentRuntimeContext(uuid.uuid4(), conversation_id=uuid.uuid4(), source_message_id=uuid.uuid4(),
                                 mind=unbound)
-    assert "reply_notification" not in names(reply, phone_autonomous_replies=True)
+    assert "reply_notification" not in names(reply)
 
 
 def test_targets_are_read_only_on_the_notification_wake_itself():

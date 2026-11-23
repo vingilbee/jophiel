@@ -279,7 +279,7 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         # woke her or a follow-up she scheduled come due; every send checked (services/phone_replies.py).
         targets = getattr(context.mind, "reply_targets", None) or []
         follow_up = getattr(context.mind, "phone_follow_up", None)
-        if settings.phone_autonomous_replies and context.conversation_id is not None and (targets or follow_up):
+        if context.conversation_id is not None and (targets or follow_up):
             direct_tools.extend(build_reply_tools(
                 context.user_id, context.conversation_id, targets=None if follow_up else targets,
                 follow_up=follow_up, wake_id=getattr(context.mind, "wake_work_id", None)))

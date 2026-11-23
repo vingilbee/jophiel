@@ -165,8 +165,8 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
   ends, or when the switch flips. Not news: each track, each step.
 - **Actions** (`app/ai/tools/phone.py`, `services/phone_actions.py`): reply turns get every action. Her own turns (a
   wake) get only the quiet ones: media, volume, alarm, timer, dismiss, ringer, DND, and the lookups. Nudges and game
-  events get none. `reply_notification` on her own turns needs `PHONE_AUTONOMOUS_REPLIES` (off until the affinity
-  delivery checks pass).
+  events get none. `reply_notification` never on a plain own turn: only on a wake bound to an exchange (affinity
+  B3, `services/phone_replies.py`), paused by the phone's Messages switch.
 - **Push wait**: an action sent by push waits `PUSH_WAIT_SECONDS` (20 s) instead of the socket wait. A late answer
   replaces the "sent, no answer yet" line: same id (`dispatch_line_id`), and the `phone_activity` frame carries
   `replaces: true`.

@@ -23,8 +23,8 @@ the same notification, revision, conversation and recipient, everything checked 
 point (switches, the notification and its revision, who she'd answer, the phone session, what the user authorized
 and requests for space), then one claim per attempt (``phone_people.claim_outbound``: a replayed wake, a worker
 retry or two concurrent wakes publish at most once) before the dispatcher (services/phone_actions.py) sends it.
-Autonomous sends need ``PHONE_AUTONOMOUS_REPLIES`` and the phone's Messages switch reported on (unknown counts as
-paused). The handset checks the switch, conversation and revision once more when it executes.
+Autonomous sends need the phone's Messages switch reported on (unknown counts as paused): the owner's switch, no
+backend flag. The handset checks the switch, conversation and revision once more when it executes.
 """
 from __future__ import annotations
 
@@ -37,7 +37,6 @@ from typing import Callable
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.config import get_settings
 from app.db.models import PhoneConversation, PhoneConversationMember, PhonePerson, PhonePersonKey
 from app.db.session import SessionLocal
 from app.services import phone_actions, phone_notifications, phone_people, phone_reply_check, phone_state
@@ -137,8 +136,6 @@ def _match(handle: str, targets: list[Target]) -> Target | None:
 
 def _live(user_id: uuid.UUID, target: Target) -> str | None:
     """Why this target can't be answered now (None: it can). Read fresh every time."""
-    if not get_settings().phone_autonomous_replies:
-        return "your own replies to other people aren't enabled here"
     state = phone_state.read(user_id)
     if state is None or state.get("messages_on") is not True:
         return ("their Messages switch isn't on (off, or the phone hasn't said): your replies to other people are "

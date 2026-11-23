@@ -8,8 +8,8 @@ Which actions a turn gets (frontend-phone/PLAN_PHASE_8.md, "Actions"; app/ai/cha
   turn alone doesn't say which exchange she'd be answering);
 - a turn someone else's words caused (a notification): no device action at all.
 
-``build_reply_tools`` (affinity B3, services/phone_replies.py): her own reply to someone on the phone, only once
-``PHONE_AUTONOMOUS_REPLIES`` is on, and only to an exchange the turn is bound to: on the wake a notification caused,
+``build_reply_tools`` (affinity B3, services/phone_replies.py): her own reply to someone on the phone, only to
+an exchange the turn is bound to (the phone's Messages switch pauses it): on the wake a notification caused,
 the messages that woke her; on a follow-up she scheduled come due, that same person in that same conversation.
 
 ``read_person`` (affinity B1, ``build_people_tools``): what she knows of someone on the phone, on the user's reply

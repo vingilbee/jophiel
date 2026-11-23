@@ -426,8 +426,8 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
   ordinary lesson retrieval in the query; requests for space are active at once. Her mind writes replies to others
   herself; a check model (`services/phone_reply_check.py`) reads each against a written policy and only that
   conversation's material before it goes out. No content rule in code; never on the owner's chat or voice path.
-- **Her own replies on the phone (B3, 2026-11-22):** off unless `PHONE_AUTONOMOUS_REPLIES`; the phone's Messages
-  switch must be reported on. Only to an exchange the wake is bound to (the message that woke her, or a follow-up's
+- **Her own replies on the phone (B3, 2026-11-22):** no backend flag; the phone's Messages switch must be reported
+  on (unknown = paused). Only to an exchange the wake is bound to (the message that woke her, or a follow-up's
   same person and conversation), through `services/phone_replies.py` only; never on a plain own turn.
 - **Owner only (2026-11-01):** `/api/learning`, `/api/mind`, `/api/memory`, `/api/system` are guarded by `deps.require_owner`. Owner = `OWNER_EMAILS`.
 - **System page** `/system`: design contract `.impeccable/surfaces/frontend-src-pages-systempage-tsx.md`, `PRODUCT.md`, `DESIGN.md`.

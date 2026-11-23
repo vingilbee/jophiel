@@ -322,8 +322,7 @@ def test_reply_turns_get_every_action_own_turns_the_quiet_ones_and_third_party_t
     assert registered_actions(monkeypatch, own) == set(tools.OWN_TURN_ACTIONS)
     assert not {"open_app", "open_link", "play_music", "whatsapp_draft", "navigate_to",
                 "reply_notification"} & set(tools.OWN_TURN_ACTIONS)
-    # Affinity B3: an own turn alone doesn't say which exchange she'd answer: never a reply there, flag or not.
-    assert registered_actions(monkeypatch, own, phone_autonomous_replies=True) == set(tools.OWN_TURN_ACTIONS)
+    # Affinity B3: an own turn alone doesn't say which exchange she'd answer: never a reply there.
     assert registered_actions(monkeypatch, replace(own, third_party=True)) is None
     assert registered_actions(monkeypatch, replace(reply, game_event="chat from another player")) is None
 

@@ -1,7 +1,7 @@
 # Affinity B3 implementation handoff
 
-> **Status:** implemented in the backend (2026-11-22), off by default (`PHONE_AUTONOMOUS_REPLIES`); handset
-> verification not done yet. `services/phone_replies.py` (targets, follow-ups, the checked send), the
+> **Status:** implemented in the backend (2026-11-22). No backend flag (the user's decision, 2026-11-22):
+> the phone's Messages switch is the one gate (unknown = paused). Handset verification not done yet. `services/phone_replies.py` (targets, follow-ups, the checked send), the
 > `reply_notification` tool in `app/ai/tools/phone.py` `build_reply_tools`, migration `c6f9e3b8d5a2`
 > (`phone_outbound.attempt_key`), tests `tests/test_phone_affinity_b3.py`. Choices made where this left room:
 > - **Targets** are bound at the tick (`mind_phone` moment `reply_targets` -> the wake's input), one per
@@ -9,12 +9,11 @@
 >   with a reply button, `conversation_identity: shortcut`, an event id and a non-owner sender id; in a group the
 >   sender must be `identity: contact` (a name-derived id can be two people). Read only on the notification wake
 >   itself (`Evaluation.reply_targets`), never by thinking it starts or wakes it schedules.
-> - **The tool** `reply_notification(notification, text)` sits only on those wakes and on a due follow-up, only with
->   the flag on; device actions stay off there. The own-turn `reply_notification` behind the flag was removed
+> - **The tool** `reply_notification(notification, text)` sits only on those wakes and on a due follow-up; device actions stay off there. The own-turn `reply_notification` behind the flag was removed
 >   (an own turn alone doesn't say which exchange she answers).
 > - **The send** (`phone_replies.send`): whitespace-normalised once, held (never cut) past 2000 characters, the
 >   B2 check run on exactly that text with its material now carrying key / revision / conversation / recipient
->   (sender id and person), which must match the target. After the model call: flag, Messages switch reported
+>   (sender id and person), which must match the target. After the model call: Messages switch reported
 >   on (unknown = paused), the notification live with the same revision and newest message, the same phone
 >   session, and an unchanged fingerprint of what the user authorized and the requests for space. Then a claim
 >   (`phone_people.claim_outbound`, unique `attempt_key`) before `phone_actions.act(..., action_id, claimed)`.
