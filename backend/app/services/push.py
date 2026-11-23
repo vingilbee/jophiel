@@ -207,6 +207,8 @@ def run_once(*, client=None) -> bool:
         if result.outcome == "sent":
             if row.kind == "message":
                 device.needs_clear = True
+                from app.services import system_signals
+                system_signals.emit(row.user_id, "mouth", "phone", "push", row.assistant_message_id)
             _finish(db, row, "sent")
         elif result.outcome == "unregistered":
             logger.info("push: FCM token for device %s is dead; forgetting the device", device.id)

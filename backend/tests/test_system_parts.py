@@ -67,3 +67,33 @@ def test_watch_log_holds_her_thoughts_memory_and_hands_runs_newest_first(db_env)
             {"name": "memory", "error": "boom", "seen_ago": 3}]}]})
         assert {e["part"] for e in errors} == {"mind", "memory"}
         assert any(e["text"] == "not JSON" for e in errors)
+
+
+def test_phone_feed_shows_her_replies_and_held_checks(db_env, monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from app.db.models import PhoneOutbound
+
+    with db_env.db() as db:
+        user = create_user(db)
+        other = uuid.uuid4()
+        log = tmp_path / "phone_checks.jsonl"
+        log.write_text("\n".join(json.dumps(r) for r in (
+            {"at": "2026-11-23T10:00:00+00:00", "check": "reply", "kind": "hers", "user": str(user.id), "send": False,
+             "why": "It names where the user is.", "reveals": ["the user's location"], "conversation": "c_rina"},
+            {"at": "2026-11-23T10:01:00+00:00", "check": "operation", "user": str(other), "allowed": False,
+             "why": "someone else's", "operation": "open Maps"},
+        )) + "\n")
+        monkeypatch.setattr("app.core.config.get_settings",
+                            lambda: SimpleNamespace(phone_check_log_path=str(log)))
+        db.add(PhoneOutbound(id=uuid.uuid4(), user_id=user.id, conversation_id="c_rina", notification_key="k1",
+                             revision=1, text="On my way!", asked_by="her", status="sent"))
+        db.commit()
+        feed = system_parts.feed(db, user.id, "phone")
+        assert [(r["text"], r["asked_by"], r["status"]) for r in feed["replies"]] == [("On my way!", "her", "sent")]
+        assert [(c["check"], c["ok"], c["why"]) for c in feed["checks"]] == [
+            ("reply", False, "It names where the user is.")]  # another user's line never shows
+        watch = system_parts.highlights(db, user.id)
+        assert {(i["part"], i["kind"], i["anchor"]) for i in watch["items"]} == {
+            ("phone", "reply", "replies"), ("phone", "check", "checks")}

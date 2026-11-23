@@ -1,4 +1,4 @@
-"""Whether her parts are alive: worker heartbeats, grouped into the six parts the System page shows.
+"""Whether her parts are alive: worker heartbeats, grouped into the seven parts the System page shows.
 
 Every worker thread runs the same loop (``workers/runner._work_loop``), which calls ``beat`` before and after
 each ``run_once``. A beat is one Redis hash field per worker (``system:workers``): when it was last seen, whether
@@ -33,19 +33,23 @@ class Part:
     label: str
     workers: tuple[str, ...]
     desktop_only: tuple[str, ...] = ()  # workers that run only with DESKTOP_AGENT_ENABLED
+    configured: tuple[tuple[str, str], ...] = ()  # (worker, setting): workers that run only when that setting is on
 
 
-# The six parts and the worker threads that are them (names from workers/runner.py). Her mind's evaluations run
+# The seven parts and the worker threads that are them (names from workers/runner.py). Her mind's evaluations run
 # where the words come out (the chat worker: every wake is one evaluation there); its wakes and background thinking
-# are the coordinator's, its background thoughts the mind worker's.
+# are the coordinator's, its background thoughts the mind worker's (the phone's ticks too). The phone's own thread
+# is the push worker; the rest of the phone (its reports, her replies there and their check) runs in the request
+# handlers and her mind's evaluations.
 PARTS: tuple[Part, ...] = (
-    Part("mouth", "Mouth", ("chat",), desktop_only=("agent-events",)),
+    Part("mouth", "Mouth", ("chat",), desktop_only=("agent-events",), configured=(("whatsapp", "whatsapp_enabled"),)),
     Part("mind", "Mind", ("coordinator", "mind")),
     Part("hands", "Hands", (), desktop_only=("desktop-driver", "game-practice")),
-    Part("memory", "Memory", ("memory", "recall-embeddings")),
+    Part("memory", "Memory", ("memory", "recall-embeddings", "file-deletion")),
     Part("observation", "Observation", ("observation",)),
     Part("learning", "Learning", ("learning", "learning-assessment", "learning-lessons"),
          desktop_only=("learning-trials", "trajectory")),
+    Part("phone", "Phone", ("push",)),
 )
 
 _local = threading.local()
@@ -129,6 +133,7 @@ def status() -> dict[str, Any]:
     parts = []
     for part in PARTS:
         names = list(part.workers) + (list(part.desktop_only) if settings.desktop_agent_enabled else [])
+        names += [name for name, setting in part.configured if getattr(settings, setting, False)]
         workers = [_worker_view(n, entries.get(n), now) for n in names]
         parts.append({"id": part.id, "label": part.label, "state": _part_state(workers), "workers": workers})
     return {"known": raw is not None, "at": now, "desktop": settings.desktop_agent_enabled, "parts": parts}

@@ -32,6 +32,7 @@ WIRES = frozenset({
     ("mind", "hands"), ("mouth", "memory"), ("mouth", "observation"), ("hands", "observation"),
     ("observation", "memory"), ("observation", "learning"), ("hands", "learning"), ("learning", "memory"),
     ("memory", "hands"), ("memory", "mind"),
+    ("phone", "mind"), ("mind", "phone"), ("mouth", "phone"), ("phone", "learning"),
 })
 
 _local = threading.local()

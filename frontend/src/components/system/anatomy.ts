@@ -52,10 +52,12 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'observation', label: 'Observation', fluor: 'BFP', color: '#6E8CFF', x: 845, y: 145, r: 40, labelSide: 'right',
-    role: 'Takes in what each source reports, once: the conversation, deliveries, the game.',
+    role: 'Takes in what each source reports, once: the conversation, deliveries, the game, her desktop and its security logs.',
     subs: [
       { id: 'conversation', label: 'Conversation' },
       { id: 'game', label: 'Game' },
+      { id: 'desktop', label: 'Desktop' },
+      { id: 'security', label: 'Security logs' },
       { id: 'deliveries', label: 'Deliveries' },
     ],
   },
@@ -72,8 +74,9 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'hands', label: 'Hands', fluor: 'YFP', color: '#F5D23A', x: 1215, y: 805, r: 46, labelSide: 'right',
-    role: 'Her body in a game: works toward the goal one plan step at a time, picking one skill and running it.',
+    role: 'Her body: on her own desktop, one action at a time (look, click, type); in a game, works toward the goal one plan step at a time, picking one skill and running it.',
     subs: [
+      { id: 'desktop', label: 'Desktop' },
       { id: 'goal', label: 'Goal and plan' },
       { id: 'skills', label: 'Skill driver' },
       { id: 'pack', label: 'Game pack' },
@@ -90,6 +93,19 @@ export const PARTS: PartAnatomy[] = [
       { id: 'capture', label: 'Capture' },
     ],
   },
+  {
+    id: 'phone', label: 'Phone', fluor: 'mNeonGreen', color: '#BFF04F', x: 390, y: 235, r: 44, labelSide: 'left',
+    role: 'Your phone as part of her: what it reports wakes her mind; her replies to people there go out only past a check that reads that one conversation; her messages reach you there as pushes.',
+    subs: [
+      { id: 'senses', label: 'What it reports' },
+      { id: 'notifications', label: 'Notifications' },
+      { id: 'replies', label: 'Her replies' },
+      { id: 'checks', label: 'Checks' },
+      { id: 'people', label: 'People' },
+      { id: 'space', label: 'Requests for space' },
+      { id: 'push', label: 'Push' },
+    ],
+  },
 ]
 
 export const PART_BY_ID = Object.fromEntries(PARTS.map((p) => [p.id, p])) as Record<PartId, PartAnatomy>
@@ -103,7 +119,7 @@ export interface Layout {
 
 /** Where each label sits when the field is turned for a tall screen (chosen so no two labels meet). */
 const PORTRAIT_SIDE: Record<PartId, PartAnatomy['labelSide']> = {
-  mind: 'below', mouth: 'below', observation: 'below', memory: 'below', hands: 'below', learning: 'above',
+  mind: 'below', mouth: 'below', observation: 'below', memory: 'below', hands: 'below', learning: 'above', phone: 'above',
 }
 const PORTRAIT_ALIGN: Partial<Record<PartId, 'start' | 'end'>> = { observation: 'start' }
 
@@ -123,9 +139,9 @@ export function layoutFor(portrait: boolean): Layout {
 
 /** Who hands work to whom (the direction a signal travels). Every wire is a real hand-off in the backend. */
 export const WIRES: { from: PartId; to: PartId }[] = [
-  { from: 'memory', to: 'mind' }, // the memory check every evaluation starts from, and the lessons it weighs
+  { from: 'memory', to: 'mind' }, // the memory check every evaluation starts from, what she recalls, the lessons it weighs
   { from: 'mind', to: 'mouth' }, // what she chose to say (or that she chose silence)
-  { from: 'mind', to: 'memory' }, // what she notes and closes, and a concluded thought handed to memory
+  { from: 'mind', to: 'memory' }, // what she notes and closes (her working-memory tools), and a concluded thought
   { from: 'mind', to: 'hands' }, // tips and plans for her hands
   { from: 'learning', to: 'mind' }, // a proposal for her to accept, decline or put off
   { from: 'mouth', to: 'memory' }, // a finished exchange, consolidated
@@ -136,6 +152,10 @@ export const WIRES: { from: PartId; to: PartId }[] = [
   { from: 'hands', to: 'learning' }, // a stretch of play to assess, and her trajectory captured
   { from: 'learning', to: 'memory' }, // a lesson written or revised (memory owns lessons)
   { from: 'memory', to: 'hands' }, // lessons supplied to her hands' decisions
+  { from: 'phone', to: 'mind' }, // a phone tick with news: a notification, a state change, an action's late answer
+  { from: 'mind', to: 'phone' }, // an action on the phone, a reply she sent there, or one the check held
+  { from: 'mouth', to: 'phone' }, // her message pushed to the phone when the user wasn't at any app
+  { from: 'phone', to: 'learning' }, // a phone exchange she took part in, for assessment
 ]
 
 /** Zoom (as magnification over the fitted view) at which sub-parts begin to resolve. */

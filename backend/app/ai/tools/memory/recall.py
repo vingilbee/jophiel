@@ -71,6 +71,8 @@ def build_recall_tools(turn) -> list[BaseTool]:
             log.exception("recall: a memory tool failed")
             turn.tool_statuses.append("failed")
             return "Memory search FAILED: you couldn't check just now. Don't say nothing is recorded."
+        from app.services import system_signals
+        system_signals.emit(turn.user_id, "memory", "mind", "recall")  # the System page's pulse: memory read for her
         if show is not None:
             return show(result)
         results = result if isinstance(result, list) else [result]

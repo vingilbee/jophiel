@@ -275,7 +275,13 @@ class PhoneSource:
                 # in a moment of its own (``moment``: nothing of the user's beside it). A baseline or a heartbeat
                 # has no phone news of its own to keep apart: it reads theirs.
                 notes = []
+            # The System page's pulse: a tick with news (a baseline or a heartbeat isn't a hand-off).
+            news = ("notification" if notes else "action_result" if updates
+                    else "state" if seen is not None and seen[0] != current else None)
             self._seen[user_id] = (current, now)
+            if news is not None:
+                from app.services import system_signals
+                system_signals.emit(user_id, "phone", "mind", news)
             out.append((scope_of(user_id), (state, updates, notes) if updates or notes else state))
         for user_id in list(self._seen):
             if user_id not in live:

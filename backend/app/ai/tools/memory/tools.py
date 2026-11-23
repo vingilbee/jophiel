@@ -22,16 +22,20 @@ ItemStatus = Literal["active", "suspended", "completed", "abandoned", "open", "f
                      "withdrawn"]
 
 
-async def _run(fn: Callable[..., str], **kwargs) -> str:
+async def _run(fn: Callable[..., str], user_id: uuid.UUID, kind: str) -> str:
+    """Run one working-memory change in its own transaction; a kept change is the System page's mind -> memory
+    pulse (``kind``: what she noted or changed)."""
     def call() -> str:
         with SessionLocal() as db:
             try:
-                result = fn(db, **kwargs)
+                result = fn(db)
                 db.commit()
-                return result
             except MemoryError as exc:
                 db.rollback()
                 return f"Not done: {exc.message}."
+        from app.services import system_signals
+        system_signals.emit(user_id, "mind", "memory", kind)
+        return result
     return await asyncio.to_thread(call)
 
 
@@ -77,7 +81,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
                                             parent_id=parent_id, source=source,
                                             epistemic="reported" if whose != "columbina" else "inferred")
             return f"Kept: goal [{memory_manager.ref(entry)}] \"{entry.text}\"." + relying(db, entry, relies_on)
-        return await _run(do)
+        return await _run(do, user_id, "goal")
 
     @tool
     async def update_item(item: str, status: ItemStatus, reason: str) -> str:
@@ -108,7 +112,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
                 note += " Still open under it: " + "; ".join(
                     f'[{memory_manager.ref(c)}] "{c.text}"' for c in children) + "."
             return f'Done: [{memory_manager.ref(entry)}] "{entry.text}" is {entry.status}.{note}'
-        return await _run(do)
+        return await _run(do, user_id, "item_update")
 
     @tool
     async def note_commitment(what: str, who_owes: Literal["columbina", "user"] = "columbina",
@@ -124,7 +128,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             due = (datetime.now(timezone.utc) + timedelta(minutes=due_in_minutes)) if due_in_minutes else None
             entry = memory_manager.note_commitment(db, user_id, what, owner=who_owes, due_at=due, source=source)
             return f'Kept: promise [{memory_manager.ref(entry)}] "{entry.text}".' + relying(db, entry, relies_on)
-        return await _run(do)
+        return await _run(do, user_id, "commitment")
 
     @tool
     async def note_intention(what: str, relies_on: list[str] | None = None) -> str:
@@ -134,7 +138,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
         def do(db) -> str:
             entry = memory_manager.note_intention(db, user_id, what, source=source)
             return f'Kept: intention [{memory_manager.ref(entry)}] "{entry.text}".' + relying(db, entry, relies_on)
-        return await _run(do)
+        return await _run(do, user_id, "intention")
 
     @tool
     async def note_question(question: str, asked_by: Literal["user", "columbina"] = "user") -> str:
@@ -147,7 +151,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
                                             epistemic="reported" if asked_by == "user" else "inferred",
                                             source=source)
             return f'Kept: open question [{memory_manager.ref(entry)}] "{entry.text}".'
-        return await _run(do)
+        return await _run(do, user_id, "question")
 
     @tool
     async def switch_context(name: str, kind: Literal["activity", "project", "world", "general"] = "activity",
@@ -166,7 +170,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             if changed:
                 note = " Put on hold from before: " + "; ".join(f'"{c.text}" ({c.status})' for c in changed[:5]) + "."
             return f"Now in: {context.label}.{note}"
-        return await _run(do)
+        return await _run(do, user_id, "context_switch")
 
     if background:
         return [note_intention, update_item]
