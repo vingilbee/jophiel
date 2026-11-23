@@ -1,7 +1,7 @@
 """Checking a reply to someone else before it goes out (affinity B2, docs/PHONE_PHASE_8_AFFINITY_B2.md §4).
 
 Her mind writes a reply to someone on the user's phone herself, with everything she knows (one mind, one voice:
-there is no separate writer). Before it goes out (B3 sends; B2 has no dispatch) a separate check model reads her
+there is no separate writer). Before it goes out (B3 sends: services/phone_replies.py) a separate check model reads her
 draft against ``POLICY`` and only what that conversation has seen (``material_for``):
 
 - the conversation's recent messages as the phone shows them, and her replies sent there;
@@ -87,6 +87,12 @@ class Material:
     their_words: list[tuple[str, str]] = field(default_factory=list)  # (who said it, their words)
     authorized: list[str] = field(default_factory=list)
     requests: list[str] = field(default_factory=list)
+    # What exactly it was read for (affinity B3: a send is bound to these, services/phone_replies.py).
+    key: str = ""
+    revision: int = 0
+    conversation_id: str | None = None
+    recipient_sender: str | None = None
+    recipient_person_id: uuid.UUID | None = None
 
     def render(self, draft: str) -> str:
         parts = [f"CONVERSATION: {self.audience}"]
@@ -263,8 +269,9 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
     if n is None or not n.conversation_id:
         raise Unavailable("there's no conversation behind that notification on the phone now")
     lines = phone_relationships._lines(user_id, same)
+    answering = _answering(same, lines)
     with SessionLocal() as db:
-        scope = _scope(db, user_id, n.conversation_id, _answering(same, lines))
+        scope = _scope(db, user_id, n.conversation_id, answering)
         labels = _Labels(db, user_id, scope, lines)
         sent = list(reversed(db.scalars(select(PhoneOutbound).where(
             PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == n.conversation_id,
@@ -274,7 +281,10 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
             is_group=bool(n.is_group),
             recipient=labels.person(scope.recipient.id) if scope.recipient else None,
             messages=_messages(lines, sent, labels, now), their_words=_their_words(db, user_id, scope, labels),
-            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels))
+            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels),
+            key=n.key, revision=int(n.revision), conversation_id=n.conversation_id,
+            recipient_sender=answering if scope.recipient is not None else None,
+            recipient_person_id=scope.recipient.id if scope.recipient is not None else None)
 
 
 def _judge(system: str, user: str) -> Verdict:

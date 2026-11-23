@@ -207,14 +207,18 @@ def _posted_news(old: Notification | None, new: Notification) -> dict | None:
     if new.messages:
         if not fresh:
             return None
-        lines = [{"sender": m.get("sender"), "sender_id": m.get("sender_id"), "text": m.get("text", "")}
-                 for m in fresh]
+        # event_id / identity: which message and how its sender was identified (affinity B3: a reply's target is
+        # bound to the message that woke her, services/phone_replies.py).
+        lines = [{"sender": m.get("sender"), "sender_id": m.get("sender_id"), "text": m.get("text", ""),
+                  "event_id": m.get("event_id"), "identity": m.get("identity")} for m in fresh]
     else:
         if old is not None and (old.title, old.text) == (new.title, new.text):
             return None
         lines = [{"sender": None, "text": " — ".join(x for x in (new.title, new.text) if x)}]
-    return {"kind": "posted", "key": new.key, "app": new.app, "conversation": new.conversation,
-            "conversation_id": new.conversation_id, "is_group": new.is_group, "can_reply": new.can_reply, "title": new.title, "lines": lines}
+    return {"kind": "posted", "key": new.key, "revision": new.revision, "app": new.app, "package": new.package,
+            "conversation": new.conversation, "conversation_id": new.conversation_id,
+            "conversation_identity": new.conversation_identity, "is_group": new.is_group,
+            "can_reply": new.can_reply, "chat": bool(new.messages), "title": new.title, "lines": lines}
 
 
 def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: float | None = None) -> tuple[int, int]:

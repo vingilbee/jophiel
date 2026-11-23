@@ -52,7 +52,7 @@ from app.ai.tools.security import build_security_tools
 from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
 from app.ai.tools.mind import build_mind_tools
-from app.ai.tools.phone import build_exchange_tools, build_people_tools, build_phone_tools
+from app.ai.tools.phone import build_exchange_tools, build_people_tools, build_phone_tools, build_reply_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -275,6 +275,14 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if (settings.redis_url and context.mind is not None and context.wake is not None and context.third_party
             and context.game_event is None and context.nudge is None):
         direct_tools.extend(build_exchange_tools(context.user_id))
+        # Her own reply to someone there (affinity B3): only to an exchange this wake is bound to, the messages that
+        # woke her or a follow-up she scheduled come due; every send checked (services/phone_replies.py).
+        targets = getattr(context.mind, "reply_targets", None) or []
+        follow_up = getattr(context.mind, "phone_follow_up", None)
+        if settings.phone_autonomous_replies and context.conversation_id is not None and (targets or follow_up):
+            direct_tools.extend(build_reply_tools(
+                context.user_id, context.conversation_id, targets=None if follow_up else targets,
+                follow_up=follow_up, wake_id=getattr(context.mind, "wake_work_id", None)))
     # Her desktop's security records: read only, so on follow-ups too (she checks before presenting a finding as
     # current); never on game-event turns.
     if context.security is not None and context.game_event is None:

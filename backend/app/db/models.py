@@ -759,6 +759,10 @@ class PhoneOutbound(Base):
         Index("ix_phone_outbound_conversation", "user_id", "conversation_id", "created_at"),
         Index("uq_phone_outbound_echo", "user_id", "echo_event_id", unique=True,
               postgresql_where=text("echo_event_id IS NOT NULL")),
+        # Affinity B3: one row per attempt of hers (the exchange she answers, or a follow-up's due occurrence):
+        # a replayed wake, a retry or a concurrent wake never publishes the same reply twice.
+        Index("uq_phone_outbound_attempt", "user_id", "attempt_key", unique=True,
+              postgresql_where=text("attempt_key IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)  # the action id
@@ -772,6 +776,7 @@ class PhoneOutbound(Base):
     asked_by: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(8), nullable=False, default="sending", server_default="sending")
     echo_event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempt_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

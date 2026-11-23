@@ -521,7 +521,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                   channel: str = "web", channel_identity_id: uuid.UUID | str | None = None,
                   asked_by: str = "mind", origin_message: uuid.UUID | None = None,
                   their_urgency: str | None = None, moves: CoordinatorWork | None = None,
-                  reason: str | None = None, third_party: bool = False) -> CoordinatorWork:
+                  reason: str | None = None, third_party: bool = False,
+                  phone_follow_up: dict | None = None) -> CoordinatorWork:
     """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
     The caller commits.
 
@@ -533,7 +534,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     (her own idea: optional). ``due_at`` is the deadline she set; ``scheduled_at`` is when she set it.
     ``channel_identity_id``: who to deliver to off the web (a WhatsApp identity); a wake has no request of its own
     to read it from, so it is kept here and carried through revisions. ``third_party``: chosen on a turn someone
-    else's words woke (a phone notification): the wake gets no device action either, through every revision."""
+    else's words woke (a phone notification): the wake gets no device action either, through every revision.
+    ``phone_follow_up`` (affinity B3, services/phone_replies.py ``follow_up_for``): who and where on the phone it's a
+    follow-up with, by stable ids (never a draft): kept through revisions, and it makes the wake ``third_party``."""
     now = _now()
     if due_at.tzinfo is None:
         raise ValueError("a due time needs its time zone")
@@ -562,7 +565,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         old = dict(moves.input or {})
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
-                                             "first_scheduled_at", "item", "channel_identity_id", "third_party")}
+                                             "first_scheduled_at", "item", "channel_identity_id", "third_party",
+                                             "phone_follow_up")}
         revisions = list(old.get("revisions") or [])
         revisions.append({"at": now.isoformat(), "from_wake": str(moves.id), "from_due": old.get("due_at"),
                           "to_due": due_at.isoformat(), "reason": why,
@@ -594,7 +598,10 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                "channel_identity_id": (str(channel_identity_id) if channel_identity_id else None)
                or inherited.get("channel_identity_id"),
                "moved": moved, "revisions": revisions[-12:],
-               **({"third_party": True} if third_party or inherited.get("third_party") else {})})
+               **({"phone_follow_up": phone_follow_up or inherited.get("phone_follow_up")}
+                  if phone_follow_up or inherited.get("phone_follow_up") else {}),
+               **({"third_party": True} if third_party or phone_follow_up or inherited.get("third_party")
+                  else {})})
     db.add(row)
     db.flush()
     _log({"op": "wake_scheduled", "work": str(work_id), "due": due_at.isoformat(), "item": item, "chain": chain,

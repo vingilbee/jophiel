@@ -94,7 +94,8 @@ def build_mind_tools(ev) -> list[BaseTool]:
     @tool
     async def come_back_to(what: str, asked_by: Literal["user", "me"], in_seconds: int | None = None,
                            at: str | None = None, item: str | None = None, moves: str | None = None,
-                           reason: str | None = None, their_urgency: str | None = None) -> str:
+                           reason: str | None = None, their_urgency: str | None = None,
+                           phone: str | None = None) -> str:
         """Choose to come back to something later without waiting for them to write: you'll be woken then, with
         the situation as it is by then, and decide what it calls for (say something, act, put it off again, or
         let it go). Use it for whatever you'd otherwise lose: a check-in they asked for, keeping a promise at a
@@ -114,6 +115,10 @@ def build_mind_tools(ev) -> list[BaseTool]:
         id in brackets ("wake:1a2b3c4d"): it stays the same intention, with its original request, and only one
         time stays live. reason: why you're moving it (required with moves).
         their_urgency: only what they said themselves about urgency or consequences, in their words.
+        phone: when it's a follow-up with someone in a conversation on their phone (seeing how their audition went),
+        that conversation's notification handle ("notif:1a2b3c4d"): who and where are kept, and when it comes due you
+        reread it and can write to them there afresh if a reply button is still there. Never a draft: you decide
+        then. Leave it out when it's about the user.
         """
         from app.ai.mind import when as W
 
@@ -143,12 +148,17 @@ def build_mind_tools(ev) -> list[BaseTool]:
                     kept = f' Kept as your promise [{memory_manager.ref(entry)}].'
                 except memory_manager.MemoryError as exc:
                     kept = f" (Not kept as a promise: {exc.message}.)"
+            follow_up = None
+            if phone:
+                from app.services import phone_replies
+                follow_up = phone_replies.follow_up_for(ev.user_id, phone)
             row = coordinator.schedule_wake(
                 db, user_id=ev.user_id, conversation_id=ev.conversation_id, about=what, due_at=due,
                 item_id=entry.id if entry is not None else None, origin=f"turn:{ev.request_id}", zone=ev.zone,
                 channel=ev.channel, channel_identity_id=ev.channel_identity_id, asked_by="user" if asked_by == "user" else "mind",
                 origin_message=ev.trigger_message_id if not ev.is_wake else None,
-                their_urgency=their_urgency, moves=moving, reason=reason, third_party=ev.third_party)
+                their_urgency=their_urgency, moves=moving, reason=reason, third_party=ev.third_party,
+                phone_follow_up=follow_up)
             ev.scheduled.append(str(row.id))
             if moving is not None:
                 ev.deferred.append({"from": str(moving.id), "to": str(row.id), "reason": reason})

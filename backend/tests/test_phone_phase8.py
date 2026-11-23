@@ -322,8 +322,8 @@ def test_reply_turns_get_every_action_own_turns_the_quiet_ones_and_third_party_t
     assert registered_actions(monkeypatch, own) == set(tools.OWN_TURN_ACTIONS)
     assert not {"open_app", "open_link", "play_music", "whatsapp_draft", "navigate_to",
                 "reply_notification"} & set(tools.OWN_TURN_ACTIONS)
-    assert registered_actions(monkeypatch, own, phone_autonomous_replies=True) == {
-        *tools.OWN_TURN_ACTIONS, "reply_notification"}
+    # Affinity B3: an own turn alone doesn't say which exchange she'd answer: never a reply there, flag or not.
+    assert registered_actions(monkeypatch, own, phone_autonomous_replies=True) == set(tools.OWN_TURN_ACTIONS)
     assert registered_actions(monkeypatch, replace(own, third_party=True)) is None
     assert registered_actions(monkeypatch, replace(reply, game_event="chat from another player")) is None
 
@@ -493,7 +493,8 @@ def test_report_ignores_older_revision_without_redis_side_effects():
         PhoneNotificationsReport.model_validate({"posted": [{**RINA, "revision": 5}]}).posted[0], 1)
     assert phone_notifications._posted_news(old, same) is None
     assert json.dumps(phone_notifications._posted_news(None, old)["lines"]) == json.dumps(
-        [{"sender": "Rina", "sender_id": "p_rina", "text": "are you coming tonight?"}])
+        [{"sender": "Rina", "sender_id": "p_rina", "text": "are you coming tonight?", "event_id": "e_1",
+          "identity": "contact"}])  # affinity B3: which message, and how its sender was identified
 
 
 # --------------------------------------------------------------------------- #
