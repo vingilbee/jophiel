@@ -27,6 +27,12 @@ Learning reads what happened and what the evidence supports. It never speaks, ne
    (a capture that arrives late, a correction, a later message another assessment found relevant, the user's
    note) reopens an assessment. When conclusions change, every owner that acted on the earlier one is told to
    reconsider (lessons that rested on the earlier reading, docs/learning-system/03-implementation.md).
+
+A ``phone`` assessment (affinity B2, services/phone_relationships.py) reads one exchange with someone on the user's
+phone that her mind judged was addressed to her, in a conversation she took part in: the person's words she noted
+(scoped: never the rest of the notification), her own sent replies there and her earlier readings of that
+conversation. "user" in what it shows is that person. It reads only that conversation and that person's lessons
+(nothing of the user's memory or other conversations), and the lessons it leads to stay shadow.
 """
 from __future__ import annotations
 
@@ -76,7 +82,7 @@ OPEN_ELSEWHERE = 5  # the user's parked inquiries in other conversations or sess
 REQUEST_RESULTS = 6  # results shown per request (an answer is a page; asking again more precisely gets others)
 RELEVANT_LESSONS = 3  # her existing lessons shown without being asked, the most relevant to what is read (post-audit 4)
 RELEVANT_MEMORIES = 4  # what memory holds (facts, her open items) shown without being asked, the most relevant
-PRIORITY = {"review": 0, "sample": 0, "execution": 1, "complaint": 2, "correction": 3}
+PRIORITY = {"review": 0, "sample": 0, "phone": 0, "execution": 1, "complaint": 2, "correction": 3}
 FORGOTTEN = "[forgotten: not shown]"
 
 _log_lock = threading.Lock()
@@ -110,7 +116,8 @@ def assessment_id(user_id: uuid.UUID, key: str) -> uuid.UUID:
 def open_assessment(db: Session, *, user_id: uuid.UUID, kind: str, key: str, anchor_at: datetime,
                     trigger: dict, conversation_id: uuid.UUID | None = None,
                     game_session_id: uuid.UUID | None = None, anchor_message_id: uuid.UUID | None = None,
-                    evidence: Iterable[tuple[str, str, dict]] = ()) -> tuple[LearningAssessment, bool]:
+                    evidence: Iterable[tuple[str, str, dict]] = (),
+                    phone_person_id: uuid.UUID | None = None) -> tuple[LearningAssessment, bool]:
     """The assessment for a trigger, created once, with ``evidence`` ((ref, reason, detail)) attached once each.
     In the caller's transaction. Returns (row, changed): created, or something new attached to it."""
     from app.services.memory_reset import learning_cutoff
@@ -122,7 +129,7 @@ def open_assessment(db: Session, *, user_id: uuid.UUID, kind: str, key: str, anc
     created = db.execute(insert(LearningAssessment).values(
         id=assessment_id(user_id, key), user_id=user_id, trigger_kind=kind, trigger_key=key[:160], trigger=trigger,
         conversation_id=conversation_id, game_session_id=game_session_id, anchor_message_id=anchor_message_id,
-        anchor_at=_aware(anchor_at), next_attempt_at=now + settle,
+        anchor_at=_aware(anchor_at), next_attempt_at=now + settle, phone_person_id=phone_person_id,
     ).on_conflict_do_nothing(constraint="uq_learning_assessments_trigger").returning(LearningAssessment.id)).scalar()
     row = db.scalar(select(LearningAssessment).where(LearningAssessment.user_id == user_id,
                                                      LearningAssessment.trigger_key == key[:160]).with_for_update())
@@ -607,6 +614,12 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
     if row.game_session_id is not None:
         _game(db, row, out, attached, plan)
 
+    # A phone exchange (affinity B2): what was said there, scoped, and her own replies there.
+    phone_who = None
+    if row.trigger_kind == "phone":
+        from app.services import phone_relationships
+        phone_who = phone_relationships.assessment_evidence(db, row, ev, facts)
+
     # Her desktop's security records her mind looked into in this stretch (or attached): what code recorded.
     _security(db, row, ev, messages, attached, facts)
 
@@ -616,7 +629,9 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
         ev.add(A.Item(ref=f"n{k}", kind="note", event=e.ref, roots=(e.ref,), text=words, words=words))
 
     # Evidence another assessment found bearing on this one, from another conversation or game session.
-    _elsewhere(db, row, ev, attached)
+    phone = row.trigger_kind == "phone"
+    if not phone:
+        _elsewhere(db, row, ev, attached)
 
     # Signals: labels other parts gave, shown as such (post-audit 3). Never evidence, never the reason to assess.
     ev.signals = _signals(db, row, messages, lines, evidence_rows)
@@ -626,7 +641,8 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
     # Her existing lessons most relevant to what is read, shown without being asked (post-audit 4), so ordinary
     # experience can check them: earlier understanding, never evidence.
     _relevant_lessons(db, row, ev)
-    _relevant_memories(db, row, ev)
+    if not phone:  # a phone exchange is read on its own audience: nothing of the user's memory
+        _relevant_memories(db, row, ev)
 
     # Open inquiries and unresolved assessments, here first, then the user's parked inquiries elsewhere (not
     # evidence; for reopening: later evidence in another session can resume one with its state).
@@ -639,8 +655,14 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
         here = here.where(LearningAssessment.game_session_id == row.game_session_id)
     else:
         here = here.where(false())
+    if phone:
+        here = select(LearningAssessment).where(
+            LearningAssessment.user_id == row.user_id, LearningAssessment.id != row.id,
+            LearningAssessment.phone_person_id == row.phone_person_id, LearningAssessment.state == "done",
+            LearningAssessment.outcome == "unresolved")
     shown = list(db.scalars(here.order_by(LearningAssessment.updated_at.desc()).limit(OPEN_SHOWN)))
     elsewhere = select(LearningAssessment).where(
+        *([false()] if phone else []),
         LearningAssessment.user_id == row.user_id, LearningAssessment.id != row.id,
         LearningAssessment.id.not_in([o.id for o in shown] or [uuid.uuid4()]),
         LearningAssessment.state == "done", LearningAssessment.inquiry["question"].astext != "")
@@ -659,7 +681,7 @@ def gather(db: Session, row: LearningAssessment, plan: Plan, *, prior: dict | No
         ev.can_look["inputs"] = ("the exact inputs each captured learner was given, and the exact records behind "
                                 "the compact lines shown")
     ev.trigger, ev.trigger_refs = _trigger_text(row, ev, lines, anchor)
-    ev.user_name = db.scalar(select(User.name).where(User.id == row.user_id))
+    ev.user_name = phone_who if phone else db.scalar(select(User.name).where(User.id == row.user_id))
     if prior:
         ev.prior = A.render_prior(prior, ev)
     return out
@@ -1303,6 +1325,9 @@ def _ask(db: Session, row: LearningAssessment, source: str, query: str,
          shown: set[uuid.UUID]) -> tuple[str, str, list]:
     """One request to one owner: (status, coverage in words, items or prior lessons)."""
     now = _now()
+    if row.trigger_kind == "phone" and source != "lessons":
+        return ("not_available", "a phone exchange is read on its own conversation and that person's lessons only",
+                [])
     if source == "memory":
         from app.ai.recall.contracts import RecallRequest
         from app.services import recall
@@ -1374,9 +1399,21 @@ def _ask(db: Session, row: LearningAssessment, source: str, query: str,
     if source == "lessons":
         from app.services import memory_lessons
 
-        found = memory_lessons.for_learning(db, row.user_id, query, limit=REQUEST_RESULTS)
+        found = memory_lessons.for_learning(db, row.user_id, query, limit=REQUEST_RESULTS,
+                                            **phone_audience(db, row))
         return ("matched" if found else "no_match"), "her lessons for this user, any status but withdrawn", found
     return "not_available", f"{source} can't be asked", []
+
+
+def phone_audience(db: Session, row: LearningAssessment) -> dict:
+    """Which phone lessons this assessment may read (memory_lessons ``phone_person`` / ``phone_conversation``):
+    none for an ordinary one; for a phone one, that person's lessons from the exchange's own conversation."""
+    if row.phone_person_id is None and row.trigger_kind != "phone":
+        return {}
+    from app.services import phone_relationships
+    scope = phone_relationships.lesson_scope(db, row)
+    return {"phone_person": row.phone_person_id or uuid.uuid4(),
+            "phone_conversation": scope.conversation_id if scope is not None else None}
 
 
 def _relevant_lessons(db: Session, row: LearningAssessment, ev: A.Evidence) -> None:
@@ -1390,7 +1427,8 @@ def _relevant_lessons(db: Session, row: LearningAssessment, ev: A.Evidence) -> N
         return
     try:
         with db.begin_nested():
-            found = memory_lessons.for_learning(db, row.user_id, query, limit=RELEVANT_LESSONS)
+            found = memory_lessons.for_learning(db, row.user_id, query, limit=RELEVANT_LESSONS,
+                                                **phone_audience(db, row))
     except Exception:  # noqa: BLE001 - shown none, said
         log.exception("learning assessment %s: relevant lessons failed", row.id)
         ev.signals.append("her existing lessons couldn't be read for this (none are shown unless asked for)")
@@ -1446,6 +1484,11 @@ def _trigger_text(row: LearningAssessment, ev: A.Evidence, lines: dict, anchor: 
     if row.trigger_kind in ("correction", "complaint"):
         return (f"The user's message {where} ({why}). Assess what it is about and what, if anything, it says about "
                 "the parts of her involved.", refs)
+    if row.trigger_kind == "phone":
+        return (f"An exchange on the user's phone ({why}): someone wrote to her in a conversation she has taken part "
+                "in, and her mind judged they were talking to her. Assess what, if anything, it says about how to be "
+                "with them there: what they said they want, or what the exchange shows. Most exchanges teach "
+                "nothing.", tuple(r for r in ev.items if ev.items[r].kind == "user")[-1:])
     if row.trigger_kind == "sample":
         return (f"An ordinary exchange, sampled ({why}): assess how her turn(s) before {where} went, with the user's "
                 f"message {where} as their response. There may be no feedback in it at all.", refs)

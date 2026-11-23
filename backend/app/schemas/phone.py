@@ -149,6 +149,9 @@ class NotificationMessage(BaseModel):
     in_contacts: bool | None = None
     text: str = Field(default="", max_length=4000)
     at: datetime | None = None
+    # The ``event_id`` of the message this one replies to, when the app shows it (affinity B2: kept as a fact for
+    # her reading of who was addressed, never inferred).
+    reply_to: str | None = Field(default=None, max_length=128)
 
 
 class PostedNotification(BaseModel):

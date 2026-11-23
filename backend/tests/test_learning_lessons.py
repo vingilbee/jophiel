@@ -876,3 +876,35 @@ def test_a_failed_reading_retries_and_never_becomes_a_lesson(env):
 def test_model_constants_match_the_pure_contract():
     assert M.LESSON_KINDS == L.KINDS and M.LESSON_SCOPES == L.SCOPES and M.LESSON_STATUSES == L.STATUSES
     assert M.LESSON_REPORTED == L.REPORTED and set(L.OPS) <= set(M.LESSON_OPS)
+
+
+def test_a_phone_lesson_never_reaches_her_ordinary_decisions_even_once_live(env):
+    """Affinity B2: a lesson about someone on the phone is bound to its audience. Her mind's LESSONS section, hard
+    thoughts, games and the reviewer never read it, shadow or live; only that audience's reply writer does, live."""
+    from app.db.models import PhoneConversation, PhonePerson
+
+    user, conversation = setup(env)
+    with env.db() as db:
+        person = PhonePerson(user_id=user.id, display_name="Rina", names=[], first_seen_at=NOW, last_seen_at=NOW)
+        db.add(person)
+        db.flush()
+        room = PhoneConversation(user_id=user.id, conversation_id="c_rina", is_group=False, title="Rina",
+                                 last_seen_at=NOW)
+        db.add(room)
+        db.flush()
+        c = L.Change("create", None, None, None, "preference", "standing", "Ask one question at a time",
+                     "when talking with Rina", [], ["one question at a time please"], ["phone:x"], None, "she said so")
+        [lesson_id] = ML.apply(db, user.id, [c], ML.Source("phone:x", NOW, None, None,
+                                                         phone=ML.PhoneScope(person.id, room.id))).lessons
+        db.commit()
+        person_id, room_id = person.id, room.id
+    for live in (False, True):
+        with env.db() as db:
+            db.get(MemoryLesson, uuid.UUID(lesson_id)).phone_live = live
+            db.commit()
+            assert ML.for_decision(db, user.id, "one question at a time", include_tentative=True).views == ()
+            assert ML.for_learning(db, user.id, "one question at a time") == []
+            assert [x.statement for x in ML.for_phone_audience(db, user.id, person_id, room_id)] == (
+                ["Ask one question at a time"] if live else [])
+        _, prompt = evaluate(env, user, conversation, "can you ask me a few things about my day?")
+        assert "one question at a time" not in prompt

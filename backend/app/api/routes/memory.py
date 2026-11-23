@@ -9,7 +9,10 @@
     GET /api/memory/people        people she can tell apart on the phone, a page at a time (limit, offset, q =
                                   a name): their relationship record, shared conversations, what she sent them
                                   (services/phone_people.py)
-    DELETE /api/memory/people/{id}  forget one: keys, memberships, affinity and evidence; her sent text stays
+    DELETE /api/memory/people/{id}  forget one: keys, memberships, affinity and evidence, her readings, requests
+                                  for space, authorizations, phone assessments and lessons; her sent text stays
+    GET /api/memory/people/{id}/review  affinity B2's shadow results for one person (services/phone_relationships.py)
+    POST /api/memory/people/{id}/evidence/{evidence_id}/retract  a correction: one proposal stops counting
 """
 from __future__ import annotations
 
@@ -23,10 +26,11 @@ from app.db.models import User
 from app.db.session import get_db
 from app.schemas.memory import (
     ManagerStateOut, MemoryContextOut, MemoryCorrectionOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
-    ObservationSourceOut, PhonePeopleOut, PhonePersonOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
+    ObservationSourceOut, PhonePeopleOut, PhonePersonOut, PhonePersonReviewOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
 )
 from app.services import (
-    memory_corrections, memory_dependencies, memory_manager, observation, phone_people, recall_references,
+    memory_corrections, memory_dependencies, memory_manager, observation, phone_people, phone_relationships,
+    recall_references,
 )
 
 # The owner only (deps.require_owner): her insides are not for other users.
@@ -93,6 +97,27 @@ def people(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
 def forget_person(person_id: uuid.UUID, user: User = Depends(get_current_user),
                   db: Session = Depends(get_db)) -> Response:
     if not phone_people.delete_person(db, user.id, person_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/people/{person_id}/review", response_model=PhonePersonReviewOut)
+def review_person(person_id: uuid.UUID, user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)) -> PhonePersonReviewOut:
+    found = phone_relationships.review(db, user.id, person_id)
+    if found is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return PhonePersonReviewOut.model_validate(found)
+
+
+@router.post("/people/{person_id}/evidence/{evidence_id}/retract", status_code=status.HTTP_204_NO_CONTENT)
+def retract_evidence(person_id: uuid.UUID, evidence_id: uuid.UUID, user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)) -> Response:
+    from app.db.models import PhoneRelationshipEvidence
+
+    row = db.get(PhoneRelationshipEvidence, evidence_id)
+    if row is None or row.person_id != person_id or not phone_relationships.retract(db, user.id, evidence_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

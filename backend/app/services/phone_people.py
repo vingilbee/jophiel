@@ -17,6 +17,8 @@ is stored here.
   whether she has spoken with them, the other conversations they share with the user (titles only). Never a label
   or a score.
 - **"How do you feel about Rina?"** (``read_person``): her record for that person, on the user's reply turns.
+- **B2** (services/phone_relationships.py): her readings of exchanges, shadow proposals, requests for space (shown
+  by ``read_person``: they are active), authorizations. Shadow proposals are never read here.
 - **Inspection** (``inspect`` / ``delete_person``): ``/api/memory/people``. Deleting a person removes their keys,
   memberships, affinity and evidence; her sent text stays (``person_id`` dropped).
 
@@ -460,6 +462,11 @@ def read_person(user_id: uuid.UUID, name: str, *, now: float | None = None) -> s
                 PhoneOutbound.user_id == user_id, PhoneOutbound.person_id == person.id,
                 PhoneOutbound.status.in_(("sent", "unknown"))).order_by(PhoneOutbound.created_at.desc())
                 .limit(SENT_SHOWN)).all()
+            # Requests for space (affinity B2) are active state: shown here. Shadow proposals never are.
+            from app.db.models import PhoneContactBoundary
+            space = db.scalars(select(PhoneContactBoundary).where(
+                PhoneContactBoundary.person_id == person.id, PhoneContactBoundary.lifted_at.is_(None))
+                .order_by(PhoneContactBoundary.created_at)).all()
     except SQLAlchemyError:
         log.warning("phone_people: a person could not be read", exc_info=True)
         return "Couldn't read what you know about them just now. Don't say nothing is recorded."
@@ -474,6 +481,10 @@ def read_person(user_id: uuid.UUID, name: str, *, now: float | None = None) -> s
                  f"{labels['initiative'].replace('_', ' ')}.")
     if affinity and affinity.note:
         lines.append(f"Your note: {affinity.note}")
+    if space:
+        lines.append("What they've asked of you (holds now): " + "; ".join(
+            f'"{b.words}"' + (f" (about {b.topic})" if b.topic else "")
+            + (" everywhere" if b.scope == "everywhere" else " in the conversation they said it in") for b in space))
     if affinity and affinity.preferences:
         lines.append("What they've asked for: " + "; ".join(f"{key}: {value}" for key, value in
                                                              affinity.preferences.items()))
@@ -530,7 +541,9 @@ def inspect(db: Session, user_id: uuid.UUID, *, limit: int = 100, offset: int = 
 
 
 def delete_person(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> bool:
-    """Forget one person: keys, memberships, affinity and evidence go (cascade); her sent text stays."""
+    """Forget one person: keys, memberships, affinity and evidence go (cascade), and with them (affinity B2) her
+    readings of their exchanges, the shadow view, their requests for space, what the user authorized for them, and
+    their phone assessments and lessons; her sent text stays."""
     person = db.scalar(select(PhonePerson).where(PhonePerson.id == person_id, PhonePerson.user_id == user_id))
     if person is None:
         return False

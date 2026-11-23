@@ -13,6 +13,8 @@ and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version.
 "Continuity follow-up" in `docs/MIND_ARCHITECTURE.md`): migration `c8e4a1f7b3d2` (`mind_evaluations`,
 `learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
 Phone affinity B1 (2026-11-22): migration `a4d7e1c9b3f2` (phone people, conversations, affinities, outbound replies).
+Phone affinity B2 (2026-11-22): migration `b5e8d2a7c4f1` (exchange readings, shadow proposals, requests for space,
+authorized details, phone-scoped assessments and lessons; `docs/PHONE_PHASE_8_AFFINITY_B2.md`).
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -243,6 +245,10 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   phone_actions.py (one-shot actions on the phone: socket or push, lines in the chat) +
                        #   phone_people.py (people she meets on the phone: persons, conversations, default affinity,
                        #   her replies and their echoes, read_person; docs/PHONE_PHASE_8_AFFINITY_B1.md) +
+                       #   phone_relationships.py (B2: her readings of exchanges, shadow relationship proposals,
+                       #   requests for space, authorized details, the learner's view of a phone exchange, review) +
+                       #   phone_reply_check.py (B2: a check model reads her reply to someone else against a policy and only that
+                       #   conversation's material before it goes out; fails closed; no dispatch) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
@@ -411,6 +417,11 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 
 **Product rules** (full text in `docs/DECISIONS.md`)
 - **Always on (2026-10-28, the user's decision):** no feature flags for her own parts. Flags remain only for outside setup or behaviour choices.
+- **People on the phone (B2, 2026-11-22):** relationship proposals and phone lessons are shadow: nothing she reads
+  or does uses them (`GET /api/memory/people/{id}/review` inspects them). Phone lessons are filtered out of every
+  ordinary lesson retrieval in the query; requests for space are active at once. Her mind writes replies to others
+  herself; a check model (`services/phone_reply_check.py`) reads each against a written policy and only that
+  conversation's material before it goes out. No content rule in code; never on the owner's chat or voice path.
 - **Owner only (2026-11-01):** `/api/learning`, `/api/mind`, `/api/memory`, `/api/system` are guarded by `deps.require_owner`. Owner = `OWNER_EMAILS`.
 - **System page** `/system`: design contract `.impeccable/surfaces/frontend-src-pages-systempage-tsx.md`, `PRODUCT.md`, `DESIGN.md`.
 

@@ -623,7 +623,9 @@ class PhoneAffinity(Base):
 
 
 class PhoneRelationshipEvidence(Base):
-    """One scoped observation behind a relationship label (written from B2; empty in B1)."""
+    """One field her mind judged an exchange changed (affinity B2, shadow): the proposed ``value``, the supporting
+    observation, the exchange (source events, audience) and when. Never read by her active relationship record;
+    the shadow view (``PhoneAffinityShadow``) is recomputed from the rows not retracted."""
 
     __tablename__ = "phone_relationship_evidence"
     __table_args__ = (
@@ -640,8 +642,109 @@ class PhoneRelationshipEvidence(Base):
     event_id: Mapped[str] = mapped_column(String(128), nullable=False)
     dimension: Mapped[str] = mapped_column(String(16), nullable=False)
     observation: Mapped[str] = mapped_column(String(300), nullable=False)
+    value: Mapped[str | None] = mapped_column(String(300), nullable=True)  # the proposed label, or the note
+    exchange_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_exchanges.id", ondelete="CASCADE"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PhoneExchange(Base):
+    """Her mind's reading of one exchange on the phone (affinity B2): which messages (the phone's event ids, never
+    their text), who she judged they were addressed to, a short scoped observation, the person's exact words when
+    it rests on a statement, the conversations those words explicitly cover, and what became of a personal lesson.
+    ``event_key`` (the cited events) makes a replay of the same notification one effect."""
+
+    __tablename__ = "phone_exchanges"
+    __table_args__ = (
+        UniqueConstraint("user_id", "person_id", "event_key", name="uq_phone_exchanges_event"),
+        CheckConstraint("addressed IN ('her', 'owner', 'group', 'unclear')", name="ck_phone_exchanges_addressed"),
+        CheckConstraint("lesson IN ('none', 'assessing', 'skipped')", name="ck_phone_exchanges_lesson"),
+        Index("ix_phone_exchanges_person", "person_id", "conversation_id", "at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("phone_people.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="CASCADE"), nullable=False)
+    event_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    events: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    addressed: Mapped[str] = mapped_column(String(8), nullable=False)
+    participated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    observation: Mapped[str] = mapped_column(String(300), nullable=False)
+    their_words: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    applies_to: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    lesson: Mapped[str] = mapped_column(String(12), nullable=False, default="none", server_default="none")
+    lesson_why: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("learning_assessments.id", ondelete="SET NULL"), nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # the latest cited message
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PhoneAffinityShadow(Base):
+    """What her relationship record would say if the shadow proposals were live (affinity B2): per field, the
+    latest proposal not retracted (None: nothing proposed). Recomputed from the evidence in the transaction that
+    changes it, under the affinity row's lock. For backend review only: nothing she reads or does uses it."""
+
+    __tablename__ = "phone_affinity_shadows"
+
+    person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("phone_people.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    familiarity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    warmth: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    initiative: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="SET NULL"), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PhoneContactBoundary(Base):
+    """A request for space a person clearly expressed (affinity B2): active at once, kept apart from shadow
+    proposals and the rewritable note. ``scope``: ``everywhere`` or ``here`` (the conversation it was said in);
+    ``topic``: what to leave alone, when they named one (other topics stay open). B3 checks it before any follow-up
+    of her own."""
+
+    __tablename__ = "phone_contact_boundaries"
+    __table_args__ = (
+        UniqueConstraint("person_id", "event_key", name="uq_phone_contact_boundaries_event"),
+        CheckConstraint("scope IN ('everywhere', 'here')", name="ck_phone_contact_boundaries_scope"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="CASCADE"), nullable=False)
+    scope: Mapped[str] = mapped_column(String(12), nullable=False)
+    topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    words: Mapped[str] = mapped_column(String(300), nullable=False)  # their exact words
+    event_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    lifted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PhoneDisclosure(Base):
+    """A detail the user explicitly authorized her to tell one person in one conversation (affinity B2): "tell Rina
+    I'll be at the library at seven" covers Rina's direct chat only; a group needs its own authorization."""
+
+    __tablename__ = "phone_disclosures"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="CASCADE"), nullable=False)
+    detail: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PhoneOutbound(Base):
@@ -3333,7 +3436,7 @@ class TrajectoryChunk(Base):
 
 # review: a scheduled opportunity over a stretch of activity (post-audit 3); correction / complaint / sample are
 # kept for rows opened before semantic review replaced them as admission routes.
-ASSESSMENT_TRIGGERS = ("correction", "complaint", "execution", "sample", "review")
+ASSESSMENT_TRIGGERS = ("correction", "complaint", "execution", "sample", "review", "phone")
 ASSESSMENT_STATES = ("pending", "running", "done", "failed")
 # left: the reviewer judged there was nothing worth examining (no substantive assessment, no product).
 ASSESSMENT_OUTCOMES = ("concluded", "unresolved", "no_feedback", "left")
@@ -3363,6 +3466,10 @@ class LearningAssessment(Base):
     anchor_message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True)
     anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # A ``phone`` assessment (affinity B2): the person on the phone whose exchange it reads. Forgetting the person
+    # removes it (services/phone_relationships.py).
+    phone_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=True)
     state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending", server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
@@ -3587,11 +3694,25 @@ class MemoryLesson(Base):
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     withdrawn_occasion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    # A lesson about being with someone on the phone (affinity B2): who, the conversation it was learned in (its
+    # explanation stays there), the conversations its behaviour applies to (that one, plus any the person's own
+    # words named), and whether it is live. Shadow (``phone_live`` false) lessons are never retrieved for a
+    # decision; every ordinary retrieval leaves phone lessons out (services/memory_lessons.py). Forgetting the
+    # person removes them.
+    phone_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=True)
+    phone_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="CASCADE"), nullable=True)
+    phone_applies_to: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                                   server_default=sa_text("'[]'::jsonb"))
+    phone_live: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now(), nullable=False)
 
     __table_args__ = (
+        CheckConstraint("(phone_person_id IS NULL) = (phone_conversation_id IS NULL)",
+                        name="ck_memory_lessons_phone_scope"),
         CheckConstraint(_in("kind", LESSON_KINDS), name="ck_memory_lessons_kind"),
         CheckConstraint(_in("origin", LESSON_ORIGINS), name="ck_memory_lessons_origin"),
         CheckConstraint(_in("scope", LESSON_SCOPES), name="ck_memory_lessons_scope"),

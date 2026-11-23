@@ -224,3 +224,19 @@ class PhonePeopleOut(BaseModel):
     people: list[PhonePersonOut] = []
     total: int = 0
     next_offset: int | None = None
+
+
+class PhonePersonReviewOut(BaseModel):
+    """Affinity B2's shadow results for one person (GET /api/memory/people/{id}/review;
+    services/phone_relationships.review): the active record beside the shadow view, every proposal with its
+    provenance, her readings of exchanges, requests for space, authorizations, phone assessments and lessons."""
+
+    person: dict
+    active: dict | None = None
+    shadow: dict | None = None
+    evidence: list[dict] = []
+    exchanges: list[dict] = []
+    boundaries: list[dict] = []
+    authorized: list[dict] = []
+    assessments: list[dict] = []
+    lessons: list[dict] = []

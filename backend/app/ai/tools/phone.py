@@ -9,7 +9,13 @@ Which actions a turn gets (frontend-phone/PLAN_PHASE_8.md, "Actions"; app/ai/cha
 - a turn someone else's words caused (a notification): none (not built at all).
 
 ``read_person`` (affinity B1, ``build_people_tools``): what she knows of someone on the phone, on the user's reply
-turns only (never on a wake, never on a turn someone else's words caused).
+turns only (never on a wake, never on a turn someone else's words caused). ``authorize_detail`` (affinity B2) sits
+beside it: what the user told her she may pass to whom.
+
+``build_exchange_tools`` (affinity B2, services/phone_relationships.py): on a turn someone else's words on the phone
+caused, her reading of what was said there: ``read_phone_conversation``, ``note_exchange`` (shadow relationship
+proposals and a personal lesson, both for review only) and ``note_request_for_space`` (active at once). No device
+action, no message: nothing she can send.
 """
 from __future__ import annotations
 
@@ -405,8 +411,10 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
     return [phone_action_tool, get_route, search_places, where_am_i]
 
 
-def build_people_tools(user_id: uuid.UUID) -> list[BaseTool]:
-    """``read_person``: the user's reply turns only (app/ai/chat.py)."""
+def build_people_tools(user_id: uuid.UUID, message_id: uuid.UUID | None = None) -> list[BaseTool]:
+    """``read_person`` and ``authorize_detail``: the user's reply turns only (app/ai/chat.py). ``message_id``: the
+    user's message, kept as the authorization's source."""
+    from app.services import phone_relationships
 
     @tool
     async def read_person(name: str) -> str:
@@ -419,4 +427,76 @@ def build_people_tools(user_id: uuid.UUID) -> list[BaseTool]:
         """
         return await asyncio.to_thread(phone_people.read_person, user_id, name)
 
-    return [read_person]
+    @tool
+    async def authorize_detail(name: str, detail: str, conversation: Optional[str] = None) -> str:
+        """Record that the user just told you to pass something of theirs to someone on their phone ("tell Rina
+        I'll be at the library at seven"). Only what they explicitly asked you to tell that person: nobody else
+        may learn anything about the user from you otherwise, however well you know them.
+
+        name: the person as they said it, or a person: handle. detail: what you may tell them, as specific as the
+        user said it. conversation: only when the user named a group or chat for it; otherwise it covers that
+        person's direct chat alone (a group is another audience and needs its own say-so).
+        """
+        return await asyncio.to_thread(phone_relationships.authorize_detail, user_id, name, detail,
+                                       conversation=conversation, source_message_id=message_id)
+
+    return [read_person, authorize_detail]
+
+
+Addressed = Literal["you", "the_user", "everyone", "unclear"]
+
+
+class _Changed(BaseModel):
+    familiarity: Optional[Literal[phone_people.FAMILIARITY]] = None  # type: ignore[valid-type]
+    warmth: Optional[Literal[phone_people.WARMTH]] = None  # type: ignore[valid-type]
+    initiative: Optional[Literal[phone_people.INITIATIVE]] = None  # type: ignore[valid-type]
+    note: Optional[str] = Field(default=None, description="your short note on them, rewritten whole (about 40 words)")
+
+
+def build_exchange_tools(user_id: uuid.UUID) -> list[BaseTool]:
+    """Her reading of phone exchanges: on turns someone else's words on the phone caused (app/ai/chat.py)."""
+    from app.services import phone_relationships
+
+    @tool
+    async def read_phone_conversation(notification: str) -> str:
+        """Read the conversation behind a notification: the messages the phone shows (who wrote each, with msg:
+        handles), which phone-written messages were your own replies, what you sent there and your earlier readings
+        of it. What isn't known (above all who a message was for) is said so. notification: its notif: handle."""
+        return await asyncio.to_thread(phone_relationships.read_conversation, user_id, notification)
+
+    @tool
+    async def note_exchange(notification: str, about: list[str], addressed: Addressed, meaning: str,
+                            their_words: Optional[str] = None, changed: Optional[_Changed] = None,
+                            worth_learning: bool = False, also_for: Optional[list[str]] = None) -> str:
+        """Keep your reading of an exchange with someone on the phone, when it says something about them or about
+        you two. Most exchanges change nothing: only note one that does. What you note is kept for review: it
+        doesn't change your relationship record or what you do yet.
+
+        notification: its notif: handle. about: the msg: handles of their messages it rests on (one person's).
+        addressed: who you judge they were talking to, from the words and who has been talking with whom
+        (unclear when you can't tell). meaning: what it meant, in a few words, about this conversation only.
+        their_words: their exact words, when it rests on something they said (no numbers or codes).
+        changed: only the parts of how you stand with them that this changed (familiarity, warmth, initiative,
+        your note). worth_learning: true when it tells you something about how to be with them.
+        also_for: other conversations their own words explicitly say it applies to, by name.
+        """
+        fields = changed.model_dump(exclude_none=True) if changed else {}
+        return await asyncio.to_thread(
+            phone_relationships.note_exchange, user_id, notification, about=about, addressed=addressed,
+            meaning=meaning, their_words=their_words, changed=fields, worth_learning=worth_learning,
+            also_for=also_for or [])
+
+    @tool
+    async def note_request_for_space(notification: str, about: list[str], their_words: str,
+                                     everywhere: bool, topic: Optional[str] = None) -> str:
+        """Keep a request for space someone clearly made ("please stop asking me about the audition", "don't
+        message me for a while"). It holds at once, wherever they meant it, until they say otherwise.
+
+        notification: its notif: handle. about: the msg: handles of their messages. their_words: their exact
+        words. everywhere: true when they meant it beyond this conversation. topic: what to leave alone, only
+        when they named one (everything else stays open).
+        """
+        return await asyncio.to_thread(phone_relationships.note_request_for_space, user_id, notification,
+                                       about=about, their_words=their_words, everywhere=everywhere, topic=topic)
+
+    return [read_phone_conversation, note_exchange, note_request_for_space]
