@@ -52,7 +52,8 @@ def _forget_this_phone(request):
         user = str(ns.user)
         ns.bus.hdel(phone_state.USERS_KEY, user)
         ns.bus.delete(phone_state._key(user), phone_notifications._key(user), phone_notifications._news_key(user),
-                      phone_notifications._sense_key(user), phone_notifications._missed_key(user))
+                      phone_notifications._sense_key(user), phone_notifications._missed_key(user),
+                      phone_notifications._trimmed_key(user))
 
 
 def post(channel, body, token=None):

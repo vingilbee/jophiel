@@ -77,6 +77,12 @@ def _missed_key(user_id: uuid.UUID | str) -> str:
     return f"phone_notifications:missed:{user_id}"
 
 
+def _trimmed_key(user_id: uuid.UUID | str) -> str:
+    """The ids of queued items trimmed unread (counted in the missed count): a tick that had already read one
+    takes it back out when it acknowledges."""
+    return f"phone_notifications:trimmed:{user_id}"
+
+
 def _sense_key(user_id: uuid.UUID | str) -> str:
     return f"phone_notifications:sense:{user_id}"
 
@@ -235,6 +241,11 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                         deletes.append(item.key)
                         news.append({"kind": "removed", "key": old.key, "app": old.app, "sender": old.sender,
                                      "conversation": old.conversation, "reason": item.reason})
+                    # The oldest about to be trimmed (a full queue): counted as missed, never silent, and their ids
+                    # kept so a tick that already read one doesn't count it missed too (``acknowledge_news``).
+                    overflow = (0 if drop_news else queued) + len(news) - NEWS_KEEP
+                    trimmed = ([_row_id(raw) for raw in pipe.lrange(_news_key(user_id), 0, overflow - 1) or []]
+                               if overflow > 0 and not drop_news else [])
                     pipe.multi()
                     if deletes:
                         pipe.hdel(key, *deletes)
@@ -244,11 +255,13 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     if drop_news:
                         pipe.delete(_news_key(user_id))
                     if payload.all_removed:
-                        pipe.delete(_missed_key(user_id))
-                    overflow = (0 if drop_news else queued) + len(news) - NEWS_KEEP
-                    if overflow > 0:  # the oldest about to be trimmed: counted, never silent
+                        pipe.delete(_missed_key(user_id), _trimmed_key(user_id))
+                    if overflow > 0:
                         pipe.incrby(_missed_key(user_id), overflow)
                         pipe.expire(_missed_key(user_id), _keep_seconds())
+                    if trimmed:
+                        pipe.sadd(_trimmed_key(user_id), *trimmed)
+                        pipe.expire(_trimmed_key(user_id), _keep_seconds())
                     for entry in news:
                         pipe.rpush(_news_key(user_id), json.dumps({**entry, "id": uuid.uuid4().hex, "at": now},
                                                                   ensure_ascii=False))
@@ -392,60 +405,55 @@ def news_ids(news: list[dict]) -> list[str]:
     return [entry["id"] for entry in news if entry.get("id")]
 
 
-def _acknowledge_missed(client: redis.Redis, user_id: uuid.UUID | str, told: int) -> None:
-    """Subtract the count she was told, in one transaction with the read (a report adding to it meanwhile makes
-    it retry): more missed since stays for the next moment, and the key goes only when nothing is left."""
-    key = _missed_key(user_id)
-    for _ in range(WRITE_TRIES):
-        with client.pipeline() as pipe:
-            try:
-                pipe.watch(key)
-                left = int(pipe.get(key) or 0) - told
-                pipe.multi()
-                if left > 0:
-                    pipe.set(key, left, keepttl=True)
-                else:
-                    pipe.delete(key)
-                pipe.execute()
-                return
-            except redis.WatchError:
-                continue
-    raise redis.WatchError(f"{key} kept changing")
-
-
 def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> None:
     """Drop exactly the news items a tick read (their ids, or the items themselves): anything queued since, and
     anything it didn't read, stays for the next tick, however the queue moved meanwhile (trimmed when full,
-    emptied when the sense was switched off)."""
+    emptied when the sense was switched off). The missed count loses what she was told, and every item she read
+    that a full queue trimmed since (she saw it: it isn't missed). One transaction over the queue, the count and
+    the trimmed ids: a report landing meanwhile makes it retry."""
     client = _client()
     ids = {item["id"] if isinstance(item, dict) else item for item in read or []}
     ids.discard(None)
     if client is None or not ids:
         return
+    told = 0
     for missed in [i for i in ids if str(i).startswith(MISSED_ID + ":")]:
         ids.discard(missed)
         try:
-            _acknowledge_missed(client, user_id, int(missed.split(":", 1)[1]))
-        except (redis.RedisError, ValueError):
-            log.warning("phone_notifications: the missed count could not be acknowledged for user %s", user_id)
-    if not ids:
-        return
-    key = _news_key(user_id)
+            told += int(missed.split(":", 1)[1])
+        except ValueError:
+            pass
+    key, missed_key, trimmed_key = _news_key(user_id), _missed_key(user_id), _trimmed_key(user_id)
     try:
         for _ in range(WRITE_TRIES):
             with client.pipeline() as pipe:
                 try:
-                    pipe.watch(key)
+                    pipe.watch(key, missed_key, trimmed_key)
                     rows = pipe.lrange(key, 0, -1) or []
                     kept = [raw for raw in rows if _row_id(raw) not in ids]
-                    if len(kept) == len(rows):
+                    gone = [i for i in ids if i not in {_row_id(raw) for raw in rows}]
+                    seen_trimmed = ([i for i, hit in zip(gone, pipe.smismember(trimmed_key, gone)) if hit]
+                                    if gone and pipe.exists(trimmed_key) else [])
+                    left = None
+                    if told or seen_trimmed:
+                        left = int(pipe.get(missed_key) or 0) - told - len(seen_trimmed)
+                    if len(kept) == len(rows) and left is None:
                         return
-                    ttl = pipe.ttl(key)
+                    ttl = pipe.ttl(key) if len(kept) != len(rows) else None
                     pipe.multi()
-                    pipe.delete(key)
-                    if kept:
-                        pipe.rpush(key, *kept)
-                        pipe.expire(key, ttl if ttl and ttl > 0 else _keep_seconds())
+                    if len(kept) != len(rows):
+                        pipe.delete(key)
+                        if kept:
+                            pipe.rpush(key, *kept)
+                            pipe.expire(key, ttl if ttl and ttl > 0 else _keep_seconds())
+                    if left is not None:
+                        # More missed since stays for the next moment; the key goes only when nothing is left.
+                        if left > 0:
+                            pipe.set(missed_key, left, keepttl=True)
+                        else:
+                            pipe.delete(missed_key)
+                    if seen_trimmed:
+                        pipe.srem(trimmed_key, *seen_trimmed)
                     pipe.execute()
                     return
                 except redis.WatchError:

@@ -364,11 +364,16 @@ def test_a_full_queue_says_how_much_went_unread_and_acknowledges_only_what_she_w
     assert news[0]["count"] == 2
     assert phone_notifications.news_lines(news[:1])[0].startswith("2 older notification updates on their phone "
                                                                   "went unread")
-    # One more is dropped after she read the count: it stays for her next moment.
+    # One more report trims n_2, which she had already read: not missed. What she was told is subtracted.
     report(channel, chat("n_5", "c_5", "Chat 5", burst(50, 1, sender_id="p_5")))
     phone_notifications.acknowledge_news(channel.user, news)
     later = phone_notifications.pending_news(channel.user)
-    assert [(entry["kind"], entry.get("count")) for entry in later] == [("missed", 1), ("posted", None)]
+    assert [(entry["kind"], entry.get("key")) for entry in later] == [("posted", "n_5")]
+    # Missed after she read the count stays for her next moment.
+    for n in (6, 7, 8):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    later = phone_notifications.pending_news(channel.user)
+    assert [(entry["kind"], entry.get("count")) for entry in later] == [("missed", 1), *[("posted", None)] * 3]
     phone_notifications.acknowledge_news(channel.user, later)
     assert phone_notifications.pending_news(channel.user) == []
 
@@ -397,6 +402,25 @@ def test_the_queue_and_the_missed_count_are_read_together(channel, monkeypatch):
     after = phone_notifications.pending_news(channel.user)
     assert [(e["kind"], e.get("count"), e.get("key")) for e in after] == [
         ("missed", 1, None), ("posted", None, "n_1"), ("posted", None, "n_2")]
+
+
+def test_an_item_she_read_then_a_full_queue_trimmed_is_not_missed(channel, monkeypatch):
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
+    for n in range(2):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    news = phone_notifications.pending_news(channel.user)  # her tick reads n_0 and n_1
+    report(channel, chat("n_2", "c_2", "Chat 2", burst(20, 1, sender_id="p_2")))  # trims n_0 before her ack
+    phone_notifications.acknowledge_news(channel.user, news)
+    assert [e.get("key") for e in phone_notifications.pending_news(channel.user)] == ["n_2"]  # no "missed"
+    assert not channel.bus.exists(phone_notifications._trimmed_key(channel.user))
+    # One she never read is still counted.
+    for n in (3, 4):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    after = phone_notifications.pending_news(channel.user)
+    assert [(e["kind"], e.get("count"), e.get("key")) for e in after] == [
+        ("missed", 1, None), ("posted", None, "n_3"), ("posted", None, "n_4")]
+    phone_notifications.acknowledge_news(channel.user, after)
+    assert phone_notifications.pending_news(channel.user) == []
 
 
 def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
