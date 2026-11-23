@@ -97,6 +97,27 @@ class Evaluation:
         return self.is_wake and bool(((self.wake or {}).get("input") or {}).get("third_party"))
 
     @property
+    def reply_targets(self) -> list[dict]:
+        """Affinity B3: the messages on the phone that woke her that she may answer, each bound to its own exchange
+        (services/phone_replies.py); only on the notification wake itself, never on what it started or scheduled."""
+        inp = (self.wake or {}).get("input") or {}
+        if not self.third_party or (self.wake or {}).get("kind") != "mind" or not inp.get("autonomous"):
+            return []
+        return [t for t in inp.get("reply_targets") or [] if isinstance(t, dict)]
+
+    @property
+    def phone_follow_up(self) -> dict | None:
+        """Affinity B3: who and where a follow-up she scheduled is with, on the wake of its due occurrence."""
+        if (self.wake or {}).get("kind") != "wake":
+            return None
+        found = ((self.wake or {}).get("input") or {}).get("phone_follow_up")
+        return found if isinstance(found, dict) and found.get("conversation_id") else None
+
+    @property
+    def wake_work_id(self) -> str | None:
+        return (self.wake or {}).get("work_id")
+
+    @property
     def recall_rendered(self) -> str | None:
         return self.recall_turn.rendered if self.searched and self.recall_turn is not None else None
 
@@ -374,6 +395,9 @@ def _due(db, ev: Evaluation, work: CoordinatorWork, zone: str | None, now: datet
                    f"\"{text[:300]}{'…' if len(text) > 300 else ''}\"")
     elif inp.get("origin_message"):
         out.append("- The message it came from is no longer available.")
+    if isinstance(inp.get("phone_follow_up"), dict):
+        from app.services import phone_replies
+        out += phone_replies.follow_up_lines(ev.user_id, inp["phone_follow_up"])
     if inp.get("their_urgency"):
         out.append(f"- What they said about urgency or consequences: \"{inp['their_urgency']}\"")
     else:

@@ -141,6 +141,7 @@ class Line:
     reply_to: str | None  # the handle of the message it replies to, when the phone says
     from_phone: bool  # sender "owner": written on the phone itself
     hers: bool = False  # an owner message matched to one of her sends
+    tied: bool = False  # newest only together with another message at the same time (phone_reply_check._newest)
 
 
 def _lines(user_id: uuid.UUID, notifications: list) -> list[Line]:

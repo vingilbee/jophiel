@@ -376,14 +376,17 @@ def _close_waiter(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid
 
 
 def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict, *,
-        target: tuple[str, str | None] | None = None, view: dict | None = None, asked_by: str = "user") -> Outcome:
+        target: tuple[str, str | None] | None = None, view: dict | None = None, asked_by: str = "user",
+        action_id: uuid.UUID | None = None, claimed: bool = False) -> Outcome:
     """Send one action to the user's phone and wait for its answer. ``view``: what the chat line says about it
     (defaults to ``args``; a reply's line names who it went to). The wait is the action's own, longer once it went
     by push (the app has to wake first). A ``reply_notification`` is recorded as what she said to whom
     (services/phone_people.py: ``sending`` before dispatch, settled by its answer, ``unknown`` without one);
-    ``asked_by``: ``user`` (they asked for it) or ``her``."""
-    action_id = uuid.uuid4()
-    recorded = False
+    ``asked_by``: ``user`` (they asked for it) or ``her``. ``action_id`` + ``claimed``: a reply of hers already
+    claimed as its ``sending`` row (``phone_people.claim_outbound``, affinity B3): settled here, never recorded
+    again."""
+    action_id = action_id or uuid.uuid4()
+    recorded = claimed and action == "reply_notification"
     client = _client()
     target_label = LABELS[action]
     if view is None:
@@ -428,7 +431,7 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 "type": "phone_action", "action_id": str(action_id), "action": action, "args": args,
                 "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat(timespec="milliseconds"),
             }
-            if action == "reply_notification":
+            if action == "reply_notification" and not recorded:
                 recorded = phone_people.record_outbound(
                     user_id, action_id, key=args["key"], conversation_id=args.get("conversation_id"),
                     revision=int(args.get("revision") or 0), text=args["text"], asked_by=asked_by)

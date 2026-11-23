@@ -1,7 +1,7 @@
 """Checking a reply to someone else before it goes out (affinity B2, docs/PHONE_PHASE_8_AFFINITY_B2.md §4).
 
 Her mind writes a reply to someone on the user's phone herself, with everything she knows (one mind, one voice:
-there is no separate writer). Before it goes out (B3 sends; B2 has no dispatch) a separate check model reads her
+there is no separate writer). Before it goes out (B3 sends: services/phone_replies.py) a separate check model reads her
 draft against ``POLICY`` and only what that conversation has seen (``material_for``):
 
 - the conversation's recent messages as the phone shows them, and her replies sent there;
@@ -87,6 +87,13 @@ class Material:
     their_words: list[tuple[str, str]] = field(default_factory=list)  # (who said it, their words)
     authorized: list[str] = field(default_factory=list)
     requests: list[str] = field(default_factory=list)
+    # What exactly it was read for (affinity B3: a send is bound to these, services/phone_replies.py).
+    key: str = ""
+    revision: int = 0
+    conversation_id: str | None = None
+    recipient_sender: str | None = None
+    answering_event: str | None = None  # the newest message across the conversation, the one being answered
+    recipient_person_id: uuid.UUID | None = None
 
     def render(self, draft: str) -> str:
         parts = [f"CONVERSATION: {self.audience}"]
@@ -138,6 +145,11 @@ def _scope(db, user_id: uuid.UUID, conversation_id: str, recipient_sender: str |
 
 
 def _answering(notifications: list, lines: list) -> str | None:
+    newest = _newest(notifications, lines)
+    return newest.sender_id if newest is not None else None
+
+
+def _newest(notifications: list, lines: list):
     """The sender of the newest message in the conversation, the one she'd be answering; none when that message is
     the user's or hers, its sender is unknown, or which message is newest isn't known. Never an earlier speaker:
     their authorizations aren't this reply's. One notification: the phone's own order says (its last message is
@@ -158,9 +170,11 @@ def _answering(notifications: list, lines: list) -> str | None:
         if len({(line.from_phone, line.sender_id) for line in tied}) > 1:
             return None
         newest = tied[-1]
+        # Same speaker, several messages at that time: who is answered is known, which message is newest isn't.
+        newest.tied = len(tied) > 1
     if newest is None or newest.from_phone or not newest.sender_id:
         return None
-    return newest.sender_id
+    return newest
 
 
 class _Labels:
@@ -263,8 +277,10 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
     if n is None or not n.conversation_id:
         raise Unavailable("there's no conversation behind that notification on the phone now")
     lines = phone_relationships._lines(user_id, same)
+    newest = _newest(same, lines)
+    answering = newest.sender_id if newest is not None else None
     with SessionLocal() as db:
-        scope = _scope(db, user_id, n.conversation_id, _answering(same, lines))
+        scope = _scope(db, user_id, n.conversation_id, answering)
         labels = _Labels(db, user_id, scope, lines)
         sent = list(reversed(db.scalars(select(PhoneOutbound).where(
             PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == n.conversation_id,
@@ -274,7 +290,12 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
             is_group=bool(n.is_group),
             recipient=labels.person(scope.recipient.id) if scope.recipient else None,
             messages=_messages(lines, sent, labels, now), their_words=_their_words(db, user_id, scope, labels),
-            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels))
+            authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels),
+            key=n.key, revision=int(n.revision), conversation_id=n.conversation_id,
+            recipient_sender=answering if scope.recipient is not None else None,
+            answering_event=newest.event_id if newest is not None and scope.recipient is not None
+            and not getattr(newest, "tied", False) else None,
+            recipient_person_id=scope.recipient.id if scope.recipient is not None else None)
 
 
 def _judge(system: str, user: str) -> Verdict:

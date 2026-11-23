@@ -4,9 +4,13 @@ the service calls.
 Which actions a turn gets (frontend-phone/PLAN_PHASE_8.md, "Actions"; app/ai/chat.py decides the turn):
 - a reply to the user (they wrote this turn): every action;
 - her own turns (a wake: thinking she started, a thought of hers, something she came back to): the quiet ones
-  (``OWN_TURN_ACTIONS``), never anything that opens over their screen; replies to other people only once
-  ``PHONE_AUTONOMOUS_REPLIES`` is on (the affinity delivery checks, docs/PHONE_PHASE_8_AFFINITY.md);
-- a turn someone else's words caused (a notification): none (not built at all).
+  (``OWN_TURN_ACTIONS``), never anything that opens over their screen, and never a reply to someone else (an own
+  turn alone doesn't say which exchange she'd be answering);
+- a turn someone else's words caused (a notification): no device action at all.
+
+``build_reply_tools`` (affinity B3, services/phone_replies.py): her own reply to someone on the phone, only to
+an exchange the turn is bound to (the phone's Messages switch pauses it): on the wake a notification caused,
+the messages that woke her; on a follow-up she scheduled come due, that same person in that same conversation.
 
 ``read_person`` (affinity B1, ``build_people_tools``): what she knows of someone on the phone, on the user's reply
 turns only (never on a wake, never on a turn someone else's words caused). ``authorize_detail`` (affinity B2) sits
@@ -279,8 +283,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         return outcome.text
 
     allowed = tuple(a for a in (OWN_TURN_ACTIONS if own_turn else REPLY_TURN_ACTIONS))
-    if own_turn and get_settings().phone_autonomous_replies:
-        allowed = (*allowed, "reply_notification")
 
     async def phone_action(action: str, destination: str | None = None, mode: Mode = "drive",
                            saved_place: bool = False, destination_place_id: str | None = None,
@@ -441,6 +443,34 @@ def build_people_tools(user_id: uuid.UUID, message_id: uuid.UUID | None = None) 
                                        conversation=conversation, source_message_id=message_id)
 
     return [read_person, authorize_detail]
+
+
+def build_reply_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, targets: list[dict] | None = None,
+                      follow_up: dict | None = None, wake_id: str | None = None) -> list[BaseTool]:
+    """``reply_notification`` for her own reply on a wake: to the messages that woke her (``targets``), or a
+    follow-up come due (``follow_up``, its due occurrence ``wake_id``). app/ai/chat.py decides the turn."""
+    from app.services import phone_replies
+
+    where = ("the conversation this follow-up is for, through its notification (its handle is in \"Now\" when "
+             "one is there)" if follow_up is not None else
+             "one of the messages that woke you: " + ", ".join(f"[{t.get('handle')}]" for t in targets or []))
+
+    @tool
+    async def reply_notification(notification: str, text: str) -> str:
+        """Write to someone on the user's phone yourself, as yourself, through a notification's reply button.
+        Only when you judge a reply would help; ignoring it, waiting, or asking the user privately are as open.
+
+        notification: its handle. text: your whole reply, as it should arrive (it is never shortened: a too-long
+        one isn't sent). It goes out from the user's account, so when your words could pass for theirs, make clear
+        it's you. Before it goes out it is checked against what that conversation has already seen; a held reply
+        isn't sent and you're told why. It's sent at most once, and only while the same message is still the newest
+        there, the reply button is still there and their Messages switch is on: otherwise nothing is sent another way.
+        """
+        return await asyncio.to_thread(phone_replies.reply, user_id, conversation_id, notification, text,
+                                       targets=targets, follow_up=follow_up, wake_id=wake_id)
+
+    reply_notification.description += f"\nOn this turn you can write to {where}."
+    return [reply_notification]
 
 
 Addressed = Literal["you", "the_user", "everyone", "unclear"]

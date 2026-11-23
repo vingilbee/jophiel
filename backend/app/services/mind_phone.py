@@ -36,7 +36,7 @@ from app.ai.mind.hard import HardInput, Problem
 from app.ai.mind.situation import Situation
 from app.core.config import get_settings
 from app.db.models import ChatMessage, Conversation, WorkingItem
-from app.services import phone_actions, phone_notifications, phone_state
+from app.services import phone_actions, phone_notifications, phone_replies, phone_state
 
 NAME = "phone"
 PHONE = Situation(
@@ -324,7 +324,10 @@ class PhoneSource:
                             # (no device action, however far it's carried: app/ai/chat.py).
                             "third_party": phone_notifications.has_third_party(notes),
                             # Which notifications just arrived (handles only): the wake this leads to names them.
-                            "arrived": phone_notifications.arrived(notes)})
+                            "arrived": phone_notifications.arrived(notes),
+                            # Affinity B3: each eligible one bound to the message that caused it (ids only): the
+                            # only exchanges the wake this leads to may answer (services/phone_replies.py).
+                            "reply_targets": phone_replies.targets_from_news(notes)})
 
     def previous(self, moment: Moment) -> Any:
         return moment.data["snapshot"]

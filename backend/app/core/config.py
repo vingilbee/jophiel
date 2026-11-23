@@ -491,11 +491,9 @@ class Settings(BaseSettings):
     # How long a line one of her phone thoughts proposed may wait for her mind before it's no longer worth saying.
     phone_say_ttl_seconds: float = Field(default=120.0, ge=10, le=3600)
     # Phase 8 (frontend-phone/PLAN_PHASE_8.md): notifications still on the phone are kept in Redis this long at
-    # most (never in the database). Replies to other people on her own turns stay off until the affinity
-    # delivery checks pass (docs/PHONE_PHASE_8_AFFINITY.md); the backend agent turns this on, not a phone switch.
-    # Replies the user asks for work regardless.
+    # most (never in the database). Her own replies to other people (affinity B3, services/phone_replies.py) are
+    # gated by the phone's Messages switch alone, not a backend flag.
     phone_notification_keep_hours: float = Field(default=24.0, ge=1, le=72)
-    phone_autonomous_replies: bool = False
     # Wake pacing for notifications (affinity B1): news from one conversation waits until it has been quiet this
     # long (a burst is read by one tick), and at most this many notification-caused ticks an hour per user (past
     # it, news waits for the heartbeat). Nothing is dropped; state changes and action outcomes tick as before.

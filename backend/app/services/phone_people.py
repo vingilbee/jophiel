@@ -263,6 +263,26 @@ def record_outbound(user_id: uuid.UUID, action_id: uuid.UUID, *, key: str, conve
         return False
 
 
+def claim_outbound(user_id: uuid.UUID, attempt_key: str, *, key: str, conversation_id: str, revision: int,
+                   text: str, person_id: uuid.UUID | None) -> uuid.UUID | None:
+    """Claim one attempt of hers (affinity B3, services/phone_replies.py) before it's published: the ``sending``
+    row, under ``attempt_key``. Returns its action id, or None when that attempt was already claimed (or the claim
+    couldn't be written: then nothing is sent). ``person_id`` only for a direct chat."""
+    try:
+        with SessionLocal.begin() as db:
+            claimed = db.scalar(insert(PhoneOutbound).values(
+                id=uuid.uuid4(), user_id=user_id, conversation_id=conversation_id, person_id=person_id,
+                notification_key=key, revision=revision, text=text, asked_by="her", status="sending",
+                attempt_key=attempt_key[:300],
+            ).on_conflict_do_nothing(index_elements=["user_id", "attempt_key"],
+                                     index_where=PhoneOutbound.attempt_key.is_not(None))
+                .returning(PhoneOutbound.id))
+        return claimed
+    except SQLAlchemyError:
+        log.warning("phone_people: a reply attempt could not be claimed", exc_info=True)
+        return None
+
+
 def settle_outbound(action_id: uuid.UUID, result: str) -> None:
     """A reply's result: ``done`` -> sent, ``failed`` / ``refused`` / ``expired`` -> failed, no answer
     (``unconfirmed``) -> unknown (never resent). A late answer settles an unknown one, unless an echo already

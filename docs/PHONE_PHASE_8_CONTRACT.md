@@ -81,5 +81,5 @@ one line.
 
 - Replies to the user: every action.
 - Her own turns (wakes): `media_control`, `set_volume`, `set_alarm`, `set_timer`, `dismiss_notification`,
-  `set_ringer`, `set_dnd`, plus the Maps lookups. `reply_notification` only once `PHONE_AUTONOMOUS_REPLIES` is on.
+  `set_ringer`, `set_dnd`, plus the Maps lookups. `reply_notification` only on a wake bound to an exchange (affinity B3), paused by the Messages switch.
 - A turn caused by someone else's notification gets no actions at all.
