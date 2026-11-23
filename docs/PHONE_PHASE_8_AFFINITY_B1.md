@@ -13,7 +13,7 @@ First of three PRs for [`PHONE_PHASE_8_AFFINITY.md`](PHONE_PHASE_8_AFFINITY.md) 
 | PR | What |
 |---|---|
 | **B1 (this)** | People, conversations, relationship records (defaults only), outbound exchanges, echo matching, wake bursts, "how do you feel about Rina?" read only |
-| B2 | What the reply writer may see per audience (boundary written down below, built there); relationship updates in shadow mode |
+| B2 (built, [`PHONE_PHASE_8_AFFINITY_B2.md`](PHONE_PHASE_8_AFFINITY_B2.md)) | What the reply writer may see per audience (boundary written down below, built there); relationship updates in shadow mode |
 | B3 | Replies on her own: to the notification that woke her, and her own follow-up from a scheduled intention; dispatch rechecks; `PHONE_AUTONOMOUS_REPLIES` + the owner's switch |
 
 **B1 changes nothing she can do.** She still can't reply on her own. What changes: she knows who wrote (a

@@ -17,6 +17,9 @@ speaks or acts, and an assessment doesn't become a lesson because it ran.
    and a change made from a lesson revision that moved meanwhile makes the job read again. Each lesson touched is
    noted as a use of the assessment (``learning_assessment.note_use``), so a later revision that changes the
    conclusions tells memory to stop counting what it gave (``memory_lessons.reconsider``).
+
+A ``phone`` assessment (affinity B2) is read the same way, against that person's lessons only, and what it creates
+is bound to the person and the exchange's audience and stays shadow (``memory_lessons.PhoneScope``).
 """
 from __future__ import annotations
 
@@ -189,7 +192,8 @@ def bundle_for(db: Session, row: LearningAssessment, revision: LearningAssessmen
                     for e in result.get(key) or [] for root in e.get("roots") or []})
     query = " ".join([revision.explanation or ""] + [e.get("statement", "") for e in result.get("findings") or []])
     b.lessons, b.withdrawn = memory_lessons.shown_for(db, row.user_id, assessment_id=row.id,
-                                                      assessment_revision=revision.revision, roots=roots, query=query)
+                                                      assessment_revision=revision.revision, roots=roots, query=query,
+                                                      phone_person=row.phone_person_id)
     return b
 
 
@@ -308,6 +312,12 @@ def process(db: Session, job_id: uuid.UUID, attempts: int, *, builder: Callable[
             db.rollback()
             return _fail(db, job_id, attempts, f"{type(exc).__name__}: {exc}"[:500])
         user_id, occasion, occasion_at = row.user_id, row.trigger_key, _aware(row.anchor_at)
+        phone = None
+        if row.trigger_kind == "phone" or row.phone_person_id is not None:
+            from app.services import phone_relationships
+            phone = phone_relationships.lesson_scope(db, row)
+            if phone is None:
+                return _finish(db, job_id, attempts, "gone", {"why": "the phone exchange it read is gone"})
         assessment_id, assessment_revision = row.id, revision.revision
         db.rollback()  # nothing held while the model reads
         text = L.render(bundle)
@@ -325,7 +335,7 @@ def process(db: Session, job_id: uuid.UUID, attempts: int, *, builder: Callable[
         if row is None or row.revision != assessment_revision:
             db.rollback()
             continue  # revised or gone while it read: the top of the loop settles it
-        source = memory_lessons.Source(occasion, occasion_at, assessment_id, assessment_revision, job_id)
+        source = memory_lessons.Source(occasion, occasion_at, assessment_id, assessment_revision, job_id, phone=phone)
         try:
             applied = memory_lessons.apply(db, user_id, checked.changes, source,
                                            embed=prepared.embed)

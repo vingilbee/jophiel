@@ -23,6 +23,13 @@ proposes checked changes and this module applies them by its own rules.
   budget, a consumer whose input has no lessons, supply switched off), and what the consumer said about it.
   ``explain`` names which of the three cases a lesson not followed is: never reached, reached but not accounted for
   (overlooked or misunderstood: her decision), or reached and reasonably set aside (judgment, not a learning failure).
+- **People on the phone** (affinity B2, docs/PHONE_PHASE_8_AFFINITY_B2.md). A lesson read from a ``phone``
+  assessment is bound to that person, the conversation it was learned in and the conversations its behaviour applies
+  to (``PhoneScope``), and is shadow (``phone_live`` false). Every ordinary retrieval (``shown_for`` and
+  ``for_learning`` outside that person's own assessments, ``for_decision``, ``for_learning_ids``) leaves phone
+  lessons out, so routing an exchange through the learner can never make its lesson reach her decisions; only
+  ``for_phone_audience`` reads them, live ones only, for the reply writer of an audience they apply to. A phone
+  reading changes only that person's lessons; an ordinary reading never touches a phone lesson.
 - **Forgetting.** ``drop_for``: lessons whose evidence came from forgotten messages go, with their revisions and uses,
   and so do the raw decision captures that showed them (their ``lesson:<id>`` source).
 
@@ -164,19 +171,27 @@ def _relevant(rows: list[MemoryLesson], query: str, keep: int, *, embed=None) ->
     return sorted(rows, key=lambda r: (-score(r), r.created_at))[:keep]
 
 
+def _audience(phone_person: uuid.UUID | None):
+    """Which lessons a reading may see: the ordinary ones, or (a phone assessment) only that person's."""
+    return MemoryLesson.phone_person_id.is_(None) if phone_person is None else \
+        MemoryLesson.phone_person_id == phone_person
+
+
 def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, assessment_revision: int,
-              roots=(), query: str = "", embed=None) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
+              roots=(), query: str = "", embed=None,
+              phone_person: uuid.UUID | None = None) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
     """The lessons (L refs) and recently withdrawn ones (W refs) the construction call reads: all of them while they
     fit, past SHOWN_MAX the most recently changed and the most relevant to ``query``. ``roots``: the evidence this
-    reading rests on, to say which lessons already count it."""
+    reading rests on, to say which lessons already count it. ``phone_person``: a phone assessment's person, whose
+    lessons alone it sees (otherwise phone lessons are left out)."""
     live = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status != "withdrawn")
+                                                      MemoryLesson.status != "withdrawn", _audience(phone_person))
                            .order_by(MemoryLesson.updated_at.desc())))
     if len(live) > SHOWN_MAX:
         recent = live[:RECENT_SHOWN]
         live = recent + _relevant(live[RECENT_SHOWN:], query, SHOWN_MAX - RECENT_SHOWN, embed=embed)
     gone = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status == "withdrawn")
+                                                      MemoryLesson.status == "withdrawn", _audience(phone_person))
                            .order_by(MemoryLesson.withdrawn_at.desc()).limit(WITHDRAWN_SHOWN)))
     counts = _counts(db, [r.id for r in live + gone])
     states = premises(db, user_id, [r.id for r in live])
@@ -212,6 +227,16 @@ def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, asse
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class PhoneScope:
+    """A phone assessment's audience: the person, the conversation it was learned in, and the conversations the
+    behaviour applies to (that one, plus any the person's own words named). Lessons it creates are shadow."""
+
+    person_id: uuid.UUID
+    conversation_id: uuid.UUID
+    applies_to: tuple[str, ...] = ()
+
+
 @dataclass
 class Source:
     """Where a set of changes comes from: one assessment revision (an occasion) read by one job."""
@@ -221,6 +246,7 @@ class Source:
     assessment_id: uuid.UUID | None
     assessment_revision: int | None
     job_id: uuid.UUID | None = None
+    phone: PhoneScope | None = None
 
 
 @dataclass
@@ -253,6 +279,11 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
                         .with_for_update().execution_options(populate_existing=True))
         if row is None:
             out.skipped.append({"lesson": c.lesson_id, "op": c.op, "why": "the lesson is gone"})
+            continue
+        mine = source.phone.person_id if source.phone is not None else None
+        if row.phone_person_id != mine:
+            # A phone reading changes only that person's lessons; an ordinary one never a phone lesson.
+            out.skipped.append({"lesson": c.lesson_id, "op": c.op, "why": "a lesson of another audience"})
             continue
         if row.revision != c.expected_revision:
             raise Stale(f"lesson {row.id} is at revision {row.revision}, the change was made from "
@@ -306,6 +337,10 @@ def _create(db: Session, user_id: uuid.UUID, c: L.Change, source: Source, embed)
                        alternatives=list(c.alternatives) if c.kind in L.INFERRED else [],
                        details=dict(c.details) if c.kind in L.INFERRED else {},
                        status_reason=_status_reason(c.kind, status, 1), embedding=embed(_text(c)))
+    if source.phone is not None:
+        row.phone_person_id, row.phone_conversation_id = source.phone.person_id, source.phone.conversation_id
+        row.phone_applies_to = list(dict.fromkeys([str(source.phone.conversation_id), *source.phone.applies_to]))
+        row.phone_live = False  # shadow: nothing activates it automatically
     db.add(row)
     db.flush()
     _evidence(db, row, "support", c, source)
@@ -919,6 +954,7 @@ def for_decision(db: Session, user_id: uuid.UUID, query: str, *, budget: int | N
     beside it. Whole lessons only: nothing is cut out of one."""
     budget = get_settings().lessons_supplied_max if budget is None else budget
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
+                                                      MemoryLesson.phone_person_id.is_(None),
                                                       MemoryLesson.status.in_(("accepted", "hypothesis") if include_tentative else ("accepted",)))
                            .order_by(MemoryLesson.created_at)))
     if not rows:
@@ -1029,11 +1065,13 @@ def current(supply: "Supply") -> tuple["Supply", str | None]:
             f"its lessons couldn't be confirmed current ({type(exc).__name__}), so none were given")
 
 
-def for_learning(db: Session, user_id: uuid.UUID, query: str, *, limit: int = 6, embed=None) -> list:
+def for_learning(db: Session, user_id: uuid.UUID, query: str, *, limit: int = 6, embed=None,
+                 phone_person: uuid.UUID | None = None) -> list:
     """Her lessons for this user (every status but withdrawn), the most relevant to ``query``: what learning's
-    reviewer compares new experience with. Read only. Earlier understanding, never evidence."""
+    reviewer compares new experience with. Read only. Earlier understanding, never evidence. ``phone_person``: a
+    phone assessment's person, whose lessons alone it reads (otherwise phone lessons are left out)."""
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status != "withdrawn")
+                                                      MemoryLesson.status != "withdrawn", _audience(phone_person))
                            .order_by(MemoryLesson.created_at)))
     return _for_learning(db, user_id, _relevant(rows, query, limit, embed=embed))
 
@@ -1045,6 +1083,7 @@ def for_learning_ids(db: Session, user_id: uuid.UUID, ids) -> list:
     if not ids:
         return []
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id, MemoryLesson.id.in_(ids),
+                                                      MemoryLesson.phone_person_id.is_(None),
                                                       MemoryLesson.status != "withdrawn")
                            .order_by(MemoryLesson.created_at)))
     return _for_learning(db, user_id, rows)
@@ -1076,6 +1115,35 @@ def for_game(db: Session, user_id: uuid.UUID, game: str | None, *, query: str = 
     if not game or not get_settings().lessons_supply_enabled:
         return Supply(ranked_by="supply_off")
     return for_decision(db, user_id, f"{game} {query}", include_tentative=True)
+
+
+@dataclass(frozen=True)
+class AudienceLesson:
+    """A live phone lesson as the reply writer of one audience reads it: its behaviour, and only in the conversation
+    it was learned in, the person's own words behind it."""
+
+    id: str
+    statement: str
+    applies_when: str
+    their_words: tuple[str, ...]
+    learned_here: bool
+
+
+def for_phone_audience(db: Session, user_id: uuid.UUID, person_id: uuid.UUID,
+                       conversation_id: uuid.UUID) -> list[AudienceLesson]:
+    """Live, accepted lessons about this person whose behaviour applies to this conversation, filtered in the query
+    itself (before anything is read): shadow lessons, other people's and other audiences' never come back. The
+    explanation (the person's words) only where it was learned."""
+    rows = db.scalars(select(MemoryLesson).where(
+        MemoryLesson.user_id == user_id, MemoryLesson.phone_person_id == person_id,
+        MemoryLesson.phone_live.is_(True), MemoryLesson.status == "accepted",
+        MemoryLesson.phone_applies_to.contains([str(conversation_id)])).order_by(MemoryLesson.created_at))
+    out = []
+    for r in rows:
+        here = r.phone_conversation_id == conversation_id
+        out.append(AudienceLesson(str(r.id), r.statement, r.applies_when,
+                                  tuple(r.user_words or ()) if here else (), here))
+    return out
 
 
 def offered(user_id: uuid.UUID, query: str) -> Supply:
