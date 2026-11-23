@@ -401,7 +401,7 @@ def test_the_check_on_a_group_reply_never_reads_the_dm_and_holds_what_carries_it
     assert "who's coming saturday?" in group_seen
     dm = RC.material_for(env.user, ref(DM_KEY))
     assert any("I'd love to hear it!" in line for line in dm.messages)
-    assert dm.their_words == ["I'll send you my rehearsal recording"]
+    assert dm.their_words == [("Rina", "I'll send you my rehearsal recording")]
     # A draft carrying the DM into the group: the check reads the policy and the group's material only.
     judge = Judge(RC.Verdict(send=False, reveals=["her rehearsal recording"], why="it was only said in the DM"))
     held = RC.check_reply(env.user, ref(BAND_KEY), "Rina, how's the recording going?", model=judge)
@@ -712,3 +712,42 @@ def test_eligibility_and_the_learners_evidence_use_the_same_replies(env):
     assert "she has written in this conversation 1 time(s)" in text
     with env.db() as db:
         assert db.get(PhoneOutbound, unknown).status == "unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes (PR 49, the check)
+# --------------------------------------------------------------------------- #
+
+def test_a_reply_after_the_user_spoke_in_the_group_answers_no_one_and_inherits_no_authorization(env):
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?")))
+    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
+                                                                conversation="Band")
+    assert RC.material_for(env.user, ref(BAND_KEY)).authorized == ["at the studio until six"]
+    # The user answers from the phone: the newest message is theirs, so she is answering no one in particular.
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?"), owner("e_o1", "one sec"), revision=2))
+    after = RC.material_for(env.user, ref(BAND_KEY))
+    assert after.recipient is None and after.authorized == [] and "studio" not in after.render("ok")
+
+
+def test_each_noted_quote_keeps_who_said_it(env):
+    report(env, band(message("e_b1", "Rina", "p_rina", "I'm bringing snacks"),
+                     message("e_b2", "Budi", "p_budi", "I'll drive us there")))
+    for event, words in (("e_b1", "I'm bringing snacks"), ("e_b2", "I'll drive us there")):
+        phone_relationships.note_exchange(env.user, ref(BAND_KEY), about=[msg("c_band", event)], addressed="everyone",
+                                          meaning="a plan for saturday", their_words=words)
+    seen = RC.material_for(env.user, ref(BAND_KEY))
+    assert set(seen.their_words) == {("Rina", "I'm bringing snacks"), ("Budi", "I'll drive us there")}
+    rendered = seen.render("ok")
+    assert '- Rina: "I\'m bringing snacks"' in rendered and '- Budi: "I\'ll drive us there"' in rendered
+
+
+def test_a_failure_reading_the_evidence_holds_the_reply(env, monkeypatch):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hey")))
+
+    def down(*args, **kwargs):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(RC, "_requests", down)
+    judge = Judge({"send": True})
+    held = RC.check_reply(env.user, ref(DM_KEY), "hey!", model=judge)
+    assert not held.send and "couldn't be read" in held.why and judge.seen == []
