@@ -790,3 +790,27 @@ def test_two_people_with_the_same_name_stay_two_people(env):
     assert seen.recipient in speakers and dict((w, who) for who, w in seen.their_words)["I'll drive us there"] == \
         seen.recipient
     assert any(line.endswith(': "I\'ll drive us there"') and seen.recipient in line for line in seen.messages)
+
+
+def test_a_tie_between_speakers_across_notifications_answers_no_one(env):
+    at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=at)))
+    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
+                                                                conversation="Band")
+    report(env, chat(BAND_KEY + "_2", "c_band", "Band", [message("e_b9", "Rina", "p_rina", "where is he?", at=at)],
+                     group=True))
+    for key in (BAND_KEY, BAND_KEY + "_2"):  # whichever notification she names, the read order decides nothing
+        seen = RC.material_for(env.user, ref(key))
+        assert len(seen.messages) == 2 and seen.recipient is None and seen.authorized == []
+
+
+def test_labels_use_the_name_this_conversation_shows(env):
+    report(env, band(message("e_b1", "Rina", "p_rina", "I'm bringing snacks")))
+    report(env, rina_dm(message("e_r1", "Rina Kusuma (work)", "p_rina", "hey")))  # the latest name, shown elsewhere
+    assert person(env, "Rina Kusuma (work)") is not None and person(env) is None  # one person, renamed
+    phone_relationships.note_exchange(env.user, ref(BAND_KEY), about=[msg("c_band", "e_b1")], addressed="everyone",
+                                      meaning="snacks for saturday", their_words="I'm bringing snacks")
+    seen = RC.material_for(env.user, ref(BAND_KEY))
+    rendered = seen.render("ok")
+    assert seen.recipient == "Rina" and seen.their_words == [("Rina", "I'm bringing snacks")]
+    assert "Kusuma" not in rendered and "work" not in rendered
