@@ -327,7 +327,21 @@ def apply_delivery_status(
     if status in {"delivered", "read", "failed"}:
         from app.services import background_wake
         background_wake.mark(db)
+        db.flush()
+        _promises_settled(db, delivery.assistant_message_id)
     _settled(db, delivery, status, error)
+
+
+def _promises_settled(db: Session, assistant_message_id) -> None:
+    """Promises of hers waiting on this message (memory_manager.await_delivery): kept once every part arrived, open
+    with why when one failed. A savepoint: never fails the status update."""
+    from app.services import memory_manager
+
+    try:
+        with db.begin_nested():
+            memory_manager.settle_delivery(db, assistant_message_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("whatsapp: settling promises for %s failed", assistant_message_id)
 
 
 def _settled(db: Session, delivery: MessageDelivery, status: str, error: str | None) -> None:

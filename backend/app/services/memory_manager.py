@@ -572,7 +572,8 @@ def keep_promise(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message
     return entry
 
 
-def note_unkept(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str) -> WorkingItem | None:
+def note_unkept(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str,
+                said: bool = False) -> WorkingItem | None:
     """She meant to keep a promise in an evaluation whose words never reached them (cancelled, failed, stopped):
     it stays open, and the attempt stays visible on it (its status reason and an event). Returns it, or None when
     it is closed (kept or cancelled meanwhile: nothing to record)."""
@@ -580,12 +581,59 @@ def note_unkept(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery
                       .with_for_update())
     if entry is None or entry.kind != "commitment" or entry.closed_at is not None:
         return None
-    entry.status_reason = f"you tried to keep it, but what you said wasn't delivered ({delivery})"
+    entry.status_reason = (f"you spoke, but it isn't kept: {delivery}" if said else
+                           f"you tried to keep it, but what you said wasn't delivered ({delivery})")
     entry.updated_at = _now()
     record_event(db, user_id, kind="item_changed", text=f"Promise not kept yet: {entry.text} (an attempt wasn't "
                  f"delivered: {delivery})", epistemic="reported", context_id=entry.context_id, item_id=entry.id)
     _log({"op": "unkept", "user": str(user_id), "item": str(entry.id), "delivery": delivery})
     return entry
+
+
+def await_delivery(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
+                   reason: str) -> WorkingItem | None:
+    """Her words that keep a promise went out on a channel that confirms delivery later (WhatsApp): in the delivery
+    commit, the promise waits on that message (``keeping``), still open. ``settle_delivery`` closes it when the
+    channel says it arrived, or records why not."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if (entry is None or entry.kind != "commitment" or entry.owner != "columbina" or entry.closed_at is not None
+            or unkeepable(entry) is not None):
+        return None
+    entry.keeping = {"message_id": str(message_id), "reason": " ".join((reason or "kept").split())[:300],
+                     "at": _now().isoformat()}
+    entry.status_reason = "what you said to keep it is on its way; it counts once the channel confirms it arrived"
+    entry.updated_at = _now()
+    _log({"op": "keeping", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
+    return entry
+
+
+def settle_delivery(db: Session, message_id: uuid.UUID) -> int:
+    """The channel settled every part of a message (all delivered or read), or one part failed: promises waiting on
+    it are fulfilled with it as evidence, or stay open with the failure visible and their wake re-armed. Parts still
+    on their way settle nothing. In the caller's transaction. Returns how many promises changed."""
+    from app.db.models import MessageDelivery
+
+    statuses = list(db.scalars(select(MessageDelivery.status).where(MessageDelivery.assistant_message_id == message_id)))
+    failed = "failed" in statuses
+    if not statuses or not (failed or all(s in ("delivered", "read") for s in statuses)):
+        return 0
+    changed = 0
+    for entry in db.scalars(select(WorkingItem).where(
+            WorkingItem.kind == "commitment", WorkingItem.closed_at.is_(None),
+            WorkingItem.keeping["message_id"].astext == str(message_id)).with_for_update()):
+        reason = (entry.keeping or {}).get("reason") or "kept"
+        entry.keeping = None
+        if failed:
+            note_unkept(db, entry.user_id, entry.id, delivery="the channel couldn't deliver it")
+            from app.services import coordinator
+            coordinator.rearm_promise(db, entry.user_id, entry.id, delay_seconds=60,
+                                      reason="what you said to keep it wasn't delivered by the channel")
+        else:
+            entry.status_reason = None
+            keep_promise(db, entry.user_id, entry.id, message_id=message_id, reason=reason)
+        changed += 1
+    return changed
 
 
 reopen_undelivered = note_unkept  # the earlier name: a promise is no longer closed before it is delivered
@@ -1263,6 +1311,8 @@ def _tick_user(db: Session, user_id: uuid.UUID, now: datetime) -> bool:
                 CoordinatorWork.status.in_(("queued", "running")),
                 CoordinatorWork.input["item"].astext == str(entry.id)).limit(1)) is not None:
             continue  # its wake hasn't had its turn yet: not overdue until it has
+        if entry.kind == "commitment" and entry.keeping:
+            continue  # kept by words still on their way: the channel settles it
         if entry.kind == "intention":
             _set_status(db, entry, "lapsed", "its time passed", now)
         elif entry.kind == "hypothesis":

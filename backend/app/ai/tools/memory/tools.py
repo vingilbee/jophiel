@@ -252,9 +252,10 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             entry = memory_manager.add_item(db, user_id, kind="question", text_=question, owner=asked_by,
                                             epistemic="reported" if asked_by == "user" else "inferred",
                                             source=source)
-            # Hers, in hand in this evaluation: never handed back to her as a wake of its own.
-            entry.offered_at = entry.created_at or datetime.now(timezone.utc)
             if asked_by == "columbina" and asking_now and evaluation is not None:
+                # Asked in what she says now: it waits on their answer once those words are delivered, and isn't
+                # handed back to her as a follow-up. One saved for later stays eligible for one (open_questions).
+                entry.offered_at = entry.created_at or datetime.now(timezone.utc)
                 evaluation.asking.append(entry.id)
             return f'Kept: open question [{memory_manager.ref(entry)}] "{entry.text}".'
         return await _run(do, user_id, "question")

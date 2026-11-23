@@ -22,7 +22,10 @@ own message).
 Promises and questions (2026-11-23): migration `e8b3f1a6c4d7` (`working_items.trigger` / `trigger_met_at` /
 `offered_at`, question statuses `asked` / `stale`, evidence role `asked`; the open-question backlog is marked handed
 over). A promise of hers is one item with its time (and durable wake) or condition; it's fulfilled only in the delivery
-commit of the words that keep it (`workers/chat.py` `_carried_out`). Questions: `services/open_questions.py`.
+commit of the words that keep it (`workers/chat.py` `_carried_out`), after a check model reads that those words carry it out
+(`services/promise_check.py`, fails closed); on WhatsApp it waits for the channel's delivered status (migration
+`f2a6d9c3b8e1`, `working_items.keeping`). An undelivered attempt re-arms its wake (`coordinator.rearm_promise`).
+Questions: `services/open_questions.py`.
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.

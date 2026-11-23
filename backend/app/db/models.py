@@ -1953,6 +1953,10 @@ class WorkingItem(Base, TimeFieldsMixin):
     # A question of hers handed to her mind as a wake once (services/mind_conversation.py), so she can choose to
     # follow it up while they're quiet. Set for the backlog by migration e8b3f1a6c4d7, so it's never handed over.
     offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A promise of hers kept by words that went out on a channel that confirms delivery later (WhatsApp):
+    # {"message_id", "reason", "at"} until the channel says delivered (then fulfilled) or failed (then it stays
+    # open, with why). Migration f2a6d9c3b8e1.
+    keeping: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

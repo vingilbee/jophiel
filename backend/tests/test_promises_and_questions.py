@@ -525,3 +525,219 @@ def test_while_they_are_quiet_she_is_handed_one_question_once_and_may_ask_it(qen
     assert len(handed) == 1
     assert [q.id for q in _questions(env) if q.offered_at is not None and q.id not in (backlog.id, offered.id)] \
         == [first.id]
+
+
+# --------------------------------------------------------------------------- #
+# Review of PR #53
+# --------------------------------------------------------------------------- #
+
+
+def _strict_check(monkeypatch, word: str):
+    """The promise check's model, scripted: a reply carries out a promise only when it contains ``word``."""
+    from app.services import promise_check
+    calls = []
+
+    def judge(task):
+        calls.append(task)
+        return promise_check.Reading(promises=[promise_check.Verdict(item=p["id"], kept=word in task["her_message"])
+                                               for p in task["promises"]])
+    monkeypatch.setattr(promise_check, "_judge", judge)
+    return calls
+
+
+def _timed_promise(env, what="Remind them to do cardio", seconds=60):
+    said(env, f"{what.replace('Remind them', 'remind me')} in a minute")
+
+    async def agree(use, context):
+        await _promise_tools(context)["note_commitment"].ainvoke({"what": what, "in_seconds": seconds,
+                                                                  "done_when": "the reminder reaches them"})
+        return "Will do."
+
+    env.scripts.append(agree)
+    run_job(env)
+    return _promises(env)[-1]
+
+
+def test_a_reply_that_does_something_else_never_fulfills_the_promise(env, monkeypatch):
+    calls = _strict_check(monkeypatch, "cardio")
+    promise = _timed_promise(env)
+    _advance(env, 60)
+    drain(env)
+
+    async def other(use, context):  # woken for the reminder, she says something else and claims it kept
+        await _promise_tools(context)["update_item"].ainvoke(
+            {"item": memory_manager.ref(promise), "status": "fulfilled", "reason": "reminded"})
+        return "By the way, the weather looks great today."
+
+    env.scripts.append(other)
+    run_job(env)
+    assert calls and calls[-1]["promises"][0]["owed"] == "Remind them to do cardio"
+    [after] = _promises(env)
+    assert after.status == "open" and "isn't kept" in after.status_reason and _resolution(env, after.id) == []
+
+    # The check failing keeps nothing (fails closed).
+    from app.services import promise_check
+    monkeypatch.setattr(promise_check, "_judge", lambda task: (_ for _ in ()).throw(RuntimeError("down")))
+    said(env, "so?")
+
+    async def reminder(use, context):
+        await _promise_tools(context)["update_item"].ainvoke(
+            {"item": memory_manager.ref(promise), "status": "fulfilled", "reason": "reminded"})
+        return "Time for cardio!"
+
+    env.scripts.append(reminder)
+    run_job(env)
+    assert _promises(env)[0].status == "open" and "couldn't be checked" in _promises(env)[0].status_reason
+
+
+def test_a_message_arriving_while_she_words_the_reminder_doesnt_use_up_its_wake(env):
+    _timed_promise(env)
+    _advance(env, 60)
+    drain(env)
+
+    async def interrupted(use, context):
+        from app.services import chat as chat_service
+        with env.db() as db:  # they write while she words it: her reminder is fenced off
+            conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+            chat_service.add_message(db, conversation=conversation, role="user", content="what's for lunch?",
+                                     turn_id=uuid.uuid4())
+        return "Time for cardio!"
+
+    env.scripts.append(interrupted)
+    run_job(env)
+    assert evaluations(env)[-1].delivery == "cancelled"
+    [rearmed] = _live_wakes(env)
+    assert rearmed.input["revisions"][-1]["retry"] is True and _promises(env)[0].status == "open"
+    _advance(env, 60)
+    drain(env)
+    env.scripts.append(says("Time for cardio!"))
+    run_job(env)
+    assert _promises(env)[0].status == "fulfilled" and _live_wakes(env) == []
+
+
+@pytest.mark.parametrize("outcome", ["delivered", "failed"])
+def test_a_whatsapp_reminder_counts_kept_only_when_whatsapp_confirms_it_arrived(env, monkeypatch, outcome):
+    from app.db.models import ChannelIdentity, MessageDelivery
+    from app.services import whatsapp
+    from app.workers import chat as chat_worker
+
+    with env.db() as db:
+        identity = ChannelIdentity(provider="whatsapp", provider_account_id="p", external_subject="s",
+                                   user_id=env.user.id)
+        db.add(identity)
+        db.commit()
+        identity_id = identity.id
+
+    def schedule(db, *, assistant_message_id, channel_identity_id, content):
+        db.add(MessageDelivery(assistant_message_id=assistant_message_id, channel="whatsapp",
+                               channel_identity_id=channel_identity_id, content=content, status="accepted",
+                               provider_message_id=f"wamid.{assistant_message_id}"))
+
+    monkeypatch.setattr(chat_worker.whatsapp_service, "schedule_delivery", schedule)
+    monkeypatch.setattr(chat_worker.whatsapp_service, "wake_worker", lambda: None)
+    said(env, "remind me to do cardio in a minute", channel="whatsapp", channel_identity_id=str(identity_id))
+
+    async def agree(use, context):
+        await _promise_tools(context)["note_commitment"].ainvoke({"what": "Remind them to do cardio", "in_seconds": 60})
+        return "Will do."
+
+    env.scripts.append(agree)
+    run_job(env)
+    _advance(env, 60)
+    drain(env)
+    env.scripts.append(says("Time for cardio!"))
+    run_job(env)
+    [waiting] = _promises(env)
+    assert waiting.status == "open" and waiting.keeping is not None  # sent, not yet confirmed
+    with env.db() as db:
+        whatsapp.apply_delivery_status(db, provider_message_id=f"wamid.{waiting.keeping['message_id']}",
+                                       status=outcome, error="undeliverable" if outcome == "failed" else None)
+        db.commit()
+    [settled] = _promises(env)
+    if outcome == "delivered":
+        assert settled.status == "fulfilled" and _resolution(env, settled.id) == [uuid.UUID(waiting.keeping["message_id"])]
+    else:
+        assert settled.status == "open" and "couldn't deliver" in settled.status_reason and settled.keeping is None
+        assert len(_live_wakes(env)) == 1  # its wake comes back
+
+
+def test_the_question_reader_never_reads_forgotten_or_unheard_words(qenv):
+    from app.db.models import MemoryForgottenSource
+    env = qenv
+    with env.db() as db:
+        q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the Play attempt resume playback?",
+                                    owner="columbina", epistemic="inferred")
+        db.commit()
+    spoken = _add(env, "assistant", "Here's your song. Did the Play attempt resume playback for you?")
+    with env.db() as db:  # the voice reply was cut off before the question
+        m = db.get(ChatMessage, spoken)
+        m.heard_chars = len("Here's your song.")
+        m.spoken_at = coordinator._now() - timedelta(minutes=5)
+        db.commit()
+    _record_message(env, spoken)
+    reader = _reader({"asks": "Play attempt", "answers": "Play attempt"})
+
+    def reading(task):
+        assert "Did the Play attempt" not in task["message"]  # only what was heard
+        assert "yeah the Play attempt" not in task["message"]  # nothing forgotten
+        if "Play attempt" not in task["message"]:
+            return Reading(matches=[])
+        return reader(task)
+
+    _consume(reading)
+    assert _questions(env)[0].status == "open"
+    answer = _add(env, "user", "yeah the Play attempt resumed")
+    with env.db() as db:  # the user had it forgotten
+        from app.db.models import MemoryForget
+        forget = MemoryForget(id=uuid.uuid4(), user_id=env.user.id, source_message_id=answer,
+                              conversation_id=env.conversation.id, status="done", request=None,
+                              finished_at=coordinator._now())
+        db.add(forget)
+        db.flush()
+        db.add(MemoryForgottenSource(user_id=env.user.id, forget_id=forget.id, message_id=answer, spans=None))
+        db.commit()
+    _record_message(env, answer)
+    _consume(reading)
+    assert _questions(env)[0].status == "open" and q.id == _questions(env)[0].id
+
+
+def test_a_question_saved_for_later_can_still_be_followed_up(env):
+    said(env, "I'll tell you later how the audition went")
+
+    async def save(use, context):
+        await _promise_tools(context)["note_question"].ainvoke(
+            {"question": "How did the audition go?", "asked_by": "columbina"})
+        return "Good luck!"
+
+    env.scripts.append(save)
+    run_job(env)
+    [q] = _questions(env)
+    assert q.offered_at is None
+    with env.db() as db:
+        assert len(open_questions.hand_over(db)) == 1
+
+
+def test_the_question_they_answer_is_shown_even_behind_newer_ones(qenv):
+    env = qenv
+    with env.db() as db:
+        target = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the Play attempt resume?",
+                                         owner="columbina", epistemic="inferred")
+        db.commit()
+    asked = _add(env, "assistant", "Did the Play attempt resume?")
+    with env.db() as db:
+        memory_manager.question_asked(db, env.user.id, target.id, message_id=asked)
+        for n in range(open_questions.SHOWN + 3):  # newer questions, updated after it
+            memory_manager.add_item(db, env.user.id, kind="question", text_=f"Newer question {n}?",
+                                    owner="columbina", epistemic="inferred")
+        db.commit()
+    answer = _add(env, "user", "yes it did")
+    _record_message(env, answer)
+    seen = []
+
+    def judge(task):
+        seen.append([q["question"] for q in task["open_questions"]])
+        return Reading(matches=[Match(item=q["id"]) for q in task["open_questions"] if "Play" in q["question"]])
+
+    _consume(judge)
+    assert seen and seen[0][0] == "Did the Play attempt resume?"
+    assert [q.status for q in _questions(env) if q.id == target.id] == ["answered"]

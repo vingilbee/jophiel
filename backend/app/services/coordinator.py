@@ -648,6 +648,42 @@ def promise_wake(db, ev, entry, *, reason: str | None = None) -> CoordinatorWork
         third_party=ev.third_party)
 
 
+MAX_REARMS = 6  # how often a promise's wake comes back after attempts that weren't delivered: then it waits for her
+
+
+def rearm_promise(db, user_id: uuid.UUID, item_id: uuid.UUID, *, delay_seconds: float,
+                  reason: str) -> CoordinatorWork | None:
+    """A promise of hers whose attempt wasn't delivered (it failed, their message cut it off, the channel couldn't
+    deliver it) comes due again after ``delay_seconds``, as a revision of its wake's chain, so its only wake is never
+    used up by an attempt that didn't reach them. Bounded (``MAX_REARMS``). Nothing when it is closed, already has a
+    live wake, or never had one. The caller commits."""
+    from app.db.models import WorkingItem
+
+    entry = db.get(WorkingItem, item_id)
+    if entry is None or entry.user_id != user_id or entry.kind != "commitment" or entry.owner != "columbina" \
+            or entry.closed_at is not None or promise_wake_of(db, user_id, item_id) is not None:
+        return None
+    last = db.scalar(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake",
+        CoordinatorWork.input["item"].astext == str(item_id)).order_by(CoordinatorWork.created_at.desc())
+        .limit(1).with_for_update())
+    if last is None:
+        return None
+    rearms = sum(1 for r in (last.input or {}).get("revisions") or [] if r.get("retry"))
+    if rearms >= MAX_REARMS:
+        return None
+    inp = last.input or {}
+    row = schedule_wake(db, user_id=user_id, conversation_id=last.conversation_id, about=inp.get("about") or entry.text,
+                        due_at=_now() + timedelta(seconds=delay_seconds), zone=inp.get("zone"),
+                        channel=inp.get("channel") or "web", moves=last,
+                        reason=f"{reason} (again {rearms + 1} of {MAX_REARMS})")
+    revisions = list(row.input["revisions"])
+    revisions[-1] = {**revisions[-1], "retry": True}
+    row.input = {**row.input, "revisions": revisions}
+    entry.due_at = row.next_attempt_at  # the promise's time is its wake's time
+    return row
+
+
 def promise_wake_of(db, user_id: uuid.UUID, item_id: uuid.UUID) -> CoordinatorWork | None:
     """The live wake that keeps a promise's time, if any."""
     return db.scalar(select(CoordinatorWork).where(

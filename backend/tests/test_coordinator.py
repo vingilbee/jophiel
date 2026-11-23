@@ -80,6 +80,11 @@ def env(db_env, monkeypatch, tmp_path):
     monkeypatch.setattr(chat_worker.google, "get_access_token", no_token)
     monkeypatch.setattr(chat_worker.memory_service, "schedule_consolidation", lambda *a, **k: None)
     monkeypatch.setattr(coordinator, "_wake", lambda: None)
+    # The promise check's model (services/promise_check.py), scripted: by default what she says carries out every
+    # promise it's asked about; tests of the check itself script it more strictly.
+    from app.services import promise_check
+    monkeypatch.setattr(promise_check, "_judge", lambda task: promise_check.Reading(promises=[
+        promise_check.Verdict(item=p["id"], kept=True) for p in task["promises"]]))
     with db_env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)

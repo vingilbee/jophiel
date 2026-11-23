@@ -31,7 +31,7 @@ from app.services import memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
-from app.services import coordinator, mind_turn, personality
+from app.services import coordinator, mind_turn, personality, promise_check
 from app.services import agent_say, phone_notifications, push
 from app.ai import prompts
 from app.services import stickers
@@ -466,6 +466,14 @@ async def _generate(job: ChatJob) -> None:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("silent" if silent else "partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
+        # Which promises these words carry out, read before the delivery commit (never inside it): a promise is
+        # kept by the promised action itself, not by any reply in the evaluation (services/promise_check.py).
+        kept: set = set()
+        if outcome == "completed" and reply.strip():
+            candidates = _keep_candidates(mind, info if follow_up else None)
+            if candidates:
+                promises = await asyncio.to_thread(promise_check.candidates, job.user_id, candidates)
+                kept, mind.not_kept = await asyncio.to_thread(promise_check.check, promises, reply)
         receipt_id = None
         with SessionLocal() as db:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
@@ -510,7 +518,8 @@ async def _generate(job: ChatJob) -> None:
                     )
                     # What these words carried out, kept with them: a promise of hers counts kept exactly when
                     # this commit stores them (and a retry finds them stored); a question she asks waits on them.
-                    _carried_out(db, mind, assistant.id, info if follow_up else None)
+                    _carried_out(db, mind, assistant.id, info if follow_up else None, kept=kept,
+                                 channel=context.channel, voice=context.voice)
                     if context.channel == "whatsapp":
                         identity_id = _whatsapp_identity(payload, job.id)
                         if identity_id is not None:
@@ -658,26 +667,40 @@ def _personality() -> str | None:
         return None
 
 
-def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None) -> None:
+def _keep_candidates(mind, info: dict | None) -> list[uuid.UUID]:
+    """Promises these words might keep: the ones she marked kept in this evaluation, and the one a due wake woke her
+    for when she didn't move or let go of it."""
+    out = list(mind.fulfilled)
+    inp = (info or {}).get("input") or {}
+    if (info or {}).get("kind") == "wake" and inp.get("item") and not mind.deferred and not mind.dropped:
+        out.append(uuid.UUID(inp["item"]))
+    return list(dict.fromkeys(out))
+
+
+def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: set, channel: str,
+                 voice: bool) -> None:
     """In the delivery transaction, after her words are added (completed only: words cut off part way may not
-    carry what was promised): the promises of hers she marked kept in this evaluation, and the promise a due wake
-    woke her for when she spoke for it and didn't move or let go of it, are fulfilled with this message as their
-    evidence; questions of hers she asked here wait on their answer. A savepoint: bookkeeping never fails a
-    delivery (what isn't recorded stays open and visible)."""
+    carry what was promised). Promises these words carry out (``kept``: read by ``promise_check`` before this
+    commit) are fulfilled with this message as their evidence; on a channel that confirms delivery later
+    (WhatsApp) they wait on it instead (``memory_manager.await_delivery``). Questions of hers she asked here wait on
+    their answer, except on voice: what was heard is only known later, and the questions consumer reads the heard
+    words. A savepoint: bookkeeping never fails a delivery (what isn't recorded stays open and visible)."""
     from app.services import coordinator, memory_manager
 
     try:
         with db.begin_nested():
-            keep = dict.fromkeys(mind.fulfilled)
-            inp = (info or {}).get("input") or {}
-            if (info or {}).get("kind") == "wake" and inp.get("item") and not mind.deferred and not mind.dropped:
-                item_id = uuid.UUID(inp["item"])
-                if coordinator.promise_wake_of(db, mind.user_id, item_id) is None:
-                    keep.setdefault(item_id, None)
-            for item_id in keep:
-                memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id,
-                                            reason=mind.keeping.get(item_id) or "you said it when it came due")
+            for item_id in kept:
+                if coordinator.promise_wake_of(db, mind.user_id, item_id) is not None and item_id not in mind.fulfilled:
+                    continue  # she gave it a new time in this evaluation: not this one
+                reason = mind.keeping.get(item_id) or "you said it when it came due"
+                if channel == "whatsapp":
+                    memory_manager.await_delivery(db, mind.user_id, item_id, message_id=message_id, reason=reason)
+                else:
+                    memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason)
+            if voice:
+                return
             asked = list(mind.asking)
+            inp = (info or {}).get("input") or {}
             premise = inp.get("premise") or {}
             if inp.get("autonomous") and inp.get("wake") == "question" and premise.get("item"):
                 asked.append(uuid.UUID(premise["item"]))

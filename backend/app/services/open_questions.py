@@ -52,7 +52,8 @@ LEASE = timedelta(minutes=5)
 MAX_BACKOFF = timedelta(hours=1)
 SHOWN = 12
 WATCH_HOURS = 24  # a question older than this when first seen isn't handed over (she still sees it in memory)
-QUESTION_TTL_SECONDS = 30 * 60  # how long the wake about one may wait behind replies before it's stale
+QUESTION_TTL_SECONDS = 30 * 60
+HEARD_SETTLE = timedelta(seconds=90)  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
 
 
 # --------------------------------------------------------------------------- #
@@ -134,10 +135,31 @@ def _claim(db: Session, now: datetime) -> tuple[int, int] | None:
     return claimed
 
 
-def _questions(db: Session, user_id: uuid.UUID, statuses: tuple[str, ...]) -> list[WorkingItem]:
-    return list(db.scalars(select(WorkingItem).where(
+def _questions(db: Session, user_id: uuid.UUID, statuses: tuple[str, ...],
+               asked_by: uuid.UUID | None = None) -> list[WorkingItem]:
+    """Her questions in these states, at most ``SHOWN``: first the ones ``asked_by`` (her message just before) asked,
+    then the asked ones waiting on an answer (newest asked first), then the rest, newest first. So a question they
+    may be answering is never pushed out by newer ones."""
+    rows = list(db.scalars(select(WorkingItem).where(
         WorkingItem.user_id == user_id, WorkingItem.kind == "question", WorkingItem.owner == "columbina",
-        WorkingItem.status.in_(statuses)).order_by(WorkingItem.updated_at.desc()).limit(SHOWN)))
+        WorkingItem.status.in_(statuses)).order_by(WorkingItem.updated_at.desc()).limit(200)))
+    just = set()
+    if asked_by is not None and rows:
+        just = set(db.scalars(select(MemoryEvidence.item_id).where(
+            MemoryEvidence.message_id == asked_by, MemoryEvidence.role == "asked",
+            MemoryEvidence.item_id.in_([r.id for r in rows]))))
+    rows.sort(key=lambda r: (r.id not in just, r.status != "asked"))  # stable: newest first within each group
+    return rows[:SHOWN]
+
+
+def _readable(db: Session, user_id: uuid.UUID, message: ChatMessage) -> str | None:
+    """A message as memory may read it: her words only as far as they were heard, forgotten spans removed (None
+    when the whole message is forgotten)."""
+    from app.services import memory_forget
+
+    cuts = memory_forget.memory_cuts(db, user_id, [message.id])
+    return memory_forget.memory_view(message.content or "", message.heard_chars, message.role,
+                                     cuts.get(message.id, False))
 
 
 def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Reading] | None = None) -> str:
@@ -148,28 +170,39 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
         message = db.get(ChatMessage, uuid.UUID(observation.payload["message_id"])) if observation else None
         if message is None:
             return _settle(db, claimed, "skipped", "the message is gone")
+        before = None
         if observation.kind == "reply_recorded":
             if message.status != "completed":
                 return _settle(db, claimed, "skipped", "words not fully delivered")
+            spoken = message.spoken_at
+            if spoken is not None and _now() - (spoken if spoken.tzinfo else spoken.replace(tzinfo=timezone.utc)) \
+                    < HEARD_SETTLE:
+                return _later(db, claimed, HEARD_SETTLE)  # how much of it was heard isn't settled yet
             task_kind, shown = "asks", _questions(db, observation.user_id, ("open",))
         elif observation.kind == "user_message":
-            task_kind, shown = "answers", _questions(db, observation.user_id, ("open", "asked"))
-        else:
-            return _settle(db, claimed, "skipped", f"not read: {observation.kind}")
-        if not shown:
-            return _settle(db, claimed, "skipped", "no open question of hers")
-        task = {"task": task_kind, "whose_message": "hers" if task_kind == "asks" else "theirs",
-                "message": message.content or "",
-                "open_questions": [{"id": memory_manager.ref(q), "question": q.text,
-                                    "state": "asked, waiting for their answer" if q.status == "asked" else "not asked yet"}
-                                   for q in shown]}
-        if task_kind == "answers":
             before = db.scalar(select(ChatMessage).where(
                 ChatMessage.conversation_id == message.conversation_id, ChatMessage.role == "assistant",
                 ChatMessage.conversation_sequence < message.conversation_sequence)
                 .order_by(ChatMessage.conversation_sequence.desc()).limit(1))
-            if before is not None:
-                task["her_message_before"] = before.content or ""
+            task_kind = "answers"
+            shown = _questions(db, observation.user_id, ("open", "asked"),
+                               asked_by=before.id if before is not None else None)
+        else:
+            return _settle(db, claimed, "skipped", f"not read: {observation.kind}")
+        if not shown:
+            return _settle(db, claimed, "skipped", "no open question of hers")
+        text = _readable(db, observation.user_id, message)
+        if not (text or "").strip():
+            return _settle(db, claimed, "skipped", "nothing of it may be read (forgotten or unheard)")
+        task = {"task": task_kind, "whose_message": "hers" if task_kind == "asks" else "theirs",
+                "message": text,
+                "open_questions": [{"id": memory_manager.ref(q), "question": q.text,
+                                    "state": "asked, waiting for their answer" if q.status == "asked" else "not asked yet"}
+                                   for q in shown]}
+        if before is not None:
+            earlier = _readable(db, observation.user_id, before)
+            if earlier:
+                task["her_message_before"] = earlier
         refs = {memory_manager.ref(q): q.id for q in shown}
         message_id, user_id = message.id, observation.user_id
         db.rollback()  # nothing held while the model reads
@@ -209,6 +242,22 @@ def _still_ours(db: Session, observation_id: int) -> bool:
         ObservationProcessing.observation_id == observation_id, ObservationProcessing.consumer == CONSUMER
     ).with_for_update())
     return receipt is not None and receipt.status in ("pending", "retry")
+
+
+def _later(db: Session, claimed: tuple[int, int], wait: timedelta) -> str:
+    """Not readable yet: the receipt comes back after ``wait``, without counting as a failed attempt."""
+    observation_id, attempts = claimed
+    db.rollback()
+    receipt = db.scalar(select(ObservationProcessing).where(
+        ObservationProcessing.observation_id == observation_id, ObservationProcessing.consumer == CONSUMER
+    ).with_for_update())
+    if receipt is None or receipt.status not in ("pending", "retry") or receipt.attempts != attempts:
+        db.rollback()
+        return "gone"
+    receipt.attempts -= 1
+    receipt.status, receipt.next_attempt_at, receipt.reason = "retry", _now() + wait, "waiting for what was heard"
+    db.commit()
+    return "later"
 
 
 def _settle(db: Session, claimed: tuple[int, int], outcome: str, reason: str, *,
