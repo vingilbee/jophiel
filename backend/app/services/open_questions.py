@@ -55,7 +55,7 @@ WATCH_HOURS = 24  # a question older than this when first seen isn't handed over
 QUESTION_TTL_SECONDS = 30 * 60
 HEARD_SETTLE = timedelta(seconds=90)
 DELIVERY_WAIT = timedelta(seconds=60)  # how often a WhatsApp message's delivery is looked at again
-DELIVERY_GIVE_UP = timedelta(hours=6)  # no word from the channel by then: unasked for now; a late receipt rereads it
+DELIVERY_GIVE_UP = timedelta(hours=6)  # no word from the channel by then: stop waiting; a late receipt rereads it
 UNDELIVERED = "no word from the channel yet"  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
 
 
@@ -154,9 +154,10 @@ def _arrived(db: Session, message: ChatMessage) -> str:
 
 
 def reread(db: Session, message_id: uuid.UUID) -> bool:
-    """The channel settled her message after the reader stopped waiting for it (``DELIVERY_GIVE_UP``): its reading
-    goes back in line, so words that did arrive in the end still count as asking what they asked. In the caller's
-    transaction. Returns whether one was put back."""
+    """The channel settled her message (delivered, read or failed) after the reader stopped waiting for it
+    (``DELIVERY_GIVE_UP``): its reading goes back in line, so words that arrived in the end count as asking what they
+    asked, and words that failed put what she meant to ask back to unasked. In the caller's transaction. Returns
+    whether one was put back."""
     receipt = db.scalar(select(ObservationProcessing).join(
         Observation, Observation.id == ObservationProcessing.observation_id).where(
         ObservationProcessing.consumer == CONSUMER, ObservationProcessing.status == "skipped",
@@ -170,7 +171,7 @@ def reread(db: Session, message_id: uuid.UUID) -> bool:
 
 
 def _not_carried(db: Session, claimed: tuple[int, int], user_id: uuid.UUID, message_id: uuid.UUID,
-                 why: str, arrived: str | None = None) -> str:
+                 why: str, arrived: str | None = None, release: bool = True) -> str:
     """Her message didn't reach them: nothing in it was asked; what she meant to ask there is unasked again.
     ``arrived``: what the channel had said when that was decided ("late" / "no"): checked again holding the message
     row, the lock a delivery receipt settles under (``memory_manager.settle_delivery``, then ``reread``). A receipt
@@ -186,7 +187,8 @@ def _not_carried(db: Session, claimed: tuple[int, int], user_id: uuid.UUID, mess
                             .execution_options(populate_existing=True))
         if message is None or _arrived(db, message) != arrived:
             return _later(db, claimed, timedelta(0))  # the channel spoke meanwhile: read it again as it is now
-    memory_manager.not_asked(db, user_id, message_id=message_id)
+    if release:
+        memory_manager.not_asked(db, user_id, message_id=message_id)
     return _settle(db, claimed, "skipped", why, keep_transaction=True)
 
 
@@ -238,8 +240,13 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
             arrived = _arrived(db, message)
             if arrived == "waiting":
                 return _later(db, claimed, DELIVERY_WAIT)  # the channel hasn't said yet
-            if arrived == "late":  # no word from the channel yet: let it go for now; its receipt brings it back
-                return _not_carried(db, claimed, observation.user_id, message.id, UNDELIVERED, arrived)
+            if arrived == "late":
+                # No word from the channel yet: the reading stops waiting, but the message is still on its way, so
+                # what she meant to ask in it stays linked to it (not eligible for another follow-up). Its receipt
+                # brings the reading back: delivered, it's read (asked, or let go if the words didn't ask it);
+                # failed, what she meant to ask is unasked again.
+                return _not_carried(db, claimed, observation.user_id, message.id, UNDELIVERED, arrived,
+                                    release=False)
             if arrived == "no":
                 return _not_carried(db, claimed, observation.user_id, message.id, "the channel never delivered it",
                                     arrived)

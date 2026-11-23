@@ -997,7 +997,8 @@ def test_a_verdict_on_an_earlier_version_of_a_promise_doesnt_keep_the_new_one(en
     assert still.status == "open" and still.keeping is None and "earlier version" in still.status_reason
 
 
-def test_a_whatsapp_question_delivered_after_the_reader_gave_up_still_counts_as_asked(qenv, monkeypatch):
+@pytest.mark.parametrize("outcome", ["delivered", "failed"])
+def test_a_whatsapp_question_delivered_after_the_reader_gave_up_still_counts_as_asked(qenv, monkeypatch, outcome):
     from app.db.models import ChannelIdentity, MessageDelivery
     from app.services import whatsapp
     env = qenv
@@ -1018,12 +1019,22 @@ def test_a_whatsapp_question_delivered_after_the_reader_gave_up_still_counts_as_
     _record_message(env, sent)
     judge = _reader({"asks": "plant"})
     _consume(judge)
-    assert _questions(env)[0].status == "open"
-    with env.db() as db:  # it reaches them in the morning
-        whatsapp.apply_delivery_status(db, provider_message_id=f"wamid.{sent}", status="delivered")
+    [waiting] = _questions(env)
+    assert waiting.status == "open" and waiting.keeping == {**waiting.keeping, "message_id": str(sent)}
+    with env.db() as db:  # the follow-up sweep during the delay: it's still on its way, no second wake
+        assert open_questions.hand_over(db) == []
+    with env.db() as db:  # the channel settles it in the morning
+        whatsapp.apply_delivery_status(db, provider_message_id=f"wamid.{sent}", status=outcome,
+                                       error="undeliverable" if outcome == "failed" else None)
         db.commit()
     _consume(judge)
-    assert _questions(env)[0].status == "asked"
+    [after] = _questions(env)
+    if outcome == "delivered":
+        assert after.status == "asked"
+    else:  # never reached them: unasked, and eligible for a follow-up again
+        assert after.status == "open" and after.keeping is None and after.offered_at is None
+        with env.db() as db:
+            assert len(open_questions.hand_over(db)) == 1
 
 
 # --------------------------------------------------------------------------- #
