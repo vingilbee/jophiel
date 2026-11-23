@@ -13,7 +13,7 @@ She remembers, thinks on her own, comes back to you, and has a life between your
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Redis-4169E1?logo=postgresql&logoColor=white)
 
-[What is it](#what-is-jophiel) · [How she works](#how-she-works) · [What she can do](#what-she-can-do) · [Run it](#run-it-locally)
+[Meet her](#meet-her) · [How that happened](#how-that-happened) · [The five loops](#the-five-loops) · [What she can do](#what-she-can-do) · [Run it](#run-it-locally)
 
 </div>
 
@@ -21,95 +21,82 @@ She remembers, thinks on her own, comes back to you, and has a life between your
 
 ---
 
-## What is Jophiel?
+## Meet her
 
-Most chatbots only exist while you're talking to them. You send a message, they answer, they forget.
+A real exchange, spoken by voice, lightly trimmed. I'd asked her to keep an eye on WhatsApp for a friend's reply.
 
-Jophiel is different:
+> **Me:** Let me know if there's any notification from WhatsApp.
+>
+> **Jophiel:** Okay. I'll let you know when a WhatsApp notification arrives, and I won't reply to it unless you specifically ask me to. I don't see one in the notifications currently shown.
+>
+> *(nine seconds later, nobody had said anything)*
+>
+> **Jophiel:** A WhatsApp notification just came in from her: "ok." I haven't replied.
 
-- 🧠 **She keeps thinking.** She can mull something over in the background and get back to you.
-- ⏰ **She comes back on her own.** *"How did the interview go?"* without you asking.
-- 🤐 **She can choose to say nothing.** Not every message needs a reply.
-- 📚 **She remembers.** Facts, your goals, what she promised, and what she's unsure about.
-- 🎮 **She has a body.** She plays Minecraft as her own player and can use her own computer.
+Nobody asked her to speak that last line. Here is what her System page recorded for it:
+
+```
+woken by    a thought from her background mind (source: phone)
+her thought "That's the reply he was waiting for; I should tell him
+             without opening or answering it."
+she chose   to say it  →  delivered, 2 s
+```
+
+A few minutes earlier in the same conversation she had missed one of those replies. When I pointed it out, she said: *"You're right. I should've told you when I saw the 'hello?' notification. I'm sorry I missed that."* The moment above is what came after.
 
 ---
 
-## How she works
+## How that happened
 
-### 1. She is made of parts
-
-Like a person, she has parts that each do one job. **The mind is the only one that decides.**
-
-```mermaid
-flowchart TB
-    Mind(("🧠 Mind<br/>decides everything"))
-    Memory["📚 Memory<br/>what she knows"]
-    Senses["👀 Senses<br/>screen, files, phone, time"]
-    Mouth["💬 Mouth<br/>text and voice"]
-    Hands["🎮 Hands<br/>Minecraft, her desktop"]
-    Learning["🌱 Learning<br/>lessons from experience"]
-
-    Memory --> Mind
-    Senses --> Mind
-    Learning --> Mind
-    Mind --> Mouth
-    Mind --> Hands
-```
-
-### 2. Every moment is one decision
-
-Something wakes her up. She looks at the situation. She picks what to do.
+Most chatbots only run when you send a message. That last line had no message behind it, so something else had to wake her:
 
 ```mermaid
 flowchart LR
-    A["🔔 Something happens<br/>you send a message,<br/>a thought finishes,<br/>a reminder is due"] --> B["📋 She gets the full picture<br/>memory, time, what's going on"]
-    B --> C{"🧠 She decides"}
-    C --> D["💬 Reply"]
-    C --> E["🤐 Stay silent"]
-    C --> F["💭 Think it over"]
-    C --> G["⏰ Come back later"]
+    A["📱 Phone reports<br/>a new notification"] --> B["💭 Background mind<br/>has a quick thought:<br/>'that's the reply he wanted'"]
+    B --> C["🔔 The thought<br/>wakes her mind"]
+    C --> D{"🧠 She decides<br/>what to do"}
+    D --> E["💬 Tells me,<br/>without replying to it"]
 ```
 
-Nothing filters her choice. No rule says when to speak or what to talk about. **She decides; the code only makes sure it's still the right moment** (for example, that you haven't already moved on).
+Two parts of this matter:
 
-### 3. She lives between messages
+- **Waking her and deciding are separate.** The background mind only says "this might be worth saying." Then her main mind wakes up with the whole conversation in front of her and decides whether to speak, what to say, or to stay quiet. She could have said nothing.
+- **No rule told her to do this.** There's no "if a notification arrives, announce it" code. She remembered what I'd asked for and acted on it.
 
-Thinking and reminders are saved to the database, so they survive restarts. When they finish, they wake her again.
-
-```mermaid
-flowchart LR
-    You["🙂 You: I have an<br/>interview Thursday"] --> Mind1["🧠 She decides to<br/>check in later"]
-    Mind1 --> Saved[("💾 Saved:<br/>come back Thursday")]
-    Saved -- "Thursday evening" --> Mind2["🧠 She wakes up"]
-    Mind2 --> Msg["💬 How did it go?"]
-```
+The same machinery handles *"I'll ask you how the interview went on Thursday."* She saves it, and when Thursday comes, she wakes up and decides again, knowing everything that has happened since. It isn't a canned reminder.
 
 ---
 
-## The harness, step by step
+## The five loops
 
-Jophiel runs on **five loops**. Each one is simple. Together they make her feel alive.
+Everything Jophiel does runs on five loops that feed each other:
 
 ```mermaid
 flowchart TB
     L1["① Turn loop<br/>something wakes her → she acts"]
     L2["② Agent loop<br/>think → use a tool → think again"]
-    L3["③ Come-back loop<br/>thinking and reminders she saved"]
-    L4["④ Background mind<br/>watching her game, phone, desktop"]
+    L3["③ Come-back loop<br/>thinking and plans she saved"]
+    L4["④ Background mind<br/>watching her phone, game, desktop"]
     L5["⑤ Learning loop<br/>looking back → lessons"]
 
     L1 --> L2
     L2 -- "think it over /<br/>come back later" --> L3
     L3 -- "wakes her again" --> L1
-    L4 -- "something worth saying" --> L1
+    L4 -- "might be worth saying" --> L1
     L1 -- "what happened" --> L5
     L5 -- "lessons in her next prompt" --> L1
 ```
 
-### ① The turn loop: one wake, start to finish
+In the WhatsApp moment above, **④** noticed the notification, **①** woke her, and **②** decided what to say.
 
-Every time something wakes her, the same steps run, whether it was your message or her own reminder.
+Click a loop to see how it works:
+
+<details>
+<summary><b>① Turn loop: one wake, start to finish</b></summary>
+
+<br/>
+
+Every wake runs the same steps, whether it's your message or her own thought.
 
 ```mermaid
 sequenceDiagram
@@ -129,14 +116,16 @@ sequenceDiagram
     W->>DB: record what she did<br/>(said / silent / started thinking)
 ```
 
-**Getting ready** happens before the AI starts:
-- **Memory search:** it looks up what she knows about this message once, up front.
-- **Lessons:** what she has learned with this person.
-- **Cleanup:** thinking she started about an *older* message is cancelled, so it can't answer the wrong thing.
+- **Memory is searched once, up front**, for what she knows about this moment.
+- **Thinking about an older message is cancelled**, so it can't answer something you've moved past.
+- **Her tools depend on the moment:** game tools while she plays, desktop tools on replies, phone tools only where privacy rules allow.
 
-**Tools change with the moment.** Game tools only while she plays, desktop tools only on replies, phone tools only when privacy allows. She is never offered a tool that doesn't make sense right now.
+</details>
 
-### ② The agent loop: inside one decision
+<details>
+<summary><b>② Agent loop: inside one decision</b></summary>
+
+<br/>
 
 Her mind is a **ReAct agent** (LangGraph + OpenAI). It loops until she's done:
 
@@ -148,8 +137,6 @@ flowchart LR
     M -- "done" --> R["💬 Reply<br/>or 🤐 silence"]
 ```
 
-Her tools fall into a few groups:
-
 | Group | Examples |
 |---|---|
 | 🧠 Mind | `stay_silent`, `think_it_over`, `come_back_to`, `drop_come_back` |
@@ -159,39 +146,56 @@ Her tools fall into a few groups:
 | 🎮 Body | game controls, desktop clicks and typing |
 | 🧰 Specialists | `gmail_agent`, `drive_agent`, `blender_agent` (each is its own small agent) |
 
-### ③ The come-back loop: thinking and reminders
+Silence is a tool too: when she uses `stay_silent`, her reason is recorded.
 
-When she says *"let me think about that"* or *"I'll ask you Thursday"*, it isn't just words. It becomes a saved job.
+</details>
+
+<details>
+<summary><b>③ Come-back loop: thinking and plans she saved</b></summary>
+
+<br/>
+
+When she says *"let me think about that"* or *"I'll ask you Thursday"*, it becomes a saved job, not just words.
 
 ```mermaid
 flowchart LR
     A["🧠 She calls<br/>think_it_over<br/>or come_back_to"] --> B[("💾 Saved as work<br/>in Postgres")]
     B --> C["⚙️ Coordinator<br/>runs the thinking,<br/>or waits until it's due"]
-    C --> D{"✅ Still makes sense?<br/>no newer message,<br/>topic still open"}
-    D -- yes --> E["🔔 Wakes her<br/>(back to loop ①)"]
-    D -- no --> F["🗑️ Dropped quietly"]
+    C --> D{"✅ Still current?<br/>no newer message,<br/>topic still open"}
+    D -- yes --> E["🔔 Wakes her<br/>(loop ①)"]
+    D -- no --> F["🗑️ Kept private"]
 ```
 
-- **Thinking** uses a slower, deeper model that reaches a conclusion: a decision, a guess, a question or a feeling.
-- **Reminders** wait until their time comes, even across restarts.
-- **The coordinator is plain code, not AI.** It only checks the facts. When she wakes up, she decides whether her conclusion is still worth saying.
+- **Thinking** runs on a slower, deeper model and ends in a conclusion: a decision, a guess, a question or a feeling.
+- **Plans** wait until they're due and survive restarts.
+- **The coordinator is plain code.** It checks whether the work is still current. Whether to say anything is her decision once she's awake.
 
-### ④ The background mind: noticing things on her own
+</details>
 
-About once a second, her background mind checks her **sources**: her Minecraft game, her phone, and her desktop's security logs.
+<details>
+<summary><b>④ Background mind: noticing things on her own</b></summary>
+
+<br/>
+
+About once a second, the background mind checks her **sources**: her phone, her Minecraft game, and her desktop's security logs.
 
 ```mermaid
 flowchart LR
-    S["👀 Source changed<br/>took damage, new notification,<br/>odd login..."] --> G{"⚖️ How much<br/>does this matter?"}
+    S["👀 Something changed<br/>new notification, took damage,<br/>odd login..."] --> G{"⚖️ How much<br/>does this matter?"}
     G -- "a little" --> Q["💭 Quick thought"]
     G -- "a lot" --> H["🤔 Hard thought<br/>(one at a time)"]
     Q & H --> Mem["📚 Saved to memory"]
-    Q & H -- "worth saying?" --> W["🔔 Wakes her<br/>(loop ①)"]
+    Q & H -- "might be worth saying" --> W["🔔 Wakes her<br/>(loop ①)"]
 ```
 
 A conversation isn't a source: your messages wake her directly.
 
-### ⑤ The learning loop: getting better from experience
+</details>
+
+<details>
+<summary><b>⑤ Learning loop: getting better from experience</b></summary>
+
+<br/>
 
 ```mermaid
 flowchart LR
@@ -201,17 +205,21 @@ flowchart LR
     D --> A
 ```
 
-In games she can also run small, bounded **experiments** to test an idea. Learning only *proposes*; her mind decides whether to accept a lesson.
+In Minecraft she can also run small, bounded **experiments** to test an idea. Learning proposes; her mind decides whether to use a lesson.
 
-### Safety checks between the loops
+</details>
 
-| Check | Why |
+### What she decides, and what the code checks
+
+Her mind picks an action from the tools available at that moment. The code around her doesn't choose what she says, but it does set limits:
+
+| The code... | So that... |
 |---|---|
-| A newer message cancels old thinking | She never answers something you've moved past |
-| "Still valid?" before every wake | A stale thought stays private |
-| "Already said?" before delivery | No repeating herself |
-| Phone replies are checked by a separate model | Nothing private leaks to other people |
-| A notification can't trigger phone actions | Someone texting you can't control your phone |
+| offers only the tools that fit the moment | she can't, say, use the phone during a turn a stranger's message started |
+| cancels thinking when a newer message arrives | an old thought can't answer a new question |
+| checks a saved thought is still current before waking her | stale conclusions stay private |
+| checks she hasn't already said it | she doesn't repeat herself |
+| has a separate model review each reply she sends to other people | replies on the phone are checked for privacy before they go out |
 
 ---
 
@@ -224,32 +232,25 @@ In games she can also run small, bounded **experiments** to test an idea. Learni
 | 👀 **See** | Your screen (when you share it) and files you send (PDF, Word, Excel...). |
 | 🎮 **Play** | Minecraft, with her own player, planner and skills. |
 | 🖥️ **Use a computer** | Her own Windows desktop: look, click, type. |
-| 📱 **Phone** | Reads notifications and can reply to people, with a privacy check on every message. |
-| 🌱 **Learn** | Looks back at what happened and writes lessons from real evidence. |
+| 📱 **Phone** | Reads notifications, and can reply to people with each reply reviewed first. |
+| 🌱 **Learn** | Looks back at what happened and writes lessons from evidence. |
 | 🧰 **Tools** | Gmail, Google Drive, Blender, and a food-photo nutrition model. |
 | 🔍 **Show her insides** | A live System page: what woke her, what she did, what she's thinking. |
 
----
+<details>
+<summary><b>🏗️ Stack and project layout</b></summary>
 
-## Under the hood
+<br/>
 
 ```mermaid
 flowchart LR
     Apps["📱💻 Apps<br/>web, voice, phone"] <--> API["⚡ Backend<br/>FastAPI"]
-    API <--> DB[("🗄️ Postgres + Redis<br/>messages, memory,<br/>saved thoughts")]
-    DB <--> Workers["⚙️ Workers<br/>her mind, memory,<br/>learning, reminders"]
-    Workers <--> AI["🤖 AI model<br/>OpenAI via LangGraph"]
+    API <--> DB[("🗄️ Postgres + Redis")]
+    DB <--> Workers["⚙️ Workers<br/>her mind, memory,<br/>learning, plans"]
+    Workers <--> AI["🤖 OpenAI<br/>via LangGraph"]
 ```
 
-- **Her mind** is one AI agent (LangGraph + OpenAI) that runs every time she wakes up.
-- **Her tools** change with the moment: game tools only while she plays, phone tools only when it's safe.
-- **Postgres** holds everything that matters, so nothing she planned is lost on restart.
-- **Workers** run in the background: her thinking, memory, learning and reminders.
-
 **Built with:** Python · FastAPI · LangChain / LangGraph · OpenAI · PostgreSQL · Redis · React · Bun · Node (Mineflayer)
-
-<details>
-<summary><b>📁 Project layout</b></summary>
 
 ```
 frontend/                     the web app (React)
@@ -267,18 +268,31 @@ tts_sidecar/                  her voice
 
 ## Run it locally
 
-```bash
-# 1. Database
-docker compose up -d db
-cd backend && uv sync && uv run alembic upgrade head
+**1. Start Postgres and Redis, then set up the database**
 
-# 2. Backend (put OPENAI_API_KEY in backend/.env)
+```bash
+docker compose up -d db redis
+cd backend
+uv sync
+uv run alembic upgrade head
+```
+
+Put `OPENAI_API_KEY` in `backend/.env`.
+
+**2. Run these three at the same time, each in its own terminal**
+
+```bash
+# terminal 1: the API (from backend/)
 uv run uvicorn app.main:app --reload
+
+# terminal 2: her workers: mind, memory, plans (from backend/)
 uv run python -m app.workers
 
-# 3. Frontend
-cd frontend && bun install && bun run dev
+# terminal 3: the web app (from frontend/)
+bun install && bun run dev
 ```
+
+Or start everything in one window with [mprocs](https://github.com/pvolok/mprocs): run `mprocs` from the repo root (see `mprocs.yaml`; it also starts her voice and desktop relay).
 
 Then open http://localhost:5173 and say hi.
 
@@ -287,5 +301,5 @@ Then open http://localhost:5173 and say hi.
 ## Principles
 
 1. **She is one someone:** the same identity in chat, voice, games and her own thoughts.
-2. **Her mind decides; code keeps it safe:** code checks timing and privacy, never what she says.
+2. **Her mind decides; code sets the limits:** code checks timing, tools and privacy, not what she says.
 3. **Show what really happened:** her System page shows real records, not decoration.
