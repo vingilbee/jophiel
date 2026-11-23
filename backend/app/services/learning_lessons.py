@@ -193,7 +193,7 @@ def bundle_for(db: Session, row: LearningAssessment, revision: LearningAssessmen
     query = " ".join([revision.explanation or ""] + [e.get("statement", "") for e in result.get("findings") or []])
     b.lessons, b.withdrawn = memory_lessons.shown_for(db, row.user_id, assessment_id=row.id,
                                                       assessment_revision=revision.revision, roots=roots, query=query,
-                                                      phone_person=row.phone_person_id)
+                                                      **LA.phone_audience(db, row))
     return b
 
 

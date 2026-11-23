@@ -1400,9 +1400,20 @@ def _ask(db: Session, row: LearningAssessment, source: str, query: str,
         from app.services import memory_lessons
 
         found = memory_lessons.for_learning(db, row.user_id, query, limit=REQUEST_RESULTS,
-                                            phone_person=row.phone_person_id)
+                                            **phone_audience(db, row))
         return ("matched" if found else "no_match"), "her lessons for this user, any status but withdrawn", found
     return "not_available", f"{source} can't be asked", []
+
+
+def phone_audience(db: Session, row: LearningAssessment) -> dict:
+    """Which phone lessons this assessment may read (memory_lessons ``phone_person`` / ``phone_conversation``):
+    none for an ordinary one; for a phone one, that person's lessons from the exchange's own conversation."""
+    if row.phone_person_id is None and row.trigger_kind != "phone":
+        return {}
+    from app.services import phone_relationships
+    scope = phone_relationships.lesson_scope(db, row)
+    return {"phone_person": row.phone_person_id or uuid.uuid4(),
+            "phone_conversation": scope.conversation_id if scope is not None else None}
 
 
 def _relevant_lessons(db: Session, row: LearningAssessment, ev: A.Evidence) -> None:
@@ -1417,7 +1428,7 @@ def _relevant_lessons(db: Session, row: LearningAssessment, ev: A.Evidence) -> N
     try:
         with db.begin_nested():
             found = memory_lessons.for_learning(db, row.user_id, query, limit=RELEVANT_LESSONS,
-                                                phone_person=row.phone_person_id)
+                                                **phone_audience(db, row))
     except Exception:  # noqa: BLE001 - shown none, said
         log.exception("learning assessment %s: relevant lessons failed", row.id)
         ev.signals.append("her existing lessons couldn't be read for this (none are shown unless asked for)")

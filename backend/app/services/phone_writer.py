@@ -24,7 +24,9 @@ Off the owner's chat and voice paths: nothing on their turns builds or calls it.
 from __future__ import annotations
 
 import logging
+import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
@@ -167,11 +169,14 @@ def _lessons(db, user_id: uuid.UUID, scope: _Scope) -> list[str]:
 
 
 def _authorized(db, user_id: uuid.UUID, scope: _Scope) -> tuple[list[str], list[str]]:
-    """(details for this conversation, details authorized anywhere else: never here)."""
+    """(details the user authorized for the person being answered in this conversation, every other one: never
+    here). An authorization names a recipient: another member's, even in this same group, isn't this reply's."""
     rows = db.scalars(select(PhoneDisclosure).where(PhoneDisclosure.user_id == user_id,
                                                     PhoneDisclosure.revoked_at.is_(None))).all()
-    here = [r.detail for r in rows if r.conversation_id == scope.conversation.id and r.person_id in scope.members]
-    elsewhere = [r.detail for r in rows if r.detail not in here]
+    mine = [r for r in rows if scope.recipient is not None and r.person_id == scope.recipient.id
+            and r.conversation_id == scope.conversation.id]
+    here = [r.detail for r in mine]
+    elsewhere = [r.detail for r in rows if r not in mine]
     return here, elsewhere
 
 
@@ -215,10 +220,36 @@ def _private(db, user_id: uuid.UUID, scope: _Scope, others: list, elsewhere: lis
     return " ".join(texts)
 
 
+_TOKEN = re.compile(r"[^\W_]+")  # letters and digits of any script
+# Scripts written without spaces between words: a run of them is read as overlapping character pairs.
+_UNSPACED = re.compile(r"[\u0e00-\u0eff\u1000-\u109f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def _tokens(text: str) -> set[str]:
+    """Every word and number of a text in any script, short ones included (a time, a code, "gig", "café",
+    "オーディション"), but not the commonest English words. Runs of a script written without spaces (Chinese,
+    Japanese, Korean, Thai...) give their character pairs, so a phrase inside a longer run still matches."""
+    from app.services.long_term_memory import _STOPWORDS
+
+    out: set[str] = set()
+    for w in _TOKEN.findall(unicodedata.normalize("NFKC", text or "").casefold()):
+        if _UNSPACED.search(w):
+            chars = [c for c in w if _UNSPACED.match(c)]
+            if len(chars) > 1:
+                out.update(a + b for a, b in zip(chars, chars[1:]))
+            else:
+                out.update(chars)
+            rest = "".join(c if not _UNSPACED.match(c) else " " for c in w).split()
+            out.update(r for r in rest if any(ch.isdigit() for ch in r) or len(r) > 2)
+        elif any(ch.isdigit() for ch in w) or (len(w) > 2 and w not in _STOPWORDS):
+            out.add(w)
+    return out
+
+
 def check_intent(intent: str, *, allowed: str, private: str) -> None:
-    """Refuse an intent carrying a word that only material from outside this audience has."""
-    words = phone_relationships._words(intent)
-    leaked = sorted(words & phone_relationships._words(private) - phone_relationships._words(allowed))
+    """Refuse an intent carrying a word or number that only material from outside this audience has. The whole
+    intent is checked, as the writer would read it."""
+    leaked = sorted(_tokens(intent) & _tokens(private) - _tokens(allowed))
     if leaked:
         raise IntentRefused(
             f"the intent carries what this conversation hasn't seen ({', '.join(leaked[:5])}): it comes from "
@@ -233,9 +264,11 @@ def build_input(user_id: uuid.UUID, handle: str, intent: str, *, deferred: Itera
     from app.services import personality
 
     now = time.time() if now is None else now
-    intent = phone_relationships._clean(intent, INTENT_CHARS)
+    intent = " ".join((intent or "").split())
     if not intent:
         raise IntentRefused("say what to reply (the intent)")
+    if len(intent) > INTENT_CHARS:  # never cut: what the writer reads is exactly what was checked
+        raise IntentRefused(f"the intent is longer than {INTENT_CHARS} characters: say what to reply, briefly")
     n, same = phone_relationships._conversation_notifications(user_id, handle)
     if n is None or not n.conversation_id:
         raise IntentRefused("there's no conversation behind that notification on the phone now")
@@ -261,8 +294,9 @@ def build_input(user_id: uuid.UUID, handle: str, intent: str, *, deferred: Itera
         readings_here = [x.observation + " " + (x.their_words or "") for x in db.scalars(select(PhoneExchange).where(
             PhoneExchange.user_id == user_id, PhoneExchange.conversation_id == scope.conversation.id))]
         private = _private(db, user_id, scope, others, elsewhere, dropped)
+    # What this audience has seen (her personality is not: it can't make another conversation's word safe here).
     allowed = " ".join([*result.messages, *result.authorized, *result.deferred, *result.relationship,
-                        *result.lessons, *readings_here, result.personality, result.audience])
+                        *result.lessons, *readings_here, result.audience])
     check_intent(intent, allowed=allowed, private=private)
     return result
 

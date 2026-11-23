@@ -13,13 +13,17 @@
 >   changed fields, `worth_learning`, `also_for`) and `note_request_for_space`. `authorize_detail` sits beside
 >   `read_person` on the owner's reply turns. Prompt guidance lives in the tool descriptions and stays general.
 > - Familiarity past "new" is refused unless she has sent where they are and they addressed her (now or before).
-> - A personal lesson is routed only when she has a `sent` reply in that conversation and judged it addressed to
->   her. It goes through the real learner as a `phone` assessment (that conversation and that person's lessons
+> - A personal lesson is routed only when she had a `sent` reply in that conversation before the cited messages
+>   and judged them addressed to her. It goes through the real learner as a `phone` assessment (that conversation and that person's lessons
 >   only, nothing of the owner's memory), and the lesson carries `phone_person_id` / `phone_conversation_id` /
->   `phone_applies_to` / `phone_live = false`. Every ordinary retrieval filters phone lessons out in the query;
+>   `phone_applies_to` / `phone_live = false`. A phone reading sees and changes only that person's lessons learned
+>   in its own conversation, so an explanation never moves to another audience. Every ordinary retrieval filters
+>   phone lessons out in the query;
 >   only `memory_lessons.for_phone_audience` reads them, live ones only. Nothing in B2 sets `phone_live`.
 > - `also_for` is honoured only for a conversation the person shares with the user whose title their words name.
-> - The writer's intent check refuses a content word known only from outside the audience (the person's other
+> - An authorization names its recipient: in a group, another member's authorization isn't the reply's.
+> - The writer's intent is checked whole (an over-long one is refused, never cut) and refuses any word or number,
+>   short ones included, known only from outside the audience (the person's other
 >   conversations, notes or requests said elsewhere, other audiences' authorizations, the phone's other
 >   notifications, deferred material for elsewhere). It can over-refuse a common word; the refusal names it.
 > - Phone messages gain an optional `reply_to` (the replied-to `event_id`); nothing infers it.

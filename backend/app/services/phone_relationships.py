@@ -303,11 +303,17 @@ def _resolve_records(db: Session, user_id: uuid.UUID, cited: Cited) -> tuple[Pho
     return person, conversation, affinity
 
 
-def _participated(db: Session, user_id: uuid.UUID, conversation: PhoneConversation) -> bool:
-    """She has written in this conversation (a reply that was sent)."""
-    return bool(db.scalar(select(exists().where(
-        PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == conversation.conversation_id,
-        PhoneOutbound.status == "sent"))))
+def _sent_before(user_id: uuid.UUID, conversation_id: str, at: datetime):
+    """Her replies that count as taking part in an exchange at ``at``: sent in that conversation before it (the
+    phone's clock against ours allowed for). The one cutoff for eligibility and for what the learner is shown."""
+    return (PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == conversation_id,
+            PhoneOutbound.status == "sent", PhoneOutbound.created_at <= at + phone_people.CLOCK_SKEW)
+
+
+def _participated(db: Session, user_id: uuid.UUID, conversation: PhoneConversation, before: datetime) -> bool:
+    """She had written in this conversation (a reply that was sent) before these messages: a message from before
+    her first reply there is not an exchange she took part in."""
+    return bool(db.scalar(select(exists().where(*_sent_before(user_id, conversation.conversation_id, before)))))
 
 
 def _spoken(db: Session, user_id: uuid.UUID, person: PhonePerson, *, addressed_now: bool) -> bool:
@@ -403,7 +409,7 @@ def note_exchange(user_id: uuid.UUID, handle: str, *, about: list[str], addresse
     try:
         with SessionLocal.begin() as db:
             person, conversation, affinity = _resolve_records(db, user_id, cited)
-            participated = _participated(db, user_id, conversation)
+            participated = _participated(db, user_id, conversation, at)
             applies, refused = _audiences(db, person, conversation, words, also_for or [])
             notes += [f"not covered: {r}" for r in refused]
             made = db.scalar(insert(PhoneExchange).values(
@@ -633,9 +639,9 @@ def assessment_evidence(db: Session, row: LearningAssessment, ev, facts) -> str 
     readings = list(reversed(db.scalars(select(PhoneExchange).where(
         PhoneExchange.person_id == exchange.person_id, PhoneExchange.conversation_id == exchange.conversation_id,
         PhoneExchange.at <= exchange.at).order_by(PhoneExchange.at.desc()).limit(EXCHANGES_READ)).all()))
+    # The same replies eligibility counted (``_sent_before``): what the learner reads is what made it eligible.
     sent = list(reversed(db.scalars(select(PhoneOutbound).where(
-        PhoneOutbound.user_id == row.user_id, PhoneOutbound.conversation_id == conversation.conversation_id,
-        PhoneOutbound.status.in_(("sent", "unknown")), PhoneOutbound.created_at <= exchange.at)
+        *_sent_before(row.user_id, conversation.conversation_id, exchange.at))
         .order_by(PhoneOutbound.created_at.desc()).limit(SENT_READ)).all()))
     name = _clean(person.display_name, 40) or "someone"
     where = f'the "{_clean(conversation.title, 40)}" group' if conversation.is_group else "a direct chat"
@@ -647,8 +653,7 @@ def assessment_evidence(db: Session, row: LearningAssessment, ev, facts) -> str 
         ref, stamp = f"m{k}", at.strftime("%a %Y-%m-%d %H:%M")
         if kind == "her":
             ev.add(A.Item(ref=ref, kind="her", event=f"outbound:{item.id}", roots=(f"outbound:{item.id}",),
-                          text=f'{ref} [columbina, sent there, {stamp}] "{_clean(item.text, TEXT_CHARS)}"'
-                               + (" (it may not have arrived)" if item.status == "unknown" else ""),
+                          text=f'{ref} [columbina, sent there, {stamp}] "{_clean(item.text, TEXT_CHARS)}"',
                           words=item.text))
             continue
         started = " (this started it)" if item.id == exchange.id else ""

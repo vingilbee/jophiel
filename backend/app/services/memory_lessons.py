@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import Text, cast, delete, func, select
+from sqlalchemy import Text, cast, delete, false, func, select
 from sqlalchemy.dialects.postgresql import ARRAY, insert
 from sqlalchemy.orm import Session
 
@@ -171,27 +171,35 @@ def _relevant(rows: list[MemoryLesson], query: str, keep: int, *, embed=None) ->
     return sorted(rows, key=lambda r: (-score(r), r.created_at))[:keep]
 
 
-def _audience(phone_person: uuid.UUID | None):
-    """Which lessons a reading may see: the ordinary ones, or (a phone assessment) only that person's."""
-    return MemoryLesson.phone_person_id.is_(None) if phone_person is None else \
-        MemoryLesson.phone_person_id == phone_person
+def _audience(phone_person: uuid.UUID | None, phone_conversation: uuid.UUID | None = None):
+    """Which lessons a reading may see: the ordinary ones, or (a phone assessment) only that person's lessons
+    learned in that same conversation (their explanation never travels to another audience's reading). A phone
+    reading whose conversation is unknown sees none."""
+    if phone_person is None:
+        return MemoryLesson.phone_person_id.is_(None)
+    if phone_conversation is None:
+        return false()
+    return (MemoryLesson.phone_person_id == phone_person) & (MemoryLesson.phone_conversation_id == phone_conversation)
 
 
 def shown_for(db: Session, user_id: uuid.UUID, *, assessment_id: uuid.UUID, assessment_revision: int,
               roots=(), query: str = "", embed=None,
-              phone_person: uuid.UUID | None = None) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
+              phone_person: uuid.UUID | None = None,
+              phone_conversation: uuid.UUID | None = None) -> tuple[dict[str, L.Shown], dict[str, L.Shown]]:
     """The lessons (L refs) and recently withdrawn ones (W refs) the construction call reads: all of them while they
     fit, past SHOWN_MAX the most recently changed and the most relevant to ``query``. ``roots``: the evidence this
     reading rests on, to say which lessons already count it. ``phone_person``: a phone assessment's person, whose
     lessons alone it sees (otherwise phone lessons are left out)."""
     live = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status != "withdrawn", _audience(phone_person))
+                                                      MemoryLesson.status != "withdrawn",
+                                                      _audience(phone_person, phone_conversation))
                            .order_by(MemoryLesson.updated_at.desc())))
     if len(live) > SHOWN_MAX:
         recent = live[:RECENT_SHOWN]
         live = recent + _relevant(live[RECENT_SHOWN:], query, SHOWN_MAX - RECENT_SHOWN, embed=embed)
     gone = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status == "withdrawn", _audience(phone_person))
+                                                      MemoryLesson.status == "withdrawn",
+                                                      _audience(phone_person, phone_conversation))
                            .order_by(MemoryLesson.withdrawn_at.desc()).limit(WITHDRAWN_SHOWN)))
     counts = _counts(db, [r.id for r in live + gone])
     states = premises(db, user_id, [r.id for r in live])
@@ -280,9 +288,10 @@ def apply(db: Session, user_id: uuid.UUID, changes: Iterable[L.Change], source: 
         if row is None:
             out.skipped.append({"lesson": c.lesson_id, "op": c.op, "why": "the lesson is gone"})
             continue
-        mine = source.phone.person_id if source.phone is not None else None
-        if row.phone_person_id != mine:
-            # A phone reading changes only that person's lessons; an ordinary one never a phone lesson.
+        mine = (source.phone.person_id, source.phone.conversation_id) if source.phone is not None else (None, None)
+        if (row.phone_person_id, row.phone_conversation_id) != mine:
+            # A phone reading changes only that person's lessons learned in its own conversation (a revision from
+            # elsewhere would put another audience's words behind it); an ordinary one never a phone lesson.
             out.skipped.append({"lesson": c.lesson_id, "op": c.op, "why": "a lesson of another audience"})
             continue
         if row.revision != c.expected_revision:
@@ -1066,12 +1075,13 @@ def current(supply: "Supply") -> tuple["Supply", str | None]:
 
 
 def for_learning(db: Session, user_id: uuid.UUID, query: str, *, limit: int = 6, embed=None,
-                 phone_person: uuid.UUID | None = None) -> list:
+                 phone_person: uuid.UUID | None = None, phone_conversation: uuid.UUID | None = None) -> list:
     """Her lessons for this user (every status but withdrawn), the most relevant to ``query``: what learning's
     reviewer compares new experience with. Read only. Earlier understanding, never evidence. ``phone_person``: a
     phone assessment's person, whose lessons alone it reads (otherwise phone lessons are left out)."""
     rows = list(db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                      MemoryLesson.status != "withdrawn", _audience(phone_person))
+                                                      MemoryLesson.status != "withdrawn",
+                                                      _audience(phone_person, phone_conversation))
                            .order_by(MemoryLesson.created_at)))
     return _for_learning(db, user_id, _relevant(rows, query, limit, embed=embed))
 

@@ -612,3 +612,97 @@ def test_exchange_tools_only_on_turns_someone_elses_words_caused_and_authorizati
     # The writer is not a tool anywhere, and the chat path doesn't import it.
     assert not any("writer" in n or "compose" in n for n in names(reply) | names(theirs))
     assert "phone_writer" not in open(ai_chat.__file__).read()
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes (PR 49)
+# --------------------------------------------------------------------------- #
+
+def test_a_lesson_learned_in_the_dm_is_never_read_or_revised_from_the_group(env):
+    rina_asks_for_one_question(env)
+    report(env, band(message("e_b1", "Rina", "p_rina", "rehearsal at 7")))
+    rina, dm, group = person(env), conversation(env, "c_rina"), conversation(env, "c_band")
+    with env.db() as db:
+        c = L.Change("create", None, None, None, "preference", "standing", "Ask one question at a time",
+                     "with Rina", [], ["I get lost otherwise"], ["phone:x"], None, "she said so")
+        [lesson_id] = ML.apply(db, env.user, [c], ML.Source("phone:x", soon(), None, None,
+                                                           phone=ML.PhoneScope(rina.id, dm.id))).lessons
+        # A reading of the group sees none of the DM's lessons, and can't revise one.
+        shown, _ = ML.shown_for(db, env.user, assessment_id=uuid.uuid4(), assessment_revision=1,
+                                phone_person=rina.id, phone_conversation=group.id)
+        assert shown == {}
+        assert ML.for_learning(db, env.user, "question", phone_person=rina.id, phone_conversation=group.id) == []
+        revised = ML.apply(db, env.user, [replace(c, op="revise", lesson_id=lesson_id, expected_revision=1,
+                                                  statement="Keep it short in the band chat")],
+                           ML.Source("phone:y", soon(), None, None, phone=ML.PhoneScope(rina.id, group.id)))
+        assert revised.changed == [] and revised.skipped[0]["why"] == "a lesson of another audience"
+        # A phone reading whose conversation is unknown sees nothing at all.
+        assert ML.for_learning(db, env.user, "question", phone_person=rina.id) == []
+        # Its own conversation's reading still does.
+        shown, _ = ML.shown_for(db, env.user, assessment_id=uuid.uuid4(), assessment_revision=1,
+                                phone_person=rina.id, phone_conversation=dm.id)
+        assert [s.id for s in shown.values()] == [lesson_id]
+        db.commit()
+
+
+def test_an_authorization_for_another_member_of_the_group_isnt_this_replys(env):
+    report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?"),
+                     message("e_b2", "Rina", "p_rina", "where's Vincent?")))
+    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
+                                                                conversation="Band")
+    answering_rina = phone_writer.build_input(env.user, ref(BAND_KEY), "say I'll check")
+    assert answering_rina.recipient == "Rina" and answering_rina.authorized == []
+    assert "studio" not in "\n".join(answering_rina.render())
+    with pytest.raises(phone_writer.IntentRefused, match="studio"):
+        phone_writer.build_input(env.user, ref(BAND_KEY), "tell her he's at the studio")
+
+
+def test_the_whole_intent_is_checked_short_words_and_numbers_included(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "my gig is at 9pm, pin 4471")),
+           band(message("e_b1", "Rina", "p_rina", "hey all")))
+    for leak, word in (("ask about her gig", "gig"), ("say see you at 9pm", "9pm"), ("mention 4471", "4471")):
+        with pytest.raises(phone_writer.IntentRefused, match=word):
+            phone_writer.build_input(env.user, ref(BAND_KEY), leak)
+    with pytest.raises(phone_writer.IntentRefused, match="longer than"):
+        phone_writer.build_input(env.user, ref(BAND_KEY), "say hey " * 100)
+    assert phone_writer.build_input(env.user, ref(BAND_KEY), "say hey back").intent == "say hey back"
+
+
+def test_a_message_from_before_her_first_reply_there_is_not_an_exchange_she_took_part_in(env):
+    early = datetime.now(timezone.utc) - timedelta(hours=2)
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "Jophiel, never send me voice notes", at=early)))
+    send(env, "Hi Rina!")  # her first reply there, after Rina's message
+    said = phone_relationships.note_exchange(
+        env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], addressed="you", meaning="no voice notes",
+        their_words="never send me voice notes", worth_learning=True)
+    assert "you haven't taken part in this conversation" in said
+    assert count(env, LearningAssessment) == 0
+
+
+def test_the_intent_check_reads_every_script(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "明日はオーディションです、内緒にしてね。Café Ñandú at 7")),
+           band(message("e_b1", "Rina", "p_rina", "hey all")))
+    for leak, word in (("ask how her オーディション went", "ディ"), ("say good luck for 明日", "明日"),
+                       ("meet at café ñandú", "ñandú")):
+        with pytest.raises(phone_writer.IntentRefused, match=word):
+            phone_writer.build_input(env.user, ref(BAND_KEY), leak)
+    assert phone_writer.build_input(env.user, ref(BAND_KEY), "say hey back").intent == "say hey back"
+    assert {"明日", "日は"} <= phone_writer._tokens("明日は") and "ñandú" in phone_writer._tokens("Ñandú")
+
+
+def test_eligibility_and_the_learners_evidence_use_the_same_replies(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hi")))
+    send(env, "Hi Rina!")
+    unknown = send(env, "Are you there?", status="unconfirmed")  # not a reply that counts as taking part
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hi"),
+                        message("e_r2", "Rina", "p_rina", "Jophiel, no voice notes please"), revision=2))
+    phone_relationships.note_exchange(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")], addressed="you",
+                                      meaning="no voice notes", their_words="no voice notes please",
+                                      worth_learning=True)
+    evaluator = Evaluator(stated("no voice notes please"))
+    learn(env, evaluator, Builder(preference("no voice notes please")))
+    [text] = evaluator.texts
+    assert "Hi Rina!" in text and "Are you there?" not in text
+    assert "she has written in this conversation 1 time(s)" in text
+    with env.db() as db:
+        assert db.get(PhoneOutbound, unknown).status == "unknown"
