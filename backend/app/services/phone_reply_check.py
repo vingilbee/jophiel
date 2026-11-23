@@ -170,6 +170,8 @@ def _newest(notifications: list, lines: list):
         if len({(line.from_phone, line.sender_id) for line in tied}) > 1:
             return None
         newest = tied[-1]
+        # Same speaker, several messages at that time: who is answered is known, which message is newest isn't.
+        newest.tied = len(tied) > 1
     if newest is None or newest.from_phone or not newest.sender_id:
         return None
     return newest
@@ -291,7 +293,8 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
             authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels),
             key=n.key, revision=int(n.revision), conversation_id=n.conversation_id,
             recipient_sender=answering if scope.recipient is not None else None,
-            answering_event=newest.event_id if newest is not None and scope.recipient is not None else None,
+            answering_event=newest.event_id if newest is not None and scope.recipient is not None
+            and not getattr(newest, "tied", False) else None,
             recipient_person_id=scope.recipient.id if scope.recipient is not None else None)
 
 

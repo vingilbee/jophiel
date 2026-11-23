@@ -471,3 +471,17 @@ def test_a_newer_message_in_another_notification_of_the_conversation_unbinds_the
     assert said.startswith("Not sent") and "different exchange" in said
     assert b3.phone.frames == [] and outbound(b3) == []
     assert answer(b3, ref("n_rina_2"), "Glad it's sorted!", newer) == "Reply sent"
+
+
+def test_two_messages_tied_for_newest_answer_the_person_but_bind_no_exchange(b3):
+    at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    report(b3.env, rina_dm(message("e_r1", "Rina", "p_rina", "are you there?", at=at)))
+    first = targets(b3)
+    report(b3.env, chat("n_rina_2", "c_rina", "Rina", [message("e_r2", "Rina", "p_rina", "hello??", at=at)]))
+    second = targets(b3)
+    material = RC.material_for(b3.user, ref(DM_KEY))
+    assert material.recipient_person_id is not None and material.answering_event is None
+    for handle, found in ((ref(DM_KEY), first), (ref("n_rina_2"), second)):
+        said = answer(b3, handle, "I'm here!", found)
+        assert said.startswith("Not sent") and "different exchange" in said
+    assert b3.phone.frames == [] and outbound(b3) == []
