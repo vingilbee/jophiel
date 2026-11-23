@@ -244,6 +244,20 @@ def test_two_identical_sends_stay_ambiguous_and_an_unknown_send_that_echoes_beco
     assert outbound(channel, unsure).status == "sent"
 
 
+def test_an_owner_message_seen_before_her_send_is_never_matched_later(channel):
+    """The user's own "ok" (no ``at`` from the phone) is in the snapshot before she sends "ok": every later
+    snapshot still shows it, and it is never taken for her reply. Hers, newly shown, is."""
+    report(channel, chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "ok")]))
+    mine = send(channel, "ok")
+    report(channel, chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "ok")], revision=2))
+    assert outbound(channel, mine).echo_event_id is None
+    assert now_line(channel).endswith(", answered from the phone since")
+    report(channel, chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "ok"), owner("e_o2", "ok")],
+                         revision=3))
+    assert outbound(channel, mine).echo_event_id == "e_o2"
+    assert now_line(channel).endswith(", you answered since")
+
+
 def test_an_echo_too_late_or_a_failed_send_is_never_hers(channel):
     report(channel, RINA_DM)
     failed = send(channel, "on my way", status="failed")
@@ -329,6 +343,24 @@ def test_a_chat_that_never_goes_quiet_is_still_read_and_removals_dont_wait_for_n
     assert phone_notifications.ready(fresh, now=now, burst=20) == 1  # a prefix: "d" waits behind "c"
 
 
+def test_a_full_queue_says_how_much_went_unread_and_acknowledges_only_what_she_was_told(channel, monkeypatch):
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 3)
+    for n in range(5):
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    news = phone_notifications.pending_news(channel.user)
+    assert [entry["kind"] for entry in news] == ["missed", "posted", "posted", "posted"]
+    assert news[0]["count"] == 2
+    assert phone_notifications.news_lines(news[:1])[0].startswith("2 older notification updates on their phone "
+                                                                  "went unread")
+    # One more is dropped after she read the count: it stays for her next moment.
+    report(channel, chat("n_5", "c_5", "Chat 5", burst(50, 1, sender_id="p_5")))
+    phone_notifications.acknowledge_news(channel.user, news)
+    later = phone_notifications.pending_news(channel.user)
+    assert [(entry["kind"], entry.get("count")) for entry in later] == [("missed", 1), ("posted", None)]
+    phone_notifications.acknowledge_news(channel.user, later)
+    assert phone_notifications.pending_news(channel.user) == []
+
+
 def test_the_hourly_cap_holds_news_and_drops_none(channel, _settings):
     _settings(phone_notification_ticks_per_hour=2)
     source = mind_phone.PhoneSource()
@@ -374,6 +406,35 @@ def test_read_person_one_several_none(channel):
         f'[{phone_people.handle(rina_id)}] "Rina"')
 
 
+def test_every_person_is_reachable_a_page_at_a_time_and_by_name(channel):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import deps
+    from app.api.routes import memory
+
+    report(channel, *(chat(f"n_{n}", f"c_{n}", f"Friend {n}", [message(f"e_{n}", f"Friend {n}", f"p_{n}", "hi")])
+                      for n in range(5)))
+    app = FastAPI()
+    app.include_router(memory.router, prefix="/api")
+    with channel.db() as db:
+        user = db.get(__import__("app.db.models", fromlist=["User"]).User, channel.user)
+    app.dependency_overrides[deps.require_owner] = lambda: user
+    app.dependency_overrides[deps.get_current_user] = lambda: user
+    with TestClient(app) as client:
+        seen, offset = [], 0
+        while offset is not None:
+            page = client.get("/api/memory/people", params={"limit": 2, "offset": offset}).json()
+            assert page["total"] == 5 and len(page["people"]) <= 2
+            seen += [p["display_name"] for p in page["people"]]
+            offset = page["next_offset"]
+        assert sorted(seen) == [f"Friend {n}" for n in range(5)]
+        [found] = client.get("/api/memory/people", params={"q": "friend 3"}).json()["people"]
+        assert found["display_name"] == "Friend 3"
+        assert client.delete(f"/api/memory/people/{found['id']}").status_code == 204
+        assert client.get("/api/memory/people").json()["total"] == 4
+
+
 def test_forgetting_a_person_cascades_and_keeps_her_sent_text(channel):
     report(channel, RINA_DM, chat("n_band", "c_band", "Band", BAND, group=True))
     sent = send(channel, "hi Rina")
@@ -382,7 +443,7 @@ def test_forgetting_a_person_cascades_and_keeps_her_sent_text(channel):
         db.add(PhoneRelationshipEvidence(user_id=channel.user, person_id=rina, event_id="e_r1", dimension="warmth",
                                          observation="she asked how I was"))
         db.commit()
-        [entry] = [p for p in phone_people.inspect(db, channel.user) if p["id"] == rina]
+        [entry] = [p for p in phone_people.inspect(db, channel.user)[0] if p["id"] == rina]
         assert entry["sent"] == 1 and entry["affinity"]["familiarity"] == "new"
         assert phone_people.delete_person(db, channel.user, rina)
         db.commit()

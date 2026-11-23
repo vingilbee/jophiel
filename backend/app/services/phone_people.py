@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -113,9 +113,12 @@ def echo_id(message: dict) -> str:
 # Ingestion
 # --------------------------------------------------------------------------- #
 
-def ingest(user_id: uuid.UUID | str, notifications: Iterable[Any], *, now: float | None = None) -> bool:
+def ingest(user_id: uuid.UUID | str, notifications: Iterable[Any], *, now: float | None = None,
+           fresh_owner: dict[str, list[dict]] | None = None) -> bool:
     """Record who wrote in these posted notifications (``phone_notifications.Notification``), in one
-    transaction of its own. Returns whether it worked; a failure is logged, never raised."""
+    transaction of its own. ``fresh_owner``: per notification key, the owner messages this report shows for the
+    first time, the only ones matched as her replies coming back (none given: none matched). Returns whether it
+    worked; a failure is logged, never raised."""
     notifications = [n for n in notifications if n.messages]
     if not notifications:
         return True
@@ -124,14 +127,14 @@ def ingest(user_id: uuid.UUID | str, notifications: Iterable[Any], *, now: float
     try:
         with SessionLocal.begin() as db:
             for notification in notifications:
-                _ingest_one(db, user, notification, at)
+                _ingest_one(db, user, notification, at, (fresh_owner or {}).get(notification.key) or [])
         return True
     except Exception:  # noqa: BLE001 - the phone's report never fails because of this
         log.warning("phone_people: could not record who wrote for user %s", user_id, exc_info=True)
         return False
 
 
-def _ingest_one(db: Session, user_id: uuid.UUID, n: Any, now: datetime) -> None:
+def _ingest_one(db: Session, user_id: uuid.UUID, n: Any, now: datetime, fresh_owner: list[dict]) -> None:
     conversation = None
     if n.conversation_id:
         values = {"user_id": user_id, "conversation_id": n.conversation_id,
@@ -160,8 +163,8 @@ def _ingest_one(db: Session, user_id: uuid.UUID, n: Any, now: datetime) -> None:
                 index_elements=[PhoneConversationMember.conversation_id, PhoneConversationMember.person_id],
                 set_={"last_message_at": func.greatest(PhoneConversationMember.last_message_at,
                                                        statement.excluded.last_message_at)}))
-    if n.conversation_id:
-        _match_echoes(db, user_id, n, now)
+    if n.conversation_id and fresh_owner:
+        _match_echoes(db, user_id, n.conversation_id, fresh_owner, now)
 
 
 def _person_for(db: Session, user_id: uuid.UUID, message: dict, now: datetime) -> PhonePerson:
@@ -199,9 +202,12 @@ def _person_for(db: Session, user_id: uuid.UUID, message: dict, now: datetime) -
     return person
 
 
-def _match_echoes(db: Session, user_id: uuid.UUID, n: Any, now: datetime) -> None:
-    """Her replies coming back as ``owner`` messages: matched only when exactly one of her sends fits."""
-    for message in n.messages:
+def _match_echoes(db: Session, user_id: uuid.UUID, conversation_id: str, messages: list[dict],
+                  now: datetime) -> None:
+    """Her replies coming back as ``owner`` messages newly shown in this conversation: matched only when exactly
+    one of her sends fits. An owner message seen in an earlier snapshot is never matched later (it was there
+    before the send, or already judged)."""
+    for message in messages:
         if message.get("sender_id") != OWNER_SENDER or not _normalized(message.get("text")):
             continue
         event = echo_id(message)
@@ -210,7 +216,7 @@ def _match_echoes(db: Session, user_id: uuid.UUID, n: Any, now: datetime) -> Non
             continue
         at = _message_at(message, now)
         rows = db.scalars(select(PhoneOutbound).where(
-            PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == n.conversation_id,
+            PhoneOutbound.user_id == user_id, PhoneOutbound.conversation_id == conversation_id,
             PhoneOutbound.status.in_(("sent", "unknown")), PhoneOutbound.echo_event_id.is_(None),
             PhoneOutbound.created_at >= at - ECHO_WINDOW, PhoneOutbound.created_at <= at + CLOCK_SKEW,
         ).with_for_update()).all()
@@ -486,16 +492,25 @@ def read_person(user_id: uuid.UUID, name: str, *, now: float | None = None) -> s
     return "\n".join(lines)
 
 
-def inspect(db: Session, user_id: uuid.UUID) -> list[dict]:
-    """Every person, newest seen first, with their affinity record, shared conversations and what she sent them."""
-    people = list(db.scalars(select(PhonePerson).where(PhonePerson.user_id == user_id)
-                             .order_by(PhonePerson.last_seen_at.desc()).limit(500)))
+def inspect(db: Session, user_id: uuid.UUID, *, limit: int = 100, offset: int = 0,
+            name: str | None = None) -> tuple[list[dict], int]:
+    """One page of people (newest seen first, then by id: a stable order), with their affinity record, shared
+    conversations and what she sent them, and how many there are in all. ``name``: only those whose name (shown
+    now or before) contains it."""
+    query = select(PhonePerson).where(PhonePerson.user_id == user_id)
+    if name and name.strip():
+        needle = f"%{' '.join(name.split())}%"
+        query = query.where(or_(PhonePerson.display_name.ilike(needle),
+                                func.cast(PhonePerson.names, String).ilike(needle)))
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    people = list(db.scalars(query.order_by(PhonePerson.last_seen_at.desc(), PhonePerson.id)
+                             .limit(limit).offset(offset)))
     found = _known(db, user_id, people)
     affinities = {a.person_id: a for a in db.scalars(select(PhoneAffinity).where(
         PhoneAffinity.person_id.in_([p.id for p in people])))} if people else {}
     keys: dict[uuid.UUID, list[str]] = {}
     for person_id, identity in db.execute(select(PhonePersonKey.person_id, PhonePersonKey.identity).where(
-            PhonePersonKey.user_id == user_id)):
+            PhonePersonKey.user_id == user_id, PhonePersonKey.person_id.in_([p.id for p in people]))):
         keys.setdefault(person_id, []).append(identity)
     out = []
     for person in people:
@@ -512,7 +527,7 @@ def inspect(db: Session, user_id: uuid.UUID) -> list[dict]:
                 "updated_at": affinity.updated_at},
             "sent": k.sent, "last_sent_at": k.last_sent_at,
         })
-    return out
+    return out, total
 
 
 def delete_person(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> bool:

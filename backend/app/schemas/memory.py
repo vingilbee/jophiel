@@ -222,3 +222,5 @@ class PhonePersonOut(BaseModel):
 
 class PhonePeopleOut(BaseModel):
     people: list[PhonePersonOut] = []
+    total: int = 0
+    next_offset: int | None = None

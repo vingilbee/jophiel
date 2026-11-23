@@ -44,7 +44,10 @@ from app.services import phone_people, phone_state, presence
 log = logging.getLogger(__name__)
 
 BURST_HOLD = 3  # a conversation that never goes quiet is read after this many bursts at most
-NEWS_KEEP = 100  # news items queued per user at most (oldest dropped): a busy phone between ticks
+# News items queued per user at most: room for bursts and the hourly cap. Past it the oldest go, counted (never
+# silently): her next moment says how many she missed.
+NEWS_KEEP = 500
+MISSED_ID = "missed"
 WRITE_TRIES = 5
 REF_PREFIX = "notif:"
 NAME_CHARS = 40  # a sender or app name as she reads it: short, quoted (someone else chose it)
@@ -68,6 +71,10 @@ def _key(user_id: uuid.UUID | str) -> str:
 
 def _news_key(user_id: uuid.UUID | str) -> str:
     return f"phone_notifications:news:{user_id}"
+
+
+def _missed_key(user_id: uuid.UUID | str) -> str:
+    return f"phone_notifications:missed:{user_id}"
 
 
 def _sense_key(user_id: uuid.UUID | str) -> str:
@@ -194,9 +201,10 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                 try:
                     pipe.watch(key, _news_key(user_id))
                     stored = {(k.decode() if isinstance(k, bytes) else k): v for k, v in (pipe.hgetall(key) or {}).items()}
-                    writes, deletes, news, applied = {}, [], [], []
+                    writes, deletes, news, applied, fresh_owner = {}, [], [], [], {}
                     # Switched off: nothing it reported before is still known, the words in queued news included.
-                    drop_news = payload.all_removed and bool(pipe.llen(_news_key(user_id)))
+                    queued = pipe.llen(_news_key(user_id)) or 0
+                    drop_news = payload.all_removed and bool(queued)
                     if payload.all_removed and (stored or drop_news):
                         deletes = list(stored)
                         news.append({"kind": "cleared"})
@@ -211,6 +219,11 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                         writes[item.key] = new.dump()
                         stored[item.key] = writes[item.key]
                         applied.append(new)
+                        # Owner messages this snapshot shows for the first time: only these can be her reply
+                        # coming back (one seen before, the user's own included, is never re-matched later).
+                        seen = {_message_id(m) for m in old.messages} if old is not None else set()
+                        fresh_owner[item.key] = [m for m in new.messages
+                                                 if _from_owner(m) and _message_id(m) not in seen]
                         if entry is not None:
                             news.append(entry)
                     for item in payload.removed:
@@ -229,6 +242,12 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     pipe.expire(key, _keep_seconds())
                     if drop_news:
                         pipe.delete(_news_key(user_id))
+                    if payload.all_removed:
+                        pipe.delete(_missed_key(user_id))
+                    overflow = (0 if drop_news else queued) + len(news) - NEWS_KEEP
+                    if overflow > 0:  # the oldest about to be trimmed: counted, never silent
+                        pipe.incrby(_missed_key(user_id), overflow)
+                        pipe.expire(_missed_key(user_id), _keep_seconds())
                     for entry in news:
                         pipe.rpush(_news_key(user_id), json.dumps({**entry, "id": uuid.uuid4().hex, "at": now},
                                                                   ensure_ascii=False))
@@ -256,7 +275,7 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
     except redis.RedisError:
         log.warning("phone_notifications: could not record a report for user %s", user_id)
         return 0, 0
-    phone_people.ingest(user_id, [n for n in applied if n.key in writes], now=now)
+    phone_people.ingest(user_id, [n for n in applied if n.key in writes], now=now, fresh_owner=fresh_owner)
     removed = len([d for d in deletes if d not in writes])
     return len(writes), removed
 
@@ -327,15 +346,18 @@ def find(user_id: uuid.UUID | str, handle: str) -> Notification | None:
 
 
 def pending_news(user_id: uuid.UUID | str) -> list[dict]:
-    """News queued since her phone source last ticked, oldest first."""
+    """News queued since her phone source last ticked, oldest first; first of all, when the queue was ever full,
+    how many older items were dropped unread (``missed``)."""
     client = _client()
     if client is None:
         return []
     try:
         rows = client.lrange(_news_key(user_id), 0, -1) or []
-    except redis.RedisError:
+        missed = int(client.get(_missed_key(user_id)) or 0)
+    except (redis.RedisError, ValueError):
         return []
-    return [_news_entry(raw) for raw in rows]
+    lost = [{"kind": "missed", "count": missed, "id": f"{MISSED_ID}:{missed}"}] if missed > 0 else []
+    return [*lost, *(_news_entry(raw) for raw in rows)]
 
 
 def _row_id(raw) -> str:
@@ -372,6 +394,15 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
     ids = {item["id"] if isinstance(item, dict) else item for item in read or []}
     ids.discard(None)
     if client is None or not ids:
+        return
+    for missed in [i for i in ids if str(i).startswith(MISSED_ID + ":")]:
+        ids.discard(missed)
+        try:  # only what she was told: more missed since stays for the next moment
+            if client.decrby(_missed_key(user_id), int(missed.split(":", 1)[1])) <= 0:
+                client.delete(_missed_key(user_id))
+        except (redis.RedisError, ValueError):
+            log.warning("phone_notifications: the missed count could not be acknowledged for user %s", user_id)
+    if not ids:
         return
     key = _news_key(user_id)
     try:
@@ -441,7 +472,12 @@ def news_lines(news: list[dict], user: str = "them", people: dict[tuple, str] | 
     out = []
     for entry in news:
         kind = entry.get("kind")
-        if kind == "cleared":
+        if kind == "missed":
+            count = int(entry.get("count") or 0)
+            out.append(f"{count} older notification update{'s' if count != 1 else ''} on their phone went unread "
+                       "(more arrived than could be kept between your moments); what's still on the phone is "
+                       "listed, the rest is unknown")
+        elif kind == "cleared":
             out.append("The phone stopped sharing its notifications (everything it showed before is gone)")
         elif kind == "removed":
             reason = f", {_clean(entry.get('reason'), 20)}" if entry.get("reason") else ""
