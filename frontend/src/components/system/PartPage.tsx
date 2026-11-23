@@ -4,7 +4,7 @@ import { ErrorBoundary } from 'react-error-boundary'
 import { systemApi } from '../../api/system'
 import type {
   HandsFeed, LearningFeed, LessonUse, MemoryFeed, MindEvaluation, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
-  PartId, PartStatus, Signal, Thought, WorkerStatus,
+  PartId, PartStatus, PhoneFeed, Signal, Thought, WorkerStatus,
 } from '../../types/system'
 import { PART_BY_ID } from './anatomy'
 import type { PartAnatomy } from './anatomy'
@@ -23,10 +23,11 @@ const REFRESH_MS = 10_000
 const LINKED: Record<PartId, string[]> = {
   mouth: ['text'],
   mind: ['evaluations', 'continuity', 'hard', 'quick', 'planner', 'look-backs'],
-  hands: ['goal', 'skills', 'pack'],
+  hands: ['desktop', 'goal', 'skills', 'pack'],
   memory: ['facts', 'working', 'lessons'],
-  observation: ['conversation', 'game', 'deliveries'],
+  observation: ['conversation', 'game', 'desktop', 'security', 'deliveries'],
   learning: ['capture'],
+  phone: ['senses', 'notifications', 'replies', 'checks', 'people', 'space', 'push'],
 }
 
 const WORKER_WORD: Record<WorkerStatus['state'], string> = { alive: 'alive', busy: 'working', down: 'down', failing: 'failing' }
@@ -44,6 +45,10 @@ const DID_WORD: Record<string, string> = {
   rejected: 'Kept from her: it no longer held.',
 }
 const OPEN_WORD: Record<string, string> = { question: 'open question', commitment: 'promise', intention: 'intention' }
+
+/** Who asked for a reply on the phone, and what became of it (phone_outbound.asked_by / status). */
+const ASKED_WORD: Record<string, string> = { her: 'she chose to', user: 'you asked' }
+const CHECK_WORD: Record<string, string> = { reply: 'her reply', draft: 'a message you asked for', operation: 'a phone request', grant: 'a detail you let her share' }
 
 /** A section of the page: what it's called, where the rail's link jumps to, and which sub-part it belongs to. */
 interface Section {
@@ -441,6 +446,28 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
       const f = data as HandsFeed
       return [
         {
+          id: 'desktop', sub: 'desktop', title: 'On her desktop',
+          hint: 'Each action her hands took on her own desktop, as code recorded it: what she meant to do, what came back, and the app in front afterwards.',
+          body: (
+            <Timeline empty="No desktop actions yet.">
+              {f.desktop.map((d) => (
+                <Entry
+                  key={d.id}
+                  at={d.at}
+                  tone={d.result === 'failed' ? 'error' : d.result === 'unknown' ? 'muted' : undefined}
+                  meta={join(d.tool && words(d.tool), d.status && words(d.status), d.app && `in ${d.app}`)}
+                  action={traceButton(trace, d.turn_id ? { turn: d.turn_id } : null)}
+                  more={d.window || d.screen ? <Facts rows={{ 'window': d.window, 'saw': d.screen }} /> : undefined}
+                  moreLabel="What was in front"
+                >
+                  {d.args ?? <span className="text-[#8C97A3]">{d.tool ? words(d.tool) : 'an action'}</span>}
+                  {d.deviation && <p className="mt-1.5 text-[14px] text-[#FFB27A]">{d.deviation}</p>}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
           id: 'goal', sub: 'goal', title: 'Goal and plan',
           body: <div className="mt-3 max-w-[68ch]"><GoalCard goal={f.goal} /></div>,
         },
@@ -568,6 +595,8 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
       return [
         reports('From the conversation', 'conversation', (r) => r.source === 'conversation' && r.kind !== 'delivery_status', 'Nothing from the conversation lately.'),
         reports('From the game', 'game', (r) => r.source === 'minecraft_pack', 'Nothing from the game lately.'),
+        reports('From her desktop', 'desktop', (r) => r.source === 'desktop', 'Nothing from her desktop lately.'),
+        reports('From its security logs', 'security', (r) => r.source === 'desktop_security', 'Nothing from the security logs lately (monitoring may be off).'),
         reports('Deliveries', 'deliveries', (r) => r.kind === 'delivery_status', 'No delivery reports lately.'),
         reports('From her own thinking', 'mind-reports', (r) => r.source === 'mind', 'No concluded thoughts reported lately.'),
         {
@@ -577,6 +606,130 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
               {f.sources.map((s) => (
                 <Entry key={`${s.source}:${s.instance}`} at={s.last_received_at} tone={s.error ? 'error' : undefined} meta={join(s.source, s.instance && s.instance !== 'default' && s.instance.slice(0, 8), s.availability)}>
                   {s.error}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+      ]
+    }
+    case 'phone': {
+      const f = data as PhoneFeed
+      return [
+        {
+          id: 'senses', sub: 'senses', title: 'What it reports',
+          hint: 'The phone as it last reported itself, each reading with its age. A change here wakes her background mind; a heartbeat alone doesn’t.',
+          body: f.senses.length === 0
+            ? <p className="mt-3 text-[14px] text-[#8C97A3]">Nothing from the phone lately.</p>
+            : <ul className="mt-3 max-w-[68ch] space-y-1 text-[14.5px] text-[#D5DBE0]">{f.senses.map((l, i) => <li key={i}>{l.replace(/^- /, '')}</li>)}</ul>,
+        },
+        {
+          id: 'notifications', sub: 'notifications', title: 'Notifications on it',
+          hint: 'What’s on the phone now, by app and conversation. Their words are someone else’s: a turn they cause gets no device action.',
+          body: f.notifications === null
+            ? <p className="mt-3 text-[14px] text-[#8C97A3]">Unknown: they couldn’t be read just now.</p>
+            : (
+              <Timeline empty="No notifications on the phone.">
+                {f.notifications.map((n) => (
+                  <Entry key={n.key} at={n.at} meta={join(n.app, n.group && 'group', n.can_reply && 'can be answered', n.messages > 0 && `${n.messages} message${n.messages > 1 ? 's' : ''}`)}>
+                    {n.conversation ?? <span className="text-[#8C97A3]">(no title)</span>}
+                  </Entry>
+                ))}
+              </Timeline>
+            ),
+        },
+        {
+          id: 'replies', sub: 'replies', title: 'Her replies',
+          hint: 'What she wrote to someone through a notification’s reply button, who asked for it, and whether it came back on the phone as sent.',
+          body: (
+            <Timeline empty="She hasn’t replied to anyone on the phone yet.">
+              {f.replies.map((r) => (
+                <Entry
+                  key={r.id}
+                  at={r.at}
+                  tone={r.status === 'failed' ? 'error' : undefined}
+                  meta={join(r.to && `to ${r.to}`, r.conversation, ASKED_WORD[r.asked_by] ?? r.asked_by, words(r.status), r.echoed && 'seen on the phone')}
+                >
+                  {r.text}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
+          id: 'checks', sub: 'checks', title: 'Checks',
+          hint: 'A check model reads each message going out against a written policy and only that conversation, and binds every phone request on your turns to what your message asked. Held means nothing was sent or done.',
+          body: (
+            <Timeline empty="No checks lately.">
+              {f.checks.map((c, i) => (
+                <Entry
+                  key={`${c.at}:${i}`}
+                  at={c.at}
+                  tone={c.ok === false ? 'error' : undefined}
+                  meta={join(CHECK_WORD[c.check ?? ''] ?? c.check, c.ok === true ? 'passed' : c.ok === false ? 'held' : 'no verdict', c.what)}
+                >
+                  {c.why ?? <span className="text-[#8C97A3]">{c.ok ? 'Nothing to hold.' : 'No reason recorded.'}</span>}
+                  {c.reveals.length > 0 && <p className="mt-1.5 text-[14px] text-[#AEB7BF]">Would have revealed: {c.reveals.join('; ')}</p>}
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
+          id: 'people', sub: 'people', title: 'People',
+          hint: 'Who she has met through the phone and her record of each: how familiar, how warm, who starts. Her readings of exchanges below are shadow: nothing she does reads them yet.',
+          body: (
+            <div className="space-y-6">
+              <Timeline empty="No one yet.">
+                {f.people.map((p) => (
+                  <Entry key={p.id} at={p.at} tone={p.status !== 'active' ? 'muted' : undefined} meta={join(p.contact ? 'contact' : p.contact === false ? 'not a contact' : null, p.familiarity, p.warmth, p.initiative && `initiative: ${p.initiative}`, p.status !== 'active' && p.status)}>
+                    {p.name ?? <span className="text-[#8C97A3]">(no name)</span>}
+                    {p.note && <p className="mt-1 text-[14px] text-[#AEB7BF]">{p.note}</p>}
+                  </Entry>
+                ))}
+              </Timeline>
+              <Timeline empty="No exchanges read yet.">
+                {f.exchanges.map((e) => (
+                  <Entry
+                    key={e.id}
+                    at={e.at}
+                    meta={join(e.person, e.conversation, `to ${words(e.addressed)}`, e.participated && 'she took part', e.lesson !== 'none' && `lesson: ${words(e.lesson)}`)}
+                    more={e.their_words || e.lesson_why ? <Facts rows={{ 'their words': e.their_words, 'lesson': e.lesson_why }} /> : undefined}
+                    moreLabel="Their words and the lesson"
+                  >
+                    {e.observation}
+                  </Entry>
+                ))}
+              </Timeline>
+            </div>
+          ),
+        },
+        {
+          id: 'space', sub: 'space', title: 'Requests for space',
+          hint: 'Someone asked her to back off: active at once, they stop her follow-ups, and the check reads them before any reply.',
+          body: (
+            <Timeline empty="No one has asked for space.">
+              {f.space.map((b) => (
+                <Entry key={b.id} at={b.at} meta={join(b.person, b.scope === 'everywhere' ? 'everywhere' : b.conversation, b.topic && `about ${b.topic}`)}>
+                  “{b.words}”
+                </Entry>
+              ))}
+            </Timeline>
+          ),
+        },
+        {
+          id: 'actions', title: 'What she did on it',
+          hint: 'Each action on the phone as the chat records it (Maps, music, alarms, replies), with its outcome.',
+          body: <Timeline empty="No phone actions yet.">{f.actions.map((a) => <Entry key={a.id} at={a.at} meta="on the phone">{a.text}</Entry>)}</Timeline>,
+        },
+        {
+          id: 'push', sub: 'push', title: 'Push',
+          hint: 'Her messages sent to the phone when you weren’t at any app; dropped when you were there or she said it aloud.',
+          body: (
+            <Timeline empty="No pushes yet.">
+              {f.pushes.map((r) => (
+                <Entry key={r.id} at={r.at} tone={r.status === 'failed' ? 'error' : r.status === 'dropped' ? 'muted' : undefined} meta={join(words(r.kind), words(r.status), r.attempts > 1 && `${r.attempts} tries`)}>
+                  {r.error ?? (r.status === 'sent' ? 'Sent.' : <span className="text-[#8C97A3]">{words(r.status)}</span>)}
                 </Entry>
               ))}
             </Timeline>

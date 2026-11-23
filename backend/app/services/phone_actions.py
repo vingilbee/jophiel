@@ -440,6 +440,9 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
             if delivery == "failed":
                 client.delete(_pending_key(action_id))
                 return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
+            from app.services import system_signals
+            system_signals.emit(user_id, "mind", "phone", "reply" if action == "reply_notification" else action,
+                                action_id)
             if delivery in ("push", "uncertain") and started + PUSH_WAIT_SECONDS > deadline:
                 # The phone has to be woken first. Move the deadline the result endpoint checks too, so an
                 # answer inside the longer wait isn't taken as late.

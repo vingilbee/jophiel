@@ -12,13 +12,14 @@ type WatchFilter = 'all' | PartId
 const WATCH_POLL_MS = 6000
 const ERRORS_POLL_MS = 12_000
 /** The watch log reads again soon after a signal touches the parts it follows. */
-const WATCHED: PartId[] = ['mind', 'memory', 'hands']
+const WATCHED: PartId[] = ['mind', 'memory', 'hands', 'phone']
 const WATCH_FILTERS: { id: WatchFilter; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'mind', label: 'Thinking' }, { id: 'memory', label: 'Memory' }, { id: 'hands', label: 'Hands' },
+  { id: 'phone', label: 'Phone' },
 ]
 
-/** The field's log, beside the map: what she's thinking, what memory captured and what her hands are after (the
- * watch log), every hand-off between parts (signals), and what went wrong (errors). */
+/** The field's log, beside the map: what she's thinking, what memory captured, what her hands are after and what
+ * went out on the phone (the watch log), every hand-off between parts (signals), and what went wrong (errors). */
 export function LogDrawer({ signals, onOpen, onClose }: {
   signals: Signal[]
   onOpen: (part: PartId, anchor?: string) => void
