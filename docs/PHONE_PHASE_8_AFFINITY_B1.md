@@ -13,7 +13,7 @@ First of three PRs for [`PHONE_PHASE_8_AFFINITY.md`](PHONE_PHASE_8_AFFINITY.md) 
 | PR | What |
 |---|---|
 | **B1 (this)** | People, conversations, relationship records (defaults only), outbound exchanges, echo matching, wake bursts, "how do you feel about Rina?" read only |
-| B2 (built, [`PHONE_PHASE_8_AFFINITY_B2.md`](PHONE_PHASE_8_AFFINITY_B2.md)) | What the reply writer may see per audience (boundary written down below, built there); relationship updates in shadow mode |
+| B2 (built, [`PHONE_PHASE_8_AFFINITY_B2.md`](PHONE_PHASE_8_AFFINITY_B2.md)) | What the check on a reply may see per audience (§8; built there as a check, not a writer); relationship updates in shadow mode |
 | B3 | Replies on her own: to the notification that woke her, and her own follow-up from a scheduled intention; dispatch rechecks; `PHONE_AUTONOMOUS_REPLIES` + the owner's switch |
 
 **B1 changes nothing she can do.** She still can't reply on her own. What changes: she knows who wrote (a
@@ -118,6 +118,11 @@ A read tool on the owner's reply turns only (`read_person`; not on wakes, never 
   rest of `/api/memory`).
 
 ## 8. The B2 boundary, written down now (built in B2)
+
+> **Changed in B2 (2026-11-22, the user's decision):** there is no separate writer. Her mind writes the reply
+> herself; a check model reads her draft against a written policy and only this audience's material (the list
+> below, minus her personality) before it goes out, and holds it when it reveals something that audience hasn't
+> seen. No content rule in code. See `docs/PHONE_PHASE_8_AFFINITY_B2.md` (Status) and `services/phone_reply_check.py`.
 
 Her mind sees everything and decides: reply, wait, ask the user privately, ignore. It passes the writer an
 **intent** ("say hi back, ask how the rehearsal went"), never a draft carrying facts. The writer gets only:

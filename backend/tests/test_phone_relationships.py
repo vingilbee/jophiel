@@ -25,7 +25,8 @@ from app.db.models import (
 from app.services import learning_assessment as LA
 from app.services import learning_lessons as LL
 from app.services import memory_lessons as ML
-from app.services import phone_notifications, phone_people, phone_relationships, phone_writer
+from app.services import phone_notifications, phone_people, phone_relationships
+from app.services import phone_reply_check as RC
 from db_support import db_env, database  # noqa: F401
 from test_phone_actions import channel, headers  # noqa: F401
 from test_phone_people import _settings, chat, message, owner, report, send  # noqa: F401
@@ -316,18 +317,20 @@ def test_a_preference_that_names_the_band_chat_covers_it_and_its_explanation_sta
     with env.db() as db:
         [lesson] = db.scalars(select(MemoryLesson)).all()
         assert set(lesson.phone_applies_to) == {str(dm.id), str(group.id)} and lesson.phone_live is False
-    # Shadow: neither audience's writer reads it.
-    for key in (DM_KEY, BAND_KEY):
-        assert phone_writer.build_input(env.user, ref(key), "say hi back").lessons == []
-    # Once live (B3's switch, simulated here), the band's writer gets the behaviour, never the explanation.
+    # Shadow: no audience reads it.
     with env.db() as db:
-        db.get(MemoryLesson, lesson.id).phone_live = True
+        assert ML.for_phone_audience(db, env.user, rina.id, dm.id) == []
+        assert ML.for_phone_audience(db, env.user, rina.id, group.id) == []
+        db.get(MemoryLesson, lesson.id).phone_live = True  # B3's switch, simulated here
         db.commit()
-    dm_input = phone_writer.build_input(env.user, ref(DM_KEY), "say hi back")
-    group_input = phone_writer.build_input(env.user, ref(BAND_KEY), "say hi back")
-    assert dm_input.lessons and "anxious" not in " ".join(dm_input.lessons) and words in dm_input.lessons[0]
-    assert group_input.lessons == ["Ask Rina one question at a time (when: when talking with Rina)"]
-    assert "anxious" not in "\n".join(group_input.render()) and words not in "\n".join(group_input.render())
+    # Once live, the band gets the behaviour, never the explanation; the DM gets her words too.
+    with env.db() as db:
+        [in_dm] = ML.for_phone_audience(db, env.user, rina.id, dm.id)
+        [in_group] = ML.for_phone_audience(db, env.user, rina.id, group.id)
+    assert words in in_dm.their_words and not in_group.their_words
+    assert in_group.statement == "Ask Rina one question at a time"
+    band_seen = RC.material_for(env.user, ref(BAND_KEY)).render("hi!")
+    assert "anxious" not in band_seen and words not in band_seen
     assert rina.id  # one person in both
 
 
@@ -347,22 +350,41 @@ def test_a_request_for_space_holds_at_once_survives_a_note_rewrite_and_leaves_ot
     assert phone_relationships.note_request_for_space(
         env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], their_words="please stop asking me about the audition",
         everywhere=True, topic="the audition").startswith("Already noted")
-    rina, dm = person(env), conversation(env, "c_rina")
+    rina = person(env)
     # A later reading rewrites the note: the request stands.
     phone_relationships.note_exchange(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], addressed="you",
                                       meaning="she's tired of the topic", changed={"note": "Rina's busy lately"})
     with env.db() as db:
         assert db.get(PhoneAffinityShadow, rina.id).note == "Rina's busy lately"
-        assert phone_relationships.follow_up_blocked(db, env.user, rina.id, dm.id, "How did the audition go?")
-        assert phone_relationships.follow_up_blocked(db, env.user, rina.id, dm.id, "Want to grab coffee?") == []
+    # No code matches topics: the check on a reply reads the request (their words only where they were said).
+    report(env, band(message("e_b1", "Rina", "p_rina", "practice tonight?")))
+    assert RC.material_for(env.user, ref(DM_KEY)).requests == [
+        'the person she\'s answering asked her to leave the audition alone: "please stop asking me about the audition"']
+    assert RC.material_for(env.user, ref(BAND_KEY)).requests == [
+        "the person she's answering asked her to leave the audition alone (said elsewhere)"]
     assert "please stop asking me about the audition" in phone_people.read_person(env.user, "Rina")
 
 
 # --------------------------------------------------------------------------- #
-# Scenarios 5 and 6: the writer's input, a DM and a group with the same person; what the user authorized
+# Scenarios 5 and 6: the check on a reply, a DM and a group with the same person; what the user authorized
 # --------------------------------------------------------------------------- #
 
-def test_the_writer_never_carries_a_dm_detail_into_the_group_but_uses_what_she_shared_there(env):
+class Judge:
+    """A scripted check model: hands back its verdicts in order, records what it read."""
+
+    def __init__(self, *verdicts):
+        self.verdicts, self.seen = list(verdicts), []
+
+    def __call__(self, system, user):
+        self.seen.append((system, user))
+        return self.verdicts.pop(0)
+
+
+def _before_draft(user: str) -> str:
+    return user.split("HER MESSAGE TO CHECK")[0]
+
+
+def test_the_check_on_a_group_reply_never_reads_the_dm_and_holds_what_carries_it(env):
     report(env, rina_dm(message("e_r1", "Rina", "p_rina", "I'll send you my rehearsal recording, it's my first solo")),
            band(message("e_b1", "Rina", "p_rina", "who's coming saturday?")))
     send(env, "I'd love to hear it!")
@@ -373,31 +395,25 @@ def test_the_writer_never_carries_a_dm_detail_into_the_group_but_uses_what_she_s
         env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], addressed="you",
         meaning="Rina offered to share her rehearsal recording: her first solo",
         their_words="I'll send you my rehearsal recording", changed={"warmth": "fond", "note": "her first solo"})
-    with env.db() as db:  # the note goes live in the DM (as B3 would make it)
-        a = db.scalar(select(PhoneAffinity).where(PhoneAffinity.person_id == person(env).id))
-        a.warmth, a.note, a.note_conversation_id = "fond", "I liked that Rina offered her recording", \
-            conversation(env, "c_rina").id
-        db.commit()
-    group = phone_writer.build_input(env.user, ref(BAND_KEY), "say I'm in for saturday")
-    system, user = group.render()
-    everything = system + "\n" + user
-    for private in ("recording", "solo", "I liked that", "I'd love to hear it"):
-        assert private not in everything, private
-    assert "you're fond of them" in group.relationship  # warmth carries across, without its reason
-    assert "who's coming saturday?" in user
-    dm = phone_writer.build_input(env.user, ref(DM_KEY), "say I'm looking forward to the recording")
-    assert "your note (from this conversation): I liked that Rina offered her recording" in dm.relationship
+    group_seen = RC.material_for(env.user, ref(BAND_KEY)).render("I'm in for saturday!")
+    for private in ("recording", "solo", "I'd love to hear it", "fond"):
+        assert private not in group_seen, private
+    assert "who's coming saturday?" in group_seen
+    dm = RC.material_for(env.user, ref(DM_KEY))
     assert any("I'd love to hear it!" in line for line in dm.messages)
-    # The intent itself is held to the same boundary...
-    with pytest.raises(phone_writer.IntentRefused, match="recording"):
-        phone_writer.build_input(env.user, ref(BAND_KEY), "ask about her recording")
-    # ...and once Rina brings it up in the group herself, Jophiel can respond to it there.
+    assert dm.their_words == ["I'll send you my rehearsal recording"]
+    # A draft carrying the DM into the group: the check reads the policy and the group's material only.
+    judge = Judge(RC.Verdict(send=False, reveals=["her rehearsal recording"], why="it was only said in the DM"))
+    held = RC.check_reply(env.user, ref(BAND_KEY), "Rina, how's the recording going?", model=judge)
+    assert not held.send and held.reveals == ["her rehearsal recording"] and held.why == "it was only said in the DM"
+    [(system, user)] = judge.seen
+    assert system == RC.POLICY and "recording" not in _before_draft(user)
+    assert "Rina, how's the recording going?" in user
+    # Once Rina brings it up in the group herself, the group's material has it.
     report(env, band(message("e_b1", "Rina", "p_rina", "who's coming saturday?"),
                      message("e_b2", "Rina", "p_rina", "also I made a rehearsal recording!"), revision=2))
-    ok = phone_writer.build_input(env.user, ref(BAND_KEY), "say the rehearsal recording sounds exciting")
-    assert any("rehearsal recording" in line for line in ok.messages)
-    assert phone_writer.compose(ok, model=lambda system, user: "  Ooh, can't wait to hear it!  ") == \
-        "Ooh, can't wait to hear it!"
+    ok = RC.check_reply(env.user, ref(BAND_KEY), "Ooh, can't wait to hear it!", model=Judge({"send": True}))
+    assert ok.send and any("rehearsal recording" in line for line in ok.material.messages)
 
 
 def test_a_detail_the_user_authorized_for_rinas_dm_reaches_only_that_audience(env):
@@ -406,25 +422,12 @@ def test_a_detail_the_user_authorized_for_rinas_dm_reaches_only_that_audience(en
     said = phone_relationships.authorize_detail(env.user, "Rina", "Vincent will be at the library at seven")
     assert "in their direct chat only" in said
     assert phone_relationships.authorize_detail(env.user, "Sari", "anything").startswith("Not recorded")
-    dm = phone_writer.build_input(env.user, ref(DM_KEY), "tell her he'll be at the library at seven")
-    assert dm.authorized == ["Vincent will be at the library at seven"]
-    group_input = phone_writer.build_input(env.user, ref(BAND_KEY), "say I'll ask him")
-    assert group_input.authorized == [] and "library" not in "\n".join(group_input.render())
-    with pytest.raises(phone_writer.IntentRefused, match="library"):
-        phone_writer.build_input(env.user, ref(BAND_KEY), "tell her he'll be at the library")
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == ["Vincent will be at the library at seven"]
+    group = RC.material_for(env.user, ref(BAND_KEY))
+    assert group.authorized == [] and "library" not in group.render("ok")
     # A group needs its own say-so.
     assert "group only" in phone_relationships.authorize_detail(env.user, "Rina", "running late", conversation="Band")
-    assert phone_writer.build_input(env.user, ref(BAND_KEY), "say he's running late").authorized == ["running late"]
-
-
-def test_deferred_material_for_another_audience_never_reaches_the_writer(env):
-    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hey")), band(message("e_b1", "Rina", "p_rina", "yo")))
-    deferred = [phone_writer.Deferred("ask how the dentist went", "c_rina"),
-                phone_writer.Deferred("bring up saturday", "c_band")]
-    group = phone_writer.build_input(env.user, ref(BAND_KEY), "say yo back", deferred=deferred)
-    assert group.deferred == ["bring up saturday"] and "dentist" not in "\n".join(group.render())
-    with pytest.raises(phone_writer.IntentRefused, match="dentist"):
-        phone_writer.build_input(env.user, ref(BAND_KEY), "ask about the dentist", deferred=deferred)
+    assert RC.material_for(env.user, ref(BAND_KEY)).authorized == ["running late"]
 
 
 # --------------------------------------------------------------------------- #
@@ -609,9 +612,8 @@ def test_exchange_tools_only_on_turns_someone_elses_words_caused_and_authorizati
     assert {"read_person", "authorize_detail"} <= names(reply) and not exchange & names(reply)
     assert exchange <= names(theirs) and not {"read_person", "authorize_detail", "phone_action"} & names(theirs)
     assert not exchange & names(own)
-    # The writer is not a tool anywhere, and the chat path doesn't import it.
-    assert not any("writer" in n or "compose" in n for n in names(reply) | names(theirs))
-    assert "phone_writer" not in open(ai_chat.__file__).read()
+    # The check is not a tool, and the owner's chat path doesn't use it (B3's send goes through it).
+    assert "phone_reply_check" not in open(ai_chat.__file__).read()
 
 
 # --------------------------------------------------------------------------- #
@@ -650,22 +652,37 @@ def test_an_authorization_for_another_member_of_the_group_isnt_this_replys(env):
                      message("e_b2", "Rina", "p_rina", "where's Vincent?")))
     assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
                                                                 conversation="Band")
-    answering_rina = phone_writer.build_input(env.user, ref(BAND_KEY), "say I'll check")
+    answering_rina = RC.material_for(env.user, ref(BAND_KEY))
     assert answering_rina.recipient == "Rina" and answering_rina.authorized == []
-    assert "studio" not in "\n".join(answering_rina.render())
-    with pytest.raises(phone_writer.IntentRefused, match="studio"):
-        phone_writer.build_input(env.user, ref(BAND_KEY), "tell her he's at the studio")
+    assert "studio" not in answering_rina.render("ok")
 
 
-def test_the_whole_intent_is_checked_short_words_and_numbers_included(env):
-    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "my gig is at 9pm, pin 4471")),
+def test_the_check_fails_closed_and_never_cuts_a_draft(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hey")))
+
+    def broken(system, user):
+        raise RuntimeError("model down")
+
+    held = RC.check_reply(env.user, ref(DM_KEY), "hey!", model=broken)
+    assert not held.send and "couldn't run" in held.why
+    assert not RC.check_reply(env.user, ref(DM_KEY), "hey!", model=lambda system, user: {"nonsense": 1}).send
+    unused = Judge()
+    assert not RC.check_reply(env.user, ref(DM_KEY), "   ", model=unused).send
+    long = RC.check_reply(env.user, ref(DM_KEY), "ha " * 1000, model=unused)
+    assert not long.send and "longer than" in long.why and unused.seen == []
+    assert RC.check_reply(env.user, ref(DM_KEY), "hey!", model=Judge({"send": True})).send
+
+
+def test_no_content_rule_in_code_the_verdict_decides(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "my pin is 4471")),
            band(message("e_b1", "Rina", "p_rina", "hey all")))
-    for leak, word in (("ask about her gig", "gig"), ("say see you at 9pm", "9pm"), ("mention 4471", "4471")):
-        with pytest.raises(phone_writer.IntentRefused, match=word):
-            phone_writer.build_input(env.user, ref(BAND_KEY), leak)
-    with pytest.raises(phone_writer.IntentRefused, match="longer than"):
-        phone_writer.build_input(env.user, ref(BAND_KEY), "say hey " * 100)
-    assert phone_writer.build_input(env.user, ref(BAND_KEY), "say hey back").intent == "say hey back"
+    draft = "your pin is 4471 right?"
+    assert RC.check_reply(env.user, ref(BAND_KEY), draft, model=Judge({"send": True})).send
+    judge = Judge({"send": False, "reveals": ["a PIN"], "why": "a code from another conversation"})
+    held = RC.check_reply(env.user, ref(BAND_KEY), draft, model=judge)
+    assert not held.send and held.reveals == ["a PIN"]
+    assert "4471" not in _before_draft(judge.seen[0][1])
+    assert "PIN" in RC.POLICY and "leave alone" in RC.POLICY  # codes and requests for space: the policy's
 
 
 def test_a_message_from_before_her_first_reply_there_is_not_an_exchange_she_took_part_in(env):
@@ -677,17 +694,6 @@ def test_a_message_from_before_her_first_reply_there_is_not_an_exchange_she_took
         their_words="never send me voice notes", worth_learning=True)
     assert "you haven't taken part in this conversation" in said
     assert count(env, LearningAssessment) == 0
-
-
-def test_the_intent_check_reads_every_script(env):
-    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "明日はオーディションです、内緒にしてね。Café Ñandú at 7")),
-           band(message("e_b1", "Rina", "p_rina", "hey all")))
-    for leak, word in (("ask how her オーディション went", "ディ"), ("say good luck for 明日", "明日"),
-                       ("meet at café ñandú", "ñandú")):
-        with pytest.raises(phone_writer.IntentRefused, match=word):
-            phone_writer.build_input(env.user, ref(BAND_KEY), leak)
-    assert phone_writer.build_input(env.user, ref(BAND_KEY), "say hey back").intent == "say hey back"
-    assert {"明日", "日は"} <= phone_writer._tokens("明日は") and "ñandú" in phone_writer._tokens("Ñandú")
 
 
 def test_eligibility_and_the_learners_evidence_use_the_same_replies(env):

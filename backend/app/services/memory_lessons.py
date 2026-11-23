@@ -28,7 +28,8 @@ proposes checked changes and this module applies them by its own rules.
   to (``PhoneScope``), and is shadow (``phone_live`` false). Every ordinary retrieval (``shown_for`` and
   ``for_learning`` outside that person's own assessments, ``for_decision``, ``for_learning_ids``) leaves phone
   lessons out, so routing an exchange through the learner can never make its lesson reach her decisions; only
-  ``for_phone_audience`` reads them, live ones only, for the reply writer of an audience they apply to. A phone
+  ``for_phone_audience`` reads them, live ones only, for one audience they apply to (the check on a reply there,
+  ``phone_reply_check``, reads the person's words behind one learned in that conversation). A phone
   reading changes only that person's lessons; an ordinary reading never touches a phone lesson.
 - **Forgetting.** ``drop_for``: lessons whose evidence came from forgotten messages go, with their revisions and uses,
   and so do the raw decision captures that showed them (their ``lesson:<id>`` source).
@@ -1129,8 +1130,8 @@ def for_game(db: Session, user_id: uuid.UUID, game: str | None, *, query: str = 
 
 @dataclass(frozen=True)
 class AudienceLesson:
-    """A live phone lesson as the reply writer of one audience reads it: its behaviour, and only in the conversation
-    it was learned in, the person's own words behind it."""
+    """A live phone lesson as one audience may read it: its behaviour, and only in the conversation it was learned
+    in, the person's own words behind it."""
 
     id: str
     statement: str

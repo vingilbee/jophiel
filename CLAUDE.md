@@ -247,7 +247,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   her replies and their echoes, read_person; docs/PHONE_PHASE_8_AFFINITY_B1.md) +
                        #   phone_relationships.py (B2: her readings of exchanges, shadow relationship proposals,
                        #   requests for space, authorized details, the learner's view of a phone exchange, review) +
-                       #   phone_writer.py (B2: the third-party reply writer's audience-filtered input; no dispatch) +
+                       #   phone_reply_check.py (B2: a check model reads her reply to someone else against a policy and only that
+                       #   conversation's material before it goes out; fails closed; no dispatch) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
@@ -418,8 +419,9 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 - **Always on (2026-10-28, the user's decision):** no feature flags for her own parts. Flags remain only for outside setup or behaviour choices.
 - **People on the phone (B2, 2026-11-22):** relationship proposals and phone lessons are shadow: nothing she reads
   or does uses them (`GET /api/memory/people/{id}/review` inspects them). Phone lessons are filtered out of every
-  ordinary lesson retrieval in the query; requests for space are active at once. The reply writer's input is built
-  per audience before anything is read (`services/phone_writer.py`) and is never on the owner's chat or voice path.
+  ordinary lesson retrieval in the query; requests for space are active at once. Her mind writes replies to others
+  herself; a check model (`services/phone_reply_check.py`) reads each against a written policy and only that
+  conversation's material before it goes out. No content rule in code; never on the owner's chat or voice path.
 - **Owner only (2026-11-01):** `/api/learning`, `/api/mind`, `/api/memory`, `/api/system` are guarded by `deps.require_owner`. Owner = `OWNER_EMAILS`.
 - **System page** `/system`: design contract `.impeccable/surfaces/frontend-src-pages-systempage-tsx.md`, `PRODUCT.md`, `DESIGN.md`.
 

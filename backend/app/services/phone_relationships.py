@@ -26,8 +26,8 @@ enforces audience boundaries; her mind judges who was addressed, what an exchang
   Nothing here is read by her active relationship record, ``read_person``, her prompts, her lessons or scheduling.
 - **Requests for space** (``note_request_for_space``): the person's exact words, active at once, kept apart from
   proposals and the note (a later note rewrite never touches it). ``everywhere`` or the conversation it was said in,
-  and a topic when they named one (other topics stay open). ``follow_up_blocked`` is B3's check before a follow-up
-  of her own.
+  and a topic when they named one (other topics stay open). She reads them (``read_person``) and so does the check
+  on a reply before it goes out (``phone_reply_check``); no code matches topics.
 - **What the user authorized** (``authorize_detail``): a detail for one person in one conversation; a direct chat's
   authorization never covers a group.
 - **Inspection and correction** (``review`` / ``retract``): ``GET /api/memory/people/{id}/review``. Deleting a person
@@ -538,19 +538,6 @@ def active_boundaries(db: Session, user_id: uuid.UUID, person_id: uuid.UUID,
         PhoneContactBoundary.user_id == user_id, PhoneContactBoundary.person_id == person_id,
         PhoneContactBoundary.lifted_at.is_(None)).order_by(PhoneContactBoundary.created_at)).all()
     return [r for r in rows if r.scope == "everywhere" or r.conversation_id == conversation_pk]
-
-
-def follow_up_blocked(db: Session, user_id: uuid.UUID, person_id: uuid.UUID, conversation_pk: uuid.UUID | None,
-                      text: str) -> list[str]:
-    """B3's check before a follow-up of her own: why it may not go out (empty: no request for space stops it). A
-    request about a topic stops only a follow-up touching that topic."""
-    out = []
-    for b in active_boundaries(db, user_id, person_id, conversation_pk):
-        if b.topic is None:
-            out.append(f'they asked for space: "{b.words}"')
-        elif _mentions(b.topic, text):
-            out.append(f'they asked to leave {b.topic} alone: "{b.words}"')
-    return out
 
 
 def lift_boundary(db: Session, user_id: uuid.UUID, boundary_id: uuid.UUID) -> bool:

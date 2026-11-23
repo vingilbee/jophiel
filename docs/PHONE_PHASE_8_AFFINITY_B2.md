@@ -1,7 +1,7 @@
 # Affinity B2 implementation handoff
 
 > **Status:** implemented (2026-11-22). `services/phone_relationships.py` (readings, shadow proposals, requests for
-> space, authorizations, the learner's view, review), `services/phone_writer.py` (the writer boundary), migration
+> space, authorizations, the learner's view, review), `services/phone_reply_check.py` (the check on a reply before it goes out), migration
 > `b5e8d2a7c4f1`, tests `tests/test_phone_relationships.py` and a regression in `tests/test_learning_lessons.py`.
 > **Inspect shadow results:** `GET /api/memory/people/{id}/review` (owner only): the active record beside the shadow
 > view, every proposal with its exchange, audience and event key, her readings, requests for space, authorizations,
@@ -22,10 +22,18 @@
 >   only `memory_lessons.for_phone_audience` reads them, live ones only. Nothing in B2 sets `phone_live`.
 > - `also_for` is honoured only for a conversation the person shares with the user whose title their words name.
 > - An authorization names its recipient: in a group, another member's authorization isn't the reply's.
-> - The writer's intent is checked whole (an over-long one is refused, never cut) and refuses any word or number,
->   short ones included, known only from outside the audience (the person's other
->   conversations, notes or requests said elsewhere, other audiences' authorizations, the phone's other
->   notifications, deferred material for elsewhere). It can over-refuse a common word; the refusal names it.
+> - **No separate writer (the user's decision, 2026-11-22, replacing §4's writer).** Her mind writes a reply to
+>   someone else herself, with all her context (one mind, one voice, no second call to word it). Before it goes out
+>   a separate check model (`phone_reply_check.check_reply`, one extra call, only on replies to other people)
+>   reads her draft against a written policy (`POLICY`) and only what that conversation has seen: its recent
+>   messages and her replies there, the people's words noted there (and behind live lessons learned there), what
+>   the user authorized for the person she's answering there, and requests for space covering it. It never sees
+>   the owner's memory. Its verdict decides: send, or hold with what it would reveal and why. **No content rule in
+>   code** (the user's decision): privacy, codes and PINs, requests for space touching a reply are all the
+>   policy's; code only finds the conversation and recipient, builds the material per audience, and fails closed
+>   (no check, no send; an over-long draft is held, never cut). The topic matcher `follow_up_blocked` was removed
+>   for the same reason. B2 has no dispatch: B3's send goes through the check. Deferred intentions for B3 aren't
+>   part of it yet.
 > - Phone messages gain an optional `reply_to` (the replied-to `event_id`); nothing infers it.
 > - Not built: lifting a request for space from a tool (service `lift_boundary` only), owner corrections of
 >   identity, retention.
@@ -49,7 +57,7 @@ Code supplies facts and enforces audience boundaries. Mind judges who was addres
 
 Store a clearly expressed contact boundary separately from shadow proposals and the rewritable relationship note. Preserve the person's intended scope, including a topic or audience when specified. Make the active request available for B3 to check before sending an independent follow-up. A request to leave the audition alone allows ordinary conversation about other topics. A later relationship assessment or note rewrite must preserve the request.
 
-## 4. Build the third-party writer boundary
+## 4. Build the third-party writer boundary (superseded: a check on her own reply, see Status)
 
 Mind may decide to reply, wait, ignore or privately ask Vincent. For a third-party reply, pass an audience-safe intent to the writer. Construct its input from Jophiel's personality, active relationship context safe for that audience, recent messages from that conversation, and any specific detail Vincent authorized for that recipient and audience. Filter lessons and recall **before retrieval into the writer's context**. Apply the same boundary to the intent itself and any deferred material the writer can read. A DM authorization does not extend to a group. Warmth never grants access to Vincent's information.
 
