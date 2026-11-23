@@ -2,10 +2,10 @@
 
 # Jophiel
 
-**An AI companion with a mind of her own.**
+**An AI that feels like someone, not something.**
 
-She remembers you, keeps thinking after you stop typing,<br/>
-comes back to things on her own, and plays Minecraft beside you.
+The goal: a companion who lives the way a person does.<br/>
+She remembers, thinks on her own, comes back to you, and has a life between your messages.
 
 ![Python](https://img.shields.io/badge/Python-FastAPI-009688?logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-agent-1C3C3C?logo=langchain&logoColor=white)
