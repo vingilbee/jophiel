@@ -113,21 +113,20 @@ def echo_id(message: dict) -> str:
 # Ingestion
 # --------------------------------------------------------------------------- #
 
-def ingest(user_id: uuid.UUID | str, notifications: Iterable[Any], *, now: float | None = None,
-           fresh_owner: dict[str, list[dict]] | None = None) -> bool:
-    """Record who wrote in these posted notifications (``phone_notifications.Notification``), in one
-    transaction of its own. ``fresh_owner``: per notification key, the owner messages this report shows for the
-    first time, the only ones matched as her replies coming back (none given: none matched). Returns whether it
-    worked; a failure is logged, never raised."""
-    notifications = [n for n in notifications if n.messages]
-    if not notifications:
+def ingest(user_id: uuid.UUID | str, snapshots: Iterable[tuple[Any, list[dict]]], *,
+           now: float | None = None) -> bool:
+    """Record who wrote in these posted snapshots, in order, in one transaction of its own. Each is
+    (``phone_notifications.Notification``, the owner messages that snapshot shows for the first time): only those
+    are matched as her replies coming back. Returns whether it worked; a failure is logged, never raised."""
+    snapshots = [(n, fresh) for n, fresh in snapshots if n.messages]
+    if not snapshots:
         return True
     at = _utc(time.time() if now is None else now)
     user = uuid.UUID(str(user_id))
     try:
         with SessionLocal.begin() as db:
-            for notification in notifications:
-                _ingest_one(db, user, notification, at, (fresh_owner or {}).get(notification.key) or [])
+            for notification, fresh in snapshots:
+                _ingest_one(db, user, notification, at, fresh)
         return True
     except Exception:  # noqa: BLE001 - the phone's report never fails because of this
         log.warning("phone_people: could not record who wrote for user %s", user_id, exc_info=True)

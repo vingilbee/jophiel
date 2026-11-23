@@ -201,7 +201,9 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                 try:
                     pipe.watch(key, _news_key(user_id))
                     stored = {(k.decode() if isinstance(k, bytes) else k): v for k, v in (pipe.hgetall(key) or {}).items()}
-                    writes, deletes, news, applied, fresh_owner = {}, [], [], [], {}
+                    # applied: each posted snapshot as applied, in order, with the owner messages it shows for the
+                    # first time (two snapshots of one key in a report each keep their own).
+                    writes, deletes, news, applied = {}, [], [], []
                     # Switched off: nothing it reported before is still known, the words in queued news included.
                     queued = pipe.llen(_news_key(user_id)) or 0
                     drop_news = payload.all_removed and bool(queued)
@@ -218,12 +220,11 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                         new.news_at = now if entry is not None or old is None else old.arrived_at
                         writes[item.key] = new.dump()
                         stored[item.key] = writes[item.key]
-                        applied.append(new)
                         # Owner messages this snapshot shows for the first time: only these can be her reply
                         # coming back (one seen before, the user's own included, is never re-matched later).
                         seen = {_message_id(m) for m in old.messages} if old is not None else set()
-                        fresh_owner[item.key] = [m for m in new.messages
-                                                 if _from_owner(m) and _message_id(m) not in seen]
+                        applied.append((new, [m for m in new.messages
+                                              if _from_owner(m) and _message_id(m) not in seen]))
                         if entry is not None:
                             news.append(entry)
                     for item in payload.removed:
@@ -275,7 +276,7 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
     except redis.RedisError:
         log.warning("phone_notifications: could not record a report for user %s", user_id)
         return 0, 0
-    phone_people.ingest(user_id, [n for n in applied if n.key in writes], now=now, fresh_owner=fresh_owner)
+    phone_people.ingest(user_id, [(n, fresh) for n, fresh in applied if n.key in writes], now=now)
     removed = len([d for d in deletes if d not in writes])
     return len(writes), removed
 
@@ -386,6 +387,27 @@ def news_ids(news: list[dict]) -> list[str]:
     return [entry["id"] for entry in news if entry.get("id")]
 
 
+def _acknowledge_missed(client: redis.Redis, user_id: uuid.UUID | str, told: int) -> None:
+    """Subtract the count she was told, in one transaction with the read (a report adding to it meanwhile makes
+    it retry): more missed since stays for the next moment, and the key goes only when nothing is left."""
+    key = _missed_key(user_id)
+    for _ in range(WRITE_TRIES):
+        with client.pipeline() as pipe:
+            try:
+                pipe.watch(key)
+                left = int(pipe.get(key) or 0) - told
+                pipe.multi()
+                if left > 0:
+                    pipe.set(key, left, keepttl=True)
+                else:
+                    pipe.delete(key)
+                pipe.execute()
+                return
+            except redis.WatchError:
+                continue
+    raise redis.WatchError(f"{key} kept changing")
+
+
 def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> None:
     """Drop exactly the news items a tick read (their ids, or the items themselves): anything queued since, and
     anything it didn't read, stays for the next tick, however the queue moved meanwhile (trimmed when full,
@@ -397,9 +419,8 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
         return
     for missed in [i for i in ids if str(i).startswith(MISSED_ID + ":")]:
         ids.discard(missed)
-        try:  # only what she was told: more missed since stays for the next moment
-            if client.decrby(_missed_key(user_id), int(missed.split(":", 1)[1])) <= 0:
-                client.delete(_missed_key(user_id))
+        try:
+            _acknowledge_missed(client, user_id, int(missed.split(":", 1)[1]))
         except (redis.RedisError, ValueError):
             log.warning("phone_notifications: the missed count could not be acknowledged for user %s", user_id)
     if not ids:

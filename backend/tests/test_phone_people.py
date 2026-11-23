@@ -258,6 +258,18 @@ def test_an_owner_message_seen_before_her_send_is_never_matched_later(channel):
     assert now_line(channel).endswith(", you answered since")
 
 
+def test_two_snapshots_of_one_notification_in_one_report_each_keep_their_new_owner_messages(channel):
+    """The phone batches revisions 2 and 3 of one key into one report: her echo first shown in revision 2 is
+    still matched, though revision 3 (compared against 2) doesn't show it as new."""
+    report(channel, RINA_DM)
+    mine = send(channel, "hi Rina")
+    report(channel,
+           chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "hi Rina")], revision=2),
+           chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "hi Rina"),
+                                             owner("e_o2", "see you at 7")], revision=3))
+    assert outbound(channel, mine).echo_event_id == "e_o1"
+
+
 def test_an_echo_too_late_or_a_failed_send_is_never_hers(channel):
     report(channel, RINA_DM)
     failed = send(channel, "on my way", status="failed")
@@ -359,6 +371,34 @@ def test_a_full_queue_says_how_much_went_unread_and_acknowledges_only_what_she_w
     assert [(entry["kind"], entry.get("count")) for entry in later] == [("missed", 1), ("posted", None)]
     phone_notifications.acknowledge_news(channel.user, later)
     assert phone_notifications.pending_news(channel.user) == []
+
+
+def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
+    key = phone_notifications._missed_key(channel.user)
+    channel.bus.set(key, 3, ex=600)
+    [missed] = phone_notifications.pending_news(channel.user)
+    # A report adds 2 while she reads: the first transaction sees the change and retries.
+    real = channel.bus.pipeline
+    raced = []
+
+    def pipeline():
+        pipe = real()
+        if not raced:
+            raced.append(True)
+            watch = pipe.watch
+
+            def watch_then_race(*keys):
+                watch(*keys)
+                channel.bus.incrby(key, 2)
+            pipe.watch = watch_then_race
+        return pipe
+
+    monkeypatch.setattr(channel.bus, "pipeline", pipeline)
+    phone_notifications.acknowledge_news(channel.user, [missed])
+    assert int(channel.bus.get(key)) == 2 and 0 < channel.bus.ttl(key) <= 600
+    monkeypatch.setattr(channel.bus, "pipeline", real)
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user))
+    assert not channel.bus.exists(key)
 
 
 def test_the_hourly_cap_holds_news_and_drops_none(channel, _settings):
