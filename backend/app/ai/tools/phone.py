@@ -7,6 +7,9 @@ Which actions a turn gets (frontend-phone/PLAN_PHASE_8.md, "Actions"; app/ai/cha
   (``OWN_TURN_ACTIONS``), never anything that opens over their screen; replies to other people only once
   ``PHONE_AUTONOMOUS_REPLIES`` is on (the affinity delivery checks, docs/PHONE_PHASE_8_AFFINITY.md);
 - a turn someone else's words caused (a notification): none (not built at all).
+
+``read_person`` (affinity B1, ``build_people_tools``): what she knows of someone on the phone, on the user's reply
+turns only (never on a wake, never on a turn someone else's words caused).
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from langchain_core.tools import BaseTool, StructuredTool, tool
 from pydantic import BaseModel, Field, create_model
 
 from app.core.config import get_settings
-from app.services import google_maps, phone_actions, phone_notifications, phone_state
+from app.services import google_maps, phone_actions, phone_notifications, phone_people, phone_state
 from app.services.google_maps import Mode, Waypoint
 
 # Quiet things she may do on her own; everything else needs the user talking with her.
@@ -169,7 +172,7 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
     async def ask(action: str, args: dict, target: tuple[str, str | None] | None = None,
                   view: dict | None = None) -> phone_actions.Outcome:
         return await asyncio.to_thread(phone_actions.act, user_id, conversation_id, action, args, target=target,
-                                       view=view)
+                                       view=view, asked_by="her" if own_turn else "user")
 
     async def position(target: tuple[str, str | None] | None = None) -> phone_actions.Outcome:
         outcome = await ask("get_position", {}, target)
@@ -400,3 +403,20 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         return _display(address) if address else "Maps couldn't identify a street or area there."
 
     return [phone_action_tool, get_route, search_places, where_am_i]
+
+
+def build_people_tools(user_id: uuid.UUID) -> list[BaseTool]:
+    """``read_person``: the user's reply turns only (app/ai/chat.py)."""
+
+    @tool
+    async def read_person(name: str) -> str:
+        """What you know of someone who has written on the user's phone: your relationship record with them, the
+        conversations they share with the user, your last direct exchange and what you've sent them.
+
+        Use it when the user asks about someone from their phone ("how do you feel about Rina?"). name: the name as
+        they said it, or a handle you were shown (person:...). When several people match, you get the list: ask
+        which one they mean. Answer in your own words; the record's labels are yours, never a score to quote.
+        """
+        return await asyncio.to_thread(phone_people.read_person, user_id, name)
+
+    return [read_person]

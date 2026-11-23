@@ -77,6 +77,12 @@ class FakeRedis:
         for f in fields:
             self.hashes.get(key, {}).pop(f, None)
 
+    def get(self, key):
+        return None  # no plain values here (a notification queue never overflowed)
+
+    def hget(self, key, field):
+        return self.hashes.get(key, {}).get(field)
+
     def expire(self, key, seconds):
         return True
 

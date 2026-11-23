@@ -170,6 +170,22 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **Push wait**: an action sent by push waits `PUSH_WAIT_SECONDS` (20 s) instead of the socket wait. A late answer
   replaces the "sent, no answer yet" line: same id (`dispatch_line_id`), and the `phone_activity` frame carries
   `replaces: true`.
+- **People (affinity B1, `docs/PHONE_PHASE_8_AFFINITY_B1.md`; `services/phone_people.py`, migration
+  `a4d7e1c9b3f2`)**: each report's posted notifications are ingested after the Redis write, in their own
+  transaction: a conversation per `conversation_id`, a person per sender id (key + default affinity created only
+  when the key doesn't exist; never merged), memberships. Names and opaque ids only, never others' text. News and
+  her "Now" put a bracket after each sender: `person:` handle, contact or not, new or seen before, whether she has
+  spoken with them, other conversations they share (titles); "couldn't look them up" when the records can't be
+  read, never "new". No labels are shown in moments.
+- **Her replies echoed back**: every `reply_notification` is a `phone_outbound` row (`sending` before dispatch,
+  `sent` / `failed` from the answer, `unknown` without one; never resent). A new `owner` message in that
+  conversation within 10 min whose normalized text matches exactly one sent-or-unknown row is hers ("you answered
+  since"); anything else stays "answered from the phone since".
+- **Wake bursts**: a conversation's news waits until it has been quiet `PHONE_NOTIFICATION_BURST_SECONDS` (20 s;
+  at most 3 bursts), so one tick reads the burst; ticks caused only by notifications are capped at
+  `PHONE_NOTIFICATION_TICKS_PER_HOUR` (30) per user, past which news waits for the heartbeat. Nothing is dropped.
+- **`read_person`**: on the user's reply turns only (not wakes, not third-party turns): her record for one person,
+  or the list when several match. Inspection: `GET /api/memory/people`, `DELETE /api/memory/people/{id}`.
 
 ## Records
 

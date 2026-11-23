@@ -6,10 +6,16 @@
                                   reports and what memory did with each (and why), failures
     GET /api/memory/recall        shared recall: event-embedding progress and her latest replies' receipts
                                   (search outcome, what each was given and what its words referred to)
+    GET /api/memory/people        people she can tell apart on the phone, a page at a time (limit, offset, q =
+                                  a name): their relationship record, shared conversations, what she sent them
+                                  (services/phone_people.py)
+    DELETE /api/memory/people/{id}  forget one: keys, memberships, affinity and evidence; her sent text stays
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_owner
@@ -17,9 +23,11 @@ from app.db.models import User
 from app.db.session import get_db
 from app.schemas.memory import (
     ManagerStateOut, MemoryContextOut, MemoryCorrectionOut, MemoryEventOut, ObservationAdapterOut, ObservationOut, ObservationsOut,
-    ObservationSourceOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
+    ObservationSourceOut, PhonePeopleOut, PhonePersonOut, RecallOut, RecallReceiptOut, WorkingItemOut, WorkingMemoryOut,
 )
-from app.services import memory_corrections, memory_dependencies, memory_manager, observation, recall_references
+from app.services import (
+    memory_corrections, memory_dependencies, memory_manager, observation, phone_people, recall_references,
+)
 
 # The owner only (deps.require_owner): her insides are not for other users.
 router = APIRouter(prefix="/memory", tags=["memory"], dependencies=[Depends(require_owner)])
@@ -67,3 +75,24 @@ def recall_status(user: User = Depends(get_current_user), db: Session = Depends(
     return RecallOut(embeddings=found["embeddings"],
                      receipts=[RecallReceiptOut.model_validate(r).model_copy(update=refs)
                                for r, refs in found["receipts"]])
+
+
+@router.get("/people", response_model=PhonePeopleOut)
+def people(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+           q: str | None = Query(None, max_length=120),
+           user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> PhonePeopleOut:
+    """One page of people (``limit`` / ``offset``; ``q``: a name, shown now or before); ``next_offset`` is null on
+    the last page."""
+    rows, total = phone_people.inspect(db, user.id, limit=limit, offset=offset, name=q)
+    after = offset + len(rows)
+    return PhonePeopleOut(people=[PhonePersonOut.model_validate(p) for p in rows], total=total,
+                          next_offset=after if after < total else None)
+
+
+@router.delete("/people/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+def forget_person(person_id: uuid.UUID, user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)) -> Response:
+    if not phone_people.delete_person(db, user.id, person_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

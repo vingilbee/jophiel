@@ -181,3 +181,46 @@ class RecallReceiptOut(BaseModel):
 class RecallOut(BaseModel):
     embeddings: dict[str, int] = {}
     receipts: list[RecallReceiptOut] = []
+
+
+# --------------------------------------------------------------------------- #
+# People on the phone (GET /api/memory/people; services/phone_people.py)
+# --------------------------------------------------------------------------- #
+
+class PhonePersonConversationOut(BaseModel):
+    title: str | None
+    is_group: bool
+    app: str | None
+
+
+class PhoneAffinityOut(BaseModel):
+    familiarity: str
+    warmth: str
+    initiative: str
+    note: str | None
+    preferences: dict = {}
+    last_direct_exchange_at: datetime | None
+    version: int
+    updated_at: datetime
+
+
+class PhonePersonOut(BaseModel):
+    id: uuid.UUID
+    handle: str
+    display_name: str | None
+    names: list[str] = []
+    in_contacts: bool | None
+    status: str
+    identities: list[str] = []
+    first_seen_at: datetime
+    last_seen_at: datetime
+    conversations: list[PhonePersonConversationOut] = []
+    affinity: PhoneAffinityOut | None
+    sent: int = 0
+    last_sent_at: datetime | None = None
+
+
+class PhonePeopleOut(BaseModel):
+    people: list[PhonePersonOut] = []
+    total: int = 0
+    next_offset: int | None = None
