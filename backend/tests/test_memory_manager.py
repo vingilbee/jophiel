@@ -337,8 +337,8 @@ def test_the_tools_act_for_their_own_user_with_the_message_as_evidence(database,
     with database() as setup:
         message = _message(setup, alice, "let's plan my interview")
     tools = {t.name: t for t in build_memory_tools(alice.id, message_id=message.id)}
-    assert set(tools) == {"set_goal", "update_item", "note_commitment", "note_intention", "note_question",
-                          "switch_context"}
+    assert set(tools) == {"set_goal", "update_item", "note_commitment", "change_promise", "note_intention",
+                          "note_question", "switch_context"}
     assert asyncio.run(tools["switch_context"].ainvoke({"name": "Interview prep", "kind": "project"})) \
         == "Now in: Interview prep."
     kept = asyncio.run(tools["set_goal"].ainvoke({"goal": "prepare answers for Friday"}))

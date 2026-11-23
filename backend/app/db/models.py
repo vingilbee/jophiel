@@ -1840,7 +1840,9 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "goal": (("active", "suspended"), ("completed", "abandoned")),
     "commitment": (("open", "needs_review"), ("fulfilled", "cancelled")),
     "intention": (("active",), ("done", "dropped", "lapsed")),
-    "question": (("open",), ("answered", "dropped")),
+    # Open: "open" (not asked yet, for hers; waiting on her, for theirs), "asked" (hers, asked and waiting on their
+    # answer: the asking message is its "asked" evidence). Closed: answered, dropped, or "stale" (no longer matters).
+    "question": (("open", "asked"), ("answered", "dropped", "stale")),
     # Hers, from her own thinking (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md): a suspicion, and what she decided.
     "hypothesis": (("open",), ("supported", "disproved", "unresolved")),
     "decision": (("active",), ("superseded", "withdrawn")),
@@ -1853,7 +1855,8 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
 # basis: what she read when she thought it; restated: she reached it again. Neither is support.
-MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction", "basis", "restated")
+# asked: the message of hers that asked an open question of hers.
+MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction", "basis", "restated", "asked")
 
 
 def _in(values) -> str:
@@ -1941,6 +1944,15 @@ class WorkingItem(Base, TimeFieldsMixin):
     # The unresolved disagreement it depends on (a question her mind raised about a conflict): settling the
     # conflict closes it (services/memory_conflicts.settle).
     premise_conflict_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A promise owed when something happens rather than at a time (services/memory_manager.note_commitment):
+    # {"kind": "event", "text": "when the report finishes"} (her mind recognises it), or {"kind": "work", "work_id",
+    # "request_id", "text"} (background work of hers: its end is recognised by code). ``trigger_met_at``: when code
+    # saw that work end; until then the promise can't be kept.
+    trigger: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    trigger_met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A question of hers handed to her mind as a wake once (services/mind_conversation.py), so she can choose to
+    # follow it up while they're quiet. Set for the backlog by migration e8b3f1a6c4d7, so it's never handed over.
+    offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

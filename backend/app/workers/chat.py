@@ -508,6 +508,9 @@ async def _generate(job: ChatJob) -> None:
                         db, user_id=job.user_id, conversation_id=job.conversation_id,
                         assistant_message_id=assistant.id, commit=False,
                     )
+                    # What these words carried out, kept with them: a promise of hers counts kept exactly when
+                    # this commit stores them (and a retry finds them stored); a question she asks waits on them.
+                    _carried_out(db, mind, assistant.id, info if follow_up else None)
                     if context.channel == "whatsapp":
                         identity_id = _whatsapp_identity(payload, job.id)
                         if identity_id is not None:
@@ -653,6 +656,35 @@ def _personality() -> str | None:
     except Exception:  # noqa: BLE001
         logger.exception("chat worker: personality unavailable for this evaluation")
         return None
+
+
+def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None) -> None:
+    """In the delivery transaction, after her words are added (completed only: words cut off part way may not
+    carry what was promised): the promises of hers she marked kept in this evaluation, and the promise a due wake
+    woke her for when she spoke for it and didn't move or let go of it, are fulfilled with this message as their
+    evidence; questions of hers she asked here wait on their answer. A savepoint: bookkeeping never fails a
+    delivery (what isn't recorded stays open and visible)."""
+    from app.services import coordinator, memory_manager
+
+    try:
+        with db.begin_nested():
+            keep = dict.fromkeys(mind.fulfilled)
+            inp = (info or {}).get("input") or {}
+            if (info or {}).get("kind") == "wake" and inp.get("item") and not mind.deferred and not mind.dropped:
+                item_id = uuid.UUID(inp["item"])
+                if coordinator.promise_wake_of(db, mind.user_id, item_id) is None:
+                    keep.setdefault(item_id, None)
+            for item_id in keep:
+                memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id,
+                                            reason=mind.keeping.get(item_id) or "you said it when it came due")
+            asked = list(mind.asking)
+            premise = inp.get("premise") or {}
+            if inp.get("autonomous") and inp.get("wake") == "question" and premise.get("item"):
+                asked.append(uuid.UUID(premise["item"]))
+            for item_id in dict.fromkeys(asked):
+                memory_manager.question_asked(db, mind.user_id, item_id, message_id=message_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("chat worker: recording what a reply carried out failed")
 
 
 def _wake_ended(mind, info: dict | None, job: ChatJob, *, decided: bool, why: str) -> None:

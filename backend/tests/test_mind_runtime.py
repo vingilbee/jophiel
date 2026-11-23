@@ -269,6 +269,8 @@ def test_a_disagreement_with_memory_wakes_her_mind_once_in_its_conversation(monk
     monkeypatch.setattr(memory_conflicts, "mark_offered", lambda db, cid_: marked.append(cid_) or pending.clear())
     woke = []
     monkeypatch.setattr(autonomous_speech, "submit", lambda db, **kw: woke.append(kw) or "Proposed: queued.")
+    from app.services import open_questions
+    monkeypatch.setattr(open_questions, "hand_over", lambda db, now: [])  # covered in test_promises_and_questions
     source = mind_conversation.ConversationEvents()
     db = SimpleNamespace(commit=lambda: None)
     assert source.sweep(db, 1000.0) == [f"conflict {conflict_id.hex[:6]}: Proposed: queued."]

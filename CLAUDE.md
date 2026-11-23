@@ -19,6 +19,10 @@ Phone affinity B3 (2026-11-22): migration `c6f9e3b8d5a2` (`phone_outbound.attemp
 reply attempt; `docs/PHONE_PHASE_8_AFFINITY_B3.md`).
 Phone privacy (2026-11-23): migration `d7a1f4c8e2b9` (`phone_disclosures.verified`: grants checked against the user's
 own message).
+Promises and questions (2026-11-23): migration `e8b3f1a6c4d7` (`working_items.trigger` / `trigger_met_at` /
+`offered_at`, question statuses `asked` / `stale`, evidence role `asked`; the open-question backlog is marked handed
+over). A promise of hers is one item with its time (and durable wake) or condition; it's fulfilled only in the delivery
+commit of the words that keep it (`workers/chat.py` `_carried_out`). Questions: `services/open_questions.py`.
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -205,7 +209,11 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   (GET /api/mind/state);
                        #   memory_manager.py: her working memory (contexts, goals, commitments, intentions,
                        #   questions, her hypotheses and decisions, events); GET /api/memory/working inspects it;
-                       #   thought_memory.py: her finished thoughts handed to memory, kept or skipped;
+                       #   thought_memory.py: her finished thoughts (and learning's follow-ups) handed to memory,
+                       #   matched against her open and recently closed items, kept or skipped;
+                       #   open_questions.py: her questions' states (unasked / asked / answered / stale): a consumer
+                       #   reading messages for what they ask or answer, and one question handed to her mind while
+                       #   the user is quiet;
                        #   observation.py + observation_adapters.py + observation_memory.py: what sources
                        #   report (conversation, Minecraft) reaching working memory;
                        #   GET /api/memory/observations inspects it;

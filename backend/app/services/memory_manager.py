@@ -347,16 +347,57 @@ def set_goal(db: Session, user_id: uuid.UUID, text_: str, *, owner: str = "user"
 
 def note_commitment(db: Session, user_id: uuid.UUID, text_: str, *, owner: str = "columbina",
                     due_at: datetime | None = None, context_id: uuid.UUID | None = None,
-                    source: Source | None = None) -> WorkingItem:
-    """Something one party owes the other. A promise to herself is an intention, not this."""
+                    source: Source | None = None, done_when: str | None = None,
+                    trigger: dict | None = None) -> WorkingItem:
+    """Something one party owes the other. A promise to herself is an intention, not this. One promise records
+    what is owed (``text_``), when (``due_at``) or on what condition (``trigger``: ``_trigger``), and what counts
+    as done (``done_when``). A timed promise of hers also needs its durable wake (the tools schedule it with the
+    item: ``coordinator.schedule_wake``)."""
     if owner not in ("user", "columbina"):
         raise MemoryError("invalid", "a commitment is owed by you or by the user")
     if owner == "columbina" and fact_copy(text_):
         raise MemoryError("not_a_promise", "what the user tells you is kept in memory on its own; a promise is "
                                            "for something you still have to do")
     owed_to = "user" if owner == "columbina" else "columbina"
-    return add_item(db, user_id, kind="commitment", text_=text_, owner=owner, owed_to=owed_to, epistemic="reported",
-                    due_at=due_at, context_id=context_id, source=source)
+    entry = add_item(db, user_id, kind="commitment", text_=text_, owner=owner, owed_to=owed_to, epistemic="reported",
+                     due_at=due_at, context_id=context_id, source=source, done_when=done_when)
+    entry.trigger = _trigger(trigger)
+    return entry
+
+
+def _trigger(trigger: dict | None) -> dict | None:
+    """A promise's condition, as kept: ``event`` (words her mind recognises when it happens) or ``work`` (background
+    work of hers, recognised by code when it ends)."""
+    if not trigger:
+        return None
+    text_ = " ".join(str(trigger.get("text") or "").split())[:300]
+    if trigger.get("kind") == "work" and trigger.get("work_id"):
+        return {"kind": "work", "work_id": str(trigger["work_id"]), "request_id": str(trigger.get("request_id") or ""),
+                "text": text_ or "when the background work ends"}
+    if not text_:
+        raise MemoryError("invalid", "say what it waits for")
+    return {"kind": "event", "text": text_}
+
+
+# How early a timed promise may be counted kept: the clock of a wake that fires on time is never "early".
+KEEP_SLACK = timedelta(seconds=90)
+
+
+def unkeepable(entry: WorkingItem, now: datetime | None = None) -> str | None:
+    """Why a promise of hers can't count as kept now (None when it can): the time it's owed hasn't come, or what
+    it waits for hasn't happened. An execution fact, never a judgement of her words."""
+    if entry.kind != "commitment" or entry.owner != "columbina":
+        return None
+    now = now or _now()
+    if entry.due_at is not None and entry.due_at - KEEP_SLACK > now:
+        left = int((entry.due_at - now).total_seconds() // 60)
+        return (f"it's owed at a time that hasn't come (in about {left} min): it's kept when what you promised "
+                "reaches them then, and your wake for it will wake you. If what they want changed, change it "
+                "(change_promise); if they no longer want it, cancel it")
+    if (entry.trigger or {}).get("kind") == "work" and entry.trigger_met_at is None:
+        return ("what it waits for hasn't happened yet: it's kept when you deliver it after that. If they no "
+                "longer want it, cancel it")
+    return None
 
 
 _KEEP_PHRASES = ("remember", "keep in mind", "not forget", "don t forget", "do not forget", "never forget",
@@ -479,6 +520,10 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
         raise MemoryError("closed", f'that {entry.kind} is already {entry.status}')
     kept_herself = (own_word and status == "fulfilled" and entry.kind == "commitment"
                     and entry.owner == "columbina")
+    if status == "fulfilled" and (why := unkeepable(entry)) is not None:
+        raise MemoryError("not_due", why)
+    if status == "asked" and not (entry.kind == "question" and entry.owner == "columbina"):
+        raise MemoryError("invalid", "only a question of yours is asked")
     if status in ("completed", "fulfilled", "happened") and source is None and not kept_herself:
         raise MemoryError("no_evidence", "say what shows it's done (only when the user said so or it's clearly done)")
     if status in ("supported", "disproved") and source is None:
@@ -507,17 +552,136 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
     return entry, children
 
 
-def reopen_undelivered(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str) -> WorkingItem | None:
-    """A promise she marked fulfilled in an evaluation whose words never reached them (cancelled, failed): what
-    she meant to do didn't happen, so it is open again, with why. Returns it, or None when it wasn't closed as
-    fulfilled (nothing to undo)."""
-    entry = item(db, user_id, item_id, lock=True)
-    if entry.kind != "commitment" or entry.status != "fulfilled":
+def keep_promise(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
+                 reason: str) -> WorkingItem | None:
+    """A promise of hers kept by what she said, in the transaction that stores her delivered words (the chat
+    worker's delivery commit): the message is its resolution evidence, so it counts kept exactly when it was
+    delivered, and a worker that dies before or after that commit can neither lose nor repeat it. What she'd
+    scheduled to come back to about it is dropped. Returns it, or None when it isn't an open promise of hers or
+    can't be kept yet (``unkeepable``: then it stays open)."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if (entry is None or entry.kind != "commitment" or entry.owner != "columbina" or entry.closed_at is not None
+            or unkeepable(entry) is not None):
         return None
-    _set_status(db, entry, WORKING_ITEM_STATUSES[entry.kind][0][0],
-                f"marked fulfilled, but what you said wasn't delivered ({delivery})", _now())
-    _log({"op": "reopen_undelivered", "user": str(user_id), "item": str(entry.id), "delivery": delivery})
+    _set_status(db, entry, "fulfilled", " ".join((reason or "kept").split())[:300], _now())
+    link(db, user_id, role="resolution", source=Source("message", message_id), item_id=entry.id)
+    from app.services import coordinator
+    coordinator.close_item_wakes(db, user_id, entry.id)
+    _log({"op": "kept", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
     return entry
+
+
+def note_unkept(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery: str) -> WorkingItem | None:
+    """She meant to keep a promise in an evaluation whose words never reached them (cancelled, failed, stopped):
+    it stays open, and the attempt stays visible on it (its status reason and an event). Returns it, or None when
+    it is closed (kept or cancelled meanwhile: nothing to record)."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if entry is None or entry.kind != "commitment" or entry.closed_at is not None:
+        return None
+    entry.status_reason = f"you tried to keep it, but what you said wasn't delivered ({delivery})"
+    entry.updated_at = _now()
+    record_event(db, user_id, kind="item_changed", text=f"Promise not kept yet: {entry.text} (an attempt wasn't "
+                 f"delivered: {delivery})", epistemic="reported", context_id=entry.context_id, item_id=entry.id)
+    _log({"op": "unkept", "user": str(user_id), "item": str(entry.id), "delivery": delivery})
+    return entry
+
+
+reopen_undelivered = note_unkept  # the earlier name: a promise is no longer closed before it is delivered
+
+
+def revise_commitment(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, reason: str,
+                      text_: str | None = None, done_when: str | None = None, due_at: datetime | None = None,
+                      trigger: dict | None = None, source: Source | None = None) -> tuple[WorkingItem, list[str]]:
+    """A clarification or a change of an open promise: the same promise, with only what was said changed (its
+    wording, what counts as done, its time, its condition); everything else stays, its due time included. The old
+    version stays in an ``item_revised`` event. The caller moves its wake when ``due_at`` changed. Returns it and
+    what changed."""
+    entry = item(db, user_id, key, lock=True)
+    if entry.kind != "commitment":
+        raise MemoryError("invalid", f"that's a {entry.kind}, not a promise")
+    if entry.closed_at is not None:
+        raise MemoryError("closed", f"that promise is already {entry.status}")
+    if not (reason or "").strip():
+        raise MemoryError("invalid", "give a short reason")
+    before = _promise_words(entry)
+    changed = []
+    words = " ".join((text_ or "").split())
+    if words and words != entry.text:
+        if entry.owner == "columbina" and fact_copy(words):
+            raise MemoryError("not_a_promise", "a promise is for something you still have to do")
+        entry.text = words
+        changed.append("what")
+    if done_when is not None and " ".join(done_when.split()) != (entry.done_when or ""):
+        entry.done_when = " ".join(done_when.split()) or None
+        changed.append("done_when")
+    if due_at is not None and due_at != entry.due_at:
+        entry.due_at = due_at
+        changed.append("when")
+        if entry.status == "needs_review" and due_at > _now():
+            entry.status = "open"
+    if trigger is not None:
+        entry.trigger, entry.trigger_met_at = _trigger(trigger), None
+        changed.append("condition")
+    if not changed:
+        return entry, []
+    entry.status_reason = None if entry.status == "open" else entry.status_reason
+    entry.revision += 1
+    entry.updated_at = _now()
+    event = record_event(db, user_id, kind="item_revised",
+                         text=f"Promise changed ({' '.join(reason.split())[:200]}): {before} -> {_promise_words(entry)}",
+                         epistemic="reported", context_id=entry.context_id, item_id=entry.id,
+                         dedupe_key=f"promise:{entry.id}:{entry.revision}")
+    if source is not None:
+        link(db, user_id, role="support", source=source, item_id=entry.id)
+        if event is not None:
+            link(db, user_id, role="support", source=source, event_id=event.id)
+    _schedule(db, user_id, entry.due_at)
+    _log({"op": "revise_promise", "user": str(user_id), "item": str(entry.id), "fields": changed})
+    return entry, changed
+
+
+def _promise_words(entry: WorkingItem) -> str:
+    parts = [entry.text]
+    if entry.due_at is not None:
+        parts.append(f"(due {entry.due_at.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC)")
+    if entry.trigger:
+        parts.append(f"(owed {entry.trigger.get('text')})")
+    if entry.done_when:
+        parts.append(f"(done when: {entry.done_when})")
+    return " ".join(parts)
+
+
+def question_asked(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
+                   why: str = "you asked it") -> bool:
+    """A question of hers was asked in her message: it now waits on their answer, with that message as its
+    ``asked`` evidence. Forward only: one already asked, answered or closed is left as it is (a retry, a repeat).
+    Returns whether it changed."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if entry is None or entry.kind != "question" or entry.owner != "columbina" or entry.status != "open":
+        return False
+    _set_status(db, entry, "asked", " ".join(why.split())[:300], _now())
+    link(db, user_id, role="asked", source=Source("message", message_id), item_id=entry.id)
+    _log({"op": "asked", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
+    return True
+
+
+def question_answered(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
+                      why: str) -> bool:
+    """Their message answered an open question of hers (asked or not yet): closed as answered, the message as its
+    resolution. A closed question is never reopened. Returns whether it changed."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if entry is None or entry.kind != "question" or entry.closed_at is not None:
+        return False
+    _set_status(db, entry, "answered", " ".join(why.split())[:300] or "they answered", _now())
+    link(db, user_id, role="resolution", source=Source("message", message_id), item_id=entry.id)
+    from app.services import coordinator
+    coordinator.close_item_wakes(db, user_id, entry.id)
+    _log({"op": "answered", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
+    return True
 
 
 def link(db: Session, user_id: uuid.UUID, *, role: str, source: Source, item_id: uuid.UUID | None = None,
@@ -839,6 +1003,17 @@ def _ago(then: datetime, now: datetime) -> str:
     return f"{round(seconds / 86400)} days ago"
 
 
+def _span(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 90:
+        return f"{round(seconds)} s"
+    if seconds < 90 * 60:
+        return f"{round(seconds / 60)} min"
+    if seconds < 36 * 3600:
+        return f"{round(seconds / 3600)} h"
+    return f"{round(seconds / 86400)} days"
+
+
 def _whose(owner: str, user_name: str) -> str:
     return {"user": f"{user_name}'s", "columbina": "yours", "shared": "both of yours"}[owner]
 
@@ -866,9 +1041,20 @@ def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[u
     elif entry.kind == "commitment":
         who = "You promised" if entry.owner == "columbina" else f"{user_name} promised you"
         line = f"{who} {tag} ({_ago(entry.created_at, now)}): {entry.text}"
+        if entry.due_at is not None:
+            ahead = (entry.due_at - now).total_seconds()
+            line += (f" (owed in {_span(ahead)}, at {entry.due_at.astimezone(timezone.utc):%H:%M} UTC)" if ahead > 0
+                     else f" (was owed {_span(-ahead)} ago)")
+        if entry.trigger:
+            met = " (that has happened)" if entry.trigger_met_at else ""
+            line += f" (owed {entry.trigger.get('text')}{met})"
+        if entry.done_when:
+            line += f" (done when: {entry.done_when})"
         if entry.status == "needs_review":
             line += " (overdue or its context closed: check whether it still stands)"
             status = ""
+        elif entry.status_reason and entry.status == "open":
+            status = f" ({entry.status_reason})"
     elif entry.kind == "intention":
         line = f"You mean to {tag}: {entry.text}"
     elif entry.kind == "hypothesis":
@@ -887,9 +1073,14 @@ def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[u
         if entry.status == "needs_review":
             line += " (its time has passed and nobody said whether it happened)"
             status = ""
+    elif entry.owner == "columbina":
+        if entry.status == "asked":
+            line = f"Your question {tag}, asked {_ago(entry.updated_at, now)}, waiting for their answer: {entry.text}"
+        else:
+            line = f"Your question {tag}, not asked yet: {entry.text}"
+        status = ""
     else:
-        who = "You asked" if entry.owner == "columbina" else f"{user_name} asked"
-        line = f"{who} {tag}, still open: {entry.text}"
+        line = f"{user_name} asked {tag}, still open: {entry.text}"
     from app.services.memory_dependencies import HOLD_TEXT
 
     hold = (held or {}).get(entry.id)
@@ -949,10 +1140,13 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
         goal_lines.append("  " + _item_line(goal, now, name, sourced, plans, held))
         goal_lines += ["    - " + _item_line(c, now, name, sourced, plans, held)
                        for c in children.get(goal.id, [])[:VIEW_CHILDREN]]
-    commitments = ["  " + _item_line(e, now, name, sourced, plans, held)
-                   for e in mine if e.kind in ("commitment", "plan")][:VIEW_ITEMS]
-    questions = ["  " + _item_line(e, now, name, sourced, plans, held)
-                 for e in mine if e.kind == "question"][:VIEW_ITEMS]
+    # Promises she owes first (soonest owed first), then the rest; questions newest first: the most recent ones
+    # are the ones a turn can still follow up, and an old backlog never hides them.
+    owed = sorted((e for e in mine if e.kind in ("commitment", "plan")),
+                  key=lambda e: (e.owner != "columbina", e.due_at is None, e.due_at or e.created_at))
+    commitments = ["  " + _item_line(e, now, name, sourced, plans, held) for e in owed][:VIEW_ITEMS]
+    asked = sorted((e for e in mine if e.kind == "question"), key=lambda e: e.updated_at, reverse=True)
+    questions = ["  " + _item_line(e, now, name, sourced, plans, held) for e in asked][:VIEW_ITEMS]
     intentions = ["  " + _item_line(e, now, name, sourced, plans, held) for e in mine
                   if e.kind in ("intention", "hypothesis", "decision")][:VIEW_ITEMS]
     events = list(db.scalars(select(MemoryEvent).where(
@@ -1058,10 +1252,17 @@ def _tick_user(db: Session, user_id: uuid.UUID, now: datetime) -> bool:
     if current is None or current.next_check_at > now:
         return False
     done = []
+    from app.db.models import CoordinatorWork
+
     for entry in db.scalars(select(WorkingItem).where(
             WorkingItem.user_id == user_id, WorkingItem.closed_at.is_(None), WorkingItem.due_at <= now,
             WorkingItem.kind.in_(("intention", "commitment", "hypothesis", "plan")),
             WorkingItem.status != "needs_review").with_for_update()):
+        if entry.kind == "commitment" and db.scalar(select(CoordinatorWork.id).where(
+                CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(("queued", "running")),
+                CoordinatorWork.input["item"].astext == str(entry.id)).limit(1)) is not None:
+            continue  # its wake hasn't had its turn yet: not overdue until it has
         if entry.kind == "intention":
             _set_status(db, entry, "lapsed", "its time passed", now)
         elif entry.kind == "hypothesis":
