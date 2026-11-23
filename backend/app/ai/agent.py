@@ -65,6 +65,16 @@ def get_chat_model(model: str | None = None) -> ChatOpenAI:
     return ChatOpenAI(**kwargs)
 
 
+PRIVATE_RUN = {"callbacks": [], "tags": ["nostream"]}
+
+
+def invoke_private(runnable, messages):
+    """Run a check model (a verdict, never her words) detached from the turn it is called in: no inherited
+    callbacks, and tagged so LangGraph's message stream never carries its output to the user's transcript or
+    speech. Its result reaches only the code that called it (and the diagnostic trace that code keeps)."""
+    return runnable.invoke(messages, config=dict(PRIVATE_RUN))
+
+
 def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None, pre_model_hook=None):
     """Compile a ReAct agent over the base tools plus any per-request ones.
 

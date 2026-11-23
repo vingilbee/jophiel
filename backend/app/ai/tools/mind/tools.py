@@ -152,6 +152,10 @@ def build_mind_tools(ev) -> list[BaseTool]:
             if phone:
                 from app.services import phone_replies
                 follow_up = phone_replies.follow_up_for(ev.user_id, phone)
+                # Whether what she writes now may be shown when it comes due (kept to that conversation): only
+                # when she wrote it on a turn kept to that same conversation.
+                follow_up["set_on"] = ("phone" if getattr(ev, "phone_scope", None) == follow_up["conversation_id"]
+                                       else "owner")
             row = coordinator.schedule_wake(
                 db, user_id=ev.user_id, conversation_id=ev.conversation_id, about=what, due_at=due,
                 item_id=entry.id if entry is not None else None, origin=f"turn:{ev.request_id}", zone=ev.zone,
@@ -190,6 +194,11 @@ def build_mind_tools(ev) -> list[BaseTool]:
             return "Dropped." + (f" The item [{item[:8]}] it was about is unchanged." if item else "")
         return await _run(do)
 
+    if getattr(ev, "phone_scope", None) is not None:
+        # Kept to one phone conversation: no background thinking (it would read the user's memory and come back
+        # beside someone else's words); coming back to them later stays open.
+        tools += [come_back_to, drop_come_back]
+        return tools
     tools += [think_it_over, stop_thinking, come_back_to, drop_come_back]
 
     extra = ((ev.wake or {}).get("input") or {}).get("extra") or {}

@@ -103,7 +103,12 @@ class Evaluation:
         inp = (self.wake or {}).get("input") or {}
         if not self.third_party or (self.wake or {}).get("kind") != "mind" or not inp.get("autonomous"):
             return []
-        return [t for t in inp.get("reply_targets") or [] if isinstance(t, dict)]
+        targets = [t for t in inp.get("reply_targets") or [] if isinstance(t, dict) and t.get("conversation_id")]
+        if not targets:
+            return []
+        # One conversation per wake (its moment read one: services/mind_phone.py): never another's, whatever came.
+        here = targets[-1]["conversation_id"]
+        return [t for t in targets if t.get("conversation_id") == here]
 
     @property
     def phone_follow_up(self) -> dict | None:
@@ -112,6 +117,17 @@ class Evaluation:
             return None
         found = ((self.wake or {}).get("input") or {}).get("phone_follow_up")
         return found if isinstance(found, dict) and found.get("conversation_id") else None
+
+    @property
+    def phone_scope(self) -> str | None:
+        """The phone conversation (the phone's opaque id) this wake may write to, when it may write to one: the
+        evaluation is then kept to it (docs/PHONE_AFFINITY_PRIVACY_PLAN.md step 3): its inputs are that
+        conversation, the people in it and her relationship with them, never the user's chat, memory or another
+        conversation, so nothing of theirs can reach what she drafts there."""
+        if self.phone_follow_up is not None:
+            return self.phone_follow_up["conversation_id"]
+        targets = self.reply_targets
+        return targets[-1]["conversation_id"] if targets else None
 
     @property
     def wake_work_id(self) -> str | None:
@@ -149,6 +165,8 @@ class Evaluation:
 
     def state(self) -> str | None:
         """What is under way and what she set to come back to (read fresh; never from process memory)."""
+        if self.phone_scope is not None:
+            return None  # her other threads are the user's: not beside someone else's conversation
         try:
             with SessionLocal() as db:
                 return _state(db, self)
@@ -161,6 +179,9 @@ class Evaluation:
         section of her prompt. Never raises: what couldn't be read is said as such."""
         now = datetime.now(timezone.utc)
         try:
+            if self.phone_scope is not None:
+                from app.services import mind_phone_scope
+                return mind_phone_scope.situation(self, now)
             with SessionLocal() as db:
                 return _situation(db, self, now)
         except Exception:  # noqa: BLE001
@@ -598,6 +619,14 @@ def prepare_wake(*, job: ChatJob, info: dict[str, Any], user_name: str | None = 
                     reason=info.get("reason") or "work_result", trigger_message_id=latest,
                     channel=payload.get("channel", "web"), voice=False, zone=payload.get("zone"),
                     channel_identity_id=payload.get("channel_identity_id"), user_name=user_name, wake=info)
+    if ev.phone_scope is not None:
+        # Kept to one phone conversation: memory isn't searched and the user's lessons aren't read (nothing of
+        # theirs beside someone else's words); what she needs of that conversation is in "Now".
+        ev.conversation_sequence = _safely(lambda: _sequence(ev.conversation_id), None)
+        ev.memory_status, ev.lessons_note = "not_searched", "kept to one phone conversation"
+        _capture(ev, job.attempts)
+        ev.timings["prepare_ms"] = round((time.monotonic() - ev.started) * 1000)
+        return ev
     r, inp = info.get("result") or {}, info.get("input") or {}
     about = " ".join(filter(None, (inp.get("about"), inp.get("think_about"), r.get("question"),
                                    r.get("conclusion"))))[:600]

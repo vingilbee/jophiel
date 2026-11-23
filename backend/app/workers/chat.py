@@ -242,6 +242,15 @@ async def _generate(job: ChatJob) -> None:
     )
     if game is None or game.idle:
         picture = None
+    if mind.phone_scope is not None:
+        # A wake kept to one conversation on their phone (services/mind_phone_scope.py): she reads that conversation
+        # and nothing of the user's (their chat with her, memory, working memory, senses, files, games, desktop).
+        from app.services import mind_phone_scope
+        wake_text = mind_phone_scope.wake_text(mind)
+        history, game, desktop, desktop_usable, security, files, working_memory = [], None, None, False, None, (), None
+        picture, mind_state, phone, recall_turn = None, None, None, None
+        payload = {**payload, "awareness": "", "image_ids": [], "asset_ids": [], "vision_enabled": False}
+        gmail_token = drive_token = None
 
     settings = get_settings()
     context = AgentRuntimeContext(
@@ -250,29 +259,29 @@ async def _generate(job: ChatJob) -> None:
         user_name=user.name if user else None,
         gmail_access_token=gmail_token,
         drive_access_token=drive_token,
-        macrovision_enabled=settings.macrovision_tools_enabled,
+        macrovision_enabled=settings.macrovision_tools_enabled and mind.phone_scope is None,
         image_ids=tuple(payload.get("image_ids", [])),
         asset_ids=tuple(payload.get("asset_ids", [])),
         files=files,
-        blender_enabled=settings.blender_tools_enabled,
+        blender_enabled=settings.blender_tools_enabled and mind.phone_scope is None,
         voice=bool(payload.get("voice", False)),
         # Their app's senses without its clock (a queued job's snapshot is never the clock): "Now" is read here.
         awareness=mind_turn.fresh_awareness(payload.get("awareness", ""), wake=follow_up,
                                             reported_at=payload.get("awareness_at")),
         now=now,
-        long_term_memory=mind.long_term_memory,
+        long_term_memory=None if mind.phone_scope is not None else mind.long_term_memory,
         personality=personality_page,
         working_memory=working_memory,
-        recall=mind.recall_rendered,
+        recall=None if mind.phone_scope is not None else mind.recall_rendered,
         recall_turn=recall_turn,
-        cached_memory=mind.cached_memory,
-        turn_boundary=mind.boundary(),
+        cached_memory=None if mind.phone_scope is not None else mind.cached_memory,
+        turn_boundary=None if mind.phone_scope is not None else mind.boundary(),
         mind_state=mind_state,
         lessons=mind_turn.lessons_text(mind),
         mind=mind,
         wake=wake_text,
         third_party=mind.third_party,
-        memory_tools=True,
+        memory_tools=mind.phone_scope is None,
         source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),
         screen_image_id=payload.get("screen_image_id"),

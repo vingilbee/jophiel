@@ -261,6 +261,23 @@ def _person_for(user_id: uuid.UUID, conversation_id: str, sender_id: str) -> uui
         return member if member is not None and db.get(PhonePerson, member) is not None else None
 
 
+def _asked_for_space(user_id: uuid.UUID, person_id: uuid.UUID, conversation_id: str) -> bool:
+    """Whether the person has an active request for space (no topic: not to be reached out to) covering this
+    conversation (docs/PHONE_AFFINITY_PRIVACY_PLAN.md step 4: it stops her own follow-ups, and changes nothing
+    about how warm she is). A record that can't be read counts as one: a follow-up is never sent on a guess."""
+    from app.services import phone_relationships
+
+    try:
+        with SessionLocal() as db:
+            room = db.scalar(select(PhoneConversation).where(PhoneConversation.user_id == user_id,
+                                                             PhoneConversation.conversation_id == conversation_id))
+            return any(not b.topic for b in phone_relationships.active_boundaries(
+                db, user_id, person_id, room.id if room is not None else None))
+    except SQLAlchemyError:
+        log.warning("phone_replies: requests for space couldn't be read", exc_info=True)
+        return True
+
+
 def follow_up_for(user_id: uuid.UUID, handle: str) -> dict:
     """Who and where a follow-up is with, by stable ids, from a notification she names now. Raises ValueError."""
     n = phone_notifications.find(user_id, handle)
@@ -306,6 +323,9 @@ def follow_up_target(user_id: uuid.UUID, follow_up: dict, handle: str | None) ->
             return "who they are couldn't be read just now"
         if person is None or str(person) != str(follow_up.get("person_id")):
             return "the person there isn't the one this follow-up is for"
+        if _asked_for_space(user_id, person, conversation_id):
+            return ("they asked for space, so you don't reach out to them on your own (their own message to you can "
+                    "still be answered when it wakes you)")
         return target
     return ("the newest message there isn't from the person this follow-up is for (someone else wrote last, or it "
             "was answered), so there's nobody there you'd be answering")

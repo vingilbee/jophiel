@@ -745,6 +745,11 @@ class PhoneDisclosure(Base):
         ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Checked against the user's own message (services/phone_authority.py): None = recorded before that check
+    # existed (verified when first read), False = it doesn't grant this (authorizes nothing).
+    verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verification: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PhoneOutbound(Base):

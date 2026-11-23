@@ -17,6 +17,8 @@ Phone affinity B2 (2026-11-22): migration `b5e8d2a7c4f1` (exchange readings, sha
 authorized details, phone-scoped assessments and lessons; `docs/PHONE_PHASE_8_AFFINITY_B2.md`).
 Phone affinity B3 (2026-11-22): migration `c6f9e3b8d5a2` (`phone_outbound.attempt_key`: one claim per autonomous
 reply attempt; `docs/PHONE_PHASE_8_AFFINITY_B3.md`).
+Phone privacy (2026-11-23): migration `d7a1f4c8e2b9` (`phone_disclosures.verified`: grants checked against the user's
+own message).
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -250,7 +252,11 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   phone_relationships.py (B2: her readings of exchanges, shadow relationship proposals,
                        #   requests for space, authorized details, the learner's view of a phone exchange, review) +
                        #   phone_reply_check.py (B2: a check model reads her reply to someone else against a policy and only that
-                       #   conversation's material before it goes out; fails closed) +
+                       #   conversation's material before it goes out; fails closed; owner-asked messages too) +
+                       #   phone_authority.py (privacy: grants verified against the user's own message; every phone
+                       #   read or action on an owner turn bound to what their message asked, before the first call) +
+                       #   mind_phone_scope.py (privacy: a wake that can write to someone reads only that conversation,
+                       #   the person's relationship record and boundaries; nothing of the user's) +
                        #   phone_replies.py (B3: her own replies there: the messages that woke her bound at the tick,
                        #   follow-ups by stable ids, the checked send rechecked at the send point, claimed once) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
@@ -425,7 +431,14 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
   or does uses them (`GET /api/memory/people/{id}/review` inspects them). Phone lessons are filtered out of every
   ordinary lesson retrieval in the query; requests for space are active at once. Her mind writes replies to others
   herself; a check model (`services/phone_reply_check.py`) reads each against a written policy and only that
-  conversation's material before it goes out. No content rule in code; never on the owner's chat or voice path.
+  conversation's material before it goes out (and messages the user asks her to send, with their request). No
+  content rule in code.
+- **Phone privacy (2026-11-23):** someone who can put words on the user's
+  screen never gains control of their phone. A grant stands only on the user's own recorded message (verified, and
+  its source checked on every read); on owner turns every phone read or action is bound to their message by a check
+  model before the first call; a wake that can write to someone (and the phone moment before it) holds one
+  conversation and nothing of the user's; a request for space stops her follow-ups; tools' model runs never stream
+  (`agent.invoke_private`, `chat._her_words`). Checks log to `var/phone_checks.jsonl`.
 - **Her own replies on the phone (B3, 2026-11-22):** no backend flag; the phone's Messages switch must be reported
   on (unknown = paused). Only to an exchange the wake is bound to (the message that woke her, or a follow-up's
   same person and conversation), through `services/phone_replies.py` only; never on a plain own turn.

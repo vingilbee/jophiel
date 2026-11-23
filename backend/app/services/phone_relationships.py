@@ -29,7 +29,8 @@ enforces audience boundaries; her mind judges who was addressed, what an exchang
   and a topic when they named one (other topics stay open). She reads them (``read_person``) and so does the check
   on a reply before it goes out (``phone_reply_check``); no code matches topics.
 - **What the user authorized** (``authorize_detail``): a detail for one person in one conversation; a direct chat's
-  authorization never covers a group.
+  authorization never covers a group. Recorded only when the user's own message explicitly grants it
+  (services/phone_authority.py); every reader checks the source again (``phone_authority.grant_stands``).
 - **Inspection and correction** (``review`` / ``retract``): ``GET /api/memory/people/{id}/review``. Deleting a person
   (B1 ``delete_person``) removes every record here, their phone assessments and lessons (cascade).
 
@@ -541,6 +542,51 @@ def active_boundaries(db: Session, user_id: uuid.UUID, person_id: uuid.UUID,
     return [r for r in rows if r.scope == "everywhere" or r.conversation_id == conversation_pk]
 
 
+FAMILIARITY_WORDS = {"new": "you don't know them yet", "acquainted": "you've begun to know them",
+                     "familiar": "you know them", "close": "you're close"}
+WARMTH_WORDS = {"wary": "wary of them", "cool": "a little cool towards them", "neutral": "neither warm nor cool",
+                "warm": "warm towards them", "fond": "fond of them"}
+INITIATIVE_WORDS = {"none": "you don't reach out to them on your own", "would_enjoy": "you'd enjoy reaching out now "
+                    "and then", "wants_to": "you want to keep in touch", "holding_back": "you're holding back from "
+                    "reaching out"}
+
+
+def relationship_lines(db: Session, user_id: uuid.UUID, person_id: uuid.UUID,
+                       conversation_pk: uuid.UUID) -> list[str]:
+    """Her active relationship with the person she'd answer, for a reply in one conversation
+    (docs/PHONE_AFFINITY_PRIVACY_PLAN.md step 4): how well she knows them, how warm she is, whether she reaches out
+    (three separate things), her note only when it belongs to this conversation, and their requests for space that
+    cover it with who asked and who may reopen it. How well she knows them never changes what she may tell them."""
+    person = db.get(PhonePerson, person_id)
+    if person is None or person.user_id != user_id:
+        return []
+    affinity = db.scalar(select(PhoneAffinity).where(PhoneAffinity.user_id == user_id,
+                                                     PhoneAffinity.person_id == person_id))
+    name = _clean(person.display_name, 40) or phone_people.handle(person_id)
+    out = [f"- {name} [{phone_people.handle(person_id)}]"]
+    if affinity is None:
+        out.append("- Your record with them couldn't be read: treat them as someone you don't know yet.")
+    else:
+        out.append(f"- Familiarity: {FAMILIARITY_WORDS.get(affinity.familiarity, affinity.familiarity)}. Warmth: "
+                   f"{WARMTH_WORDS.get(affinity.warmth, affinity.warmth)}. Reaching out: "
+                   f"{INITIATIVE_WORDS.get(affinity.initiative, affinity.initiative)}.")
+        if affinity.note and affinity.note_conversation_id in (None, conversation_pk):
+            out.append(f"- Your note on them: {_clean(affinity.note, OBSERVATION_CHARS)}")
+    for b in active_boundaries(db, user_id, person_id, conversation_pk):
+        here = b.conversation_id == conversation_pk
+        if b.topic:
+            out.append(f"- They asked you to leave {b.topic} alone" + (f': "{b.words}"' if here else
+                       " (in another conversation, meant for here too)")
+                       + ". Don't bring it up; if they raise it again themselves here, you may answer what they "
+                       "say here.")
+        else:
+            out.append("- They asked for space" + (f': "{b.words}"' if here else " (meant everywhere)")
+                       + ". Don't reach out to them; answer only if they write to you, and briefly.")
+    out.append("- How well you know them, or how warm you are, never lets you tell them anything about the user: "
+               "only what the user authorized for them here (below, when there is anything).")
+    return out
+
+
 def lift_boundary(db: Session, user_id: uuid.UUID, boundary_id: uuid.UUID) -> bool:
     row = db.get(PhoneContactBoundary, boundary_id)
     if row is None or row.user_id != user_id:
@@ -554,12 +600,18 @@ def lift_boundary(db: Session, user_id: uuid.UUID, boundary_id: uuid.UUID) -> bo
 # --------------------------------------------------------------------------- #
 
 def authorize_detail(user_id: uuid.UUID, name: str, detail: str, *, conversation: str | None = None,
-                     source_message_id: uuid.UUID | None = None) -> str:
+                     source_message_id: uuid.UUID | None = None, model=None) -> str:
     """The user told her to pass a detail to someone: for their direct chat unless a conversation is named (a group
-    needs its own authorization). Only on the user's own reply turns."""
+    needs its own authorization). Only on the user's own reply turns, and only when their message
+    (``source_message_id``, read from the app's record) explicitly grants that detail to that person there
+    (services/phone_authority.py): otherwise nothing is recorded."""
+    from app.services import phone_authority
+
     detail = _clean(detail, DETAIL_CHARS)
     if not detail:
         return "Not recorded: say the detail they authorized."
+    if source_message_id is None:
+        return "Not recorded: a permission rests on the user's own message, and there's none on this turn."
     try:
         with SessionLocal.begin() as db:
             people = phone_people.resolve(db, user_id, name)
@@ -580,8 +632,17 @@ def authorize_detail(user_id: uuid.UUID, name: str, detail: str, *, conversation
             if len(rooms) != 1:
                 return f"Not recorded: {missing if not rooms else 'more than one conversation matches: name it'}."
             room = rooms[0]
+            ok, why = phone_authority.verify_grant(db, user_id, message_id=source_message_id, person_id=person.id,
+                                                   conversation_pk=room.id, detail=detail, model=model)
+            phone_authority._trace({"check": "grant", "user": str(user_id), "message": str(source_message_id),
+                                    "person": str(person.id), "conversation": str(room.id), "stands": ok,
+                                    "why": why, "late": False})
+            if not ok:
+                return (f"Not recorded: their message doesn't grant it ({why}). Nothing about them may be passed on "
+                        "unless they tell you so themselves.")
             db.add(PhoneDisclosure(user_id=user_id, person_id=person.id, conversation_id=room.id, detail=detail,
-                                   source_message_id=source_message_id))
+                                   source_message_id=source_message_id, verified=True, verification=why[:300],
+                                   verified_at=_now()))
     except SQLAlchemyError:
         log.warning("phone_relationships: an authorization could not be recorded", exc_info=True)
         return "Not recorded: it couldn't be written just now."
