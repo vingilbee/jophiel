@@ -48,6 +48,7 @@ BURST_HOLD = 3  # a conversation that never goes quiet is read after this many b
 # silently): her next moment says how many she missed.
 NEWS_KEEP = 500
 MISSED_ID = "missed"
+LEGACY_TRIMMED = "phone_notifications:trimmed:"  # never written now; removed on a switch-off, else it expires
 WRITE_TRIES = 5
 REF_PREFIX = "notif:"
 NAME_CHARS = 40  # a sender or app name as she reads it: short, quoted (someone else chose it)
@@ -77,11 +78,31 @@ def _missed_key(user_id: uuid.UUID | str) -> str:
     return f"phone_notifications:missed:{user_id}"
 
 
-def _trimmed_key(user_id: uuid.UUID | str) -> str:
-    """The ids of queued items trimmed unread (counted in the missed count), a sorted set by when: a tick that had
-    already read one takes it back out when it acknowledges. Only the newest ``NEWS_KEEP`` are kept: a tick reads
-    at most a full queue, so an older trimmed id can't be in anything still to be acknowledged."""
-    return f"phone_notifications:trimmed:{user_id}"
+def _marks_key(user_id: uuid.UUID | str) -> str:
+    """Where the queue stands, a hash of sequence numbers: ``seq`` (the last given to a queued item: each item's id
+    carries its own, rising), ``trimmed`` (the highest a full queue trimmed) and ``floor`` (none at or below it is
+    ever taken back out of the missed count: switched off since, or already taken back). A tick that read an item
+    later trimmed takes it back out of the missed count when it acknowledges (``acknowledge_news``): a constant
+    size, whatever was trimmed, and nothing an in-flight tick read is ever forgotten."""
+    return f"phone_notifications:marks:{user_id}"
+
+
+def _seq(row_id: str | None) -> int | None:
+    """The sequence number in a queued item's id ("s42.<hex>"); None for an older id without one."""
+    if not row_id or not row_id.startswith("s") or "." not in row_id:
+        return None
+    try:
+        return int(row_id[1:row_id.index(".")])
+    except ValueError:
+        return None
+
+
+def _mark(marks: dict, name: str) -> int:
+    value = marks.get(name.encode(), marks.get(name))
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _sense_key(user_id: uuid.UUID | str) -> str:
@@ -206,7 +227,9 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
         for _ in range(WRITE_TRIES):
             with client.pipeline() as pipe:
                 try:
-                    pipe.watch(key, _news_key(user_id))
+                    pipe.watch(key, _news_key(user_id), _marks_key(user_id))
+                    marks = pipe.hgetall(_marks_key(user_id)) or {}
+                    last_seq = _mark(marks, "seq")
                     stored = {(k.decode() if isinstance(k, bytes) else k): v for k, v in (pipe.hgetall(key) or {}).items()}
                     # applied: each posted snapshot as applied, in order, with the owner messages it shows for the
                     # first time (two snapshots of one key in a report each keep their own).
@@ -242,11 +265,23 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                         deletes.append(item.key)
                         news.append({"kind": "removed", "key": old.key, "app": old.app, "sender": old.sender,
                                      "conversation": old.conversation, "reason": item.reason})
-                    # The oldest about to be trimmed (a full queue): counted as missed, never silent, and their ids
-                    # kept so a tick that already read one doesn't count it missed too (``acknowledge_news``).
-                    overflow = (0 if drop_news else queued) + len(news) - NEWS_KEEP
-                    trimmed = ([_row_id(raw) for raw in pipe.lrange(_news_key(user_id), 0, overflow - 1) or []]
-                               if overflow > 0 and not drop_news else [])
+                    # The oldest about to be trimmed (a full queue): counted as missed, never silent, and the
+                    # highest sequence trimmed marked, so a tick that already read one doesn't count it missed too.
+                    left = 0 if drop_news else queued
+                    overflow = left + len(news) - NEWS_KEEP
+                    trimmed_to = None
+                    if overflow > 0:
+                        if overflow <= left:
+                            trimmed_to = _seq(_row_id(pipe.lindex(_news_key(user_id), overflow - 1)))
+                        else:  # every queued item and the first of these new ones
+                            trimmed_to = last_seq + overflow - left
+                    marks_out = {"seq": last_seq + len(news)}
+                    if trimmed_to is not None:
+                        marks_out["trimmed"] = max(trimmed_to, _mark(marks, "trimmed"))
+                    if drop_news or payload.all_removed:
+                        # Nothing queued before the switch-off is taken back, nor any missed count told before it.
+                        marks_out["floor"] = last_seq
+                        marks_out["epoch"] = _mark(marks, "epoch") + 1
                     pipe.multi()
                     if deletes:
                         pipe.hdel(key, *deletes)
@@ -256,17 +291,17 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     if drop_news:
                         pipe.delete(_news_key(user_id))
                     if payload.all_removed:
-                        pipe.delete(_missed_key(user_id), _trimmed_key(user_id))
+                        # (LEGACY_TRIMMED: a set an earlier build kept; DEL takes any type.)
+                        pipe.delete(_missed_key(user_id), LEGACY_TRIMMED + str(user_id))
                     if overflow > 0:
                         pipe.incrby(_missed_key(user_id), overflow)
                         pipe.expire(_missed_key(user_id), _keep_seconds())
-                    if trimmed:
-                        pipe.zadd(_trimmed_key(user_id), {row: now for row in trimmed})
-                        pipe.zremrangebyrank(_trimmed_key(user_id), 0, -NEWS_KEEP - 1)
-                        pipe.expire(_trimmed_key(user_id), _keep_seconds())
-                    for entry in news:
-                        pipe.rpush(_news_key(user_id), json.dumps({**entry, "id": uuid.uuid4().hex, "at": now},
-                                                                  ensure_ascii=False))
+                    for number, entry in enumerate(news, start=last_seq + 1):
+                        pipe.rpush(_news_key(user_id), json.dumps(
+                            {**entry, "id": f"s{number}.{uuid.uuid4().hex[:12]}", "at": now}, ensure_ascii=False))
+                    if news or "floor" in marks_out:
+                        pipe.hset(_marks_key(user_id), mapping=marks_out)
+                        pipe.expire(_marks_key(user_id), _keep_seconds())
                     if news:
                         pipe.ltrim(_news_key(user_id), -NEWS_KEEP, -1)
                         pipe.expire(_news_key(user_id), _keep_seconds())
@@ -373,11 +408,13 @@ def pending_news(user_id: uuid.UUID | str) -> list[dict]:
             pipe.multi()
             pipe.lrange(_news_key(user_id), 0, -1)
             pipe.get(_missed_key(user_id))
-            rows, missed = pipe.execute()
-        rows, missed = rows or [], int(missed or 0)
+            pipe.hget(_marks_key(user_id), "epoch")
+            rows, missed, epoch = pipe.execute()
+        rows, missed, epoch = rows or [], int(missed or 0), int(epoch or 0)
     except (redis.RedisError, ValueError):
         return []
-    lost = [{"kind": "missed", "count": missed, "id": f"{MISSED_ID}:{missed}"}] if missed > 0 else []
+    # The count's id carries the switch-off epoch: told before a switch-off, it's never subtracted after it.
+    lost = [{"kind": "missed", "count": missed, "id": f"{MISSED_ID}:{missed}:{epoch}"}] if missed > 0 else []
     return [*lost, *(_news_entry(raw) for raw in rows)]
 
 
@@ -411,36 +448,42 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
     """Drop exactly the news items a tick read (their ids, or the items themselves): anything queued since, and
     anything it didn't read, stays for the next tick, however the queue moved meanwhile (trimmed when full,
     emptied when the sense was switched off). The missed count loses what she was told, and every item she read
-    that a full queue trimmed since (she saw it: it isn't missed). One transaction over the queue, the count and
-    the trimmed ids: a report landing meanwhile makes it retry."""
+    that a full queue trimmed since (she saw it: it isn't missed): gone from the queue, its sequence above
+    ``floor`` and at most ``trimmed`` (``_marks_key``). One transaction over the queue, the count and the marks: a
+    report landing meanwhile makes it retry."""
     client = _client()
     ids = {item["id"] if isinstance(item, dict) else item for item in read or []}
     ids.discard(None)
     if client is None or not ids:
         return
-    told = 0
+    told: list[tuple[int, int]] = []  # (count, epoch) she was told
     for missed in [i for i in ids if str(i).startswith(MISSED_ID + ":")]:
         ids.discard(missed)
         try:
-            told += int(missed.split(":", 1)[1])
+            _, count, *epoch = missed.split(":")
+            told.append((int(count), int(epoch[0]) if epoch else 0))
         except ValueError:
             pass
-    key, missed_key, trimmed_key = _news_key(user_id), _missed_key(user_id), _trimmed_key(user_id)
+    key, missed_key, marks_key = _news_key(user_id), _missed_key(user_id), _marks_key(user_id)
     try:
         for _ in range(WRITE_TRIES):
             with client.pipeline() as pipe:
                 try:
-                    pipe.watch(key, missed_key, trimmed_key)
+                    pipe.watch(key, missed_key, marks_key)
                     rows = pipe.lrange(key, 0, -1) or []
                     row_ids = [_row_id(raw) for raw in rows]  # each row decoded once
                     present = set(row_ids)
                     kept = [raw for raw, row_id in zip(rows, row_ids) if row_id not in ids]
                     gone = [i for i in ids if i not in present]
-                    seen_trimmed = ([i for i, score in zip(gone, pipe.zmscore(trimmed_key, gone)) if score is not None]
-                                    if gone and pipe.exists(trimmed_key) else [])
+                    seen_trimmed: list[int] = []
+                    marks = pipe.hgetall(marks_key) or {} if gone or told else {}
+                    if gone:
+                        floor, trimmed = _mark(marks, "floor"), _mark(marks, "trimmed")
+                        seen_trimmed = [n for n in map(_seq, gone) if n is not None and floor < n <= trimmed]
+                    current = sum(count for count, epoch in told if epoch == _mark(marks, "epoch"))
                     left = None
-                    if told or seen_trimmed:
-                        left = int(pipe.get(missed_key) or 0) - told - len(seen_trimmed)
+                    if current or seen_trimmed:
+                        left = int(pipe.get(missed_key) or 0) - current - len(seen_trimmed)
                     if len(kept) == len(rows) and left is None:
                         return
                     ttl = pipe.ttl(key) if len(kept) != len(rows) else None
@@ -456,8 +499,8 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
                             pipe.set(missed_key, left, keepttl=True)
                         else:
                             pipe.delete(missed_key)
-                    if seen_trimmed:
-                        pipe.zrem(trimmed_key, *seen_trimmed)
+                    if seen_trimmed:  # taken back once: a repeated acknowledgement takes nothing more
+                        pipe.hset(marks_key, "floor", max(seen_trimmed))
                     pipe.execute()
                     return
                 except redis.WatchError:

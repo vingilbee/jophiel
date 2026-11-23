@@ -412,7 +412,6 @@ def test_an_item_she_read_then_a_full_queue_trimmed_is_not_missed(channel, monke
     report(channel, chat("n_2", "c_2", "Chat 2", burst(20, 1, sender_id="p_2")))  # trims n_0 before her ack
     phone_notifications.acknowledge_news(channel.user, news)
     assert [e.get("key") for e in phone_notifications.pending_news(channel.user)] == ["n_2"]  # no "missed"
-    assert not channel.bus.exists(phone_notifications._trimmed_key(channel.user))
     # One she never read is still counted.
     for n in (3, 4):
         report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
@@ -423,14 +422,49 @@ def test_an_item_she_read_then_a_full_queue_trimmed_is_not_missed(channel, monke
     assert phone_notifications.pending_news(channel.user) == []
 
 
-def test_trimmed_ids_nobody_read_are_bounded(channel, monkeypatch):
+def test_a_tick_still_in_flight_after_many_trims_keeps_what_it_read(channel, monkeypatch):
+    """However much a full queue trims before her tick acknowledges, what that tick read is taken back out of the
+    missed count, and the queue's marks stay a constant size."""
     monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
-    for n in range(8):  # six trimmed, never read
+    for n in range(2):
         report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
-    trimmed = phone_notifications._trimmed_key(channel.user)
-    assert channel.bus.zcard(trimmed) == 2  # the newest NEWS_KEEP only
-    assert int(channel.bus.get(phone_notifications._missed_key(channel.user))) == 6
-    assert 0 < channel.bus.ttl(trimmed) <= phone_notifications._keep_seconds()
+    news = phone_notifications.pending_news(channel.user)  # her tick reads n_0, n_1
+    for n in range(2, 12):  # ten more: n_0 and n_1 trimmed, then eight she never read
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    marks = phone_notifications._marks_key(channel.user)
+    assert channel.bus.hlen(marks) <= 3
+    assert int(channel.bus.get(phone_notifications._missed_key(channel.user))) == 10
+    phone_notifications.acknowledge_news(channel.user, news)
+    after = phone_notifications.pending_news(channel.user)
+    assert [(e["kind"], e.get("count")) for e in after] == [("missed", 8), ("posted", None), ("posted", None)]
+    # Acknowledged again (a retry): nothing more taken back.
+    phone_notifications.acknowledge_news(channel.user, news)
+    assert phone_notifications.pending_news(channel.user)[0]["count"] == 8
+
+
+def test_a_set_left_by_an_earlier_build_breaks_nothing(channel):
+    legacy = phone_notifications.LEGACY_TRIMMED + str(channel.user)
+    channel.bus.sadd(legacy, "old-id")
+    report(channel, RINA_DM)
+    assert len(phone_notifications.pending_news(channel.user)) == 1
+    phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user))
+    assert phone_notifications.pending_news(channel.user) == []
+    phone_notifications.report(channel.user, PhoneNotificationsReport.model_validate({"all_removed": True}))
+    assert not channel.bus.exists(legacy)
+
+
+def test_nothing_queued_before_a_switch_off_is_taken_back_out_of_the_missed_count(channel, monkeypatch):
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
+    for n in range(3):  # n_0 trimmed unread
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    news = phone_notifications.pending_news(channel.user)
+    phone_notifications.report(channel.user, PhoneNotificationsReport.model_validate({"all_removed": True}))
+    for n in range(3, 6):  # back on: n_3 trimmed unread
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    # Back on, the queue holds the "cleared" line and n_3..n_5; with room for 2, "cleared" and n_3 go unread.
+    phone_notifications.acknowledge_news(channel.user, news)  # what it read (and was told) went with the switch-off
+    missed = phone_notifications.pending_news(channel.user)[0]
+    assert (missed["kind"], missed["count"]) == ("missed", 2)
 
 
 def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
