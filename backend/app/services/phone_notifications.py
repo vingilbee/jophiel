@@ -78,8 +78,9 @@ def _missed_key(user_id: uuid.UUID | str) -> str:
 
 
 def _trimmed_key(user_id: uuid.UUID | str) -> str:
-    """The ids of queued items trimmed unread (counted in the missed count): a tick that had already read one
-    takes it back out when it acknowledges."""
+    """The ids of queued items trimmed unread (counted in the missed count), a sorted set by when: a tick that had
+    already read one takes it back out when it acknowledges. Only the newest ``NEWS_KEEP`` are kept: a tick reads
+    at most a full queue, so an older trimmed id can't be in anything still to be acknowledged."""
     return f"phone_notifications:trimmed:{user_id}"
 
 
@@ -260,7 +261,8 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                         pipe.incrby(_missed_key(user_id), overflow)
                         pipe.expire(_missed_key(user_id), _keep_seconds())
                     if trimmed:
-                        pipe.sadd(_trimmed_key(user_id), *trimmed)
+                        pipe.zadd(_trimmed_key(user_id), {row: now for row in trimmed})
+                        pipe.zremrangebyrank(_trimmed_key(user_id), 0, -NEWS_KEEP - 1)
                         pipe.expire(_trimmed_key(user_id), _keep_seconds())
                     for entry in news:
                         pipe.rpush(_news_key(user_id), json.dumps({**entry, "id": uuid.uuid4().hex, "at": now},
@@ -430,9 +432,11 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
                 try:
                     pipe.watch(key, missed_key, trimmed_key)
                     rows = pipe.lrange(key, 0, -1) or []
-                    kept = [raw for raw in rows if _row_id(raw) not in ids]
-                    gone = [i for i in ids if i not in {_row_id(raw) for raw in rows}]
-                    seen_trimmed = ([i for i, hit in zip(gone, pipe.smismember(trimmed_key, gone)) if hit]
+                    row_ids = [_row_id(raw) for raw in rows]  # each row decoded once
+                    present = set(row_ids)
+                    kept = [raw for raw, row_id in zip(rows, row_ids) if row_id not in ids]
+                    gone = [i for i in ids if i not in present]
+                    seen_trimmed = ([i for i, score in zip(gone, pipe.zmscore(trimmed_key, gone)) if score is not None]
                                     if gone and pipe.exists(trimmed_key) else [])
                     left = None
                     if told or seen_trimmed:
@@ -453,7 +457,7 @@ def acknowledge_news(user_id: uuid.UUID | str, read: list[str] | list[dict]) -> 
                         else:
                             pipe.delete(missed_key)
                     if seen_trimmed:
-                        pipe.srem(trimmed_key, *seen_trimmed)
+                        pipe.zrem(trimmed_key, *seen_trimmed)
                     pipe.execute()
                     return
                 except redis.WatchError:

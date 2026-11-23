@@ -423,6 +423,16 @@ def test_an_item_she_read_then_a_full_queue_trimmed_is_not_missed(channel, monke
     assert phone_notifications.pending_news(channel.user) == []
 
 
+def test_trimmed_ids_nobody_read_are_bounded(channel, monkeypatch):
+    monkeypatch.setattr(phone_notifications, "NEWS_KEEP", 2)
+    for n in range(8):  # six trimmed, never read
+        report(channel, chat(f"n_{n}", f"c_{n}", f"Chat {n}", burst(n * 10, 1, sender_id=f"p_{n}")))
+    trimmed = phone_notifications._trimmed_key(channel.user)
+    assert channel.bus.zcard(trimmed) == 2  # the newest NEWS_KEEP only
+    assert int(channel.bus.get(phone_notifications._missed_key(channel.user))) == 6
+    assert 0 < channel.bus.ttl(trimmed) <= phone_notifications._keep_seconds()
+
+
 def test_acknowledging_the_missed_count_keeps_what_was_added_meanwhile(channel, monkeypatch):
     key = phone_notifications._missed_key(channel.user)
     channel.bus.set(key, 3, ex=600)
