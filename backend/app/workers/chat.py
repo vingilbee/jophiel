@@ -684,7 +684,9 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: di
     commit) are fulfilled with this message as their evidence; on a channel that confirms delivery later
     (WhatsApp) they wait on it instead (``memory_manager.await_delivery``). Questions of hers she meant to ask here
     are marked as meant in this message (``memory_manager.meant_to_ask``): the questions reader decides whether the
-    words that reached them (heard, delivered) asked them. A savepoint: bookkeeping never fails a delivery (what isn't recorded stays open and visible)."""
+    words that reached them (heard, delivered) asked them. One savepoint each for promises and questions:
+    bookkeeping never fails a delivery, and a failure in one never skips the other (what isn't recorded stays
+    open and visible)."""
     from app.services import coordinator, memory_manager
 
     try:
@@ -699,6 +701,10 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: di
                 else:
                     memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason,
                                                 revision=checked)
+    except Exception:  # noqa: BLE001
+        logger.exception("chat worker: recording the promises a reply kept failed")
+    try:
+        with db.begin_nested():
             asked = list(mind.asking)
             inp = (info or {}).get("input") or {}
             premise = inp.get("premise") or {}
@@ -708,7 +714,7 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: di
                 # Meant, not yet asked: the questions reader reads these words as they reached them.
                 memory_manager.meant_to_ask(db, mind.user_id, item_id, message_id=message_id)
     except Exception:  # noqa: BLE001
-        logger.exception("chat worker: recording what a reply carried out failed")
+        logger.exception("chat worker: recording the questions a reply meant to ask failed")
 
 
 def _wake_ended(mind, info: dict | None, job: ChatJob, *, decided: bool, why: str) -> None:

@@ -72,7 +72,7 @@ SAME_WORDS = 0.6  # shared content words, of the shorter: the same thing in othe
 
 def submit(db, *, user_id, activity_id, source, event_id, text, reasons, commentary_mode,
            question=False, ttl=120, premise=None, wake="thought", extra=None, third_party=False,
-           arrived=None, reply_targets=None) -> str:
+           arrived=None, reply_targets=None, admitted=None) -> str:
     """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision); checked again
     before the mind is woken and before anything is stored. ``wake``: why it wakes her (``thought``, ``proposal``,
     ``conflict``, ``finding``). ``extra``: what the producer needs back in that evaluation (a proposal's keys). ``third_party``: it came
@@ -80,7 +80,9 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     anything it schedules (app/ai/chat.py). ``arrived``: the handles of the notifications that just arrived and
     prompted it (no text): the wake names them, so she reads it as news, not her own guess. ``reply_targets``
     (affinity B3): those of them she may answer on that wake, each bound to its own triggering message (ids only,
-    services/phone_replies.py); never inherited by anything the wake starts or schedules."""
+    services/phone_replies.py); never inherited by anything the wake starts or schedules. ``admitted(db)``: the
+    producer's own bookkeeping, run in the transaction that admits the wake (never on a refusal), so the two commit
+    together."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
     voice_socket = None
@@ -126,6 +128,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
                **({"reply_targets": list(reply_targets)[:8]} if reply_targets and third_party else {}),
                "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
+    if admitted is not None:
+        admitted(db)
     db.commit()
     coordinator._log({"op": "autonomous_proposed", "request": str(request), "event": event,
                       "activity": str(activity_id), "conversation": str(target), "versions": versions})

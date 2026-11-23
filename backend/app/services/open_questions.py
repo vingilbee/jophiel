@@ -170,13 +170,22 @@ def reread(db: Session, message_id: uuid.UUID) -> bool:
 
 
 def _not_carried(db: Session, claimed: tuple[int, int], user_id: uuid.UUID, message_id: uuid.UUID,
-                 why: str) -> str:
-    """Her message didn't reach them: nothing in it was asked; what she meant to ask there is unasked again."""
+                 why: str, arrived: str | None = None) -> str:
+    """Her message didn't reach them: nothing in it was asked; what she meant to ask there is unasked again.
+    ``arrived``: what the channel had said when that was decided ("late" / "no"): checked again holding the message
+    row, the lock a delivery receipt settles under (``memory_manager.settle_delivery``, then ``reread``). A receipt
+    that landed meanwhile is seen here and the message is read now; one that lands after this commits finds this
+    reading skipped and puts it back in line. Never lost between the two."""
     db.rollback()
     db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"memory:{user_id}"))))
     if not _still_ours(db, claimed[0]):
         db.rollback()
         return "gone"
+    if arrived is not None:
+        message = db.scalar(select(ChatMessage).where(ChatMessage.id == message_id).with_for_update()
+                            .execution_options(populate_existing=True))
+        if message is None or _arrived(db, message) != arrived:
+            return _later(db, claimed, timedelta(0))  # the channel spoke meanwhile: read it again as it is now
     memory_manager.not_asked(db, user_id, message_id=message_id)
     return _settle(db, claimed, "skipped", why, keep_transaction=True)
 
@@ -230,9 +239,10 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
             if arrived == "waiting":
                 return _later(db, claimed, DELIVERY_WAIT)  # the channel hasn't said yet
             if arrived == "late":  # no word from the channel yet: let it go for now; its receipt brings it back
-                return _not_carried(db, claimed, observation.user_id, message.id, UNDELIVERED)
+                return _not_carried(db, claimed, observation.user_id, message.id, UNDELIVERED, arrived)
             if arrived == "no":
-                return _not_carried(db, claimed, observation.user_id, message.id, "the channel never delivered it")
+                return _not_carried(db, claimed, observation.user_id, message.id, "the channel never delivered it",
+                                    arrived)
             task_kind = "asks"
             shown = _questions(db, observation.user_id, ("open",), meant_in=message.id)
         elif observation.kind == "user_message":
@@ -426,17 +436,16 @@ def hand_over(db: Session, now: datetime | None = None) -> list[str]:
             CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "mind",
             CoordinatorWork.input["wake"].astext == "question",
             CoordinatorWork.input["premise"]["item"].astext == str(entry_id))) or 0)
-        # Marked offered in the commit that queues the wake (submit commits): never one without the other.
-        db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now))
+        # Marked offered in the commit that admits the wake (``admitted`` runs inside submit, just before it):
+        # never one without the other, and a refusal (which also commits) leaves it eligible.
+        offered = WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now)
         outcome = autonomous_speech.submit(
             db, user_id=user_id, activity_id=conversation_id, source="conversation",
             event_id=f"question:{entry_id}:{attempt}", text=text_, reasons=["an open question of hers"],
             commentary_mode="occasional", question=True, ttl=QUESTION_TTL_SECONDS,
-            premise={"item": entry_id, "revision": revision}, wake="question")
-        if not outcome.startswith("Proposed"):
-            # Refused (the queue is full, no conversation to say it in): it stays eligible; a later sweep tries again.
-            db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=None))
-        db.commit()
+            premise={"item": entry_id, "revision": revision}, wake="question",
+            admitted=lambda session, offered=offered: session.execute(offered))
+        db.commit()  # refused (the queue is full, no conversation to say it in): still eligible for a later sweep
         out.append(f"question {entry_id.hex[:6]}: {outcome}")
     db.commit()
     return out

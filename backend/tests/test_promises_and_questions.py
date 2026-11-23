@@ -906,7 +906,6 @@ def test_a_busy_conversation_doesnt_hold_back_a_quiet_ones_question(qenv, monkey
 
 
 def test_a_full_queue_leaves_the_question_for_a_later_sweep(qenv, monkeypatch):
-    from app.services import autonomous_speech
     env = qenv
     _add(env, "user", "hi")
     _add(env, "assistant", "hey")
@@ -914,14 +913,24 @@ def test_a_full_queue_leaves_the_question_for_a_later_sweep(qenv, monkeypatch):
         memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive?",
                                 owner="columbina", epistemic="inferred")
         db.commit()
-    real = autonomous_speech.submit
-    monkeypatch.setattr(autonomous_speech, "submit",
-                        lambda db, **kw: "Rejected: mind queue capacity; source thought retained privately.")
-    with env.db() as db:
+    real = coordinator.get_settings()  # the real admission path, with its own commit on refusal
+    full = SimpleNamespace(**{**real.model_dump(), "coordinator_max_pending": 0})
+    monkeypatch.setattr(coordinator, "get_settings", lambda: full)
+    from app.services import autonomous_speech
+    submit, refusals = autonomous_speech.submit, []
+
+    def refused_then_stopped(db, **kw):  # the worker stops right after the refusal commits
+        refusals.append(submit(db, **kw))
+        raise SystemExit("worker stopped")
+
+    monkeypatch.setattr(autonomous_speech, "submit", refused_then_stopped)
+    with env.db() as db, pytest.raises(SystemExit):
         open_questions.hand_over(db)
+    assert "queue capacity" in refusals[0]
     [q] = _questions(env)
-    assert q.offered_at is None
-    monkeypatch.setattr(autonomous_speech, "submit", real)
+    assert q.offered_at is None  # nothing committed it offered without a wake
+    monkeypatch.setattr(autonomous_speech, "submit", submit)
+    monkeypatch.setattr(coordinator, "get_settings", lambda: real)
     with env.db() as db:
         assert len(open_questions.hand_over(db)) == 1
     assert _questions(env)[0].offered_at is not None
@@ -1015,3 +1024,62 @@ def test_a_whatsapp_question_delivered_after_the_reader_gave_up_still_counts_as_
         db.commit()
     _consume(judge)
     assert _questions(env)[0].status == "asked"
+
+
+# --------------------------------------------------------------------------- #
+# Fourth review of PR #53
+# --------------------------------------------------------------------------- #
+
+
+def test_a_receipt_landing_while_the_reader_gives_up_is_never_lost(qenv, monkeypatch):
+    from app.db.models import ChannelIdentity, MessageDelivery
+    from app.services import whatsapp
+    env = qenv
+    with env.db() as db:
+        q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive the move?",
+                                    owner="columbina", epistemic="inferred")
+        identity = ChannelIdentity(provider="whatsapp", provider_account_id="p", external_subject="race",
+                                   user_id=env.user.id)
+        db.add(identity)
+        db.commit()
+    sent = _add(env, "assistant", "Did the plant survive the move?")
+    with env.db() as db:
+        db.add(MessageDelivery(assistant_message_id=sent, channel="whatsapp", channel_identity_id=identity.id,
+                               content="x", status="accepted", provider_message_id=f"wamid.{sent}"))
+        memory_manager.meant_to_ask(db, env.user.id, q.id, message_id=sent)
+        db.commit()
+    real = open_questions._arrived
+    seen = []
+
+    def arrived(db, message):
+        seen.append(1)
+        if len(seen) == 1:  # the reader decides it's late; the receipt commits before the reader does
+            with env.db() as other:
+                whatsapp.apply_delivery_status(other, provider_message_id=f"wamid.{sent}", status="delivered")
+                other.commit()
+            return "late"
+        return real(db, message)
+
+    monkeypatch.setattr(open_questions, "_arrived", arrived)
+    _record_message(env, sent)
+    _consume(_reader({"asks": "plant"}))
+    assert _questions(env)[0].status == "asked"
+
+
+def test_a_reply_whose_promise_closed_before_the_check_still_records_its_question(env):
+    _timed_promise(env)
+    _advance(env, 60)
+    drain(env)
+
+    async def cancel_and_ask(use, context):  # woken for it, she lets it go and asks something instead
+        tools = _promise_tools(context)
+        await tools["update_item"].ainvoke({"item": memory_manager.ref(_promises(env)[0]), "status": "cancelled",
+                                            "reason": "they said they're skipping cardio today"})
+        await tools["note_question"].ainvoke({"question": "Are you resting your knee today?",
+                                              "asked_by": "columbina", "asking_now": True})
+        return "No cardio then. Are you resting your knee today?"
+
+    env.scripts.append(cancel_and_ask)
+    run_job(env)
+    [q] = [i for i in _questions(env) if "knee" in i.text]
+    assert q.keeping is not None and q.keeping["message_id"] == str(_last_assistant(env))

@@ -85,7 +85,7 @@ def check(promises: list[WorkingItem], reply: str,
     kept). The revision goes with the verdict: a promise changed while this ran is checked against it under its
     lock, so a verdict never applies to a newer version. Fails closed."""
     if not promises:
-        return set(), {}
+        return {}, {}
     if not (reply or "").strip():
         return {}, {p.id: "nothing was said" for p in promises}
     refs = {p.id.hex[:8]: p.id for p in promises}
