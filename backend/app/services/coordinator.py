@@ -568,6 +568,15 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                                              "first_scheduled_at", "item", "channel_identity_id", "third_party",
                                              "phone_follow_up")}
         revisions = list(old.get("revisions") or [])
+        # A follow-up with someone on the phone keeps its recipient through every revision: the same intention never
+        # moves to another person or conversation (a new one is a new come_back_to).
+        if inherited.get("phone_follow_up") and phone_follow_up:
+            kept, named = inherited["phone_follow_up"], phone_follow_up
+            if (kept.get("person_id"), kept.get("conversation_id")) != (named.get("person_id"),
+                                                                        named.get("conversation_id")):
+                raise ValueError("that wake is a follow-up with someone else on the phone: moving it can't change who "
+                                 "or where; schedule a new one for this")
+        phone_follow_up = inherited.get("phone_follow_up") or phone_follow_up
         revisions.append({"at": now.isoformat(), "from_wake": str(moves.id), "from_due": old.get("due_at"),
                           "to_due": due_at.isoformat(), "reason": why,
                           "came_due": moves.status not in ACTIVE})
@@ -598,8 +607,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                "channel_identity_id": (str(channel_identity_id) if channel_identity_id else None)
                or inherited.get("channel_identity_id"),
                "moved": moved, "revisions": revisions[-12:],
-               **({"phone_follow_up": phone_follow_up or inherited.get("phone_follow_up")}
-                  if phone_follow_up or inherited.get("phone_follow_up") else {}),
+               **({"phone_follow_up": phone_follow_up} if phone_follow_up else {}),
                **({"third_party": True} if third_party or phone_follow_up or inherited.get("third_party")
                   else {})})
     db.add(row)

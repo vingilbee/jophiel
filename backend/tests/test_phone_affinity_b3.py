@@ -428,3 +428,46 @@ def test_reply_targets_reach_the_wake_input_only_with_someone_elses_words(env):
     assert by_event["e1"]["reply_targets"] == [target] and "reply_targets" not in by_event["e2"]
     with env.db() as db:
         assert db.scalar(select(func.count()).select_from(PhoneOutbound)) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes (PR 50)
+# --------------------------------------------------------------------------- #
+
+def test_rescheduling_a_follow_up_keeps_its_recipient_and_refuses_another(b3):
+    report(b3.env, rina_dm(message("e_r1", "Rina", "p_rina", "audition friday!")),
+           sari(message("e_s1", "Sari", "p_sari", "hello")))
+    rina = phone_replies.follow_up_for(b3.user, ref(DM_KEY))
+    first = _schedule(b3, rina)
+    with b3.env.db() as db:
+        with pytest.raises(ValueError, match="can't change who"):
+            coordinator.schedule_wake(
+                db, user_id=b3.user, conversation_id=b3.chat, about="say hi to Sari",
+                due_at=datetime.now(timezone.utc) + timedelta(days=3), reason="later",
+                moves=db.get(CoordinatorWork, first.id),
+                phone_follow_up=phone_replies.follow_up_for(b3.user, ref(SARI_KEY)))
+        db.rollback()
+        assert db.get(CoordinatorWork, first.id).status != "cancelled"  # nothing moved
+    # The same person named again (a newer message of hers) keeps the original record.
+    report(b3.env, rina_dm(message("e_r1", "Rina", "p_rina", "audition friday!"),
+                           message("e_r2", "Rina", "p_rina", "so nervous"), revision=2))
+    with b3.env.db() as db:
+        moved = coordinator.schedule_wake(
+            db, user_id=b3.user, conversation_id=b3.chat, about="see how it went",
+            due_at=datetime.now(timezone.utc) + timedelta(days=3), reason="after the weekend",
+            moves=db.get(CoordinatorWork, first.id), phone_follow_up=phone_replies.follow_up_for(b3.user, ref(DM_KEY)))
+        db.commit()
+    assert moved.input["phone_follow_up"] == rina
+
+
+def test_a_newer_message_in_another_notification_of_the_conversation_unbinds_the_older_one(b3):
+    t0 = datetime.now(timezone.utc) - timedelta(minutes=5)
+    report(b3.env, rina_dm(message("e_r1", "Rina", "p_rina", "are you there?", at=t0)))
+    older = targets(b3)
+    report(b3.env, chat("n_rina_2", "c_rina", "Rina",
+                        [message("e_r2", "Rina", "p_rina", "never mind, sorted", at=t0 + timedelta(minutes=2))]))
+    newer = targets(b3)
+    said = answer(b3, ref(DM_KEY), "I'm here!", older)
+    assert said.startswith("Not sent") and "different exchange" in said
+    assert b3.phone.frames == [] and outbound(b3) == []
+    assert answer(b3, ref("n_rina_2"), "Glad it's sorted!", newer) == "Reply sent"

@@ -92,6 +92,7 @@ class Material:
     revision: int = 0
     conversation_id: str | None = None
     recipient_sender: str | None = None
+    answering_event: str | None = None  # the newest message across the conversation, the one being answered
     recipient_person_id: uuid.UUID | None = None
 
     def render(self, draft: str) -> str:
@@ -144,6 +145,11 @@ def _scope(db, user_id: uuid.UUID, conversation_id: str, recipient_sender: str |
 
 
 def _answering(notifications: list, lines: list) -> str | None:
+    newest = _newest(notifications, lines)
+    return newest.sender_id if newest is not None else None
+
+
+def _newest(notifications: list, lines: list):
     """The sender of the newest message in the conversation, the one she'd be answering; none when that message is
     the user's or hers, its sender is unknown, or which message is newest isn't known. Never an earlier speaker:
     their authorizations aren't this reply's. One notification: the phone's own order says (its last message is
@@ -166,7 +172,7 @@ def _answering(notifications: list, lines: list) -> str | None:
         newest = tied[-1]
     if newest is None or newest.from_phone or not newest.sender_id:
         return None
-    return newest.sender_id
+    return newest
 
 
 class _Labels:
@@ -269,7 +275,8 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
     if n is None or not n.conversation_id:
         raise Unavailable("there's no conversation behind that notification on the phone now")
     lines = phone_relationships._lines(user_id, same)
-    answering = _answering(same, lines)
+    newest = _newest(same, lines)
+    answering = newest.sender_id if newest is not None else None
     with SessionLocal() as db:
         scope = _scope(db, user_id, n.conversation_id, answering)
         labels = _Labels(db, user_id, scope, lines)
@@ -284,6 +291,7 @@ def material_for(user_id: uuid.UUID, handle: str, *, now: float | None = None) -
             authorized=_authorized(db, user_id, scope), requests=_requests(db, user_id, scope, labels),
             key=n.key, revision=int(n.revision), conversation_id=n.conversation_id,
             recipient_sender=answering if scope.recipient is not None else None,
+            answering_event=newest.event_id if newest is not None and scope.recipient is not None else None,
             recipient_person_id=scope.recipient.id if scope.recipient is not None else None)
 
 

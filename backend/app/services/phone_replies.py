@@ -157,13 +157,15 @@ def _bound(material: phone_reply_check.Material, target: Target) -> bool:
     """The check read the same notification, revision, conversation and recipient this send is for."""
     return (material.key == target.key and material.revision == target.revision
             and material.conversation_id == target.conversation_id and material.is_group == target.is_group
-            and material.recipient_sender == target.sender_id and material.recipient_person_id is not None)
+            and material.recipient_sender == target.sender_id and material.answering_event == target.event_id
+            and material.recipient_person_id is not None)
 
 
 def _binding(material: phone_reply_check.Material) -> str:
     """What must not change between the check and the send: the target, and what the user authorized and the
     requests for space the check read."""
     parts = [material.key, str(material.revision), material.conversation_id or "", material.recipient_sender or "",
+             material.answering_event or "",
              str(material.recipient_person_id), *sorted(material.authorized), "\x01", *sorted(material.requests)]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()
 
