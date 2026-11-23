@@ -87,6 +87,134 @@ flowchart LR
 
 ---
 
+## The harness, step by step
+
+Jophiel runs on **five loops**. Each one is simple. Together they make her feel alive.
+
+```mermaid
+flowchart TB
+    L1["① Turn loop<br/>something wakes her → she acts"]
+    L2["② Agent loop<br/>think → use a tool → think again"]
+    L3["③ Come-back loop<br/>thinking and reminders she saved"]
+    L4["④ Background mind<br/>watching her game, phone, desktop"]
+    L5["⑤ Learning loop<br/>looking back → lessons"]
+
+    L1 --> L2
+    L2 -- "think it over /<br/>come back later" --> L3
+    L3 -- "wakes her again" --> L1
+    L4 -- "something worth saying" --> L1
+    L1 -- "what happened" --> L5
+    L5 -- "lessons in her next prompt" --> L1
+```
+
+### ① The turn loop: one wake, start to finish
+
+Every time something wakes her, the same steps run, whether it was your message or her own reminder.
+
+```mermaid
+sequenceDiagram
+    participant App as 📱 App
+    participant API as ⚡ Backend
+    participant DB as 🗄️ Postgres
+    participant W as ⚙️ Chat worker
+    participant Mind as 🧠 Her mind
+
+    App->>API: message (WebSocket)
+    API->>DB: save message + a job
+    DB->>W: worker picks up the job
+    W->>W: get ready:<br/>search memory, load lessons,<br/>cancel thinking that's now outdated
+    W->>W: gather the moment:<br/>time, working memory, game,<br/>phone, files, what's under way
+    W->>Mind: prompt + the tools that fit right now
+    Mind-->>App: reply streams back word by word<br/>(Redis → WebSocket, spoken if voice)
+    W->>DB: record what she did<br/>(said / silent / started thinking)
+```
+
+**Getting ready** happens before the AI starts:
+- **Memory search:** it looks up what she knows about this message once, up front.
+- **Lessons:** what she has learned with this person.
+- **Cleanup:** thinking she started about an *older* message is cancelled, so it can't answer the wrong thing.
+
+**Tools change with the moment.** Game tools only while she plays, desktop tools only on replies, phone tools only when privacy allows. She is never offered a tool that doesn't make sense right now.
+
+### ② The agent loop: inside one decision
+
+Her mind is a **ReAct agent** (LangGraph + OpenAI). It loops until she's done:
+
+```mermaid
+flowchart LR
+    P["📋 Prompt<br/>who she is + the moment"] --> M{"🤖 Model"}
+    M -- "wants a tool" --> T["🔧 Run the tool<br/>search memory, look at screen,<br/>click, ask Gmail..."]
+    T -- "result" --> M
+    M -- "done" --> R["💬 Reply<br/>or 🤐 silence"]
+```
+
+Her tools fall into a few groups:
+
+| Group | Examples |
+|---|---|
+| 🧠 Mind | `stay_silent`, `think_it_over`, `come_back_to`, `drop_come_back` |
+| 📝 Working memory | `set_goal`, `note_commitment`, `note_question` |
+| 📚 Recall | `search_memories`, `read_timeline`, `what_i_know` |
+| 👀 Senses | `look_at_screen`, `read_attachment` |
+| 🎮 Body | game controls, desktop clicks and typing |
+| 🧰 Specialists | `gmail_agent`, `drive_agent`, `blender_agent` (each is its own small agent) |
+
+### ③ The come-back loop: thinking and reminders
+
+When she says *"let me think about that"* or *"I'll ask you Thursday"*, it isn't just words. It becomes a saved job.
+
+```mermaid
+flowchart LR
+    A["🧠 She calls<br/>think_it_over<br/>or come_back_to"] --> B[("💾 Saved as work<br/>in Postgres")]
+    B --> C["⚙️ Coordinator<br/>runs the thinking,<br/>or waits until it's due"]
+    C --> D{"✅ Still makes sense?<br/>no newer message,<br/>topic still open"}
+    D -- yes --> E["🔔 Wakes her<br/>(back to loop ①)"]
+    D -- no --> F["🗑️ Dropped quietly"]
+```
+
+- **Thinking** uses a slower, deeper model that reaches a conclusion: a decision, a guess, a question or a feeling.
+- **Reminders** wait until their time comes, even across restarts.
+- **The coordinator is plain code, not AI.** It only checks the facts. When she wakes up, she decides whether her conclusion is still worth saying.
+
+### ④ The background mind: noticing things on her own
+
+About once a second, her background mind checks her **sources**: her Minecraft game, her phone, and her desktop's security logs.
+
+```mermaid
+flowchart LR
+    S["👀 Source changed<br/>took damage, new notification,<br/>odd login..."] --> G{"⚖️ How much<br/>does this matter?"}
+    G -- "a little" --> Q["💭 Quick thought"]
+    G -- "a lot" --> H["🤔 Hard thought<br/>(one at a time)"]
+    Q & H --> Mem["📚 Saved to memory"]
+    Q & H -- "worth saying?" --> W["🔔 Wakes her<br/>(loop ①)"]
+```
+
+A conversation isn't a source: your messages wake her directly.
+
+### ⑤ The learning loop: getting better from experience
+
+```mermaid
+flowchart LR
+    A["📼 Capture<br/>what she was given,<br/>what she did"] --> B["🔍 Assessment<br/>what really happened,<br/>with evidence"]
+    B --> C["🌱 Lesson<br/>only if the evidence<br/>supports it"]
+    C --> D["📋 Shown in her<br/>next prompt"]
+    D --> A
+```
+
+In games she can also run small, bounded **experiments** to test an idea. Learning only *proposes*; her mind decides whether to accept a lesson.
+
+### Safety checks between the loops
+
+| Check | Why |
+|---|---|
+| A newer message cancels old thinking | She never answers something you've moved past |
+| "Still valid?" before every wake | A stale thought stays private |
+| "Already said?" before delivery | No repeating herself |
+| Phone replies are checked by a separate model | Nothing private leaks to other people |
+| A notification can't trigger phone actions | Someone texting you can't control your phone |
+
+---
+
 ## What she can do
 
 | | |
