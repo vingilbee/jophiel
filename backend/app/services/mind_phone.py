@@ -14,7 +14,7 @@ for hard thinking: code reports facts; whether any of it matters is her mind's.
 
 Phase 8: what's playing starting or stopping, a Maps trip starting or ending, the Messages switch, and the phone's
 notifications (services/phone_notifications.py: a new message, a removal), always as someone else's words. A moment
-with a posted notification is ``third_party``: the wake it leads to gets no device action (app/ai/chat.py).
+with a posted or removed notification is ``third_party``: the wake it leads to gets no device action (app/ai/chat.py).
 """
 from __future__ import annotations
 

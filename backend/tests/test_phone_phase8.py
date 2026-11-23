@@ -125,7 +125,7 @@ def test_a_reply_written_on_the_phone_is_not_someone_elses_news(channel):
     assert phone_notifications.news_lines([news])[0].endswith('"great!"')
 
 
-def test_removed_and_all_removed(channel):
+def test_removed_and_all_removed(channel, monkeypatch):
     post(channel, {"posted": [RINA, {**RINA, "key": "n_bank", "app": "Bank", "title": "Payment", "text": "Rp 50.000",
                                      "messages": [], "conversation": None, "conversation_id": None,
                                      "can_reply": False}]})
@@ -137,7 +137,21 @@ def test_removed_and_all_removed(channel):
     _, _, moment = moment_for(channel)
     assert moment.fresh == [f'Notification [{phone_notifications.ref("n_rina")}] from "Rina" (WhatsApp) is gone '
                             "from the phone, cleared: already seen or dealt with there"]
-    assert moment.data["third_party"] is False
+    # A removal names someone else's sender and app: the wake it leads to gets no phone controls.
+    assert moment.data["third_party"] is True
+    with channel.db() as db:
+        autonomous_speech.submit(
+            db, user_id=channel.user, activity_id=mind_phone.activity_of(channel.user), source="phone",
+            event_id=uuid.uuid4(), text="Rina's message is gone", reasons=["light: a removal"],
+            commentary_mode="occasional", third_party=moment.data["third_party"])
+        work = db.query(CoordinatorWork).filter(CoordinatorWork.user_id == channel.user).one()
+        info = {"work_id": str(work.id), "kind": work.kind, "input": dict(work.input), "reason": "thought"}
+        ev = mind_turn.Evaluation(user_id=channel.user, conversation_id=channel.conversation,
+                                  request_id=uuid.uuid4(), reason="thought", wake=info)
+        db.rollback()
+    own = AgentRuntimeContext(channel.user, conversation_id=channel.conversation, wake="a thought")
+    assert registered_actions(monkeypatch, replace(own, third_party=ev.third_party)) is None
+    assert phone_notifications.has_third_party([{"kind": "cleared"}]) is False
     phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user)[:1])
     post(channel, {"all_removed": True})
     assert phone_notifications.live(channel.user) == []
@@ -196,6 +210,28 @@ def test_expiry_cleanup_keeps_a_notification_refreshed_meanwhile(channel, monkey
     monkeypatch.setattr(client, "hgetall", real)
     [kept] = phone_notifications.live(channel.user)
     assert kept.revision == 2
+
+
+def test_a_report_before_a_switch_off_never_turns_the_sense_back_on(channel, monkeypatch):
+    """PR #47 review: the sense flag was set after the transaction, so a post committed before a switch-off could
+    set it back to "on" after it."""
+    client = phone_notifications._client()
+    real_hset = client.hset
+
+    def switch_off_meanwhile(name, *args, **kwargs):
+        # Between the post's transaction and whatever it does after: the switch-off lands.
+        if name == phone_state.USERS_KEY and not switch_off_meanwhile.done:
+            switch_off_meanwhile.done = True
+            phone_notifications.report(channel.user, PhoneNotificationsReport(all_removed=True))
+        return real_hset(name, *args, **kwargs)
+
+    switch_off_meanwhile.done = False
+    monkeypatch.setattr(phone_notifications, "_client", lambda: client)
+    monkeypatch.setattr(client, "hset", switch_off_meanwhile)
+    phone_notifications.report(channel.user, PhoneNotificationsReport(posted=[RINA]))
+    assert switch_off_meanwhile.done
+    assert phone_notifications.sensing(channel.user) is None
+    assert phone_notifications.live(channel.user) == []
 
 
 def test_socket_frame_reaches_the_store_and_web_sockets_and_bad_bodies_are_refused(channel):

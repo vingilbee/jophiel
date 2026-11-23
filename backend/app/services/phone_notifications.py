@@ -224,6 +224,13 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
                     if news:
                         pipe.ltrim(_news_key(user_id), -NEWS_KEEP, -1)
                         pipe.expire(_news_key(user_id), _keep_seconds())
+                    # Whether the sense is on, for her prompt: any report says it is, "all removed" that it was
+                    # switched off. In the same transaction, so a report applied before a switch-off can never
+                    # turn the sense back on after it.
+                    if payload.all_removed and not payload.posted:
+                        pipe.delete(_sense_key(user_id))
+                    else:
+                        pipe.set(_sense_key(user_id), json.dumps(now), ex=_keep_seconds())
                     pipe.execute()
                     break
                 except redis.WatchError:
@@ -232,11 +239,6 @@ def report(user_id: uuid.UUID | str, payload: PhoneNotificationsReport, *, now: 
             raise redis.WatchError(f"{key} kept changing")
         # Her phone source ticks users whose phone was in touch; a notification is contact.
         client.hset(phone_state.USERS_KEY, str(user_id), json.dumps(now))
-        # Whether the sense is on, for her prompt: any report says it is, "all removed" that it was switched off.
-        if payload.all_removed and not payload.posted:
-            client.delete(_sense_key(user_id))
-        else:
-            client.set(_sense_key(user_id), json.dumps(now), ex=_keep_seconds())
         if news:
             client.rpush(phone_state.MIND_WAKEUPS, "phone")
             client.ltrim(phone_state.MIND_WAKEUPS, -100, -1)
@@ -433,9 +435,10 @@ def arrived(news: list[dict]) -> list[str]:
 
 
 def has_third_party(news: list[dict]) -> bool:
-    """Whether this news carries someone else's words (a posted notification): a turn it causes is theirs, not the
-    user's, and gets no device action."""
-    return any(entry.get("kind") == "posted" for entry in news)
+    """Whether this news carries someone else's words (a posted notification, or a removal: it names the sender,
+    conversation or title someone else chose): a turn it causes is theirs, not the user's, and gets no device
+    action. Only "cleared" carries nothing of theirs."""
+    return any(entry.get("kind") in ("posted", "removed") for entry in news)
 
 
 def describe(notifications: list[Notification] | None, *, with_text: bool, now: float | None = None) -> list[str]:
