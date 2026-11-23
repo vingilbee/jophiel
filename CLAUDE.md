@@ -12,6 +12,7 @@ of the agent loop with her prompt and tools. See `docs/MIND_ARCHITECTURE.md`. Pe
 and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14,
 "Continuity follow-up" in `docs/MIND_ARCHITECTURE.md`): migration `c8e4a1f7b3d2` (`mind_evaluations`,
 `learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
+Phone affinity B1 (2026-11-22): migration `a4d7e1c9b3f2` (phone people, conversations, affinities, outbound replies).
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -240,6 +241,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   navigation, the Messages switch) + phone_notifications.py (its notifications, Redis only,
                        #   news labelled someone else's words; a turn they cause gets no device action) +
                        #   phone_actions.py (one-shot actions on the phone: socket or push, lines in the chat) +
+                       #   phone_people.py (people she meets on the phone: persons, conversations, default affinity,
+                       #   her replies and their echoes, read_person; docs/PHONE_PHASE_8_AFFINITY_B1.md) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);

@@ -377,7 +377,8 @@ def test_maps_tools_are_registered_only_on_direct_replies(monkeypatch):
         async with ai_chat._orchestrator_for(context) as (names, _):
             return names
 
-    assert asyncio.run(registered(reply)) == {"phone_action", "get_route", "search_places", "where_am_i"}
+    assert asyncio.run(registered(reply)) == {"phone_action", "get_route", "search_places", "where_am_i",
+                                              "read_person"}
     # Her own turns get the quiet actions (tests/test_phone_phase8.py checks which); a turn someone else's words
     # caused gets none, nor do nudges.
     own = replace(reply, source_message_id=None, wake="late result")

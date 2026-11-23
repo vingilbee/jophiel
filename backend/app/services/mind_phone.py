@@ -15,10 +15,16 @@ for hard thinking: code reports facts; whether any of it matters is her mind's.
 Phase 8: what's playing starting or stopping, a Maps trip starting or ending, the Messages switch, and the phone's
 notifications (services/phone_notifications.py: a new message, a removal), always as someone else's words. A moment
 with a posted or removed notification is ``third_party``: the wake it leads to gets no device action (app/ai/chat.py).
+
+Wake pacing (affinity B1, docs/PHONE_PHASE_8_AFFINITY_B1.md §6): a conversation's news waits until its burst is
+over (``phone_notifications.ready``), and at most PHONE_NOTIFICATION_TICKS_PER_HOUR ticks an hour are caused by
+notifications alone; past that, news waits for the next allowed tick or the heartbeat. Nothing is dropped. A pacing
+rule only, never a rule about what she does.
 """
 from __future__ import annotations
 
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -211,12 +217,20 @@ class PhoneSource:
     def __init__(self) -> None:
         self._seen: dict[uuid.UUID, tuple[dict, float]] = {}  # per user: the last ticked snapshot, when
         self._live: set[uuid.UUID] = set()  # every user with a phone, ticked this loop or not
+        self._news_ticks: dict[uuid.UUID, deque[float]] = {}  # per user: ticks notifications alone caused, last hour
+
+    def _news_tick_allowed(self, user_id: uuid.UUID, now: float) -> bool:
+        ticks = self._news_ticks.setdefault(user_id, deque())
+        while ticks and now - ticks[0] >= 3600:
+            ticks.popleft()
+        return len(ticks) < get_settings().phone_notification_ticks_per_hour
 
     def enabled(self) -> bool:
         return True
 
     def poll(self, db: Session | None) -> list[tuple[Scope, Any]] | None:
-        """Users whose phone is due a tick after a state change, a late action outcome, or its heartbeat."""
+        """Users whose phone is due a tick after a state change, a late action outcome, notification news whose
+        burst is over (within the hourly cap), or its heartbeat. A tick reads only the news that's ready."""
         import time
 
         now = time.time()
@@ -229,18 +243,23 @@ class PhoneSource:
             state = phone_state.read(user_id, now=now)
             updates = action_news.get(user_id, [])
             notes = phone_notifications.pending_news(user_id)
+            notes = notes[:phone_notifications.ready(notes, now=now)]
             if state is None and not updates and not notes:
                 continue
             state = state or phone_state.PhoneState()
             seen = self._seen.get(user_id)
             current = snapshot(state)
-            if not updates and not notes and seen is not None and seen[0] == current and now - seen[1] < every:
-                continue
+            if not updates and seen is not None and seen[0] == current and now - seen[1] < every:
+                # Nothing but notification news would make this tick: paced by the hourly cap.
+                if not notes or not self._news_tick_allowed(user_id, now):
+                    continue
+                self._news_ticks[user_id].append(now)
             self._seen[user_id] = (current, now)
             out.append((scope_of(user_id), (state, updates, notes) if updates or notes else state))
         for user_id in list(self._seen):
             if user_id not in live:
                 self._seen.pop(user_id, None)
+                self._news_ticks.pop(user_id, None)
         self._live = {activity_of(user_id) for user_id in live}
         return out
 
@@ -261,7 +280,8 @@ class PhoneSource:
         current = {**snapshot(state), "part_of_day": part_of_day(local.hour),
                    "quiet": quiet_band(at - theirs if theirs is not None else None)}
         fresh = [*(text for _, text in action_news), *news(current, previous, state),
-                 *phone_notifications.news_lines(notes)]
+                 *phone_notifications.news_lines(notes, people=phone_notifications.news_people(
+                     scope.user_id, notes, at=at) if notes else None)]
         talk = mind_ticks.recent_talk(db, scope.user_id, datetime.fromtimestamp(at, timezone.utc)) if db else []
 
         text = [f"TIME\n- {local:%H:%M} on {local:%A %d %B}, {current['part_of_day']}"

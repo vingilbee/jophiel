@@ -52,7 +52,7 @@ from app.ai.tools.security import build_security_tools
 from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
 from app.ai.tools.mind import build_mind_tools
-from app.ai.tools.phone import build_phone_tools
+from app.ai.tools.phone import build_people_tools, build_phone_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 
@@ -267,6 +267,9 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if (settings.redis_url and context.conversation_id is not None and not context.third_party
             and context.game_event is None and context.nudge is None and (phone_reply or context.wake is not None)):
         direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id, own_turn=not phone_reply))
+        # Who she knows on the phone (read only): the user's own reply turns, never a wake.
+        if phone_reply:
+            direct_tools.extend(build_people_tools(context.user_id))
     # Her desktop's security records: read only, so on follow-ups too (she checks before presenting a finding as
     # current); never on game-event turns.
     if context.security is not None and context.game_event is None:

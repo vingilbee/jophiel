@@ -31,7 +31,7 @@ from app.db.models import Conversation, PhoneActivity
 from app.db.session import SessionLocal
 from app.schemas.chat import ChatMessageOut
 from app.schemas.phone import PhoneActionData, PhoneActionDraft, PhoneActionOpened, PhoneActionResult
-from app.services import agent_say, fcm, phone_devices, presence
+from app.services import agent_say, fcm, phone_devices, phone_people, presence
 
 log = logging.getLogger(__name__)
 
@@ -355,6 +355,8 @@ def dispatch_line_id(action_id: uuid.UUID) -> uuid.UUID:
 def _record_late(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID, action_id: uuid.UUID,
                  action: str, reply: dict) -> None:
     text = reply["text"]
+    if action == "reply_notification":
+        phone_people.settle_outbound(action_id, reply["status"])
     if action == "get_position" and reply["status"] == "done":
         text = "Phone returned a location after the lookup timed out"
     _record_activity(client, user_id, conversation_id, dispatch_line_id(action_id), text, late=True, replace=True)
@@ -374,11 +376,14 @@ def _close_waiter(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid
 
 
 def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict, *,
-        target: tuple[str, str | None] | None = None, view: dict | None = None) -> Outcome:
+        target: tuple[str, str | None] | None = None, view: dict | None = None, asked_by: str = "user") -> Outcome:
     """Send one action to the user's phone and wait for its answer. ``view``: what the chat line says about it
     (defaults to ``args``; a reply's line names who it went to). The wait is the action's own, longer once it went
-    by push (the app has to wake first)."""
+    by push (the app has to wake first). A ``reply_notification`` is recorded as what she said to whom
+    (services/phone_people.py: ``sending`` before dispatch, settled by its answer, ``unknown`` without one);
+    ``asked_by``: ``user`` (they asked for it) or ``her``."""
     action_id = uuid.uuid4()
+    recorded = False
     client = _client()
     target_label = LABELS[action]
     if view is None:
@@ -389,6 +394,8 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
     def failed(status: str, text: str) -> Outcome:
         # The "no answer yet" line has its own ID: a late answer replaces it with the definitive outcome.
         receipt_id = dispatch_line_id(action_id) if status == "unconfirmed" else action_id
+        if recorded:
+            phone_people.settle_outbound(action_id, status)
         _try_record(client, user_id, conversation_id, receipt_id, text)
         return Outcome(status, action_id, text)
 
@@ -421,6 +428,10 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 "type": "phone_action", "action_id": str(action_id), "action": action, "args": args,
                 "expires_at": datetime.fromtimestamp(expires, timezone.utc).isoformat(timespec="milliseconds"),
             }
+            if action == "reply_notification":
+                recorded = phone_people.record_outbound(
+                    user_id, action_id, key=args["key"], conversation_id=args.get("conversation_id"),
+                    revision=int(args.get("revision") or 0), text=args["text"], asked_by=asked_by)
             delivery = "uncertain"  # a transport error during publication may leave the delivery unknown
             delivery = _send(client, user_id, session_hash, socket_id, frame, expires)
             if delivery == "failed":
@@ -440,6 +451,8 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 if private is not None and "point" in result:
                     point = tuple(json.loads(_cipher(private, result["key"], action_id)
                                              .decrypt(result["point"].encode())))
+                if recorded:
+                    phone_people.settle_outbound(action_id, result["status"])
                 if action != "get_position" or result["status"] != "done":
                     _try_record(client, user_id, conversation_id, action_id, result["text"])
                 return Outcome(result["status"], action_id, result["text"], point)

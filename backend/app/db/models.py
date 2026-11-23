@@ -518,6 +518,161 @@ class PhoneActivity(Base, TimestampMixin):
     mind_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
+# --------------------------------------------------------------------------- #
+# People she meets through the phone (phase 8 affinity, docs/PHONE_PHASE_8_AFFINITY_B1.md): names, opaque ids and
+# her own sent text only, never anyone else's message text. services/phone_people.py.
+# --------------------------------------------------------------------------- #
+
+class PhonePerson(Base):
+    """One person she can tell apart on the user's phone. Separate from ``MemoryEntity`` (people the user talks
+    *about*). Never merged automatically: two ids are two people."""
+
+    __tablename__ = "phone_people"
+    __table_args__ = (CheckConstraint("status IN ('active', 'deleted')", name="ck_phone_people_status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)  # the latest shown
+    names: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    in_contacts: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PhonePersonKey(Base):
+    """A phone sender id and the person it is. ``identity: name`` ids are conversation-local already (the phone
+    hashes the conversation in); a reinstall makes new ids, so a new person."""
+
+    __tablename__ = "phone_person_keys"
+    __table_args__ = (
+        UniqueConstraint("user_id", "sender_id", name="uq_phone_person_keys_sender"),
+        CheckConstraint("identity IN ('contact', 'name')", name="ck_phone_person_keys_identity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    sender_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    identity: Mapped[str] = mapped_column(String(16), nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=False)
+
+
+class PhoneConversation(Base):
+    """A conversation on the phone, by the phone's opaque id. ``title`` identity is weak."""
+
+    __tablename__ = "phone_conversations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "conversation_id", name="uq_phone_conversations_conversation"),
+        CheckConstraint("conversation_identity IS NULL OR conversation_identity IN ('shortcut', 'title')",
+                        name="ck_phone_conversations_identity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    conversation_identity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    package: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    app: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    is_group: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)  # the latest
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PhoneConversationMember(Base):
+    """Who has written in which conversation."""
+
+    __tablename__ = "phone_conversation_members"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="CASCADE"), primary_key=True)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), primary_key=True, index=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PhoneAffinity(Base):
+    """Her relationship with one person: plain-language labels (services/phone_people.py, the fixed sets), a short
+    note scoped to its audience, explicit preferences. Created with the defaults; B1 never changes the labels."""
+
+    __tablename__ = "phone_affinities"
+    __table_args__ = (
+        UniqueConstraint("user_id", "person_id", name="uq_phone_affinities_person"),
+        CheckConstraint("familiarity IN ('new', 'acquainted', 'familiar', 'close')",
+                        name="ck_phone_affinities_familiarity"),
+        CheckConstraint("warmth IN ('wary', 'cool', 'neutral', 'warm', 'fond')", name="ck_phone_affinities_warmth"),
+        CheckConstraint("initiative IN ('none', 'would_enjoy', 'wants_to', 'holding_back')",
+                        name="ck_phone_affinities_initiative"),
+        CheckConstraint("note IS NULL OR char_length(note) <= 300", name="ck_phone_affinities_note"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="CASCADE"), index=True, nullable=False)
+    familiarity: Mapped[str] = mapped_column(String(16), nullable=False, default="new", server_default="new")
+    warmth: Mapped[str] = mapped_column(String(16), nullable=False, default="neutral", server_default="neutral")
+    initiative: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="SET NULL"), nullable=True)
+    preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    last_direct_exchange_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PhoneRelationshipEvidence(Base):
+    """One scoped observation behind a relationship label (written from B2; empty in B1)."""
+
+    __tablename__ = "phone_relationship_evidence"
+    __table_args__ = (
+        UniqueConstraint("person_id", "event_id", "dimension", name="uq_phone_relationship_evidence_event"),
+        CheckConstraint("dimension IN ('familiarity', 'warmth', 'initiative', 'note', 'preferences')",
+                        name="ck_phone_relationship_evidence_dimension"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("phone_people.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_conversations.id", ondelete="SET NULL"), nullable=True)
+    event_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    dimension: Mapped[str] = mapped_column(String(16), nullable=False)
+    observation: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PhoneOutbound(Base):
+    """Every ``reply_notification`` sent (the user's ask, or hers from B3), by action id: what she said to whom.
+    ``conversation_id`` is the phone's opaque conversation id (it still identifies the audience when the person
+    is deleted); ``person_id`` only for a direct chat."""
+
+    __tablename__ = "phone_outbound"
+    __table_args__ = (
+        CheckConstraint("asked_by IN ('user', 'her')", name="ck_phone_outbound_asked_by"),
+        CheckConstraint("status IN ('sending', 'sent', 'failed', 'unknown')", name="ck_phone_outbound_status"),
+        Index("ix_phone_outbound_conversation", "user_id", "conversation_id", "created_at"),
+        Index("uq_phone_outbound_echo", "user_id", "echo_event_id", unique=True,
+              postgresql_where=text("echo_event_id IS NOT NULL")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)  # the action id
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("phone_people.id", ondelete="SET NULL"), index=True, nullable=True)
+    notification_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    asked_by: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default="sending", server_default="sending")
+    echo_event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class PushDelivery(Base, TimestampMixin):
     """Transactional outbox for phone pushes (services/push.py, workers/push.py).
 

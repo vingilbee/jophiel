@@ -496,6 +496,11 @@ class Settings(BaseSettings):
     # Replies the user asks for work regardless.
     phone_notification_keep_hours: float = Field(default=24.0, ge=1, le=72)
     phone_autonomous_replies: bool = False
+    # Wake pacing for notifications (affinity B1): news from one conversation waits until it has been quiet this
+    # long (a burst is read by one tick), and at most this many notification-caused ticks an hour per user (past
+    # it, news waits for the heartbeat). Nothing is dropped; state changes and action outcomes tick as before.
+    phone_notification_burst_seconds: float = Field(default=20.0, ge=0, le=600)
+    phone_notification_ticks_per_hour: int = Field(default=30, ge=1, le=3600)
     mind_thought_retention_days: int = Field(default=7, ge=1, le=365)
     mind_log_path: str = "var/mind.jsonl"
     # Her planner (docs/COLUMBINA_MIND_DESIGN.md "Planning"): the one author of a game pack's plan.
