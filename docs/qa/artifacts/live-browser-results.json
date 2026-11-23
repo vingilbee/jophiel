@@ -1,8 +1,0 @@
-[
-  {
-    "test": "LIVE-BROWSER completion",
-    "status": "FAIL",
-    "actual": "TimeoutError: page.waitForURL: Timeout 15000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"**/chat\" until \"load\"\n============================================================",
-    "expected": "complete journey"
-  }
-]

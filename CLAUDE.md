@@ -1,38 +1,36 @@
-# Project: Columbina (General Conversational Agent)
-
-> **Name:** the agent is now **Jophiel** (renamed from Columbina on 2026-11-03, to move away from a game character). Docs, comments and internal ids (`columbina_user_turn`, `columbina_mind`, the `columbina` speaker label Student 1/2 were trained on, `columbina.md`, the core-memory key) keep the old name on purpose; everything the app shows or the live prompts say uses Jophiel. Wherever docs say "Columbina", read Jophiel.
+# Project: Jophiel (General Conversational Agent)
 
 ## One mind (2026-11-13)
 
 One persistent mind owns her decisions, conversation continuity and scheduling choices; Student 1, Student 2,
 the shared-state pipeline, appraisal and mood were removed. Every wake (a message, thinking she started that
 finished, a thought or proposal from another part of her, a reconsideration she scheduled) is one evaluation
-of the agent loop with her prompt and tools. See `docs/MIND_ARCHITECTURE.md`. Personality is text-only
+of the agent loop with her prompt and tools (`services/mind_turn.py`). Personality is text-only
 `core_memory.profile`, cached once per process by `services/personality.py`. Apply migrations `a6d2f8c4e9b1`
 and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14,
-"Continuity follow-up" in `docs/MIND_ARCHITECTURE.md`): migration `c8e4a1f7b3d2` (`mind_evaluations`,
+): migration `c8e4a1f7b3d2` (`mind_evaluations`,
 `learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
 Phone affinity B1 (2026-11-22): migration `a4d7e1c9b3f2` (phone people, conversations, affinities, outbound replies).
 Phone affinity B2 (2026-11-22): migration `b5e8d2a7c4f1` (exchange readings, shadow proposals, requests for space,
-authorized details, phone-scoped assessments and lessons; `docs/PHONE_PHASE_8_AFFINITY_B2.md`).
+authorized details, phone-scoped assessments and lessons).
 Phone affinity B3 (2026-11-22): migration `c6f9e3b8d5a2` (`phone_outbound.attempt_key`: one claim per autonomous
-reply attempt; `docs/PHONE_PHASE_8_AFFINITY_B3.md`).
+reply attempt).
 Phone privacy (2026-11-23): migration `d7a1f4c8e2b9` (`phone_disclosures.verified`: grants checked against the user's
 own message).
 
 ## Overview
-Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
+Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
 
-`NutritionDetection` is the historical workspace name. MacroVision food-photo inference and weight/calorie APIs are specialist capabilities retained in the codebase; they do not define Columbina's identity or the app's main focus.
+`NutritionDetection` is the historical workspace name. MacroVision food-photo inference and weight/calorie APIs are specialist capabilities retained in the codebase; they do not define Jophiel's identity or the app's main focus.
 
 **Core features:**
-- General text and voice conversation with Columbina
+- General text and voice conversation with Jophiel
 - One mind owning what she says (or doesn't), her background thinking, what she keeps open and when she comes back to it
 - Persistent memory and context, with screen awareness and integrations where available
 - Practical collaboration and specialist tools when the user requests them
 
 **Evaluation focus:**
-- Default behavioral tests should evaluate general, multi-turn conversation and Columbina's identity, not meal planning or nutrition assistance. See `docs/COLUMBINA_CONVERSATIONAL_TEST_PLAN.md`.
+- Default behavioral tests should evaluate general, multi-turn conversation and Jophiel's identity, not meal planning or nutrition assistance.
 - Include greetings, casual chat, reflection, topic changes, ambiguity, corrections, disagreement, and context-sensitive follow-ups across varied topics.
 - Judge relevance, naturalness, continuity, and appropriate conversational moves. A useful turn need not produce a plan, artifact, tool call, or advice.
 - Keep food/meal scenarios as explicitly scoped specialist or regression coverage. Historical dinner fixtures and dated reports are evidence of earlier implementation work, not the default product brief.
@@ -44,7 +42,7 @@ Columbina is a general conversational agent with a persistent identity, personal
 - **Backend:** Python, FastAPI, dependency/env manager: **uv** (use `uv sync`, `uv run <cmd>`, `uv add <pkg>` — not pip/poetry) `uv run uvicorn app.main:app --reload` 
 - **Database:** PostgreSQL
 - **ML Model:** PyTorch. Nutrition inference in `/app/ai/MacroVision` — fine-tuned ZoeDepth (depth) + an RGB/depth ViT cross-attention regressor, optionally combined with a Qwen3-VL VLM. Served via the `/api/predict` FastAPI endpoint. See the Decisions section for details.
-- **Chatbot:** Columbina is a general-purpose personal companion/orchestrator backed by LangChain (`langchain-openai` + `langgraph`) → OpenAI (`gpt-6-luna` by default, reasoning off). Domain capabilities such as nutrition live behind specialist sub-agents. Responses stream; code lives in `/app/ai`.
+- **Chatbot:** Jophiel is a general-purpose personal companion/orchestrator backed by LangChain (`langchain-openai` + `langgraph`) → OpenAI (`gpt-6-luna` by default, reasoning off). Domain capabilities such as nutrition live behind specialist sub-agents. Responses stream; code lives in `/app/ai`.
 - **Auth:** (fill in — e.g. JWT, OAuth, Supabase Auth — TBD)
 - **Image storage:** (fill in — e.g. S3, Cloudflare R2, or local disk for dev)
 
@@ -129,18 +127,18 @@ Columbina is a general conversational agent with a persistent identity, personal
       /security         # coverage.py: what she could see of a log channel over a window, and why not the rest (pure)
       /recall           # contracts.py: recall requests, typed results, memory references, limits (pure);
                         #   history.py: source-backed history contracts, reader prompt/schema, check, rendering (pure)
-      /mind             # her background mind's pure parts (docs/COLUMBINA_MIND_DESIGN.md, docs/MIND_ARCHITECTURE.md):
+      /mind             # her background mind's pure parts:
                         #   contracts.py (Scope, Moment, Source, Body, Command), tick.py (what changed, pressure, tick
                         #   text; the Minecraft source), situation.py (what a source tells the general mind), gates.py (how hard
                         #   to think: Jev / OpenAI Decisions / chat / Strands), think.py (quick thoughts),
                         #   plan.py (her planner: the one author of her game plan),
                         #   effort.py (her effort, pure: outcome / approach / actions / the user's rules as a
-                        #   timeline she and her planner read; docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md)
+                        #   timeline she and her planner read)
       /desktop          # desktop agent runtime: driver.py + driver_loop.py (gameplay model loop), skill_driver.py (her hands
                         #   in a game pack), practice.py (her learner, stage H1), play_log.py (view angle +
                         #   recent play, counted by code), relay.py (TLS controller relay, own process:
                         #   `uv run python -m app.ai.desktop.relay`; RelaySupervisor listens only on the approved
-                        #   network, docs/VM_CONNECTION_PLAN.md) + tls.py (its self-signed certificate) + network.py
+                        #   network) + tls.py (its self-signed certificate) + network.py
                         #   (the approved network: where it may listen, pure decision + reading interfaces) +
                         #   firewall.py (the LAN port rule: `uv run python -m app.ai.desktop.firewall show|check`)
       /tools           # MCP tool servers the agent can call
@@ -155,7 +153,7 @@ Columbina is a general conversational agent with a persistent identity, personal
         /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with her Minecraft pack
         /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
                         #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
-        /desktop_control # her own Windows desktop (docs/GENERAL_DESKTOP_CONTROL_DESIGN.md): screenshot, move_mouse,
+        /desktop_control # her own Windows desktop: screenshot, move_mouse,
                         #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
                         #   screenshot_hook shows her the pictures (pre-model hook)
         /gmail          # gmail_api.py (REST) + server.py (MCP) + client.py (adapter)
@@ -182,7 +180,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   capture gate, the machine status controllers report; desktop_relay.py: the relay as the
                        #   dashboard sees it (status.json, network approval, firewall check); desktop_preview.py: latest game frame in Redis (10 s TTL);
                        #   desktop_commands.py: API -> relay command stream + decision outcomes,
-                       #   security_activity.py: her desktop's security logs (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md):
+                       #   security_activity.py: her desktop's security logs:
                        #   the owner's monitoring switch (epochs), intake from the relay, coverage, the read query;
                        #   mind_security.py: those records as a source of her mind (investigations from the logs' own
                        #   severity, her periodic look, coverage gaps, late evidence);
@@ -220,7 +218,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   memory_reset.py: wipe user memory for tests, `uv run python scripts/reset_memory.py`;
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
                        #   writer, gaps; planner and hard thoughts too); trajectory_capture.py + trajectory.py: her
-                       #   trajectory, every game tick pulled from the pack in chunks, read back (docs/learning-system/POST-AUDIT-01-implementation.md); capture_chains.py: reading chains back;
+                       #   trajectory, every game tick pulled from the pack in chunks, read back; capture_chains.py: reading chains back;
                        #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions,
                        #   iterative requests, parked inquiries); learning_review.py: review opportunities (every
                        #   exchange, pauses, ongoing play, her mind's nominations) and follow-ups handed to memory;
@@ -248,25 +246,25 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   news labelled someone else's words; a turn they cause gets no device action) +
                        #   phone_actions.py (one-shot actions on the phone: socket or push, lines in the chat) +
                        #   phone_people.py (people she meets on the phone: persons, conversations, default affinity,
-                       #   her replies and their echoes, read_person; docs/PHONE_PHASE_8_AFFINITY_B1.md) +
+                       #   her replies and their echoes, read_person) +
                        #   phone_relationships.py (B2: her readings of exchanges, shadow relationship proposals,
                        #   requests for space, authorized details, the learner's view of a phone exchange, review) +
                        #   phone_reply_check.py (B2: a check model reads her reply to someone else against a policy and only that
                        #   conversation's material before it goes out; fails closed; owner-asked messages too) +
-                       #   phone_authority.py (privacy: grants verified against the user's own message; every phone
+                       #   phone_authority.py (privacy plan 1-2: grants verified against the user's own message; every phone
                        #   read or action on an owner turn bound to what their message asked, before the first call) +
-                       #   mind_phone_scope.py (privacy: a wake that can write to someone reads only that conversation,
+                       #   mind_phone_scope.py (privacy plan 3-4: a wake that can write to someone reads only that conversation,
                        #   the person's relationship record and boundaries; nothing of the user's) +
                        #   phone_replies.py (B3: her own replies there: the messages that woke her bound at the tick,
                        #   follow-ups by stable ids, the checked send rechecked at the send point, claimed once) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
-                       #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
+                       #   heartbeat), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
                        #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
                        #   per wake; autonomous_speech.py: those events' delivery fences)
     /workers           # external workers: chat, memory, whatsapp, file_deletion, push (phone notifications),
-                       #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Columbina on game events)
+                       #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Jophiel on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
                        #   learning (raw-capture retention) + learning-assessment
                        #   + learning-lessons (lessons from assessments) + learning-trials (desktop mode)
@@ -278,7 +276,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                         #   on the whole VM desktop: bounded actions, released on failure); security.py = the VM's event
                         #   logs read only (wevtutil), bookmarks checked by record number, gaps/resets reported. uv workspace member (pydantic, pyyaml,
                         #   websockets only): runs in the game VM, also imported by the backend. Lives inside backend/ because
-                        #   the Docker image builds from backend/ only. See docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md §7.
+                        #   the Docker image builds from backend/ only.
                         #   Its tests run with the backend's: `uv run pytest` (testpaths includes it)
   /desktop_profiles     # trusted per-game input profiles (YAML): `uv run desktop-profile-check desktop_profiles/*.yaml`
   pyproject.toml         # uv-managed deps; [tool.uv.workspace] member desktop_controller
@@ -287,14 +285,14 @@ Columbina is a general conversational agent with a persistent identity, personal
 
 /infra/desktop          # runbook: connect the game VM (Legion) to the Mac's relay
 
-/game_packs/minecraft   # stage G: Columbina's own Minecraft player (Node + Mineflayer, run with node, deps via bun).
+/game_packs/minecraft   # stage G: Jophiel's own Minecraft player (Node + Mineflayer, run with node, deps via bun).
                         #   State reader (+ src/surroundings.js: the shape of the place; src/terrain.js: the lie of the land; src/air.js: her own air; src/kills.js: her kills, counted), skills (src/skills: contract, runner, one file per skill group), background modes
                         #   (src/modes: guard/gather/pickup put a running skill on hold and resume it), loopback API,
                         #   viewer; scripts/server.js = private server on the Mac. Runbook in its README;
                         #   src/sandbox.js = the sealed box her own code runs in (stage H; Node >= 24);
                         #   src/needs.js = what it takes to get an item or mine a block (GET /needs/<name>);
                         #   src/trajectory.js = her trajectory: every tick, damage causes, actions, in chunks (GET /trajectory);
-                        #   her view (docs/MINECRAFT_RAY_BASED_PERCEPTION_DESIGN.md): src/view.js (rays from her eyes),
+                        #   her view: src/view.js (rays from her eyes),
                         #   src/scene.js (openings, passages, structures, water, lava), src/landmarks.js (stable ids L3,
                         #   saved with the world), src/perception.js (kept fresh, into her state as "In view"),
                         #   src/view_image.js (material/depth PNGs, GET /view/image), src/navigation.js (standing spots,
@@ -380,31 +378,35 @@ docker-compose.yml      # local dev: postgres + backend + frontend (if used)
 
 ## Decisions
 
-Each line is the rule you need while coding. The detail is in the linked doc. Decisions with no spec of their own are kept word for word in `docs/DECISIONS.md`.
+Each line is the rule you need while coding. The detail lives in the module docstrings named here (and in git history).
 
-**Foundations** (full text in `docs/DECISIONS.md`)
+**Foundations**
 - **Auth:** server-side sessions, not JWT. An opaque `httpOnly` cookie token; only its SHA-256 hash is stored. Argon2 passwords. Routes under `/api/auth`.
 - **Chatbot:** LangChain `ChatOpenAI` + LangGraph ReAct agent, default `gpt-6-luna` with reasoning off (`CHAT_MODEL`, `VOICE_CHAT_MODEL`, `CHAT_REASONING_EFFORT`). Needs `OPENAI_API_KEY`. Model client and graph are cached, not rebuilt per request.
 - **ML:** inference only (training lives in another repo). MacroVision = ZoeDepth + cross-attention ViT + an optional VLM (`qwen` or `openai` backend, only the chosen one loads). Use `get_predictor()`. Weights are gitignored. bitsandbytes is CUDA-only.
 - **Orchestrator + one sub-agent per toolset:** the orchestrator gets one delegation tool per specialist (`app/ai/subagents/registry.py`). Rules the orchestrator must enforce itself go in the spec's `orchestrator_rules`. Adding a toolset = a registry entry + `tools/<name>/config.json`. Exceptions that sit on the orchestrator directly: `look_at_screen`, memory tools, game tools.
 - **MacroVision MCP is mounted, not spawned:** it needs both `mount_macrovision_mcp(app)` and `macrovision_mcp_lifespan()`. Forgetting the second hangs every request.
-- **Integrations are data-driven** from `app/ai/integrations/registry.py`. No route or UI change per provider. Callbacks are provider-specific. Refresh tokens are Fernet-encrypted. Setup: `docs/GOOGLE_WORKSPACE.md`.
+- **Integrations are data-driven** from `app/ai/integrations/registry.py`. No route or UI change per provider. Callbacks are provider-specific. Refresh tokens are Fernet-encrypted. Leaving `GOOGLE_OAUTH_CLIENT_ID`/`SECRET` blank disables Google cleanly (the card shows unavailable).
 - **Gmail:** never request permanent delete. Sending needs the user's explicit confirmation (prompt rule, injected only when Gmail is connected).
 - **`mcp` pinned `>=1.24,<2`** until `langchain-mcp-adapters` supports mcp 2.x.
 - **Image store:** a per-user directory (`<root>/<user_id>/<image_id>`), referred to by opaque `image_id`. Screen frames are `kind="screen"`, with short retention.
 - **Chat:** history lives in Postgres. The client sends only the new message. A WebSocket hands each turn to the external chat worker through Redis Streams. Postgres is the source of truth.
 - **Message order is a database fact:** a trigger allocates `chat_messages.conversation_sequence`. Never set it in code, and never order a conversation by timestamp alone.
 - **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` never merges turns; with `records=True` (her mind) each turn carries an app-record marker and silent evaluations appear as `record` turns, rendered as system messages (`ai/messages.py`).
-- **Awareness, the eye, nudges, voice page, WhatsApp:** see `docs/DECISIONS.md`. Client-reported senses never authorize anything.
+- **Awareness (`services/awareness.py`):** facts we own (clock, recent activity) plus senses the client reports (`SenseReport`, change-driven, flags only: no pixels or audio). No LLM; rendered to a short string on `AgentRuntimeContext.awareness`. Client-reported senses are descriptive only and never authorize anything. "Today" is the user's zone, not the server's.
+- **The eye:** client-side capture + diff (`senses/screen.ts`, worker; only changed frames are encoded), upload as `kind="screen"` (retention by count and TTL: a sense, not a recording), a cached one-line caption at turn start (`ai/vision.py`), pixels on demand via `look_at_screen` (on the orchestrator directly, built per turn, only when the eye is on).
+- **Chat transport:** WebSocket `/api/chat/ws` (cookie or bearer auth). The socket persists the user message and a durable `ChatJob`; the external worker (`python -m app.workers.chat`) generates and streams events through Redis Streams (replayed on reconnect); `stop` sets a Redis cancel flag. Outside turns the socket carries awareness (`sense` in, `state` out, 30 s heartbeat).
+- **Voice page:** voice lives on `/dashboard` (`useVoiceSession`, `VoiceOrb`: a distinct motion per phase, level read by a getter, not state). `ChatPage` is typed only; both share one socket.
+- **WhatsApp:** Meta Cloud API webhook `/api/whatsapp/webhook`, off unless configured. Linked by a short-lived code (`link CODE`) to the user's primary conversation; inbound deduplicated by `wamid`, fragments debounced into one message and job; a separate worker delivers chunked replies from a Postgres outbox.
 - **Deployment / CI:** local only, no CI yet.
 
-**Desktop agent and games** (`docs/DESKTOP_AGENT_IMPLEMENTATION_PLAN.md`, `game_packs/minecraft/README.md`; full CLAUDE.md text in `docs/DECISIONS.md`)
+**Desktop agent and games** (`game_packs/minecraft/README.md`, `infra/desktop`)
 - `DESKTOP_AGENT_ENABLED` gates every `/api/desktop` route (404 when off). Lock order is always environment, then session. Every stop bumps `execution_generation`.
 - Desktop tests need a throwaway `TEST_DATABASE_URL` / `TEST_REDIS_URL`, never the dev DB.
 - Game learning: `services/game_learning.py` (its module docstring is the spec). A model's guess never becomes truth without evidence.
-- Relay network and paired machines (`docs/VM_CONNECTION_PLAN.md`, migration `e3a7c5d9f2b4`): unset `DESKTOP_CONTROLLER_BIND_HOST` = listen only on the owner-approved network; never a wildcard. Jophiel's own session starts need the machine's "Allow Jophiel to start sessions" switch (off by default) and the machine online; the owner's starts don't.
+- Relay network and paired machines (migration `e3a7c5d9f2b4`): unset `DESKTOP_CONTROLLER_BIND_HOST` = listen only on the owner-approved network; never a wildcard. Jophiel's own session starts need the machine's "Allow Jophiel to start sessions" switch (off by default) and the machine online; the owner's starts don't.
 
-**Her mind** (`docs/MIND_ARCHITECTURE.md`, `docs/COLUMBINA_MIND_DESIGN.md`, `docs/COLUMBINA_HARD_THINKING_PLAN.md`, `docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md`)
+**Her mind** (`services/mind_turn.py`, `services/mind.py`, `services/mind_hard.py`, `app/ai/mind/`)
 - One mind decides: every wake is one evaluation of the agent loop (`services/mind_turn.py`); recall results return into the same loop; silence, background thinking, continuity and coming back later are her tools. No code decides social behaviour (no speaking gaps, hush rules or canned topics); execution checks stay.
 - Background mind over `Source`/`Body` contracts (`app/ai/mind/contracts.py`). Attention is per user: one hard thought at a time. Minecraft and her desktop's security records are sources; a conversation is not (messages wake her directly).
 - Hard thoughts conclude (decision / guess / question / intention / feeling) and have no tools. Concluded thoughts reach memory as observations; anything to say becomes a wake of her mind.
@@ -413,19 +415,20 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
   effort record and picks when she looks back (a plan step ending, or every `MIND_STEP_LOOK_BACK_SECONDS` while one
   keeps going); her mind judges progress and the cause, and a look back that finds no progress asks her planner to rethink.
 
-**Memory** (`docs/COLUMBINA_MEMORY_AND_LEARNING_DESIGN.md`, `docs/COLUMBINA_MEMORY_SESSION{1,2,3}_*.md`, `docs/COLUMBINA_SOURCE_BACKED_RECALL.md`, `docs/COLUMBINA_MEMORY_CORRECTIONS.md`, `docs/COLUMBINA_MEMORY_CONFLICTS.md`, `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`)
-- Working memory (contexts, items, events, evidence), observation, shared recall, source-backed history, corrections, conflicts, forgetting, claims/entities/time, dependencies, transcript search and upkeep. Status of each stage: `docs/COLUMBINA_MEMORY_SYSTEM_STATUS.md`.
+**Memory** (`services/memory_manager.py`, `services/recall*.py`, `services/memory_*.py`)
+- Working memory (contexts, items, events, evidence), observation, shared recall, source-backed history, corrections, conflicts, forgetting, claims/entities/time, dependencies, transcript search and upkeep.
 - Invariants: memory never picks a side in a conflict; a failed or partial search is never reported as `no_match`; observations are immutable; evidence links cascade, memories don't.
 
-**Wakes and delivery** (`docs/MIND_ARCHITECTURE.md`; "Her mind owns every decision" in `docs/DECISIONS.md`)
+**Wakes and delivery** (`services/coordinator.py`, `services/autonomous_speech.py`)
+- Her mind owns every decision (2026-11-13, the user's decision): there is no separate reading or decision model. She answers, asks, `stay_silent`, `think_it_over`, `come_back_to` (durable `coordinator_work` kind `wake`), notes questions, commitments and intentions in working memory, and decides learning's proposals.
 - A wake that isn't a message is durable `coordinator_work` (`mind`, `wake`) dispatched as one chat job in its own conversation; `coordinator_outputs` records what she did (`said` / `silent` / `no_words`) and what was delivered.
 - Before anything a wake produced is stored: no newer user message, its premise still open, nothing forgotten since, not already said in this quiet stretch.
 - Tests refuse the dev DB (`tests/conftest.py`), give every test one fixed text personality, and script her mind's model run (`tests/test_coordinator.py`).
 
-**Learning** (`docs/learning-system/`: steps 01-04 decisions + implementation)
+**Learning** (`services/learning_*.py`, `app/ai/learning/`)
 - Capture, retrospective assessment, lessons for her mind, hard thoughts, planner and hands, bounded game trials. Learning proposes, memory and her mind own the outcome.
 
-**Product rules** (full text in `docs/DECISIONS.md`)
+**Product rules**
 - **Always on (2026-10-28, the user's decision):** no feature flags for her own parts. Flags remain only for outside setup or behaviour choices.
 - **People on the phone (B2, 2026-11-22):** relationship proposals and phone lessons are shadow: nothing she reads
   or does uses them (`GET /api/memory/people/{id}/review` inspects them). Phone lessons are filtered out of every
@@ -450,7 +453,7 @@ Each line is the rule you need while coding. The detail is in the linked doc. De
 2. Backend: `cd backend && uv run uvicorn app.main:app --reload` (port 8000; `OPENAI_API_KEY` in `backend/.env`)
 3. Frontend: `cd frontend && bun run dev` (port 5173) → open http://localhost:5173, sign up, go to chat.
 
-Google/Gmail setup: `docs/GOOGLE_WORKSPACE.md`. The DB schema lives in `backend/app/db/models.py` and the migrations.
+The DB schema lives in `backend/app/db/models.py` and the migrations.
 
 ---
 
