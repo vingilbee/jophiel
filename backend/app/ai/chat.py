@@ -266,7 +266,8 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     phone_reply = context.source_message_id is not None and context.wake is None
     if (settings.redis_url and context.conversation_id is not None and not context.third_party
             and context.game_event is None and context.nudge is None and (phone_reply or context.wake is not None)):
-        direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id, own_turn=not phone_reply))
+        direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id, own_turn=not phone_reply,
+                                              message_id=context.source_message_id if phone_reply else None))
         # Who she knows on the phone (read only): the user's own reply turns, never a wake.
         if phone_reply:
             direct_tools.extend(build_people_tools(context.user_id, context.source_message_id))
@@ -274,7 +275,7 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     # mind's turns someone else's words there caused. Nothing in them sends or acts.
     if (settings.redis_url and context.mind is not None and context.wake is not None and context.third_party
             and context.game_event is None and context.nudge is None):
-        direct_tools.extend(build_exchange_tools(context.user_id))
+        direct_tools.extend(build_exchange_tools(context.user_id, getattr(context.mind, "phone_scope", None)))
         # Her own reply to someone there (affinity B3): only to an exchange this wake is bound to, the messages that
         # woke her or a follow-up she scheduled come due; every send checked (services/phone_replies.py).
         targets = getattr(context.mind, "reply_targets", None) or []
@@ -336,6 +337,18 @@ def _run_config(context: AgentRuntimeContext) -> dict | None:
     return {"recursion_limit": DESKTOP_RECURSION_LIMIT} if context.desktop is not None else None
 
 
+REPLY_NODE = "agent"  # create_react_agent's model node: the only model whose words are her reply
+
+
+def _her_words(metadata: dict | None) -> bool:
+    """Whether a streamed chunk is her own reply: from the agent's model node at the top of the graph, never from
+    a model one of her tools invoked (the phone checks' verdicts, a verifier) nor a nested graph."""
+    metadata = metadata or {}
+    if metadata.get("langgraph_node") != REPLY_NODE:
+        return False
+    return "|" not in str(metadata.get("langgraph_checkpoint_ns") or "")
+
+
 async def _speaker_from_tags(tags: Sequence[str] | None) -> str | None:
     """Return the specialist's name if this chunk came from a subagent run."""
     for tag in tags or ():
@@ -374,6 +387,8 @@ async def stream_chat(
                         continue
                     if not isinstance(chunk, AIMessageChunk) or chunk.tool_call_chunks:
                         continue
+                    if not _her_words(metadata):
+                        continue  # a model a tool ran (a check's verdict): diagnostic, never her reply
                     text = extract_text(chunk.content)
                     if text:
                         await queue.put((None, text))

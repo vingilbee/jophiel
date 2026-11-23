@@ -329,6 +329,9 @@ class Settings(BaseSettings):
     # One evaluation of her mind per wake (services/mind_turn.py): one trace line each (ids, labels, counts,
     # timings; no message or memory text), with the coordinator's lifecycle lines.
     mind_turn_log_path: str = "var/mind_turns.jsonl"
+    # The phone's checks (services/phone_reply_check.py, services/phone_authority.py): each outgoing-message verdict,
+    # grant verification and owner-turn authority decision, one line each (diagnostic only, never shown to the user).
+    phone_check_log_path: str = "var/phone_checks.jsonl"
     # Background thinking her mind started (services/coordinator.py, `coordinator` worker thread): a mind item
     # (app/ai/mind/hard.py, MIND_HARD_MODEL), after a recall item when she asked to look up memory first. The
     # deadline ends unfinished work as expired; either way she is woken with what came of it.

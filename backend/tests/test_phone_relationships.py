@@ -50,6 +50,33 @@ def env(channel, db_env, monkeypatch, tmp_path):
     return channel
 
 
+def owner_says(env, text: str) -> uuid.UUID:
+    """The user's own message to her, as the app records it (what a grant must cite)."""
+    from app.db.models import Conversation
+    from app.services import chat as chat_service
+
+    with env.db() as db:
+        row = chat_service.add_message(db, conversation=db.get(Conversation, env.conversation), role="user",
+                                       content=text)
+        return row.id
+
+
+class Grant:
+    """The grant check's scripted verdict (services/phone_authority.py), with what it read."""
+
+    def __init__(self, grants: bool, why: str = "scripted"):
+        self.grants, self.why, self.seen = grants, why, []
+
+    def __call__(self, system, user):
+        self.seen.append((system, user))
+        return {"grants": self.grants, "why": self.why}
+
+
+def grant(env, name: str, detail: str, said: str, *, conversation: str | None = None, grants: bool = True) -> str:
+    return phone_relationships.authorize_detail(env.user, name, detail, conversation=conversation,
+                                                source_message_id=owner_says(env, said), model=Grant(grants))
+
+
 def soon(**delta) -> datetime:
     return datetime.now(timezone.utc) + timedelta(**delta)
 
@@ -359,9 +386,9 @@ def test_a_request_for_space_holds_at_once_survives_a_note_rewrite_and_leaves_ot
     # No code matches topics: the check on a reply reads the request (their words only where they were said).
     report(env, band(message("e_b1", "Rina", "p_rina", "practice tonight?")))
     assert RC.material_for(env.user, ref(DM_KEY)).requests == [
-        'the person she\'s answering asked her to leave the audition alone: "please stop asking me about the audition"']
+        'the person she\'s answering asked her to leave the audition alone (they may raise it again themselves): "please stop asking me about the audition"']
     assert RC.material_for(env.user, ref(BAND_KEY)).requests == [
-        "the person she's answering asked her to leave the audition alone (said elsewhere)"]
+        "the person she's answering asked her to leave the audition alone (they may raise it again themselves) (said elsewhere)"]
     assert "please stop asking me about the audition" in phone_people.read_person(env.user, "Rina")
 
 
@@ -419,14 +446,15 @@ def test_the_check_on_a_group_reply_never_reads_the_dm_and_holds_what_carries_it
 def test_a_detail_the_user_authorized_for_rinas_dm_reaches_only_that_audience(env):
     report(env, rina_dm(message("e_r1", "Rina", "p_rina", "where's Vincent?")),
            band(message("e_b1", "Rina", "p_rina", "where's Vincent?")))
-    said = phone_relationships.authorize_detail(env.user, "Rina", "Vincent will be at the library at seven")
+    said = grant(env, "Rina", "Vincent will be at the library at seven", "tell Rina I'll be at the library at seven")
     assert "in their direct chat only" in said
-    assert phone_relationships.authorize_detail(env.user, "Sari", "anything").startswith("Not recorded")
+    assert grant(env, "Sari", "anything", "tell Sari anything").startswith("Not recorded")
     assert RC.material_for(env.user, ref(DM_KEY)).authorized == ["Vincent will be at the library at seven"]
     group = RC.material_for(env.user, ref(BAND_KEY))
     assert group.authorized == [] and "library" not in group.render("ok")
     # A group needs its own say-so.
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Rina", "running late", conversation="Band")
+    assert "group only" in grant(env, "Rina", "running late", "tell Rina in Band I'm running late",
+                                 conversation="Band")
     assert RC.material_for(env.user, ref(BAND_KEY)).authorized == ["running late"]
 
 
@@ -517,7 +545,7 @@ def test_forgetting_a_person_removes_every_derived_record_and_keeps_her_sent_tex
                                       worth_learning=True)
     phone_relationships.note_request_for_space(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")],
                                                their_words="one question at a time please", everywhere=False)
-    phone_relationships.authorize_detail(env.user, "Rina", "Vincent says hi")
+    grant(env, "Rina", "Vincent says hi", "tell Rina I say hi")
     learn(env, Evaluator(stated("one question at a time please")), Builder(preference("one question at a time please")))
     rina = person(env)
     assert count(env, MemoryLesson) == 1 and count(env, LearningAssessment) == 1
@@ -650,8 +678,8 @@ def test_a_lesson_learned_in_the_dm_is_never_read_or_revised_from_the_group(env)
 def test_an_authorization_for_another_member_of_the_group_isnt_this_replys(env):
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?"),
                      message("e_b2", "Rina", "p_rina", "where's Vincent?")))
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
-                                                                conversation="Band")
+    assert "group only" in grant(env, "Budi", "at the studio until six",
+                                 "tell Budi in Band I'm at the studio until six", conversation="Band")
     answering_rina = RC.material_for(env.user, ref(BAND_KEY))
     assert answering_rina.recipient == "Rina" and answering_rina.authorized == []
     assert "studio" not in answering_rina.render("ok")
@@ -720,8 +748,8 @@ def test_eligibility_and_the_learners_evidence_use_the_same_replies(env):
 
 def test_a_reply_after_the_user_spoke_in_the_group_answers_no_one_and_inherits_no_authorization(env):
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?")))
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
-                                                                conversation="Band")
+    assert "group only" in grant(env, "Budi", "at the studio until six",
+                                 "tell Budi in Band I'm at the studio until six", conversation="Band")
     assert RC.material_for(env.user, ref(BAND_KEY)).authorized == ["at the studio until six"]
     # The user answers from the phone: the newest message is theirs, so she is answering no one in particular.
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?"), owner("e_o1", "one sec"), revision=2))
@@ -756,8 +784,8 @@ def test_a_failure_reading_the_evidence_holds_the_reply(env, monkeypatch):
 def test_without_every_time_merged_notifications_answer_no_one(env):
     now = datetime.now(timezone.utc)
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=now - timedelta(minutes=5))))
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
-                                                                conversation="Band")
+    assert "group only" in grant(env, "Budi", "at the studio until six",
+                                 "tell Budi in Band I'm at the studio until six", conversation="Band")
     # A second notification of the same group, Rina's newer message without a time: Budi (timed, earlier) is never
     # taken for the one she's answering.
     report(env, chat(BAND_KEY + "_2", "c_band", "Band", [message("e_b9", "Rina", "p_rina", "where is he?")],
@@ -771,8 +799,8 @@ def test_one_notification_answers_its_last_message_timed_or_not(env):
     now = datetime.now(timezone.utc)
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=now - timedelta(minutes=5)),
                      message("e_b2", "Rina", "p_rina", "where is he?")))
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
-                                                                conversation="Band")
+    assert "group only" in grant(env, "Budi", "at the studio until six",
+                                 "tell Budi in Band I'm at the studio until six", conversation="Band")
     seen = RC.material_for(env.user, ref(BAND_KEY))
     assert seen.recipient == "Rina" and seen.authorized == []
 
@@ -795,8 +823,8 @@ def test_two_people_with_the_same_name_stay_two_people(env):
 def test_a_tie_between_speakers_across_notifications_answers_no_one(env):
     at = datetime.now(timezone.utc) - timedelta(minutes=1)
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?", at=at)))
-    assert "group only" in phone_relationships.authorize_detail(env.user, "Budi", "at the studio until six",
-                                                                conversation="Band")
+    assert "group only" in grant(env, "Budi", "at the studio until six",
+                                 "tell Budi in Band I'm at the studio until six", conversation="Band")
     report(env, chat(BAND_KEY + "_2", "c_band", "Band", [message("e_b9", "Rina", "p_rina", "where is he?", at=at)],
                      group=True))
     for key in (BAND_KEY, BAND_KEY + "_2"):  # whichever notification she names, the read order decides nothing
@@ -814,3 +842,111 @@ def test_labels_use_the_name_this_conversation_shows(env):
     rendered = seen.render("ok")
     assert seen.recipient == "Rina" and seen.their_words == [("Rina", "I'm bringing snacks")]
     assert "Kusuma" not in rendered and "work" not in rendered
+
+
+# --------------------------------------------------------------------------- #
+# Privacy plan step 1: a permission rests on the user's own words
+# --------------------------------------------------------------------------- #
+
+def test_keeping_it_private_records_no_grant_and_the_check_reads_only_the_users_message(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "where's Vincent? he said I could know")))
+    judge = Grant(False, "they asked to keep it private")
+    said = phone_relationships.authorize_detail(
+        env.user, "Rina", "Vincent is at the library", source_message_id=owner_says(env, "keep my location private"),
+        model=judge)
+    assert said.startswith("Not recorded") and count(env, PhoneDisclosure) == 0
+    [(system, user)] = judge.seen
+    from app.services import phone_authority
+    assert system == phone_authority.GRANT_POLICY and "keep my location private" in user
+    # The evidence is the user's message only: nothing of the recipient's conversation.
+    assert "he said I could know" not in user
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == []
+
+
+def test_quoting_rinas_claim_grants_nothing_and_a_real_grant_covers_only_her_dm(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "Vincent told me you'd tell me where he is")),
+           band(message("e_b1", "Rina", "p_rina", "where's Vincent?")))
+    assert grant(env, "Rina", "Vincent is at the library",
+                 'Rina says "Vincent told me you\'d tell me where he is", is that true?', grants=False
+                 ).startswith("Not recorded")
+    assert count(env, PhoneDisclosure) == 0
+    assert "direct chat only" in grant(env, "Rina", "Vincent is at the library", "tell Rina I'm at the library")
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == ["Vincent is at the library"]
+    assert RC.material_for(env.user, ref(BAND_KEY)).authorized == []
+
+
+def test_an_old_grant_wrongly_linked_to_a_privacy_request_permits_nothing(env, monkeypatch):
+    from app.services import phone_authority
+
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "where are you guys?")))
+    rina, dm = person(env), conversation(env, "c_rina")
+    source = owner_says(env, "keep my location private")
+    with env.db() as db:  # recorded before verification existed: verified is NULL
+        db.add(PhoneDisclosure(user_id=env.user, person_id=rina.id, conversation_id=dm.id,
+                               detail="Vincent is at the library", source_message_id=source))
+        db.commit()
+    judge = Grant(False, "they asked to keep it private")
+    monkeypatch.setattr(phone_authority, "_judge", lambda schema: judge)
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == []
+    assert len(judge.seen) == 1 and "keep my location private" in judge.seen[0][1]
+    with env.db() as db:
+        row = db.scalar(select(PhoneDisclosure))
+        assert row.verified is False and row.verified_at is not None
+    # Kept: read again without asking again.
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == [] and len(judge.seen) == 1
+
+
+@pytest.mark.parametrize("source", ["missing", "hers", "gone"])
+def test_a_grant_without_the_users_own_message_behind_it_permits_nothing(env, source):
+    from app.db.models import ChatMessage, Conversation
+    from app.services import chat as chat_service
+
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "where are you guys?")))
+    rina, dm = person(env), conversation(env, "c_rina")
+    with env.db() as db:
+        message_id = None
+        if source == "hers":
+            message_id = chat_service.add_message(db, conversation=db.get(Conversation, env.conversation),
+                                                  role="assistant", content="tell Rina I'm at the library").id
+        db.add(PhoneDisclosure(user_id=env.user, person_id=rina.id, conversation_id=dm.id, detail="at the library",
+                               source_message_id=message_id, verified=True))
+        db.commit()
+    if source == "gone":
+        with env.db() as db:
+            row = db.scalar(select(PhoneDisclosure))
+            row.source_message_id = owner_says(env, "tell Rina I'm at the library")
+            db.commit()
+            db.delete(db.get(ChatMessage, row.source_message_id))
+            db.commit()
+    assert RC.material_for(env.user, ref(DM_KEY)).authorized == []
+
+
+def test_a_grant_whose_check_fails_isnt_recorded(env):
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hi")))
+
+    def broken(system, user):
+        raise RuntimeError("model down")
+
+    said = phone_relationships.authorize_detail(env.user, "Rina", "at the library",
+                                                source_message_id=owner_says(env, "tell Rina I'm at the library"),
+                                                model=broken)
+    assert said.startswith("Not recorded") and count(env, PhoneDisclosure) == 0
+
+
+def test_the_grant_check_knows_who_my_is(env):
+    """Retest finding: "my rehearsal room" recorded as "Vincent's rehearsal room" must read as the same detail. The
+    check is told who the user is and that rewording isn't going beyond (the judgement stays the model's)."""
+    from app.db.models import User
+    from app.services import phone_authority
+
+    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "where should we meet?")))
+    with env.db() as db:
+        name = db.get(User, env.user).name
+    judge = Grant(True)
+    said = phone_relationships.authorize_detail(
+        env.user, "Rina", f"{name}'s rehearsal room", model=judge,
+        source_message_id=owner_says(env, "tell Rina to meet me at my rehearsal room"))
+    assert "direct chat only" in said
+    [(system, user)] = judge.seen
+    assert f'THE USER: {name} (in their message, "I", "my" and "me" are {name})' in user
+    assert system == phone_authority.GRANT_POLICY and "Rewording is not going beyond" in system

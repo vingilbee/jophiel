@@ -196,8 +196,8 @@ def test_a_change_during_the_check_leaves_the_attempt_unsent_and_resuming_alone_
         elif change == "session":
             b3.state["session"] = ("session-b", None)
         elif change == "authorization":
-            from app.services import phone_relationships
-            phone_relationships.authorize_detail(b3.user, "Rina", "Vincent is at the library")
+            from test_phone_relationships import grant
+            grant(b3.env, "Rina", "Vincent is at the library", "tell Rina I'm at the library")
 
     said = answer(b3, handle, "Hey Rina!", found, Judge(during=during))
     why = {"pause": "Messages switch isn't on", "remove": "gone from their phone", "revision": "changed since",
@@ -399,7 +399,7 @@ def test_the_reply_tool_only_on_bound_wakes_and_never_with_device_actions(monkey
 
 
 def test_targets_are_read_only_on_the_notification_wake_itself():
-    target = {"handle": "notif:1a2b3c4d"}
+    target = {"handle": "notif:1a2b3c4d", "conversation_id": "c_rina"}
     follow_up = {"conversation_id": "c_rina", "person_id": str(uuid.uuid4())}
 
     def ev(kind, inp):
@@ -413,6 +413,12 @@ def test_targets_are_read_only_on_the_notification_wake_itself():
     due = ev("wake", {"third_party": True, "phone_follow_up": follow_up, "reply_targets": [target]})
     assert due.reply_targets == [] and due.phone_follow_up == follow_up and due.wake_work_id == "w1"
     assert ev("mind", {"autonomous": True, "reply_targets": [target]}).reply_targets == []  # not someone's words
+    # One conversation per wake: a target of another conversation is never answerable beside it.
+    band = {"handle": "notif:9f8e7d6c", "conversation_id": "c_band"}
+    both = ev("mind", {"autonomous": True, "third_party": True, "reply_targets": [target, band]})
+    assert both.reply_targets == [band] and both.phone_scope == "c_band"
+    assert woke.phone_scope == "c_rina" and due.phone_scope == "c_rina"
+    assert ev("mind", {"third_party": True, "reply_targets": [target]}).phone_scope is None
 
 
 def test_reply_targets_reach_the_wake_input_only_with_someone_elses_words(env):
