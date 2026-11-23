@@ -340,6 +340,9 @@ def _promises_settled(db: Session, assistant_message_id) -> None:
     try:
         with db.begin_nested():
             memory_manager.settle_delivery(db, assistant_message_id)
+        with db.begin_nested():
+            from app.services import open_questions
+            open_questions.reread(db, assistant_message_id)
     except Exception:  # noqa: BLE001
         logger.exception("whatsapp: settling promises for %s failed", assistant_message_id)
 

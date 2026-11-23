@@ -112,7 +112,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             raise MemoryError("not_found", f'no thinking of yours "{awaits}": use the id shown in brackets')
         # Held while the promise is written: thinking that ends meanwhile either sees the promise (once this
         # commits) or has already ended, and then the condition is met now.
-        work = db.get(CoordinatorWork, rows[0].id, with_for_update=True)
+        work = db.get(CoordinatorWork, rows[0].id, with_for_update=True, populate_existing=True)  # read anew under the lock
         out = {"kind": "work", "work_id": str(work.id), "request_id": str(work.request_id),
                "text": (when or "").strip() or "when that thinking ends"}
         if work.status in coordinator.TERMINAL:

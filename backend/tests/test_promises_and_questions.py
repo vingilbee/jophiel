@@ -925,3 +925,93 @@ def test_a_full_queue_leaves_the_question_for_a_later_sweep(qenv, monkeypatch):
     with env.db() as db:
         assert len(open_questions.hand_over(db)) == 1
     assert _questions(env)[0].offered_at is not None
+
+
+# --------------------------------------------------------------------------- #
+# Third review of PR #53
+# --------------------------------------------------------------------------- #
+
+
+def test_a_second_proactive_attempt_after_one_that_left_the_question_out_runs(qenv):
+    env = qenv
+    _add(env, "user", "hi")
+    _add(env, "assistant", "hey")
+    with env.db() as db:
+        q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive the move?",
+                                    owner="columbina", epistemic="inferred")
+        db.commit()
+    with env.db() as db:
+        assert len(open_questions.hand_over(db)) == 1
+    drain(env)
+    env.scripts.append(says("Hope your evening's going well."))  # woken for it, she leaves it out
+    assert run_job(env)
+    _record_message(env, _last_assistant(env))
+    reader = _reader({"asks": "plant"})
+    judge = lambda task: reader(task) if "plant" in task["message"] else Reading(matches=[])  # noqa: E731
+    _consume(judge)
+    assert _questions(env)[0].offered_at is None  # back to eligible
+
+    _add(env, "user", "it's going ok")  # a new quiet stretch
+    _add(env, "assistant", "Good to hear.")
+    with env.db() as db:
+        assert len(open_questions.hand_over(db)) == 1
+    drain(env)
+
+    async def ask(use, context):
+        assert "Did the plant survive" in context.wake
+        return "Did the plant survive the move?"
+
+    env.scripts.append(ask)
+    assert run_job(env)  # the second attempt is its own wake, and it runs
+    _record_message(env, _last_assistant(env))
+    _consume(judge)
+    assert _questions(env)[0].status == "asked" and q.id == _questions(env)[0].id
+
+
+def test_a_verdict_on_an_earlier_version_of_a_promise_doesnt_keep_the_new_one(env):
+    with env.db() as db:
+        entry = memory_manager.add_item(db, env.user.id, kind="commitment", text_="Remind them to do cardio",
+                                        owner="columbina", owed_to="user", epistemic="reported",
+                                        due_at=coordinator._now() - timedelta(minutes=1))
+        db.commit()
+        checked = entry.revision
+        memory_manager.revise_commitment(db, env.user.id, entry.id, reason="changed in another chat",
+                                         text_="Remind them to stretch instead")
+        db.commit()
+        sent = _add(env, "assistant", "Time for cardio!")
+        assert memory_manager.keep_promise(db, env.user.id, entry.id, message_id=sent, reason="reminded",
+                                           revision=checked) is None
+        assert memory_manager.await_delivery(db, env.user.id, entry.id, message_id=sent, reason="reminded",
+                                             revision=checked) is None
+        db.commit()
+    [still] = _promises(env)
+    assert still.status == "open" and still.keeping is None and "earlier version" in still.status_reason
+
+
+def test_a_whatsapp_question_delivered_after_the_reader_gave_up_still_counts_as_asked(qenv, monkeypatch):
+    from app.db.models import ChannelIdentity, MessageDelivery
+    from app.services import whatsapp
+    env = qenv
+    with env.db() as db:
+        q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive the move?",
+                                    owner="columbina", epistemic="inferred")
+        identity = ChannelIdentity(provider="whatsapp", provider_account_id="p", external_subject="late",
+                                   user_id=env.user.id)
+        db.add(identity)
+        db.commit()
+    sent = _add(env, "assistant", "Did the plant survive the move?")
+    with env.db() as db:
+        db.add(MessageDelivery(assistant_message_id=sent, channel="whatsapp", channel_identity_id=identity.id,
+                               content="x", status="accepted", provider_message_id=f"wamid.{sent}"))
+        memory_manager.meant_to_ask(db, env.user.id, q.id, message_id=sent)
+        db.commit()
+    monkeypatch.setattr(open_questions, "DELIVERY_GIVE_UP", timedelta(0))  # their phone is off overnight
+    _record_message(env, sent)
+    judge = _reader({"asks": "plant"})
+    _consume(judge)
+    assert _questions(env)[0].status == "open"
+    with env.db() as db:  # it reaches them in the morning
+        whatsapp.apply_delivery_status(db, provider_message_id=f"wamid.{sent}", status="delivered")
+        db.commit()
+    _consume(judge)
+    assert _questions(env)[0].status == "asked"

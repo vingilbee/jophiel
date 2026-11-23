@@ -468,7 +468,7 @@ async def _generate(job: ChatJob) -> None:
                    "cancelled" if stopped else "completed")
         # Which promises these words carry out, read before the delivery commit (never inside it): a promise is
         # kept by the promised action itself, not by any reply in the evaluation (services/promise_check.py).
-        kept: set = set()
+        kept: dict = {}
         if outcome == "completed" and reply.strip():
             candidates = _keep_candidates(mind, info if follow_up else None)
             if candidates:
@@ -677,7 +677,7 @@ def _keep_candidates(mind, info: dict | None) -> list[uuid.UUID]:
     return list(dict.fromkeys(out))
 
 
-def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: set, channel: str,
+def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: dict, channel: str,
                  voice: bool) -> None:
     """In the delivery transaction, after her words are added (completed only: words cut off part way may not
     carry what was promised). Promises these words carry out (``kept``: read by ``promise_check`` before this
@@ -689,14 +689,16 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: se
 
     try:
         with db.begin_nested():
-            for item_id in kept:
+            for item_id, checked in kept.items():
                 if coordinator.promise_wake_of(db, mind.user_id, item_id) is not None and item_id not in mind.fulfilled:
                     continue  # she gave it a new time in this evaluation: not this one
                 reason = mind.keeping.get(item_id) or "you said it when it came due"
                 if channel == "whatsapp":
-                    memory_manager.await_delivery(db, mind.user_id, item_id, message_id=message_id, reason=reason)
+                    memory_manager.await_delivery(db, mind.user_id, item_id, message_id=message_id, reason=reason,
+                                                  revision=checked)
                 else:
-                    memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason)
+                    memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason,
+                                                revision=checked)
             asked = list(mind.asking)
             inp = (info or {}).get("input") or {}
             premise = inp.get("premise") or {}

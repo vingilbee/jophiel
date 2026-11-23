@@ -80,12 +80,14 @@ def candidates(user_id: uuid.UUID, item_ids: list[uuid.UUID]) -> list[WorkingIte
 
 
 def check(promises: list[WorkingItem], reply: str,
-          judge: Callable[[dict], Reading] | None = None) -> tuple[set[uuid.UUID], dict[uuid.UUID, str]]:
-    """Which promises her reply carries out. Returns (kept ids, why not, per promise not kept). Fails closed."""
+          judge: Callable[[dict], Reading] | None = None) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, str]]:
+    """Which promises her reply carries out. Returns (kept: id -> the revision checked, why not, per promise not
+    kept). The revision goes with the verdict: a promise changed while this ran is checked against it under its
+    lock, so a verdict never applies to a newer version. Fails closed."""
     if not promises:
         return set(), {}
     if not (reply or "").strip():
-        return set(), {p.id: "nothing was said" for p in promises}
+        return {}, {p.id: "nothing was said" for p in promises}
     refs = {p.id.hex[:8]: p.id for p in promises}
     task = {"her_message": reply, "promises": [
         {"id": p.id.hex[:8], "owed": p.text, "done_when": p.done_when, "condition": (p.trigger or {}).get("text")}
@@ -94,14 +96,15 @@ def check(promises: list[WorkingItem], reply: str,
         reading = (judge or _judge)(task)
     except Exception as exc:  # noqa: BLE001 - unchecked is never kept
         log.exception("promise check failed")
-        return set(), {p.id: f"whether what you said keeps it couldn't be checked ({type(exc).__name__})"
+        return {}, {p.id: f"whether what you said keeps it couldn't be checked ({type(exc).__name__})"
                        for p in promises}
-    kept, why_not = set(), {}
+    kept, why_not = {}, {}
+    revisions = {p.id: p.revision for p in promises}
     said = {v.item.strip("[] ")[:8]: v for v in reading.promises}
     for ref, item_id in refs.items():
         verdict = said.get(ref)
         if verdict is not None and verdict.kept:
-            kept.add(item_id)
+            kept[item_id] = revisions[item_id]
         else:
             why_not[item_id] = ("what you said doesn't carry it out" + (f": {verdict.why}" if verdict and verdict.why
                                                                          else "")) if verdict else \

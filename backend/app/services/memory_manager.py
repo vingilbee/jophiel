@@ -564,7 +564,7 @@ def resolve(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, status: st
 
 
 def keep_promise(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
-                 reason: str) -> WorkingItem | None:
+                 reason: str, revision: int | None = None) -> WorkingItem | None:
     """A promise of hers kept by what she said, in the transaction that stores her delivered words (the chat
     worker's delivery commit): the message is its resolution evidence, so it counts kept exactly when it was
     delivered, and a worker that dies before or after that commit can neither lose nor repeat it. What she'd
@@ -575,6 +575,8 @@ def keep_promise(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message
     if (entry is None or entry.kind != "commitment" or entry.owner != "columbina" or entry.closed_at is not None
             or unkeepable(entry) is not None):
         return None
+    if revision is not None and entry.revision != revision:
+        return _changed_meanwhile(entry)
     _set_status(db, entry, "fulfilled", " ".join((reason or "kept").split())[:300], _now())
     link(db, user_id, role="resolution", source=Source("message", message_id), item_id=entry.id)
     from app.services import coordinator
@@ -601,8 +603,16 @@ def note_unkept(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, delivery
     return entry
 
 
+def _changed_meanwhile(entry: WorkingItem) -> None:
+    """Her words were checked against an earlier version of this promise: the verdict isn't about it now."""
+    entry.status_reason = "it changed while you were saying it: what you said was for the earlier version"
+    entry.updated_at = _now()
+    _log({"op": "kept_stale", "item": str(entry.id), "revision": entry.revision})
+    return None
+
+
 def await_delivery(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,
-                   reason: str) -> WorkingItem | None:
+                   reason: str, revision: int | None = None) -> WorkingItem | None:
     """Her words that keep a promise went out on a channel that confirms delivery later (WhatsApp): in the delivery
     commit, the promise waits on that message (``keeping``), still open. ``settle_delivery`` closes it when the
     channel says it arrived, or records why not."""
@@ -611,6 +621,8 @@ def await_delivery(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, messa
     if (entry is None or entry.kind != "commitment" or entry.owner != "columbina" or entry.closed_at is not None
             or unkeepable(entry) is not None):
         return None
+    if revision is not None and entry.revision != revision:
+        return _changed_meanwhile(entry)
     entry.keeping = {"message_id": str(message_id), "reason": " ".join((reason or "kept").split())[:300],
                      "at": _now().isoformat(), "revision": entry.revision}
     entry.status_reason = "what you said to keep it is on its way; it counts once the channel confirms it arrived"

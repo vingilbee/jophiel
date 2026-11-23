@@ -55,7 +55,8 @@ WATCH_HOURS = 24  # a question older than this when first seen isn't handed over
 QUESTION_TTL_SECONDS = 30 * 60
 HEARD_SETTLE = timedelta(seconds=90)
 DELIVERY_WAIT = timedelta(seconds=60)  # how often a WhatsApp message's delivery is looked at again
-DELIVERY_GIVE_UP = timedelta(hours=6)  # no word from the channel by then: it didn't reach them  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
+DELIVERY_GIVE_UP = timedelta(hours=6)  # no word from the channel by then: unasked for now; a late receipt rereads it
+UNDELIVERED = "no word from the channel yet"  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
 
 
 # --------------------------------------------------------------------------- #
@@ -149,7 +150,23 @@ def _arrived(db: Session, message: ChatMessage) -> str:
     if "failed" in statuses:
         return "no"
     created = message.created_at if message.created_at.tzinfo else message.created_at.replace(tzinfo=timezone.utc)
-    return "no" if _now() - created > DELIVERY_GIVE_UP else "waiting"
+    return "late" if _now() - created > DELIVERY_GIVE_UP else "waiting"
+
+
+def reread(db: Session, message_id: uuid.UUID) -> bool:
+    """The channel settled her message after the reader stopped waiting for it (``DELIVERY_GIVE_UP``): its reading
+    goes back in line, so words that did arrive in the end still count as asking what they asked. In the caller's
+    transaction. Returns whether one was put back."""
+    receipt = db.scalar(select(ObservationProcessing).join(
+        Observation, Observation.id == ObservationProcessing.observation_id).where(
+        ObservationProcessing.consumer == CONSUMER, ObservationProcessing.status == "skipped",
+        ObservationProcessing.reason == UNDELIVERED, Observation.kind == "reply_recorded",
+        Observation.payload["message_id"].astext == str(message_id)).with_for_update())
+    if receipt is None:
+        return False
+    receipt.status, receipt.processed_at, receipt.attempts = "retry", None, 0
+    receipt.next_attempt_at, receipt.reason = _now(), "the channel settled it late"
+    return True
 
 
 def _not_carried(db: Session, claimed: tuple[int, int], user_id: uuid.UUID, message_id: uuid.UUID,
@@ -212,6 +229,8 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
             arrived = _arrived(db, message)
             if arrived == "waiting":
                 return _later(db, claimed, DELIVERY_WAIT)  # the channel hasn't said yet
+            if arrived == "late":  # no word from the channel yet: let it go for now; its receipt brings it back
+                return _not_carried(db, claimed, observation.user_id, message.id, UNDELIVERED)
             if arrived == "no":
                 return _not_carried(db, claimed, observation.user_id, message.id, "the channel never delivered it")
             task_kind = "asks"
@@ -401,14 +420,22 @@ def hand_over(db: Session, now: datetime | None = None) -> list[str]:
             continue  # one per quiet stretch
         entry_id, user_id, revision, text_ = entry.id, entry.user_id, entry.revision, entry.text
         seen.add(entry.user_id)
+        # Each hand-over is its own attempt (a question put back after one that didn't get across can be handed over
+        # again, and that wake must run); the attempt's id is fixed before submitting, so a retry of it is the same.
+        attempt = 1 + (db.scalar(select(func.count()).select_from(CoordinatorWork).where(
+            CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "mind",
+            CoordinatorWork.input["wake"].astext == "question",
+            CoordinatorWork.input["premise"]["item"].astext == str(entry_id))) or 0)
+        # Marked offered in the commit that queues the wake (submit commits): never one without the other.
+        db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now))
         outcome = autonomous_speech.submit(
             db, user_id=user_id, activity_id=conversation_id, source="conversation",
-            event_id=f"question:{entry_id}", text=text_, reasons=["an open question of hers"],
+            event_id=f"question:{entry_id}:{attempt}", text=text_, reasons=["an open question of hers"],
             commentary_mode="occasional", question=True, ttl=QUESTION_TTL_SECONDS,
             premise={"item": entry_id, "revision": revision}, wake="question")
-        if outcome.startswith("Proposed"):
-            db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now))
-        # Refused (the queue is full, no conversation to say it in): it stays eligible; a later sweep tries again.
+        if not outcome.startswith("Proposed"):
+            # Refused (the queue is full, no conversation to say it in): it stays eligible; a later sweep tries again.
+            db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=None))
         db.commit()
         out.append(f"question {entry_id.hex[:6]}: {outcome}")
     db.commit()
