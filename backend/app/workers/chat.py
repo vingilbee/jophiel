@@ -682,9 +682,9 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: se
     """In the delivery transaction, after her words are added (completed only: words cut off part way may not
     carry what was promised). Promises these words carry out (``kept``: read by ``promise_check`` before this
     commit) are fulfilled with this message as their evidence; on a channel that confirms delivery later
-    (WhatsApp) they wait on it instead (``memory_manager.await_delivery``). Questions of hers she asked here wait on
-    their answer, except on voice: what was heard is only known later, and the questions consumer reads the heard
-    words. A savepoint: bookkeeping never fails a delivery (what isn't recorded stays open and visible)."""
+    (WhatsApp) they wait on it instead (``memory_manager.await_delivery``). Questions of hers she meant to ask here
+    are marked as meant in this message (``memory_manager.meant_to_ask``): the questions reader decides whether the
+    words that reached them (heard, delivered) asked them. A savepoint: bookkeeping never fails a delivery (what isn't recorded stays open and visible)."""
     from app.services import coordinator, memory_manager
 
     try:
@@ -697,15 +697,14 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: se
                     memory_manager.await_delivery(db, mind.user_id, item_id, message_id=message_id, reason=reason)
                 else:
                     memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason)
-            if voice:
-                return
             asked = list(mind.asking)
             inp = (info or {}).get("input") or {}
             premise = inp.get("premise") or {}
             if inp.get("autonomous") and inp.get("wake") == "question" and premise.get("item"):
                 asked.append(uuid.UUID(premise["item"]))
             for item_id in dict.fromkeys(asked):
-                memory_manager.question_asked(db, mind.user_id, item_id, message_id=message_id)
+                # Meant, not yet asked: the questions reader reads these words as they reached them.
+                memory_manager.meant_to_ask(db, mind.user_id, item_id, message_id=message_id)
     except Exception:  # noqa: BLE001
         logger.exception("chat worker: recording what a reply carried out failed")
 

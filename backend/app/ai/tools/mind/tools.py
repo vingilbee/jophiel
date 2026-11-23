@@ -160,8 +160,10 @@ def build_mind_tools(ev) -> list[BaseTool]:
                 promise = db.get(memory_manager.WorkingItem, uuid.UUID(inherited_item))
             if (promise is not None and promise.kind == "commitment" and promise.owner == "columbina"
                     and promise.closed_at is None and promise.due_at != due):
-                # A promise's time is its wake's time: moving one moves the other.
+                # A promise's time is its wake's time: moving one moves the other. Words already on their way for
+                # the earlier time don't keep it at the new one.
                 promise.due_at = due
+                memory_manager.drop_wait(promise, "its time moved")
                 if promise.status == "needs_review":
                     promise.status, promise.status_reason = "open", None
             follow_up = None

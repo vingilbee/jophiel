@@ -362,6 +362,7 @@ def note_commitment(db: Session, user_id: uuid.UUID, text_: str, *, owner: str =
     entry = add_item(db, user_id, kind="commitment", text_=text_, owner=owner, owed_to=owed_to, epistemic="reported",
                      due_at=due_at, context_id=context_id, source=source, done_when=done_when)
     entry.trigger = _trigger(trigger)
+    _met_already(entry, trigger)
     return entry
 
 
@@ -377,6 +378,16 @@ def _trigger(trigger: dict | None) -> dict | None:
     if not text_:
         raise MemoryError("invalid", "say what it waits for")
     return {"kind": "event", "text": text_}
+
+
+def _met_already(entry: WorkingItem, trigger: dict | None) -> None:
+    """The work a promise waits for had already ended when the promise was written (the tool saw it ended while
+    holding it): no end is coming to mark it, so the condition is met now."""
+    ended = (trigger or {}).get("ended")
+    if ended and entry.trigger and entry.trigger.get("kind") == "work":
+        entry.trigger_met_at = _now()
+        if ended != "completed":
+            entry.status_reason = f"what it waited for had already ended without a result ({ended})"
 
 
 # How early a timed promise may be counted kept: the clock of a wake that fires on time is never "early".
@@ -601,19 +612,31 @@ def await_delivery(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, messa
             or unkeepable(entry) is not None):
         return None
     entry.keeping = {"message_id": str(message_id), "reason": " ".join((reason or "kept").split())[:300],
-                     "at": _now().isoformat()}
+                     "at": _now().isoformat(), "revision": entry.revision}
     entry.status_reason = "what you said to keep it is on its way; it counts once the channel confirms it arrived"
     entry.updated_at = _now()
     _log({"op": "keeping", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
     return entry
 
 
+def drop_wait(entry: WorkingItem, why: str) -> None:
+    """A promise waiting on words already sent changed (a new time, wording, condition): those words were for the
+    earlier version, so their delivery can't keep this one. The wait goes; the promise stays open."""
+    if entry.keeping:
+        _log({"op": "keeping_dropped", "item": str(entry.id), "message": entry.keeping.get("message_id"), "why": why})
+        entry.keeping = None
+
+
 def settle_delivery(db: Session, message_id: uuid.UUID) -> int:
     """The channel settled every part of a message (all delivered or read), or one part failed: promises waiting on
     it are fulfilled with it as evidence, or stay open with the failure visible and their wake re-armed. Parts still
     on their way settle nothing. In the caller's transaction. Returns how many promises changed."""
-    from app.db.models import MessageDelivery
+    from app.db.models import ChatMessage, MessageDelivery
 
+    # Receipts for the message's parts are settled one at a time: two parts' receipts committing concurrently would
+    # each read the other's old status and neither would see every part delivered. The message row is the lock;
+    # the statuses are read after it is held (a fresh snapshot: whatever settled before is visible).
+    db.execute(select(ChatMessage.id).where(ChatMessage.id == message_id).with_for_update())
     statuses = list(db.scalars(select(MessageDelivery.status).where(MessageDelivery.assistant_message_id == message_id)))
     failed = "failed" in statuses
     if not statuses or not (failed or all(s in ("delivered", "read") for s in statuses)):
@@ -623,7 +646,11 @@ def settle_delivery(db: Session, message_id: uuid.UUID) -> int:
             WorkingItem.kind == "commitment", WorkingItem.closed_at.is_(None),
             WorkingItem.keeping["message_id"].astext == str(message_id)).with_for_update()):
         reason = (entry.keeping or {}).get("reason") or "kept"
+        bound = (entry.keeping or {}).get("revision")
         entry.keeping = None
+        if bound is not None and bound != entry.revision:
+            changed += 1  # it changed since those words went out: they can't keep the promise as it is now
+            continue
         if failed:
             note_unkept(db, entry.user_id, entry.id, delivery="the channel couldn't deliver it")
             from app.services import coordinator
@@ -671,9 +698,11 @@ def revise_commitment(db: Session, user_id: uuid.UUID, key: uuid.UUID | str, *, 
             entry.status = "open"
     if trigger is not None:
         entry.trigger, entry.trigger_met_at = _trigger(trigger), None
+        _met_already(entry, trigger)
         changed.append("condition")
     if not changed:
         return entry, []
+    drop_wait(entry, "revised")
     entry.status_reason = None if entry.status == "open" else entry.status_reason
     entry.revision += 1
     entry.updated_at = _now()
@@ -710,10 +739,43 @@ def question_asked(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, messa
                       .with_for_update())
     if entry is None or entry.kind != "question" or entry.owner != "columbina" or entry.status != "open":
         return False
+    entry.keeping = None
     _set_status(db, entry, "asked", " ".join(why.split())[:300], _now())
     link(db, user_id, role="asked", source=Source("message", message_id), item_id=entry.id)
     _log({"op": "asked", "user": str(user_id), "item": str(entry.id), "message": str(message_id)})
     return True
+
+
+def meant_to_ask(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID) -> None:
+    """In the delivery commit: she meant to ask this question in that message. Not asked yet: the questions reader
+    (services/open_questions.py) reads the words as they reached them and marks it asked, or lets it go back to
+    waiting (eligible for a follow-up again) when they didn't carry it or never arrived."""
+    entry = db.scalar(select(WorkingItem).where(WorkingItem.id == item_id, WorkingItem.user_id == user_id)
+                      .with_for_update())
+    if entry is None or entry.kind != "question" or entry.owner != "columbina" or entry.status != "open":
+        return
+    entry.keeping = {"message_id": str(message_id), "at": _now().isoformat()}
+    entry.offered_at = entry.offered_at or _now()
+
+
+def not_asked(db: Session, user_id: uuid.UUID, *, message_id: uuid.UUID | None = None,
+              item_ids: list[uuid.UUID] | None = None) -> int:
+    """Questions she meant to ask in a message that didn't carry them (left out, cut off, never delivered): back to
+    unasked and eligible for a follow-up. By the message (``message_id``) or by id (``item_ids``: an evaluation
+    whose words never went out). Returns how many."""
+    cond = [WorkingItem.user_id == user_id, WorkingItem.kind == "question", WorkingItem.status == "open"]
+    if message_id is not None:
+        cond.append(WorkingItem.keeping["message_id"].astext == str(message_id))
+    elif item_ids:
+        cond.append(WorkingItem.id.in_(item_ids))
+    else:
+        return 0
+    rows = list(db.scalars(select(WorkingItem).where(*cond).with_for_update()))
+    for entry in rows:
+        entry.keeping, entry.offered_at = None, None
+    if rows:
+        _log({"op": "not_asked", "user": str(user_id), "items": [str(r.id) for r in rows]})
+    return len(rows)
 
 
 def question_answered(db: Session, user_id: uuid.UUID, item_id: uuid.UUID, *, message_id: uuid.UUID,

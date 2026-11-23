@@ -53,7 +53,9 @@ MAX_BACKOFF = timedelta(hours=1)
 SHOWN = 12
 WATCH_HOURS = 24  # a question older than this when first seen isn't handed over (she still sees it in memory)
 QUESTION_TTL_SECONDS = 30 * 60
-HEARD_SETTLE = timedelta(seconds=90)  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
+HEARD_SETTLE = timedelta(seconds=90)
+DELIVERY_WAIT = timedelta(seconds=60)  # how often a WhatsApp message's delivery is looked at again
+DELIVERY_GIVE_UP = timedelta(hours=6)  # no word from the channel by then: it didn't reach them  # a spoken reply is read once an interruption would have been recorded  # how long the wake about one may wait behind replies before it's stale
 
 
 # --------------------------------------------------------------------------- #
@@ -135,8 +137,35 @@ def _claim(db: Session, now: datetime) -> tuple[int, int] | None:
     return claimed
 
 
+def _arrived(db: Session, message: ChatMessage) -> str:
+    """Whether her message reached them on a channel that confirms delivery (WhatsApp): "yes" (every part delivered
+    or read, or no such channel), "no" (a part failed, or no word after ``DELIVERY_GIVE_UP``), "waiting"."""
+    from app.db.models import MessageDelivery
+
+    statuses = list(db.scalars(select(MessageDelivery.status).where(
+        MessageDelivery.assistant_message_id == message.id)))
+    if not statuses or all(s in ("delivered", "read") for s in statuses):
+        return "yes"
+    if "failed" in statuses:
+        return "no"
+    created = message.created_at if message.created_at.tzinfo else message.created_at.replace(tzinfo=timezone.utc)
+    return "no" if _now() - created > DELIVERY_GIVE_UP else "waiting"
+
+
+def _not_carried(db: Session, claimed: tuple[int, int], user_id: uuid.UUID, message_id: uuid.UUID,
+                 why: str) -> str:
+    """Her message didn't reach them: nothing in it was asked; what she meant to ask there is unasked again."""
+    db.rollback()
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"memory:{user_id}"))))
+    if not _still_ours(db, claimed[0]):
+        db.rollback()
+        return "gone"
+    memory_manager.not_asked(db, user_id, message_id=message_id)
+    return _settle(db, claimed, "skipped", why, keep_transaction=True)
+
+
 def _questions(db: Session, user_id: uuid.UUID, statuses: tuple[str, ...],
-               asked_by: uuid.UUID | None = None) -> list[WorkingItem]:
+               asked_by: uuid.UUID | None = None, meant_in: uuid.UUID | None = None) -> list[WorkingItem]:
     """Her questions in these states, at most ``SHOWN``: first the ones ``asked_by`` (her message just before) asked,
     then the asked ones waiting on an answer (newest asked first), then the rest, newest first. So a question they
     may be answering is never pushed out by newer ones."""
@@ -148,6 +177,8 @@ def _questions(db: Session, user_id: uuid.UUID, statuses: tuple[str, ...],
         just = set(db.scalars(select(MemoryEvidence.item_id).where(
             MemoryEvidence.message_id == asked_by, MemoryEvidence.role == "asked",
             MemoryEvidence.item_id.in_([r.id for r in rows]))))
+    if meant_in is not None:  # the ones she meant to ask in this message come first
+        just |= {r.id for r in rows if (r.keeping or {}).get("message_id") == str(meant_in)}
     rows.sort(key=lambda r: (r.id not in just, r.status != "asked"))  # stable: newest first within each group
     return rows[:SHOWN]
 
@@ -178,7 +209,13 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
             if spoken is not None and _now() - (spoken if spoken.tzinfo else spoken.replace(tzinfo=timezone.utc)) \
                     < HEARD_SETTLE:
                 return _later(db, claimed, HEARD_SETTLE)  # how much of it was heard isn't settled yet
-            task_kind, shown = "asks", _questions(db, observation.user_id, ("open",))
+            arrived = _arrived(db, message)
+            if arrived == "waiting":
+                return _later(db, claimed, DELIVERY_WAIT)  # the channel hasn't said yet
+            if arrived == "no":
+                return _not_carried(db, claimed, observation.user_id, message.id, "the channel never delivered it")
+            task_kind = "asks"
+            shown = _questions(db, observation.user_id, ("open",), meant_in=message.id)
         elif observation.kind == "user_message":
             before = db.scalar(select(ChatMessage).where(
                 ChatMessage.conversation_id == message.conversation_id, ChatMessage.role == "assistant",
@@ -193,6 +230,8 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
             return _settle(db, claimed, "skipped", "no open question of hers")
         text = _readable(db, observation.user_id, message)
         if not (text or "").strip():
+            if task_kind == "asks":
+                return _not_carried(db, claimed, observation.user_id, message.id, "nothing of it reached them")
             return _settle(db, claimed, "skipped", "nothing of it may be read (forgotten or unheard)")
         task = {"task": task_kind, "whose_message": "hers" if task_kind == "asks" else "theirs",
                 "message": text,
@@ -229,6 +268,9 @@ def process(db: Session, claimed: tuple[int, int], *, judge: Callable[[dict], Re
                                                          why=match.why or "they answered")
             if moved:
                 changed.append(str(item_id)[:8])
+        if task_kind == "asks":
+            # The ones she meant to ask here that these words didn't ask: unasked again, eligible for a follow-up.
+            memory_manager.not_asked(db, user_id, message_id=message_id)
     except Exception as exc:  # noqa: BLE001
         log.exception("open questions: applying observation %s failed", observation_id)
         db.rollback()
@@ -329,11 +371,10 @@ def hand_over(db: Session, now: datetime | None = None) -> list[str]:
         WorkingItem.offered_at.is_(None), WorkingItem.created_at >= now - timedelta(hours=WATCH_HOURS))
         .order_by(WorkingItem.created_at.desc())))
     held = {}
-    out, seen = [], set()
+    out, seen, busy_users = [], set(), set()
     for entry in rows:
-        if entry.user_id in seen:
-            continue
-        seen.add(entry.user_id)
+        if entry.user_id in seen or entry.user_id in busy_users:
+            continue  # one handed over per user (a quiet conversation's question isn't blocked by a busy one's)
         if entry.user_id not in held:
             from app.services import memory_reconcile
             held[entry.user_id] = memory_reconcile.held_item_ids(db, entry.user_id)
@@ -343,6 +384,7 @@ def hand_over(db: Session, now: datetime | None = None) -> list[str]:
                 CoordinatorWork.user_id == entry.user_id, CoordinatorWork.kind == "mind",
                 CoordinatorWork.status.in_(("queued", "waiting_for_memory", "running")),
                 CoordinatorWork.input["wake"].astext == "question").limit(1)) is not None:
+            busy_users.add(entry.user_id)
             continue  # one in flight per user
         conversation_id = conversation_of(db, entry)
         if conversation_id is None:
@@ -358,12 +400,15 @@ def hand_over(db: Session, now: datetime | None = None) -> list[str]:
         if db.scalar(offered_here.limit(1)) is not None:
             continue  # one per quiet stretch
         entry_id, user_id, revision, text_ = entry.id, entry.user_id, entry.revision, entry.text
+        seen.add(entry.user_id)
         outcome = autonomous_speech.submit(
             db, user_id=user_id, activity_id=conversation_id, source="conversation",
             event_id=f"question:{entry_id}", text=text_, reasons=["an open question of hers"],
             commentary_mode="occasional", question=True, ttl=QUESTION_TTL_SECONDS,
             premise={"item": entry_id, "revision": revision}, wake="question")
-        db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now))
+        if outcome.startswith("Proposed"):
+            db.execute(WorkingItem.__table__.update().where(WorkingItem.id == entry_id).values(offered_at=now))
+        # Refused (the queue is full, no conversation to say it in): it stays eligible; a later sweep tries again.
         db.commit()
         out.append(f"question {entry_id.hex[:6]}: {outcome}")
     db.commit()

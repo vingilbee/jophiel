@@ -783,6 +783,13 @@ def _keep(ev: Evaluation, *, outcome: str, spoke: bool, assistant_message_id: uu
                 unkept.append(uuid.UUID(due_item))  # woken to keep it, and nothing she said reached them
             for item_id in dict.fromkeys(unkept):
                 memory_manager.note_unkept(db, ev.user_id, item_id, delivery=delivery)
+            meant = list(ev.asking)
+            inp = (ev.wake or {}).get("input") or {}
+            if (delivery in ("failed", "cancelled", "partial") and inp.get("wake") == "question"
+                    and (inp.get("premise") or {}).get("item")):
+                meant.append(uuid.UUID(inp["premise"]["item"]))  # woken to ask it, and her words didn't reach them
+            if meant:  # questions she meant to ask in words that never went out: still unasked, eligible again
+                memory_manager.not_asked(db, ev.user_id, item_ids=meant)
             if delivery in ("failed", "cancelled", "partial"):
                 _retry_promise(db, ev, delivery)
         db.commit()

@@ -1955,7 +1955,8 @@ class WorkingItem(Base, TimeFieldsMixin):
     offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # A promise of hers kept by words that went out on a channel that confirms delivery later (WhatsApp):
     # {"message_id", "reason", "at"} until the channel says delivered (then fulfilled) or failed (then it stays
-    # open, with why). Migration f2a6d9c3b8e1.
+    # open, with why). A question of hers: {"message_id", "at"}, the message she meant to ask it in, until the
+    # questions reader marks it asked or lets it go back (services/open_questions.py). Migration f2a6d9c3b8e1.
     keeping: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -347,6 +347,13 @@ def _record_message(env, message_id) -> None:
         db.commit()
 
 
+def _last_assistant(env) -> uuid.UUID:
+    with env.db() as db:
+        return db.scalar(select(ChatMessage.id).where(ChatMessage.conversation_id == env.conversation.id,
+                                                      ChatMessage.role == "assistant")
+                         .order_by(ChatMessage.conversation_sequence.desc()).limit(1))
+
+
 def _add(env, role, content) -> uuid.UUID:
     from app.services import chat as chat_service
     with env.db() as db:
@@ -505,8 +512,12 @@ def test_while_they_are_quiet_she_is_handed_one_question_once_and_may_ask_it(qen
     env.scripts.append(ask)
     assert run_job(env)
     assert _assistant_count(env) == before + 1
+    [meant] = [q for q in _questions(env) if q.id == offered.id]
+    assert meant.status == "open" and meant.keeping is not None  # meant; the reader decides it was asked
+    _record_message(env, _last_assistant(env))
+    _consume(_reader({"asks": "voice interruptions"}))
     [asked] = [q for q in _questions(env) if q.id == offered.id]
-    assert asked.status == "asked"
+    assert asked.status == "asked" and asked.keeping is None
     with env.db() as db:
         work = db.scalar(select(CoordinatorWork).where(CoordinatorWork.input["wake"].astext == "question"))
     _replay_wake(env, work.id)
@@ -741,3 +752,176 @@ def test_the_question_they_answer_is_shown_even_behind_newer_ones(qenv):
     _consume(judge)
     assert seen and seen[0][0] == "Did the Play attempt resume?"
     assert [q.status for q in _questions(env) if q.id == target.id] == ["answered"]
+
+
+# --------------------------------------------------------------------------- #
+# Second review of PR #53
+# --------------------------------------------------------------------------- #
+
+
+def _whatsapp_promise(env, parts: int = 1):
+    """A promise of hers whose reminder went out on WhatsApp in ``parts`` parts, accepted, waiting on delivery."""
+    from app.db.models import ChannelIdentity, MessageDelivery
+    with env.db() as db:
+        identity = ChannelIdentity(provider="whatsapp", provider_account_id="p", external_subject=str(uuid.uuid4()),
+                                   user_id=env.user.id)
+        db.add(identity)
+        entry = memory_manager.add_item(db, env.user.id, kind="commitment", text_="Remind them to do cardio",
+                                        owner="columbina", owed_to="user", epistemic="reported",
+                                        due_at=coordinator._now() - timedelta(minutes=1))
+        db.commit()
+        sent = _add(env, "assistant", "Time for cardio!")
+        for part in range(parts):
+            db.add(MessageDelivery(assistant_message_id=sent, channel="whatsapp", channel_identity_id=identity.id,
+                                   content="Time for cardio!", part_index=part, status="accepted",
+                                   provider_message_id=f"wamid.{sent}.{part}"))
+        assert memory_manager.await_delivery(db, env.user.id, entry.id, message_id=sent, reason="reminded")
+        db.commit()
+        return entry.id, sent
+
+
+def test_parts_delivered_at_the_same_moment_still_keep_the_promise(env):
+    import threading
+    from app.services import whatsapp
+    item_id, sent = _whatsapp_promise(env, parts=2)
+    done = threading.Event()
+
+    def second():
+        with env.db() as db2:
+            whatsapp.apply_delivery_status(db2, provider_message_id=f"wamid.{sent}.1", status="delivered")
+            db2.commit()
+        done.set()
+
+    with env.db() as db1:
+        whatsapp.apply_delivery_status(db1, provider_message_id=f"wamid.{sent}.0", status="delivered")
+        racer = threading.Thread(target=second)
+        racer.start()
+        assert not done.wait(1.0)  # the second receipt waits for the first to settle
+        db1.commit()
+    racer.join(10)
+    [kept] = [p for p in _promises(env) if p.id == item_id]
+    assert kept.status == "fulfilled" and kept.keeping is None
+
+
+def test_a_receipt_for_words_sent_before_the_promise_changed_doesnt_keep_it(env):
+    from app.services import whatsapp
+    item_id, sent = _whatsapp_promise(env)
+    with env.db() as db:
+        memory_manager.revise_commitment(db, env.user.id, item_id, reason="they want it again later",
+                                         text_="Remind them to do cardio again tonight")
+        db.commit()
+    with env.db() as db:
+        whatsapp.apply_delivery_status(db, provider_message_id=f"wamid.{sent}.0", status="delivered")
+        db.commit()
+    [still] = [p for p in _promises(env) if p.id == item_id]
+    assert still.status == "open" and still.keeping is None and _resolution(env, item_id) == []
+
+
+def test_a_promise_awaiting_a_report_that_already_finished_can_be_kept(env):
+    said(env, "Write up the report on the Lisbon trip.")
+    refs = {}
+
+    async def start(use, context):
+        started = await use("think_it_over", about="write the report on the Lisbon trip")
+        refs["work"] = started.split("[work:", 1)[1].split("]", 1)[0]
+        return "On it."
+
+    env.scripts.append(start)
+    run_job(env)
+    drain(env)  # the report finishes before any promise waits for it
+    env.scripts.append(says("The report's written."))
+    run_job(env)
+    said(env, "When the report finishes, send me the summary.")
+
+    async def promise(use, context):
+        tools = _promise_tools(context)
+        kept = await tools["note_commitment"].ainvoke({
+            "what": "Send them the summary of the Lisbon report", "when": "when the report finishes",
+            "awaits": f"work:{refs['work']}"})
+        noted = await tools["update_item"].ainvoke({"item": _ref(kept), "status": "fulfilled", "reason": "sent it"})
+        assert noted.startswith("Noted:")
+        return "It already finished. Summary: stay in Berlin for a year."
+
+    env.scripts.append(promise)
+    run_job(env)
+    [kept] = _promises(env)
+    assert kept.trigger_met_at is not None and kept.status == "fulfilled"
+
+
+@pytest.mark.parametrize("how", ["left_out", "never_delivered"])
+def test_a_question_she_meant_to_ask_but_didnt_get_across_stays_unasked(qenv, how):
+    env = qenv
+    said(env, "I start the new job on Monday")
+
+    async def mean(use, context):
+        await _promise_tools(context)["note_question"].ainvoke(
+            {"question": "How did the first day at the new job go?", "asked_by": "columbina", "asking_now": True})
+        return "Congrats on the new job!"  # the question never made it into her words
+
+    env.scripts.append(mean)
+    run_job(env)
+    [q] = _questions(env)
+    assert q.status == "open" and q.keeping is not None
+    reply = _last_assistant(env)
+    if how == "never_delivered":
+        from app.db.models import ChannelIdentity, MessageDelivery
+        with env.db() as db:
+            identity = ChannelIdentity(provider="whatsapp", provider_account_id="p", external_subject="s2",
+                                       user_id=env.user.id)
+            db.add(identity)
+            db.flush()
+            db.add(MessageDelivery(assistant_message_id=reply, channel="whatsapp", channel_identity_id=identity.id,
+                                   content="x", status="failed"))
+            db.commit()
+    _record_message(env, reply)
+    reader = _reader({"asks": "first day"})
+    _consume(lambda task: reader(task) if "first day" in task["message"] else Reading(matches=[]))
+    [after] = _questions(env)
+    assert after.status == "open" and after.keeping is None and after.offered_at is None  # can be followed up
+    with env.db() as db:
+        assert len(open_questions.hand_over(db)) == 1
+
+
+def test_a_busy_conversation_doesnt_hold_back_a_quiet_ones_question(qenv, monkeypatch):
+    from app.services import chat as chat_service
+    env = qenv
+    _add(env, "user", "hi")
+    _add(env, "assistant", "hey")
+    with env.db() as db:
+        quiet_q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive?",
+                                          owner="columbina", epistemic="inferred")
+        db.commit()
+        quiet_id = quiet_q.id
+    with env.db() as db:  # newer, about a conversation they're writing in right now (their message unanswered)
+        busy = chat_service.create_conversation(db, user_id=env.user.id)
+        chat_service.add_message(db, conversation=busy, role="user", content="wait one sec", turn_id=uuid.uuid4())
+        busy_q = memory_manager.add_item(db, env.user.id, kind="question", text_="Did the train arrive?",
+                                         owner="columbina", epistemic="inferred")
+        db.commit()
+        where = {busy_q.id: busy.id, quiet_id: env.conversation.id}
+    monkeypatch.setattr(open_questions, "conversation_of", lambda db, entry: where[entry.id])
+    with env.db() as db:
+        handed = open_questions.hand_over(db)
+    assert len(handed) == 1 and quiet_id.hex[:6] in handed[0]
+
+
+def test_a_full_queue_leaves_the_question_for_a_later_sweep(qenv, monkeypatch):
+    from app.services import autonomous_speech
+    env = qenv
+    _add(env, "user", "hi")
+    _add(env, "assistant", "hey")
+    with env.db() as db:
+        memory_manager.add_item(db, env.user.id, kind="question", text_="Did the plant survive?",
+                                owner="columbina", epistemic="inferred")
+        db.commit()
+    real = autonomous_speech.submit
+    monkeypatch.setattr(autonomous_speech, "submit",
+                        lambda db, **kw: "Rejected: mind queue capacity; source thought retained privately.")
+    with env.db() as db:
+        open_questions.hand_over(db)
+    [q] = _questions(env)
+    assert q.offered_at is None
+    monkeypatch.setattr(autonomous_speech, "submit", real)
+    with env.db() as db:
+        assert len(open_questions.hand_over(db)) == 1
+    assert _questions(env)[0].offered_at is not None

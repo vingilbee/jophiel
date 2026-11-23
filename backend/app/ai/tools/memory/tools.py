@@ -100,14 +100,24 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
         from app.db.models import CoordinatorWork
         from sqlalchemy import select
 
+        from app.services import coordinator
+
         key = awaits.removeprefix("work:").strip().lower()
         rows = [w for w in db.scalars(select(CoordinatorWork).where(
-            CoordinatorWork.user_id == user_id, CoordinatorWork.kind.in_(("mind", "recall"))))
-            if str(w.id).startswith(key)] if len(key) >= 6 else []
-        if len(rows) != 1:
+            CoordinatorWork.user_id == user_id, CoordinatorWork.kind.in_(("mind", "recall")))
+            .order_by(CoordinatorWork.created_at.desc()))
+            if str(w.id).startswith(key) or str(w.request_id).startswith(key)] if len(key) >= 6 else []
+        # Retries and replacements of one piece of thinking share its request: that's one, the latest attempt.
+        if len({w.request_id for w in rows}) != 1:
             raise MemoryError("not_found", f'no thinking of yours "{awaits}": use the id shown in brackets')
-        return {"kind": "work", "work_id": str(rows[0].id), "request_id": str(rows[0].request_id),
-                "text": (when or "").strip() or "when that thinking ends"}
+        # Held while the promise is written: thinking that ends meanwhile either sees the promise (once this
+        # commits) or has already ended, and then the condition is met now.
+        work = db.get(CoordinatorWork, rows[0].id, with_for_update=True)
+        out = {"kind": "work", "work_id": str(work.id), "request_id": str(work.request_id),
+               "text": (when or "").strip() or "when that thinking ends"}
+        if work.status in coordinator.TERMINAL:
+            out["ended"] = work.status
+        return out
 
     def timed(db, entry, *, moving: bool) -> str:
         """A timed promise of hers gets its durable wake in the same transaction; a time without one is said."""
