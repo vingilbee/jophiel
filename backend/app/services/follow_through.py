@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 # What shows an action's result: the phone field reported after it. Missing: the phone's own answer proves it (an
 # alarm or timer set, a notification dismissed, a volume set; none has a reported state to read back).
 OBSERVED = {"media_control": "media", "set_ringer": "ringer", "set_dnd": "dnd"}
-MAX_PER_CHANGE = 2  # tries for one observed change
+MAX_PER_CHANGE = 2  # tries while it stays unmet (``_episode``): a change elsewhere on the phone adds none
 MAX_PER_HOUR = 8  # tries for one item in any hour, across changes: a recurring promise can't loop without end
 CHECK_DELAYS = (20, 60)  # seconds after the attempt (then after the first check) that a check wakes her
 SENDING_STALE = timedelta(minutes=2)  # an attempt never answered (the worker died mid-call) stops blocking then
@@ -184,7 +184,8 @@ def of(ev) -> Follow | None:
 # --------------------------------------------------------------------------- #
 
 def describe(a: FollowThroughAttempt) -> str:
-    shown = ", ".join(f"{k} {v}" for k, v in (a.detail or {}).items() if v not in (None, "", []))
+    shown = ", ".join(f"{k} {v}" for k, v in (a.detail or {}).items()
+                      if v not in (None, "", []) and not k.startswith("_"))
     return f"{a.action.replace('_', ' ')}" + (f": {shown}" if shown else "")
 
 
@@ -226,16 +227,23 @@ def begin(ev, action: str, detail: dict) -> uuid.UUID | str:
                 a.status, a.settled_at = "unresolved", now
                 a.settled_reason = "its answer never came back (interrupted)"
                 continue
-            return (f"Not done: your attempt [{_short(a.id)}] ({describe(a)}) is still waiting for its result, so "
-                    "nothing more was sent. Settle it first with settle_attempt if a fresh report shows how it "
-                    "went, or let its check wake you.")
-        tried = db.scalar(select(func.count()).select_from(FollowThroughAttempt).where(
-            FollowThroughAttempt.user_id == ev.user_id, FollowThroughAttempt.item_id == entry.id,
-            FollowThroughAttempt.transition == follow.transition, FollowThroughAttempt.status != "cancelled")) or 0
+            if a.status == "pending" and a.id != follow.check and not _check_alive(db, a, now):
+                # Its check was dropped, expired or never ran: the next one, or unresolved after the last.
+                if _schedule_check(db, a, ev) is None:
+                    a.status, a.settled_at = "unresolved", now
+                    a.settled_reason = "its check ended without a reading"
+                    continue
+            if a.status in OPEN:
+                db.commit()
+                return (f"Not done: your attempt [{_short(a.id)}] ({describe(a)}) is still waiting for its result, so "
+                        "nothing more was sent. Settle it first with settle_attempt if a fresh report shows how it "
+                        "went, or let its check wake you.")
+        episode = _episode(db, ev.user_id, entry.id, follow, action)
+        tried = _tries(db, ev.user_id, entry.id, episode)
         if tried >= MAX_PER_CHANGE:
             db.commit()
-            return (f"Not done: you've tried {tried} times for this change already; nothing more was sent. Don't "
-                    "claim it worked: tell them what you tried and what you couldn't do.")
+            return (f"Not done: you've tried {tried} times for this already and it still isn't as they asked; "
+                    "nothing more was sent. Don't claim it worked: tell them what you tried and what you couldn't do.")
         hour = db.scalar(select(func.count()).select_from(FollowThroughAttempt).where(
             FollowThroughAttempt.user_id == ev.user_id, FollowThroughAttempt.item_id == entry.id,
             FollowThroughAttempt.issued_at > now - timedelta(hours=1),
@@ -246,14 +254,76 @@ def begin(ev, action: str, detail: dict) -> uuid.UUID | str:
                     "happening and ask whether they still want it.")
         row = FollowThroughAttempt(
             id=uuid.uuid4(), user_id=ev.user_id, item_id=entry.id, conversation_id=ev.conversation_id,
-            transition=follow.transition, wake_work_id=uuid.UUID(str(ev.wake_work_id)) if ev.wake_work_id else None,
-            action=action, detail={k: v for k, v in (detail or {}).items() if v is not None},
+            transition=episode, wake_work_id=uuid.UUID(str(ev.wake_work_id)) if ev.wake_work_id else None,
+            action=action, detail={**{k: v for k, v in (detail or {}).items() if v is not None},
+                                   "_change": follow.transition},
             observe=OBSERVED.get(action), status="sending", issued_at=now)
         db.add(row)
         db.commit()
         _log({"op": "attempt", "attempt": str(row.id), "item": str(entry.id), "action": action,
-              "transition": follow.transition})
+              "episode": episode, "change": follow.transition})
         return row.id
+
+
+def _tries(db, user_id: uuid.UUID, item_id: uuid.UUID, episode: str) -> int:
+    return db.scalar(select(func.count()).select_from(FollowThroughAttempt).where(
+        FollowThroughAttempt.user_id == user_id, FollowThroughAttempt.item_id == item_id,
+        FollowThroughAttempt.transition == episode, FollowThroughAttempt.status != "cancelled")) or 0
+
+
+def _episode(db, user_id: uuid.UUID, item_id: uuid.UUID, follow: Follow, action: str) -> str:
+    """Which unmet stretch an attempt belongs to (its tries share ``MAX_PER_CHANGE``): a check's attempt's own; else
+    the last attempt's, unless what it waited for was reached since (an attempt achieved) or what it observes changed
+    on the phone after that attempt was settled (not her doing: hers shows before she settles). Anything else on the
+    phone changing (the app opened, the screen) is the same unmet stretch, so it never buys more tries."""
+    if follow.check is not None:
+        checked = db.get(FollowThroughAttempt, follow.check)
+        if checked is not None:
+            return checked.transition
+    last = db.scalar(select(FollowThroughAttempt).where(
+        FollowThroughAttempt.user_id == user_id, FollowThroughAttempt.item_id == item_id,
+        FollowThroughAttempt.status != "cancelled").order_by(FollowThroughAttempt.issued_at.desc()).limit(1))
+    if last is None or last.status == "achieved":
+        return f"ep:{uuid.uuid4().hex[:20]}"
+    field = OBSERVED.get(action) or last.observe
+    if field is not None:
+        from app.services import phone_state
+        try:
+            state = phone_state.read(user_id)
+        except Exception:  # noqa: BLE001 - unknown is the same stretch
+            state = None
+        value = state.values.get(field) if state is not None else None
+        settled = (last.settled_at or last.issued_at).timestamp()
+        if value is not None and value.since > settled:
+            return f"ep:{uuid.uuid4().hex[:20]}"
+        return last.transition
+    if (last.detail or {}).get("_change") != follow.transition:
+        return f"ep:{uuid.uuid4().hex[:20]}"  # nothing to read it on: a new observed change is a new stretch
+    return last.transition
+
+
+IN_FLIGHT = timedelta(minutes=10)  # a check whose evaluation was dispatched this recently is still running
+
+
+def _check_alive(db, row: FollowThroughAttempt, now: datetime) -> bool:
+    """Whether a pending attempt's check can still wake her: one is scheduled (moved ones included: they keep the
+    attempt's id), or one came due and its evaluation is on its way or running."""
+    from app.db.models import CoordinatorOutput
+    from app.services import coordinator
+
+    wakes = list(db.scalars(select(CoordinatorWork).where(
+        CoordinatorWork.user_id == row.user_id, CoordinatorWork.kind == "wake",
+        CoordinatorWork.input["follow_check"].astext == str(row.id))))
+    for work in wakes:
+        if work.status in coordinator.ACTIVE:
+            return True
+        if work.status != "completed" or now - work.updated_at > IN_FLIGHT:
+            continue
+        output = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.work_id == work.id,
+                                                           CoordinatorOutput.phase == "follow_up"))
+        if output is None or output.status in ("decided", "dispatched"):
+            return True
+    return False
 
 
 def finish(ev, attempt_id: uuid.UUID, status: str, text: str) -> str:
@@ -389,11 +459,12 @@ def settle(ev, attempt: str, outcome: str, evidence: str) -> str:
                     "check, or mark it unresolved.")
         # Her reading, with what the record showed when she gave it (the fresh report, or that there was none).
         row.status, row.settled_at, row.settled_reason = SETTLED[outcome], _now(), f"{why} [{shown}]"[:600]
-        if row.check_work_id is not None:
-            check = db.get(CoordinatorWork, row.check_work_id, with_for_update=True)
-            if check is not None and check.status in coordinator.ACTIVE:
-                check.status, check.error_code = "cancelled", "settled"
-                check.cancellation_generation += 1
+        for check in db.scalars(select(CoordinatorWork).where(
+                CoordinatorWork.user_id == row.user_id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(coordinator.ACTIVE),
+                CoordinatorWork.input["follow_check"].astext == str(row.id)).with_for_update()):
+            check.status, check.error_code = "cancelled", "settled"  # moved ones too: they keep the attempt's id
+            check.cancellation_generation += 1
         db.commit()
         _log({"op": "settled", "attempt": str(row.id), "outcome": row.status})
         left = MAX_PER_CHANGE - _tried(db, row)
@@ -442,8 +513,11 @@ def lines(db, user_id: uuid.UUID, follow: Follow, *, act: str | None = None, say
             if a.checks >= len(CHECK_DELAYS):
                 line += "; this is its last check: if you leave it pending it becomes unresolved"
         out.append(line)
-    tried = sum(1 for a in rows if a.transition == follow.transition and a.status != "cancelled")
-    out.append(f"- Tries for this change: {tried} of {MAX_PER_CHANGE}.")
+    current = next((a for a in rows if a.status != "cancelled"), None)
+    if current is not None and current.status != "achieved":
+        tried = sum(1 for a in rows if a.transition == current.transition and a.status != "cancelled")
+        out.append(f"- Tries while it hasn't been as they asked: {tried} of {MAX_PER_CHANGE} (a change elsewhere on the "
+                   "phone doesn't add more).")
     return out
 
 

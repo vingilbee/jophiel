@@ -154,8 +154,10 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
   a notification woke her. On her other own turns she gets who and where only, so no one else's words reach a turn
   that can act on the phone.
 - **One app's notifications** (`check_notifications`, `phone_notifications.app_report`): "Now" lists the newest
-  `LIVE_SHOWN` (8). On the user's reply turns, a question about one app reads the whole active list, matched by app
-  name or package, newest first, at most `APP_SHOWN` (5) in detail, labelled someone else's words. "None from X"
+  `LIVE_SHOWN` (8). On the user's reply turns, a question about one app reads the whole active list, matched by its
+  exact name (case and spaces aside) or full package, newest first, at most `APP_SHOWN` (5) in detail, labelled
+  someone else's words and with the app they're really from. A name that only contains it ("Mail" in Gmail) is
+  another app: named with its count, never its words, and she asks which they meant. "None from X"
   only after a successful read; sense off or store unreadable says she can't check. Read only, bound to their
   message by the owner-turn check like every phone read.
 - **She knows her sense**: when the user has a phone, her prompt has a "Their phone" section
@@ -211,12 +213,16 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
   her own turn's: on the phone the quiet actions (media previous, alarms...), never `play_music`.
 - **Attempts** (`follow_through_attempts`): every device action on such a wake is recorded before it's sent and
   fenced (execution facts): the item still open; nothing else for it waiting for its result; `MAX_PER_CHANGE` (2) per
-  change, `MAX_PER_HOUR` (8) per item; a check after which they wrote sends nothing (their latest message decides).
+  unmet stretch, `MAX_PER_HOUR` (8) per item; a check after which they wrote sends nothing (their latest message
+  decides). A stretch (`_episode`, kept in `transition`) ends only when an attempt is achieved or the observed field
+  itself changes after the last attempt was settled: the app opening or the screen turning on never buys more tries.
 - **Accepted is not achieved**: an action whose own answer proves it (an alarm set) is achieved; otherwise the attempt
   is `pending` and a check wake (`CHECK_DELAYS` 20 s, 60 s) shows her whether the phone reported the observed field
   (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt`: achieved / not achieved only on such a fresh report,
   unresolved any time. A check that ends with it still pending schedules the next one; after the last it's
-  `unresolved`, never success.
+  `unresolved`, never success. A check keeps its attempt's identity when moved (`coordinator.FOLLOW_KEYS`); one that
+  died (dropped, expired, never ran) is reconciled by the next try: the next check, or `unresolved` after the last,
+  so a promise is never left blocked behind it.
 - **Cancelled**: the item closing (any status change through `memory_manager._set_status`) cancels its pending
   attempts and their checks; `begin` rereads the item under lock before any send.
 - **Records**: `mind.jsonl` (the thought's `act`, `item`, `act_outcome`), the coordinator log (`follow_through_seen`,

@@ -100,7 +100,7 @@ def test_several_matches_come_newest_first_and_are_bounded(channel):
         post(channel.user, [note(f"n_wa{i}", "WhatsApp", "com.whatsapp", f"Friend {i}", f"message {i}")],
              start + 40 + i)
     found = look(channel, "whatsapp")
-    assert found.startswith('8 notifications from "whatsapp"')
+    assert found.startswith('8 notifications from "WhatsApp"')  # named as the app is, not as asked
     shown = [line for line in found.splitlines() if line.startswith("- [notif:")]
     assert len(shown) == phone_notifications.APP_SHOWN
     assert "message 6" in shown[0] and "message 5" in shown[1]  # newest first
@@ -112,7 +112,8 @@ def test_once_it_is_gone_there_is_no_active_match(channel):
     phone_notifications.report(channel.user, PhoneNotificationsReport.model_validate(
         {"posted": [], "removed": [{"key": "n_wa", "reason": "click"}]}))
     found = look(channel, "WhatsApp")
-    assert found.startswith('Looked through all 30 notifications still on their phone: none from "WhatsApp"')
+    assert found.startswith('Looked through all 30 notifications still on their phone: none from an app called '
+                            '"WhatsApp"')
     assert "Can't check" not in found
 
 
@@ -145,16 +146,53 @@ def test_her_own_turns_have_no_lookup(channel):
     assert "check_notifications" not in {t.name for t in built}
 
 
+def test_a_name_that_only_contains_the_app_asked_about_is_never_read_out_as_it(channel):
+    """Mail and Gmail both on the phone: asking about Mail reads Mail's alert only, labelled Mail."""
+    start = time.time() - 50
+    post(channel.user, [note("n_gm", "Gmail", "com.google.android.gm", "Bank", "your statement is ready")], start)
+    post(channel.user, [note("n_mail", "Mail", "com.apple.mail", "Sam", "lunch tomorrow?")], start + 1)
+    found = look(channel, "Mail")
+    assert found.startswith('1 notification from "Mail" still on their phone')
+    assert "lunch tomorrow?" in found and "statement" not in found and "Gmail" not in found
+    gmail = look(channel, "gmail")
+    assert "statement" in gmail and "lunch" not in gmail
+
+
+def test_only_a_close_name_on_the_phone_gives_names_not_words(channel):
+    post(channel.user, [note("n_gm", "Gmail", "com.google.android.gm", "Bank", "your statement is ready")],
+         time.time() - 10)
+    found = look(channel, "Mail")
+    assert found.startswith('Looked through all 1 notification still on their phone: none from an app called "Mail"')
+    assert '"Gmail" (1)' in found and "ask which they meant" in found
+    assert "statement" not in found and "Bank" not in found  # nothing of the other app's is read out
+
+
 @pytest.mark.parametrize(("app", "package", "asked", "matches"), [
     ("WhatsApp", "com.whatsapp", "WhatsApp", True),
     ("WhatsApp", "com.whatsapp", "whats app", True),
-    ("WhatsApp Business", "com.whatsapp.w4b", "WhatsApp", True),
+    ("WhatsApp", "com.whatsapp", "com.whatsapp", True),
+    (None, "com.whatsapp", "WhatsApp", True),
+    ("WhatsApp Business", "com.whatsapp.w4b", "WhatsApp", False),
+    ("Gmail", "com.google.android.gm", "Mail", False),
     ("Gmail", "com.google.android.gm", "WhatsApp", False),
     ("Gmail", "com.google.android.gm", "gmail", True),
     ("Signal", "org.thoughtcrime.securesms", "a", False),
 ])
-def test_matching_by_app_name_or_package(app, package, asked, matches):
+def test_matching_by_exact_app_name_or_package(app, package, asked, matches):
     entry = phone_notifications.Notification(
         key="k", revision=1, app=app, package=package, title=None, text=None, conversation=None,
         conversation_id=None, conversation_identity=None, is_group=False)
     assert phone_notifications.from_app(entry, asked) is matches
+
+
+@pytest.mark.parametrize(("app", "package", "asked", "close"), [
+    ("Gmail", "com.google.android.gm", "Mail", True),
+    ("WhatsApp Business", "com.whatsapp.w4b", "WhatsApp", True),
+    ("WhatsApp", "com.whatsapp", "WhatsApp", False),  # exact is a match, not a close name
+    ("Gmail", "com.google.android.gm", "com", False),  # a package's prefix names nothing
+])
+def test_close_names(app, package, asked, close):
+    entry = phone_notifications.Notification(
+        key="k", revision=1, app=app, package=package, title=None, text=None, conversation=None,
+        conversation_id=None, conversation_identity=None, is_group=False)
+    assert phone_notifications.close_to(entry, asked) is close

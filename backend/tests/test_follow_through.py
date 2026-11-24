@@ -342,7 +342,7 @@ def test_the_wrong_track_is_not_achieved_and_retries_stop_at_the_bound(env, phon
         second = attempts(env)[-1]
         await use("settle_attempt", attempt=str(second.id)[:8], outcome="not_achieved", evidence="still wrong")
         third = await use("phone_action", action="media_control", command="previous")
-        assert third.startswith("Not done: you've tried 2 times for this change")
+        assert third.startswith("Not done: you've tried 2 times for this already")
         return "I tried twice to put Into You back but Spotify keeps moving on."
 
     env.scripts.append(still_wrong)
@@ -351,6 +351,141 @@ def test_the_wrong_track_is_not_achieved_and_retries_stop_at_the_bound(env, phon
     assert run_job(env)
     assert len(phone.sent) == 2 and [a.status for a in attempts(env)] == ["failed", "failed"]
     assert checks(env) == []
+
+
+def _wake_and_run(env, source, previous, script, entry, **phone_change):
+    """Something else on the phone changes (a new transition), her thought finds the promise still due, and the
+    follow-through wake it leads to runs ``script``. Returns the new moment's snapshot."""
+    report(env, **phone_change)
+    scope, moment = tick(env, source, previous)
+    think(scope, moment, source, Thinker("Still not Into You.", act="switch back to Into You", item=ref(entry)))
+    env.scripts.append(script)
+    drain(env)
+    assert run_job(env)
+    return moment.data["snapshot"]
+
+
+def _settle_by_check(env, outcome="not_achieved"):
+    async def look(use, context):
+        attempt = attempts(env)[-1]
+        result = await use("settle_attempt", attempt=str(attempt.id)[:8], outcome=outcome, evidence="still wrong")
+        assert result.startswith("Settled")
+        return ""
+
+    env.scripts.append(look)
+    due_now(env)
+    drain(env)
+    assert run_job(env)
+
+
+def test_the_track_staying_wrong_while_the_app_opens_and_closes_buys_no_more_tries(env, phone):
+    """Review of #54: the transition key changes with any phone reading, so opening the app mustn't reset the
+    budget for a song that never changed back."""
+    entry = _first_attempt(env, phone)
+    report(env, media=NEXT_SONG)  # fresh, the same wrong song: Spotify ignored "previous"
+    _settle_by_check(env)
+    source = mind_phone.PhoneSource()
+    _, base = tick(env, source)
+
+    async def second(use, context):
+        result = await use("phone_action", action="media_control", command="previous")
+        assert "isn't the result" in result  # the second of two tries for this unmet stretch
+        return ""
+
+    snap = _wake_and_run(env, source, base.data["snapshot"], second, entry, charging=True)
+    report(env, media=NEXT_SONG)
+    _settle_by_check(env)
+
+    async def third(use, context):
+        result = await use("phone_action", action="media_control", command="previous")
+        assert result.startswith("Not done: you've tried 2 times for this already")
+        return "Spotify keeps playing Yume To Hazakura; going back a track didn't bring Into You back."
+
+    snap = _wake_and_run(env, source, snap, third, entry, charging=False)  # the app's state changing again
+    assert len(phone.sent) == 2 and len({a.transition for a in attempts(env)}) == 1
+
+    # Spotify itself moving on later is a distinct change: tries again.
+    report(env, media=OTHER_SONG)
+
+    async def later(use, context):
+        result = await use("phone_action", action="media_control", command="previous")
+        assert "isn't the result" in result
+        return ""
+
+    _wake_and_run(env, source, snap, later, entry, screen="on")
+    assert len(phone.sent) == 3 and len({a.transition for a in attempts(env)}) == 2
+
+
+def test_a_moved_check_stays_the_attempts_check(env, phone):
+    _first_attempt(env, phone)
+    [check] = checks(env)
+    with env.db() as db:
+        row = db.get(CoordinatorWork, check.id)
+        moved = coordinator.schedule_wake(db, user_id=env.user.id, conversation_id=env.conversation.id,
+                                          about=row.input["about"], due_at=datetime.now(timezone.utc)
+                                          + timedelta(minutes=5), moves=row, reason="give the phone longer")
+        db.commit()
+        moved_id = moved.id
+    [live] = checks(env)
+    attempt = attempts(env)[0]
+    assert live.id == moved_id and live.input["follow_check"] == str(attempt.id)
+    assert live.input["follow_item"] == str(attempt.item_id) and live.input["follow_transition"] == attempt.transition
+
+    async def look(use, context):
+        assert f"A check on your attempt [{str(attempt.id)[:8]}]" in context.wake and "settle_attempt" in context.tools
+        await use("stay_silent", reason="no report yet")
+        return ""
+
+    env.scripts.append(look)
+    due_now(env)
+    drain(env)
+    assert run_job(env)
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 2  # the moved check ran as its check: the next came
+    # Settling cancels the live check whatever row it's on now.
+    report(env, media=INTO_YOU)
+    ev = SimpleNamespace(wake={"kind": "wake", "input": {"follow_item": str(attempt.item_id),
+                                                         "follow_check": str(attempt.id)}}, user_id=env.user.id)
+    assert follow_through.settle(ev, str(attempt.id)[:8], "achieved", "Into You").startswith("Settled: achieved")
+    assert checks(env) == []
+
+
+def test_a_check_that_died_never_leaves_the_promise_blocked(env, phone):
+    """Review of #54: a check that expired (a worker down past it) or was dropped never reaches after(): the next
+    try reconciles it instead of refusing forever."""
+    entry = _first_attempt(env, phone)
+    source = mind_phone.PhoneSource()
+    _, base = tick(env, source)
+
+    def kill_checks():
+        with env.db() as db:
+            db.execute(update(CoordinatorWork).where(
+                CoordinatorWork.user_id == env.user.id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(coordinator.ACTIVE)).values(
+                status="expired", updated_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+            db.commit()
+
+    kill_checks()
+
+    async def waiting(use, context):
+        result = await use("phone_action", action="media_control", command="previous")
+        assert result.startswith("Not done: your attempt")  # still unknown: but a new check now watches it
+        return ""
+
+    snap = _wake_and_run(env, source, base.data["snapshot"], waiting, entry, charging=True)
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 2 and len(checks(env)) == 1
+    kill_checks()  # the last check dies too
+
+    async def again(use, context):
+        result = await use("phone_action", action="media_control", command="previous")
+        assert "isn't the result" in result
+        return ""
+
+    _wake_and_run(env, source, snap, again, entry, charging=False)
+    first, second = attempts(env)
+    assert first.status == "unresolved" and "its check ended without a reading" in first.settled_reason
+    assert second.status == "pending" and len(phone.sent) == 2
 
 
 def test_an_unanswered_command_is_checked_not_assumed(env, phone):

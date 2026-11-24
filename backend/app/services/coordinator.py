@@ -57,6 +57,7 @@ WAKES = ("mind", "wake")
 # A scheduled reconsideration is kept this long past its time (the worker was down): then it wakes her as late.
 WAKE_GRACE = timedelta(days=30)
 WAKE_MAX_AHEAD = timedelta(days=60)
+FOLLOW_KEYS = ("follow_item", "follow_check", "follow_transition")  # a follow-through check's identity
 
 
 @dataclass(frozen=True)
@@ -583,7 +584,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
                                              "first_scheduled_at", "item", "channel_identity_id", "third_party",
-                                             "phone_follow_up")}
+                                             "phone_follow_up", *FOLLOW_KEYS)}
         revisions = list(old.get("revisions") or [])
         # A follow-up with someone on the phone keeps its recipient through every revision: the same intention never
         # moves to another person or conversation (a new one is a new come_back_to).
@@ -625,7 +626,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                or inherited.get("channel_identity_id"),
                "moved": moved, "revisions": revisions[-12:],
                **({"phone_follow_up": phone_follow_up} if phone_follow_up else {}),
-               **{k: v for k, v in (extra or {}).items() if k.startswith("follow_")},
+               # A check on a follow-through attempt stays that check through every move (services/follow_through.py).
+               **{k: v for k, v in {**{k: inherited.get(k) for k in FOLLOW_KEYS}, **(extra or {})}.items()
+                  if k in FOLLOW_KEYS and v},
                **({"third_party": True} if third_party or phone_follow_up or inherited.get("third_party")
                   else {})})
     db.add(row)
