@@ -2,8 +2,6 @@
 
 # Jophiel
 
-**An AI that feels like someone, not something.**
-
 The goal: make an AI as human as possible.<br/>
 She's alive every tick, aware of time, and adapts and learns from her own experience.
 
