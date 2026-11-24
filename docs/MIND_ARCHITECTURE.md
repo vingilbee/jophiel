@@ -153,6 +153,11 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **What her "Now" shows**: the notifications still on the phone. Their text appears when the user wrote this turn or
   a notification woke her. On her other own turns she gets who and where only, so no one else's words reach a turn
   that can act on the phone.
+- **One app's notifications** (`check_notifications`, `phone_notifications.app_report`): "Now" lists the newest
+  `LIVE_SHOWN` (8). On the user's reply turns, a question about one app reads the whole active list, matched by app
+  name or package, newest first, at most `APP_SHOWN` (5) in detail, labelled someone else's words. "None from X"
+  only after a successful read; sense off or store unreadable says she can't check. Read only, bound to their
+  message by the owner-turn check like every phone read.
 - **She knows her sense**: when the user has a phone, her prompt has a "Their phone" section
   (`prompts._PHONE_PROMPT`). It states whether notifications are shared right now
   (`phone_notifications.prompt_line`: any report turns it on, `all_removed` turns it off) and that new ones reach

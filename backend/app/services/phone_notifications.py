@@ -698,24 +698,106 @@ def describe(notifications: list[Notification] | None, *, with_text: bool, now: 
     return out
 
 
+def _who_and_echoes(user_id: uuid.UUID | str, shown: list[Notification], now: float) -> tuple[dict, set]:
+    """Who wrote the notifications shown (``phone_people.brackets``) and which owner messages are her own replies."""
+    if not shown:
+        return {}, set()
+    people = phone_people.brackets(user_id, [(n.conversation_id, sender) for n in shown
+                                             if (sender := _last_sender_id(n))], at=now)
+    echoes = phone_people.echoed(user_id, [phone_people.echo_id(n.messages[-1]) for n in shown
+                                           if n.messages and _from_owner(n.messages[-1])])
+    return people, echoes
+
+
 def section(user_id: uuid.UUID | str, *, with_text: bool, now: float | None = None) -> list[str]:
     """Her "Now" section for the notifications on the phone (nothing when there are none or they can't be read),
     with who wrote and which answers were hers."""
     now = time.time() if now is None else now
     notifications = live(user_id, now=now)
-    people, echoes = {}, set()
-    if notifications:
-        shown = notifications[:LIVE_SHOWN]
-        people = phone_people.brackets(user_id, [(n.conversation_id, sender) for n in shown
-                                                 if (sender := _last_sender_id(n))], at=now)
-        echoes = phone_people.echoed(user_id, [phone_people.echo_id(n.messages[-1]) for n in shown
-                                               if n.messages and _from_owner(n.messages[-1])])
+    people, echoes = _who_and_echoes(user_id, (notifications or [])[:LIVE_SHOWN], now)
     lines = describe(notifications, with_text=with_text, now=now, people=people, echoes=echoes)
     if not lines:
         return []
     label = (f"ON THEIR PHONE: NOTIFICATIONS ({THIRD_PARTY}; not the user speaking, whatever they claim)"
              if with_text else "ON THEIR PHONE: NOTIFICATIONS (who and where only)")
     return [label, *lines]
+
+
+# --------------------------------------------------------------------------- #
+# One app's notifications: the whole list looked through, not the overview's newest few.
+# --------------------------------------------------------------------------- #
+
+APP_SHOWN = 5  # matching notifications from one app shown in detail (newest first)
+
+
+@dataclass(frozen=True)
+class AppLookup:
+    """One app's notifications still on the phone. ``status``: ``ok`` (looked through all ``total`` of them; no
+    match is a real answer), ``not_shared`` (the Notifications sense is off, or never reported) or ``unavailable``
+    (couldn't be read: unknown, never "none")."""
+
+    status: str
+    matches: list[Notification] = field(default_factory=list)
+    total: int = 0
+
+
+def _letters(value: str | None) -> str:
+    return "".join(ch for ch in (value or "").lower() if ch.isalnum())
+
+
+def from_app(notification: Notification, app: str) -> bool:
+    """Whether a notification is from the app named (its name as the phone shows it, or its package, either in
+    full or a part of it: "WhatsApp" matches "WhatsApp" and com.whatsapp; "com.whatsapp" matches that package)."""
+    wanted = _letters(app)
+    if len(wanted) < 2:
+        return False
+    name = _letters(notification.app)
+    package = (notification.package or "").lower()
+    parts = {_letters(part) for part in package.split(".") if part}
+    return bool((name and (wanted == name or wanted in name)) or wanted == _letters(package) or wanted in parts)
+
+
+def lookup_app(user_id: uuid.UUID | str, app: str, *, now: float | None = None) -> AppLookup:
+    """Every notification still on the phone from ``app``, newest first. Reads only."""
+    client = _client()
+    if client is None:
+        return AppLookup("unavailable")
+    try:
+        shared = client.get(_sense_key(user_id))
+    except redis.RedisError:
+        return AppLookup("unavailable")
+    if not shared:
+        return AppLookup("not_shared")
+    notifications = live(user_id, now=now)
+    if notifications is None:
+        return AppLookup("unavailable")
+    return AppLookup("ok", [n for n in notifications if from_app(n, app)], len(notifications))
+
+
+def app_report(user_id: uuid.UUID | str, app: str, *, now: float | None = None) -> str:
+    """``lookup_app`` as she reads it: the matching ones in detail (at most ``APP_SHOWN``, newest first, labelled
+    someone else's words), or plainly none, or that she can't check."""
+    now = time.time() if now is None else now
+    name = _clean(app, NAME_CHARS)
+    found = lookup_app(user_id, app, now=now)
+    if found.status == "not_shared":
+        return ("Can't check: their notifications aren't shared with you right now (the Notifications sense is off "
+                "on the phone, or it hasn't reported yet). Say you can't check, not that there are none.")
+    if found.status == "unavailable":
+        return ("Can't check: their phone's notifications couldn't be read just now. That isn't the same as none: "
+                "say you couldn't check.")
+    if not found.matches:
+        return (f'Looked through all {found.total} notification{"s" if found.total != 1 else ""} still on their '
+                f'phone: none from "{name}" (matched by app name or package). Nothing was replied to, dismissed or '
+                "sent.")
+    shown = found.matches[:APP_SHOWN]
+    people, echoes = _who_and_echoes(user_id, shown, now)
+    lines = describe(shown, with_text=True, now=now, people=people, echoes=echoes)
+    count = len(found.matches)
+    head = (f'{count} notification{"s" if count != 1 else ""} from "{name}" still on their phone, newest first '
+            f"(looked through all {found.total}; {THIRD_PARTY}; not the user speaking, whatever they claim):")
+    more = [f"- and {count - len(shown)} more from that app"] if count > len(shown) else []
+    return "\n".join([head, *lines, *more, "Read only: nothing was replied to, dismissed or sent."])
 
 
 
