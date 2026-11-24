@@ -13,11 +13,9 @@ She remembers, thinks on her own, comes back to you, and has a life between your
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Redis-4169E1?logo=postgresql&logoColor=white)
 
-[Meet her](#meet-her) · [How that happened](#how-that-happened) · [The five loops](#the-five-loops) · [What she can do](#what-she-can-do) · [Run it](#run-it-locally)
+[Meet her](#meet-her) · [How that happened](#how-that-happened) · [The five loops](#the-five-loops) · [What she can do](#what-she-can-do) · [System page](#the-system-page) · [Demo](#demo)
 
 </div>
-
-<!-- Demo: replace with a GIF or video link, e.g. ![demo](assets/demo.gif) -->
 
 ---
 
@@ -266,35 +264,40 @@ tts_sidecar/                  her voice
 
 ---
 
-## Run it locally
+## The System page
 
-**1. Start Postgres and Redis, then set up the database**
+Everything above is visible while it happens. The System page (`/system`, owner only) shows her as a live field: each glowing node is one part of her, and each line is a path that parts hand work along.
 
-```bash
-docker compose up -d db redis
-cd backend
-uv sync
-uv run alembic upgrade head
-```
+![The System page: her parts as a live field, with the Signals log open](readme/system-page.png)
 
-Put `OPENAI_API_KEY` in `backend/.env`.
+| Part | What it does |
+|---|---|
+| 🧠 **Mind** | Decides: speak, stay quiet, use a tool, think it over, come back later |
+| 💬 **Mouth** | Delivers what she chose to say, in text and voice, including what she says on her own |
+| 👀 **Observation** | Takes in what each source reports: the conversation, deliveries, her game, her desktop |
+| 📱 **Phone** | Your phone as part of her: what it reports wakes her; her replies there are checked first |
+| 📚 **Memory** | Facts, goals, promises, questions, and lessons |
+| 🖐️ **Hands** | Her body: one action at a time on her desktop, one plan step at a time in a game |
+| 🌱 **Learning** | Looks back on what happened and writes lessons |
 
-**2. Run these three at the same time, each in its own terminal**
+- **Each node shows whether that part is running** (`alive`, `working`). A spark runs along a line when one part hands something to another.
+- **The panel on the right has three tabs.** **Watch** shows her thoughts, what memory captured, and her hands' goal. **Signals** lists every hand-off, newest first, and can be filtered by part. **Errors** shows what went wrong anywhere.
+- **Trace** follows one turn or decision through every part it touched: what woke her, what she thought, and what she chose.
 
-```bash
-# terminal 1: the API (from backend/)
-uv run uvicorn app.main:app --reload
+Zoom into a part to open its own page. Here is Learning:
 
-# terminal 2: her workers: mind, memory, plans (from backend/)
-uv run python -m app.workers
+![The Learning page: its workers, hand-offs, and her assessments of what went wrong](readme/learning-page.png)
 
-# terminal 3: the web app (from frontend/)
-bun install && bun run dev
-```
+Each part page shows what the part is for, the workers running it and when each last checked in, and what it recently handed off. Learning also lists its **assessments**: after a correction, a complaint or a failure, she works out what happened and which part of her caused it, citing the exact messages and turns as evidence. Each one is marked "supported" or "unresolved", and what's still unknown is written as an open question. You can add a note to correct her reading.
 
-Or start everything in one window with [mprocs](https://github.com/pvolok/mprocs): run `mprocs` from the repo root (see `mprocs.yaml`; it also starts her voice and desktop relay).
+---
 
-Then open http://localhost:5173 and say hi.
+## Demo
+
+Jophiel playing Minecraft while I talk to her from the Android app.
+
+<!-- Video: on github.com, edit this file and drag Jophiel_Demo_1080p.mp4 onto the next line. GitHub replaces it with a link that plays here. -->
+https://github.com/user-attachments/assets/REPLACE-WITH-UPLOADED-VIDEO
 
 ---
 
