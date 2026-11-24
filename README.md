@@ -7,7 +7,7 @@
 The goal: make an AI as human as possible.<br/>
 She's alive every tick, aware of time, and adapts and learns from her own experience.
 
-<sub>Her mind, planner, hands and learning all run on <code>gpt-6-luna</code>, with low or no reasoning.</sub>
+<sub>Her main parts run on <code>gpt-6-luna</code>, with low or no reasoning.</sub>
 
 ![Python](https://img.shields.io/badge/Python-FastAPI-009688?logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-agent-1C3C3C?logo=langchain&logoColor=white)
