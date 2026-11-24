@@ -83,3 +83,29 @@ def test_echoed_game_prompt_becomes_silence(monkeypatch) -> None:
     _fake_client(monkeypatch, {"gpt-4o-mini-transcribe": "Sheep, wool, bed, creeper, zombie, skeleton."})
     monkeypatch.setattr(stt.get_settings(), "stt_model", "gpt-4o-mini-transcribe")
     assert asyncio.run(stt.transcribe(PCM, 16000, minecraft=True)) == ""
+
+
+@pytest.mark.parametrize(("text", "fixed"), [
+    ("Hey Jofiel, are you there?", "Hey Jophiel, are you there?"),
+    ("Jofy what do you think?", "Jofy what do you think?"),
+    ("Jo-fy-el, wait.", "Jophiel, wait."),
+    ("jo fee el", "Jophiel"),
+    ("Jophie, listen.", "Jofy, listen."),
+    ("Hey Joffy", "Hey Jofy"),
+    ("jofee?", "Jofy?"),
+    ("Joffiel?", "Jophiel?"),
+    ("Jophiel.", "Jophiel."),
+    # Real words stay as they are.
+    ("He was jovial about it.", "He was jovial about it."),
+    ("Joe feels fine.", "Joe feels fine."),
+    ("Josephine called.", "Josephine called."),
+])
+def test_fix_name(text: str, fixed: str) -> None:
+    assert stt.fix_name(text) == fixed
+
+
+def test_prompt_names_her(monkeypatch) -> None:
+    calls = _fake_client(monkeypatch, {"gpt-4o-mini-transcribe": "Jophy, hi."})
+    monkeypatch.setattr(stt.get_settings(), "stt_model", "gpt-4o-mini-transcribe")
+    assert asyncio.run(stt.transcribe(PCM, 16000)) == "Jofy, hi."
+    assert "Jophiel" in calls[0]["prompt"] and "Jofy" in calls[0]["prompt"]
