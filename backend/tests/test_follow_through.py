@@ -488,6 +488,112 @@ def test_a_check_that_died_never_leaves_the_promise_blocked(env, phone):
     assert second.status == "pending" and len(phone.sent) == 2
 
 
+def test_after_a_restart_past_its_check_the_attempt_moves_on_with_the_phone_untouched(env, phone):
+    """Review of #54: nothing on the phone changes and she does nothing; the worker's sweep alone gives a dead check
+    its successor, then ``unresolved`` after the last."""
+    _first_attempt(env, phone)
+    assert follow_through.sweep(force=True) == 0  # a live check is left alone
+
+    def worker_was_down():
+        with env.db() as db:
+            db.execute(update(CoordinatorWork).where(
+                CoordinatorWork.user_id == env.user.id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(coordinator.ACTIVE)).values(
+                status="expired", updated_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+            db.commit()
+
+    worker_was_down()
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 2 and len(checks(env)) == 1
+    worker_was_down()
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved" and "its check ended without a reading" in attempt.settled_reason
+    assert checks(env) == [] and len(phone.sent) == 1
+    assert follow_through.sweep(force=True) == 0  # settled: nothing more
+
+
+def test_the_sweep_runs_on_the_coordinators_heartbeat(monkeypatch):
+    from app.services import coordinator_runtime
+
+    called = []
+    monkeypatch.setattr(follow_through, "sweep", lambda **kw: called.append(kw) or 0)
+    runtime = coordinator_runtime.runtime()
+    monkeypatch.setattr(runtime, "_reap_and_renew", lambda: None)
+    monkeypatch.setattr(coordinator, "expire_due", lambda: 0)
+    monkeypatch.setattr(runtime, "closed", False)
+    try:
+        runtime.tick()
+    except Exception:  # noqa: BLE001 - the rest of the tick needs a database; the sweep came first
+        pass
+    assert called
+
+
+def _follow_ev(env, entry, transition="t"):
+    return SimpleNamespace(wake={"kind": "mind", "input": {"autonomous": True, "wake": "follow_through",
+                                                           "extra": {"item": str(entry.id), "transition": transition}}},
+                           user_id=env.user.id, conversation_id=env.conversation.id, wake_work_id=None, zone=None,
+                           channel="web")
+
+
+def test_completion_and_admission_take_the_item_lock_first(env, phone):
+    """Review of #54: begin locked item -> attempt, finish attempt -> item, so a second wake admitted while the
+    phone answered the first could deadlock and lose the answer. Both now lock the item first."""
+    import threading
+
+    from sqlalchemy import text
+
+    entry = promise(env, "Keep Into You playing", "if Spotify moves on")
+    report(env, media=NEXT_SONG)
+    ev = _follow_ev(env, entry)
+    attempt_id = follow_through.begin(ev, "media_control", {"command": "previous"})
+    assert isinstance(attempt_id, uuid.UUID)
+
+    holder = env.db()
+    holder.execute(select(WorkingItem).where(WorkingItem.id == entry.id).with_for_update())  # a wake mid-admission
+    done = []
+    worker = threading.Thread(target=lambda: done.append(
+        follow_through.finish(ev, attempt_id, "done", "Went back a track")))
+    worker.start()
+    worker.join(timeout=1.0)
+    assert worker.is_alive() and not done  # the phone's answer waits for the item...
+    # ...without holding the attempt: the admitting side can still take it (it would deadlock otherwise).
+    holder.execute(text("SET LOCAL lock_timeout = '500ms'"))
+    holder.execute(select(FollowThroughAttempt).where(FollowThroughAttempt.id == attempt_id).with_for_update())
+    holder.commit()
+    holder.close()
+    worker.join(timeout=10)
+    assert done and "isn't the result" in done[0]
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.result == "Went back a track"
+
+
+def test_overlapping_completion_and_admission_for_one_item_never_lose_the_answer(env, phone):
+    from concurrent.futures import ThreadPoolExecutor
+
+    entry = promise(env, "Keep Into You playing", "if Spotify moves on")
+    report(env, media=NEXT_SONG)
+    for n in range(5):
+        ev = _follow_ev(env, entry, transition=f"t{n}")
+        attempt_id = follow_through.begin(ev, "media_control", {"command": "previous"})
+        assert isinstance(attempt_id, uuid.UUID)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            answered = pool.submit(follow_through.finish, ev, attempt_id, "done", "Went back a track")
+            admitted = pool.submit(follow_through.begin, _follow_ev(env, entry, f"other{n}"), "media_control",
+                                   {"command": "previous"})
+            note, second = answered.result(timeout=20), admitted.result(timeout=20)
+        assert "isn't the result" in note  # recorded, no deadlock
+        assert isinstance(second, str)  # the first is pending: the second wake sends nothing
+        with env.db() as db:  # settle it so the next round starts clean
+            row = db.get(FollowThroughAttempt, attempt_id)
+            row.status, row.settled_at = "achieved", datetime.now(timezone.utc)
+            db.execute(update(CoordinatorWork).where(CoordinatorWork.user_id == env.user.id,
+                                                     CoordinatorWork.status.in_(coordinator.ACTIVE))
+                       .values(status="cancelled"))
+            db.commit()
+
+
 def test_an_unanswered_command_is_checked_not_assumed(env, phone):
     phone.answers.append("unconfirmed")
     _first_attempt(env, phone)

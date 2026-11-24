@@ -194,6 +194,20 @@ def _locked_item(db, user_id: uuid.UUID, item_id: uuid.UUID) -> WorkingItem | No
                      .with_for_update())
 
 
+def _locked(db, attempt_id: uuid.UUID) -> tuple[WorkingItem | None, FollowThroughAttempt | None]:
+    """An attempt and its item, locked in the one order every path uses: the item, then the attempt (``begin``,
+    closing an item, ``finish``, ``after``, ``settle``, the sweep). Never the other way round, so two of them on one
+    item wait for each other instead of deadlocking."""
+    found = db.execute(select(FollowThroughAttempt.user_id, FollowThroughAttempt.item_id)
+                       .where(FollowThroughAttempt.id == attempt_id)).first()
+    if found is None:
+        return None, None
+    entry = _locked_item(db, found.user_id, found.item_id)
+    row = db.scalar(select(FollowThroughAttempt).where(FollowThroughAttempt.id == attempt_id).with_for_update()
+                    .execution_options(populate_existing=True))
+    return entry, row
+
+
 def _wrote_since(db, conversation_id: uuid.UUID | None, at: datetime) -> bool:
     if conversation_id is None:
         return False
@@ -317,8 +331,8 @@ def _check_alive(db, row: FollowThroughAttempt, now: datetime) -> bool:
     for work in wakes:
         if work.status in coordinator.ACTIVE:
             return True
-        if work.status != "completed" or now - work.updated_at > IN_FLIGHT:
-            continue
+        if work.status not in ("completed", "expired") or now - work.updated_at > IN_FLIGHT:
+            continue  # (an expired check is still dispatched, late: in flight while recent)
         output = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.work_id == work.id,
                                                            CoordinatorOutput.phase == "follow_up"))
         if output is None or output.status in ("decided", "dispatched"):
@@ -331,10 +345,9 @@ def finish(ev, attempt_id: uuid.UUID, status: str, text: str) -> str:
     ``status``: the phone action's (done / failed / notified / expired / unconfirmed)."""
     now = _now()
     with SessionLocal() as db:
-        row = db.get(FollowThroughAttempt, attempt_id, with_for_update=True)
+        entry, row = _locked(db, attempt_id)
         if row is None:
             return ""
-        entry = _locked_item(db, row.user_id, row.item_id)
         row.result = (text or "")[:500]
         ref = f"[{_short(row.id)}]"
         if entry is None or entry.closed_at is not None:
@@ -394,7 +407,7 @@ def after(ev) -> None:
         return
     try:
         with SessionLocal() as db:
-            row = db.get(FollowThroughAttempt, follow.check, with_for_update=True)
+            _, row = _locked(db, follow.check)
             if row is None or row.status != "pending":
                 return
             if _schedule_check(db, row, ev) is None:
@@ -405,6 +418,57 @@ def after(ev) -> None:
             _log({"op": "after_check", "attempt": str(row.id), "status": row.status, "checks": row.checks})
     except Exception:  # noqa: BLE001
         log.exception("follow_through: after a check")
+
+
+SWEEP_SECONDS = 15.0
+_last_sweep = 0.0
+
+
+def sweep(*, force: bool = False, limit: int = 50) -> int:
+    """From the coordinator's heartbeat: pending attempts whose check died (dropped, expired, never ran, a worker
+    down past it) get their next check, or ``unresolved`` after the last, on their own: no new observation or
+    device action is needed to move them. Returns how many it moved. Never raises."""
+    import time
+
+    global _last_sweep
+    if not force and time.monotonic() - _last_sweep < SWEEP_SECONDS:
+        return 0
+    _last_sweep = time.monotonic()
+    moved = 0
+    try:
+        with SessionLocal() as db:
+            ids = list(db.scalars(select(FollowThroughAttempt.id).where(FollowThroughAttempt.status == "pending")
+                                  .order_by(FollowThroughAttempt.issued_at).limit(limit)))
+        for attempt_id in ids:
+            moved += _reconcile(attempt_id)
+    except Exception:  # noqa: BLE001
+        log.exception("follow_through: sweep")
+    return moved
+
+
+def _reconcile(attempt_id: uuid.UUID) -> int:
+    from types import SimpleNamespace
+
+    now = _now()
+    with SessionLocal() as db:
+        entry, row = _locked(db, attempt_id)
+        if row is None or row.status != "pending" or _check_alive(db, row, now):
+            return 0
+        if entry is None or entry.closed_at is not None:
+            row.status, row.settled_at, row.settled_reason = "cancelled", now, "the item closed meanwhile"
+        else:
+            last = db.scalar(select(CoordinatorWork).where(
+                CoordinatorWork.user_id == row.user_id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.input["follow_check"].astext == str(row.id)).order_by(CoordinatorWork.created_at.desc())
+                .limit(1))
+            where = SimpleNamespace(zone=(last.input or {}).get("zone") if last else None,
+                                    channel=((last.input or {}).get("channel") if last else None) or "web")
+            if _schedule_check(db, row, where) is None:
+                row.status, row.settled_at = "unresolved", now
+                row.settled_reason = "its check ended without a reading"
+        db.commit()
+        _log({"op": "reconciled", "attempt": str(row.id), "status": row.status, "checks": row.checks})
+        return 1
 
 
 def fresh(user_id: uuid.UUID, row: FollowThroughAttempt) -> tuple[bool, str]:
@@ -447,6 +511,7 @@ def settle(ev, attempt: str, outcome: str, evidence: str) -> str:
         return "Not done: say what shows it."
     key = (attempt or "").strip("[] ").lower()
     with SessionLocal() as db:
+        _locked_item(db, ev.user_id, follow.item_id)  # the item first, as everywhere
         rows = [a for a in db.scalars(select(FollowThroughAttempt).where(
             FollowThroughAttempt.user_id == ev.user_id, FollowThroughAttempt.item_id == follow.item_id,
             FollowThroughAttempt.status.in_(OPEN)).with_for_update()) if str(a.id).startswith(key)]

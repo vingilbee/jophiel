@@ -221,8 +221,10 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
   (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt`: achieved / not achieved only on such a fresh report,
   unresolved any time. A check that ends with it still pending schedules the next one; after the last it's
   `unresolved`, never success. A check keeps its attempt's identity when moved (`coordinator.FOLLOW_KEYS`); one that
-  died (dropped, expired, never ran) is reconciled by the next try: the next check, or `unresolved` after the last,
-  so a promise is never left blocked behind it.
+  died (dropped, expired, never ran, a worker down past it) is reconciled on its own by the coordinator's heartbeat
+  (`follow_through.sweep`, every 15 s) and by the next try: the next check, or `unresolved` after the last, so a
+  promise is never left blocked behind it. Every path locks the item, then the attempt (no deadlock between a new
+  wake's admission and the phone's answer to the last command).
 - **Cancelled**: the item closing (any status change through `memory_manager._set_status`) cancels its pending
   attempts and their checks; `begin` rereads the item under lock before any send.
 - **Records**: `mind.jsonl` (the thought's `act`, `item`, `act_outcome`), the coordinator log (`follow_through_seen`,
