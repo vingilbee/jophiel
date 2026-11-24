@@ -250,13 +250,21 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         direct_tools.extend(build_desktop_tools(context.user_id, context.game_event, spoke_at=context.spoke_at,
                                                 planner=context.game_planner,
                                                 since=context.game_moment, message_id=context.source_message_id,
-                                                idle=context.game_idle))
+                                                idle=context.game_idle,
+                                                own_thought=getattr(context.mind, "reason", None)
+                                                in ("thought", "proposal")))
     # Her own desktop's hands (general desktop control): same exception, and she looks after every few
     # actions, so an extra model hop per action would make it crawl. Replies only: a background turn
     # never starts using the desktop on its own.
     hook = None
     reasoning = None
     base_model = model  # specialists keep the turn's usual model (their calls run without reasoning)
+    # In a game (a session on, or a game event woke her): her mind there thinks before it answers. An explicit
+    # override wins; her desktop's own model below wins over this.
+    if (context.game is not None and not context.game_idle) or context.game_event is not None:
+        if not context.model_override and settings.game_mind_model:
+            model = settings.game_mind_model
+            reasoning = settings.game_mind_reasoning_effort
     if context.desktop is not None and context.desktop_usable and context.game_event is None and context.nudge is None:
         direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
                                                         conversation_id=context.conversation_id,
@@ -327,12 +335,12 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if not server_config or not specs:
         # No specialists, but possibly still the eye. `get_agent` is the cached
         # tool-less agent and can only serve the genuinely tool-less case.
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools or reasoning else get_agent(model)), []
         return
 
     subagent_tools = await _load_subagent_tools(server_config, specs, base_model, queue=queue)
     if not subagent_tools:
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools or reasoning else get_agent(model)), []
         return
 
     # Keep specs in step with the tools that actually built, so the prompt
@@ -405,10 +413,12 @@ async def stream_chat(
             await queue.put(None)  # sentinel
 
     task = asyncio.create_task(_drain_orchestrator())
+    finished = False
     try:
         while True:
             item = await queue.get()
             if item is None:
+                finished = True
                 break
             if isinstance(item, tuple):
                 _, text = item
@@ -422,7 +432,16 @@ async def stream_chat(
                 elif kind == "subagent_end":
                     yield {"type": "subagent_end", "agent": item["agent"]}
     finally:
-        await task  
+        # Closed before the run ended (the turn was stopped): stop the run itself, so no further model call or
+        # tool goes out for a reply nobody will hear. Seen live 2026-11-24: a turn stopped by the user's next
+        # words ran 8 more seconds, still set a game goal and resumed the game, and held up the next turn.
+        if not finished and not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise  
 
 async def complete_chat(
     *, messages: Sequence[ChatTurn], context: AgentRuntimeContext

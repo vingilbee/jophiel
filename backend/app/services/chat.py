@@ -410,6 +410,8 @@ def enqueue_job(db: Session, *, user_id: uuid.UUID, conversation: Conversation,
     job = ChatJob(turn_id=turn_id, user_id=user_id, conversation_id=conversation.id,
                   user_message_id=user_message_id, payload=payload, status="pending")
     db.add(job)
+    if user_message_id is not None:
+        stop_own_wakes(db, conversation.id)
     if not commit:
         db.flush()
         return job
@@ -491,6 +493,33 @@ def claim_next_job(db: Session, *, lease_seconds: int) -> ChatJob | None:
     if newly_seen:
         announce_seen(job.user_id, job.user_message_id, job.conversation_id)
     return job
+
+
+def stop_own_wakes(db: Session, conversation_id: uuid.UUID) -> int:
+    """A user message arrived: a wake her background mind raised on its own (a thought, a proposal) that is being
+    evaluated in this conversation stops, so the message is answered next instead of after it. Seen live
+    2026-11-24 in a game: "follow me" waited 11 s and another message 14 s behind thought wakes. A wake she
+    scheduled, a result she waits for, or a promise's follow-through runs on. Returns how many were stopped."""
+    from app.db.models import CoordinatorWork
+    from app.workers import chat as chat_worker
+
+    running = db.scalars(select(ChatJob).where(
+        ChatJob.conversation_id == conversation_id, ChatJob.status == "processing",
+        ChatJob.user_message_id.is_(None), ChatJob.payload["phase"].astext == "follow_up")).all()
+    stopped = 0
+    for job in running:
+        try:
+            work = db.get(CoordinatorWork, uuid.UUID(job.payload.get("work_id", "")))
+        except ValueError:
+            continue
+        if work is None or not (work.input or {}).get("autonomous"):
+            continue
+        from app.services import coordinator
+        if coordinator.awaiting(db, work):
+            continue
+        chat_worker.request_cancel(job.turn_id)
+        stopped += 1
+    return stopped
 
 
 def mark_seen(db: Session, message_id: uuid.UUID | None, at: datetime) -> bool:

@@ -418,7 +418,9 @@ async def _generate(job: ChatJob) -> None:
     first_subagent = True
     # A wake has no new user message: a closing internal trigger (never persisted) stands in for one.
     messages = [*history, {"role": "user", "content": prompts.WAKE_TRIGGER}] if follow_up else history
-    events = stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage))
+    # Stopped while her context was put together (a barge-in during it): no model run, and none of its tools.
+    events = (_no_events() if _cancelled(turn_id)
+              else stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage)))
     try:
         while True:
             # Wait for the model only while the turn isn't stopped: a tool call
@@ -657,6 +659,11 @@ def _phone_line(user_id: uuid.UUID) -> str | None:
 
 async def _none() -> None:
     return None
+
+
+async def _no_events():
+    return
+    yield  # an async generator with nothing in it
 
 
 def _personality() -> str | None:

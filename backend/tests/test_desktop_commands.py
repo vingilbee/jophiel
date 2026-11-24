@@ -149,7 +149,7 @@ def test_observation_accepts_her_desktop_tools(tool):
 
 
 @pytest.mark.parametrize("desktop, override, expected", [
-    ("Your desktop ...", None, ("gpt-6.2-sol", "low")),  # her mind on her desktop: a reasoning model
+    ("Your desktop ...", None, ("gpt-6-luna", "low")),  # her mind on her desktop: luna, thinking low
     (None, None, (None, None)),  # an ordinary turn stays on the quick model, no reasoning
     ("Your desktop ...", "gpt-4o-mini", ("gpt-4o-mini", "low")),  # an explicit override (a nudge) wins
 ])
@@ -164,6 +164,34 @@ def test_her_desktop_turns_run_on_a_reasoning_model(monkeypatch, desktop, overri
     monkeypatch.setattr(chat, "get_agent", lambda model=None: built.append((model, None)) or "agent")
     context = AgentRuntimeContext(user_id=uuid.uuid4(), desktop=desktop, desktop_usable=True,
                                   model_override=override, memory_tools=False)
+
+    async def run():
+        async with chat._orchestrator_for(context) as (agent_, specs):
+            return agent_
+
+    asyncio.run(run())
+    assert built[-1] == expected
+
+
+@pytest.mark.parametrize("game, idle, event, override, expected", [
+    ("You are playing Minecraft ...", False, None, None, ("gpt-6-luna", "low")),  # in a game: luna, thinking low
+    ("You are not playing right now.", True, None, None, (None, None)),  # a paired game, not playing: quick model
+    (None, False, "event", None, ("gpt-6-luna", "low")),  # a game event woke her
+    ("You are playing Minecraft ...", False, None, "gpt-4o-mini", ("gpt-4o-mini", None)),  # an override wins
+])
+def test_her_game_turns_run_on_a_reasoning_model(monkeypatch, game, idle, event, override, expected):
+    import asyncio
+    from app.ai import chat
+    from app.ai.context import GameEvent
+
+    built = []
+    monkeypatch.setattr(chat, "build_agent", lambda tools, model=None, pre_model_hook=None, reasoning=None:
+                        built.append((model, reasoning)) or "agent")
+    monkeypatch.setattr(chat, "build_desktop_tools", lambda *a, **k: [])
+    monkeypatch.setattr(chat, "_resolve_connections", lambda context: {})
+    monkeypatch.setattr(chat, "get_agent", lambda model=None: built.append((model, None)) or "agent")
+    context = AgentRuntimeContext(user_id=uuid.uuid4(), game=game, game_idle=idle, model_override=override,
+                                  game_event=GameEvent.__new__(GameEvent) if event else None, memory_tools=False)
 
     async def run():
         async with chat._orchestrator_for(context) as (agent_, specs):

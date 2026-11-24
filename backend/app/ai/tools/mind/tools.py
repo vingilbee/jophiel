@@ -225,10 +225,11 @@ def build_mind_tools(ev) -> list[BaseTool]:
         @tool
         async def settle_attempt(attempt: str, outcome: Literal["achieved", "not_achieved", "unresolved"],
                                  evidence: str) -> str:
-            """Say how an attempt of yours for this promise turned out (its id in brackets under FOLLOWING THROUGH).
-            achieved / not_achieved: only when a fresh report after the attempt shows it (the device taking the
-            command is not the result); unresolved: when you can't tell. The promise itself stays as it is.
-            evidence: what the fresh report shows, in a few words."""
+            """Say how an attempt of yours for this promise turned out (its id in brackets under FOLLOWING THROUGH),
+            only once a fresh report after the attempt is there (the device taking the command is not the result):
+            achieved / not_achieved when it shows that; unresolved when it can't tell. No fresh report yet: don't
+            settle, leave it pending; its check wakes you when there's something to read. The promise itself stays
+            as it is. evidence: what the fresh report shows, in a few words."""
             return await asyncio.to_thread(follow_through.settle, ev, attempt, outcome, evidence)
 
         tools.append(settle_attempt)

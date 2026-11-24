@@ -473,3 +473,58 @@ def test_a_phone_between_ticks_keeps_what_the_next_tick_compares_against(redis, 
     clock[0] += 2 * 3600
     mind.run_once()  # the phone went silent past the keep window: now it's gone
     assert mind_phone.activity_of(USER) not in mind._minds
+
+
+# --------------------------------------------------------------------------- #
+# Where in the track: beside what's playing, never a change of it
+# --------------------------------------------------------------------------- #
+
+SONG = {"app": "Spotify", "title": "bye X", "artist": "eyeofsonder", "state": "playing"}
+
+
+def test_where_in_the_track_moving_is_not_a_change_of_what_plays(redis):
+    assert phone_state.report(USER, {"media": {**SONG, "position_ms": 40_000, "duration_ms": 165_000}},
+                              now=NOW) == ["media"]
+    # The same track, further in: nothing changed, it began when it began.
+    assert phone_state.report(USER, {"media": {**SONG, "position_ms": 70_000, "duration_ms": 165_000}},
+                              now=NOW + 30) == []
+    state = phone_state.read(USER, now=NOW + 30)
+    assert state.get("media") == SONG and state.since("media") == NOW  # the position isn't part of what plays
+    assert state.media_position == {"position_ms": 70_000, "duration_ms": 165_000, "at": NOW + 30}
+    assert phone_state.now_playing(state.get("media"), state.media_position, NOW + 35) == (
+        'playing "bye X" by eyeofsonder on Spotify, at 1:10 of 2:45, reported 5 s ago')
+    assert "at 1:10 of 2:45" in "\n".join(phone_state.lines(state, NOW + 35))
+
+
+def test_an_older_position_never_wins_and_a_report_without_one_clears_it(redis):
+    phone_state.report(USER, {"media": {**SONG, "position_ms": 1_000}}, now=NOW)
+    late = datetime.fromtimestamp(NOW - 60, timezone.utc)
+    phone_state.report(USER, {"media": {**SONG, "position_ms": 90_000}}, observed_at=late, now=NOW + 5)
+    assert phone_state.read(USER).media_position["position_ms"] == 1_000
+    phone_state.report(USER, {"media": SONG}, now=NOW + 10)  # a phone that doesn't send it: no position known
+    assert phone_state.read(USER).media_position is None
+    phone_state.report(USER, {"media": {**SONG, "position_ms": 2_000}}, now=NOW + 20)
+    phone_state.report(USER, {"media": None}, now=NOW + 30)  # nothing plays
+    assert phone_state.read(USER).media_position is None
+    phone_state.report(USER, {"battery": 50}, now=NOW + 40)  # no media in the report: the position is untouched
+    assert phone_state.read(USER).media_position is None
+
+
+def test_the_report_schema_takes_where_in_the_track():
+    fields = PhoneStateReport(media={**SONG, "position_ms": 3_000, "duration_ms": 165_000}).fields()
+    assert fields["media"]["position_ms"] == 3_000 and fields["media"]["duration_ms"] == 165_000
+    assert "position_ms" not in PhoneStateReport(media=SONG).fields()["media"]  # older phones: unchanged
+    with pytest.raises(ValidationError):
+        PhoneStateReport(media={**SONG, "position_ms": -1})
+
+
+def test_a_follow_through_reading_shows_where_the_track_is_only_from_a_report_after_the_attempt(redis):
+    from app.services import follow_through
+
+    phone_state.report(USER, {"media": {**SONG, "position_ms": 4_000}}, now=NOW)
+    attempt = SimpleNamespace(observe="media", status="pending",
+                              issued_at=datetime.fromtimestamp(NOW + 5, timezone.utc))
+    assert follow_through.fresh(USER, attempt) == (False, "no report of media from the phone since the attempt")
+    phone_state.report(USER, {"media": {**SONG, "position_ms": 1_000}}, now=NOW + 7)  # a restart, not a new song
+    seen, shown = follow_through.fresh(USER, attempt)
+    assert seen and 'playing "bye X"' in shown and "at 0:01" in shown

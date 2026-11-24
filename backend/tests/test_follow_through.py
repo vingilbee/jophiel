@@ -50,7 +50,7 @@ def phone(env, monkeypatch, tmp_path):
     def act(user_id, conversation_id, action, args, *, target=None, view=None, asked_by="user", **_):
         sent.append({"action": action, "args": args, "asked_by": asked_by, "at": time.time()})
         status = answers.pop(0) if answers else "done"
-        text = {"done": "Went back a track", "unconfirmed": "Media control sent, no answer yet."}.get(
+        text = {"done": "Pressed previous", "unconfirmed": "Media control sent, no answer yet."}.get(
             status, "Couldn't control the music")
         return phone_actions.Outcome(status, uuid.uuid4(), text)
 
@@ -201,7 +201,7 @@ def test_spotify_advancing_wakes_her_once_she_corrects_and_a_fresh_report_settle
         assert "Spotify moved on: switch back to Into You" in context.wake
         assert {"phone_action", "settle_attempt"} <= context.tools
         first = await use("phone_action", action="media_control", command="previous")
-        assert "Went back a track" in first and "isn't the result" in first and "A check wakes you" in first
+        assert "Pressed previous" in first and "isn't the result" in first and "A check wakes you" in first
         again = await use("phone_action", action="media_control", command="previous")
         assert again.startswith("Not done: your attempt") and "still waiting for its result" in again
         [attempt] = attempts(env)
@@ -293,6 +293,13 @@ def _first_attempt(env, phone):
     return entry
 
 
+def _age_attempts(env, by: timedelta) -> None:
+    with env.db() as db:
+        db.execute(update(FollowThroughAttempt).where(FollowThroughAttempt.user_id == env.user.id)
+                   .values(issued_at=FollowThroughAttempt.issued_at - by))
+        db.commit()
+
+
 def test_no_fresh_report_stays_unresolved_after_bounded_checks(env, phone):
     _first_attempt(env, phone)
     for n in range(len(follow_through.CHECK_DELAYS)):
@@ -300,11 +307,12 @@ def test_no_fresh_report_stays_unresolved_after_bounded_checks(env, phone):
 
         async def look(use, context, last=last):
             assert "no report of media from the phone since the attempt" in context.wake
-            assert ("this is its last check" in context.wake) is last
+            assert ("its last timed check" in context.wake) is last
             [attempt] = attempts(env)
-            refused = await use("settle_attempt", attempt=str(attempt.id)[:8], outcome="achieved",
-                                evidence="the phone said done")
-            assert refused.startswith("Not settled")
+            for outcome in ("achieved", "unresolved"):  # nothing to judge yet, either way
+                refused = await use("settle_attempt", attempt=str(attempt.id)[:8], outcome=outcome,
+                                    evidence="the phone said done")
+                assert refused.startswith("Not settled")
             await use("stay_silent", reason="still no report")
             return ""
 
@@ -313,9 +321,101 @@ def test_no_fresh_report_stays_unresolved_after_bounded_checks(env, phone):
         drain(env)
         assert run_job(env)
     [attempt] = attempts(env)
-    assert attempt.status == "unresolved" and "no fresh report" in attempt.settled_reason
-    assert attempt.checks == len(follow_through.CHECK_DELAYS) and checks(env) == []  # no endless checking
-    assert len(phone.sent) == 1
+    # Its timed checks are used up: it waits for the phone's next report, no check scheduled meanwhile.
+    assert attempt.status == "pending" and attempt.checks == len(follow_through.CHECK_DELAYS) and checks(env) == []
+    assert follow_through.sweep(force=True) == 0  # no report yet: nothing moves
+    _age_attempts(env, follow_through.AWAIT_READING)
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved" and "no report of media from the phone within" in attempt.settled_reason
+    assert checks(env) == [] and len(phone.sent) == 1  # no endless checking
+
+
+def test_settling_unresolved_before_its_check_is_refused_and_the_check_still_reads_the_result(env, phone):
+    """The 05:27 case: she pressed, then marked it unresolved in the same wake, which cancelled its check. Now that
+    is refused, and the check that reads the next report still wakes her."""
+    entry, source, scope, moment = spotify_moves_on(env, phone)
+    think(scope, moment, source, Thinker("Switch it back.", act="switch back to Into You", item=ref(entry)))
+
+    async def press_and_give_up(use, context):
+        await use("phone_action", action="media_control", command="previous")
+        [attempt] = attempts(env)
+        refused = await use("settle_attempt", attempt=str(attempt.id)[:8], outcome="unresolved",
+                            evidence="no report yet")
+        assert refused.startswith("Not settled") and "Leave it pending" in refused
+        await use("stay_silent", reason="waiting")
+        return ""
+
+    env.scripts.append(press_and_give_up)
+    drain(env)
+    assert run_job(env)
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and len(checks(env)) == 1  # its check is still there
+    report(env, media=INTO_YOU)
+    _settle_by_check(env, outcome="achieved")
+    [attempt] = attempts(env)
+    assert attempt.status == "achieved"
+
+
+def test_a_report_after_the_timed_checks_wakes_her_once_more(env, phone):
+    """The phone reported nothing within the timed checks (it reports from the background every few minutes): the
+    report that comes later wakes her once, and she can judge it; a second one doesn't wake her again."""
+    _first_attempt(env, phone)
+    for _ in follow_through.CHECK_DELAYS:
+        async def look(use, context):
+            await use("stay_silent", reason="still no report")
+            return ""
+
+        env.scripts.append(look)
+        due_now(env)
+        drain(env)
+        assert run_job(env)
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and checks(env) == []
+    report(env, media=NEXT_SONG)  # the restart: still the song it moved to
+    assert follow_through.sweep(force=True) == 1
+    [reading] = checks(env)
+    assert "A report came for your attempt" in reading.input["about"]
+    assert follow_through.sweep(force=True) == 0  # one reading check, not one per sweep
+
+    async def judge(use, context):
+        assert "the phone reported media" in context.wake and "Yume To Hazakura" in context.wake
+        assert "this is its last check" in context.wake
+        [a] = attempts(env)
+        settled = await use("settle_attempt", attempt=str(a.id)[:8], outcome="not_achieved",
+                            evidence="still the next song")
+        assert settled.startswith("Settled: not achieved")
+        await use("stay_silent", reason="settled")
+        return ""
+
+    env.scripts.append(judge)
+    due_now(env)
+    drain(env)
+    assert run_job(env)
+    [attempt] = attempts(env)
+    assert attempt.status == "failed" and checks(env) == []
+    report(env, media=OTHER_SONG)
+    assert follow_through.sweep(force=True) == 0  # settled: a later report wakes nothing from it
+
+
+def test_a_fresh_report_left_open_on_the_last_check_is_unresolved(env, phone):
+    """She read a fresh report on the reading check and left it pending: nothing later reads more, so it's
+    unresolved, never a further chain of checks."""
+    _first_attempt(env, phone)
+    report(env, media=NEXT_SONG)
+    for _ in range(len(follow_through.CHECK_DELAYS)):
+        async def leave(use, context):
+            assert "the phone reported media" in context.wake
+            await use("stay_silent", reason="can't tell")
+            return ""
+
+        env.scripts.append(leave)
+        due_now(env)
+        drain(env)
+        assert run_job(env)
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved" and "left open" in attempt.settled_reason
+    assert checks(env) == []
 
 
 def test_the_wrong_track_is_not_achieved_and_retries_stop_at_the_bound(env, phone):
@@ -488,7 +588,11 @@ def test_a_check_that_died_never_leaves_the_promise_blocked(env, phone):
             env.scripts.pop()
             break
     [attempt] = attempts(env)
-    assert attempt.status == "unresolved"  # the late check ended it: never left blocked
+    assert attempt.status == "pending" and checks(env) == []  # out of timed checks: waiting for a report
+    _age_attempts(env, follow_through.AWAIT_READING)  # none came
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved"  # never left blocked
 
     async def again(use, context):
         result = await use("phone_action", action="media_control", command="previous")
@@ -520,9 +624,13 @@ def test_after_a_restart_past_its_check_the_attempt_moves_on_with_the_phone_unto
     [attempt] = attempts(env)
     assert attempt.status == "pending" and attempt.checks == 2 and len(checks(env)) == 1
     worker_was_down()
+    assert follow_through.sweep(force=True) == 0  # out of timed checks: it waits for the phone's report
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and checks(env) == []
+    _age_attempts(env, follow_through.AWAIT_READING)
     assert follow_through.sweep(force=True) == 1
     [attempt] = attempts(env)
-    assert attempt.status == "unresolved" and "its check ended without a reading" in attempt.settled_reason
+    assert attempt.status == "unresolved" and "no report of media from the phone within" in attempt.settled_reason
     assert checks(env) == [] and len(phone.sent) == 1
     assert follow_through.sweep(force=True) == 0  # settled: nothing more
 
@@ -610,7 +718,7 @@ def test_completion_and_admission_take_the_item_lock_first(env, phone):
     holder.execute(select(WorkingItem).where(WorkingItem.id == entry.id).with_for_update())  # a wake mid-admission
     done = []
     worker = threading.Thread(target=lambda: done.append(
-        follow_through.finish(ev, attempt_id, "done", "Went back a track")))
+        follow_through.finish(ev, attempt_id, "done", "Pressed previous")))
     worker.start()
     worker.join(timeout=1.0)
     assert worker.is_alive() and not done  # the phone's answer waits for the item...
@@ -622,7 +730,7 @@ def test_completion_and_admission_take_the_item_lock_first(env, phone):
     worker.join(timeout=10)
     assert done and "isn't the result" in done[0]
     [attempt] = attempts(env)
-    assert attempt.status == "pending" and attempt.result == "Went back a track"
+    assert attempt.status == "pending" and attempt.result == "Pressed previous"
 
 
 def test_overlapping_completion_and_admission_for_one_item_never_lose_the_answer(env, phone):
@@ -635,7 +743,7 @@ def test_overlapping_completion_and_admission_for_one_item_never_lose_the_answer
         attempt_id = follow_through.begin(ev, "media_control", {"command": "previous"})
         assert isinstance(attempt_id, uuid.UUID)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            answered = pool.submit(follow_through.finish, ev, attempt_id, "done", "Went back a track")
+            answered = pool.submit(follow_through.finish, ev, attempt_id, "done", "Pressed previous")
             admitted = pool.submit(follow_through.begin, _follow_ev(env, entry, f"other{n}"), "media_control",
                                    {"command": "previous"})
             note, second = answered.result(timeout=20), admitted.result(timeout=20)
@@ -912,7 +1020,7 @@ def test_a_late_answer_never_starts_a_second_chain_of_checks(env, phone):
             issued_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
         db.commit()
     assert follow_through.sweep(force=True) == 1  # interrupted: pending with one check
-    note = follow_through.finish(ev, attempt_id, "done", "Went back a track")
+    note = follow_through.finish(ev, attempt_id, "done", "Pressed previous")
     assert "answered late" in note
     [attempt] = attempts(env)
     assert attempt.status == "pending" and attempt.checks == 1 and len(checks(env)) == 1

@@ -61,6 +61,7 @@ MAX_CHECK_GAP = timedelta(minutes=10)
 # What the memory view shows of the focused context, and of the rest.
 VIEW_GOALS, VIEW_CHILDREN, VIEW_ITEMS, VIEW_EVENTS, VIEW_OTHER, VIEW_PAST = 5, 5, 5, 5, 3, 2
 VIEW_CHARS = 1200
+VIEW_HIDDEN_REFS = 5  # promises left out of the view, still named (id, start of its text) so she can reach them
 # Short labels for game contexts, by the session's profile.
 GAME_LABELS = {"minecraft_pack": "Minecraft", "minecraft_java": "Minecraft"}
 
@@ -343,6 +344,16 @@ def set_goal(db: Session, user_id: uuid.UUID, text_: str, *, owner: str = "user"
     """A goal (or a sub-goal). Another goal already open is never closed by this: both stand."""
     return add_item(db, user_id, kind="goal", text_=text_, owner=owner, epistemic=epistemic, context_id=context_id,
                     parent_id=parent_id, done_when=done_when, source=source)
+
+
+def open_promises(db: Session, user_id: uuid.UUID, *, owner: str = "columbina", excluding: uuid.UUID | None = None,
+                  limit: int = VIEW_HIDDEN_REFS) -> list[WorkingItem]:
+    """Open promises by one owner across every context, newest first."""
+    query = select(WorkingItem).where(WorkingItem.user_id == user_id, WorkingItem.kind == "commitment",
+                                      WorkingItem.owner == owner, WorkingItem.closed_at.is_(None))
+    if excluding is not None:
+        query = query.where(WorkingItem.id != excluding)
+    return list(db.scalars(query.order_by(WorkingItem.created_at.desc()).limit(limit)))
 
 
 def note_commitment(db: Session, user_id: uuid.UUID, text_: str, *, owner: str = "columbina",
@@ -1151,6 +1162,21 @@ def _origin_known(db: Session, ids: list[uuid.UUID]) -> set[uuid.UUID]:
                                                                MemoryEvidence.role == "origin")))
 
 
+def _snippet(text: str, limit: int = 40) -> str:
+    words = " ".join((text or "").split())
+    return words if len(words) <= limit else words[:limit].rstrip() + "…"
+
+
+def _promise_order(entry: WorkingItem) -> tuple:
+    """Hers with a time still live (not overdue and flagged) by when it's owed; her others, newest first; theirs,
+    newest first."""
+    if entry.owner != "columbina":
+        return (2, -entry.created_at.timestamp())
+    if entry.due_at is not None and entry.status != "needs_review":
+        return (0, entry.due_at.timestamp())
+    return (1, -entry.created_at.timestamp())
+
+
 def _item_line(entry: WorkingItem, now: datetime, user_name: str, sourced: set[uuid.UUID], plans: dict,
                held: dict[uuid.UUID, str] | None = None) -> str:
     tag = f"[{ref(entry)}]"
@@ -1266,11 +1292,16 @@ def view(db: Session, user_id: uuid.UUID, *, user_name: str | None = None, now: 
         goal_lines.append("  " + _item_line(goal, now, name, sourced, plans, held))
         goal_lines += ["    - " + _item_line(c, now, name, sourced, plans, held)
                        for c in children.get(goal.id, [])[:VIEW_CHILDREN]]
-    # Promises she owes first (soonest owed first), then the rest; questions newest first: the most recent ones
-    # are the ones a turn can still follow up, and an old backlog never hides them.
-    owed = sorted((e for e in mine if e.kind in ("commitment", "plan")),
-                  key=lambda e: (e.owner != "columbina", e.due_at is None, e.due_at or e.created_at))
-    commitments = ["  " + _item_line(e, now, name, sourced, plans, held) for e in owed][:VIEW_ITEMS]
+    # Promises she owes with a time still ahead of its review first (soonest owed first), then her others newest
+    # first, then theirs; questions newest first: the most recent ones are the ones a turn can still follow up or
+    # let go of, and an old backlog never hides them. Any left out are still named by id, so none is out of reach.
+    owed = sorted((e for e in mine if e.kind in ("commitment", "plan")), key=_promise_order)
+    commitments = ["  " + _item_line(e, now, name, sourced, plans, held) for e in owed[:VIEW_ITEMS]]
+    if len(owed) > VIEW_ITEMS:
+        rest = owed[VIEW_ITEMS:]
+        commitments.append(f"  {len(rest)} more open promise{'s' if len(rest) > 1 else ''} (older): "
+                           + "; ".join(f'[{ref(e)}] "{_snippet(e.text)}"' for e in rest[:VIEW_HIDDEN_REFS])
+                           + ("; …" if len(rest) > VIEW_HIDDEN_REFS else ""))
     asked = sorted((e for e in mine if e.kind == "question"), key=lambda e: e.updated_at, reverse=True)
     questions = ["  " + _item_line(e, now, name, sourced, plans, held) for e in asked][:VIEW_ITEMS]
     intentions = ["  " + _item_line(e, now, name, sourced, plans, held) for e in mine

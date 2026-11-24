@@ -753,6 +753,8 @@ class DriverView:
     commentary_mode: str = "occasional"
     controller_version: str | None = None
     exploring: bool = False  # stage H3: no cap on goals she picks herself
+    # A goal from the user is waiting for her planner (or being planned): the plan she has is the old goal's.
+    goal_planning: bool = False
 
     @property
     def playing(self) -> bool:
@@ -794,13 +796,14 @@ def driver_view(db: Session, session_id: uuid.UUID) -> DriverView | None:
     if row is None:
         return None
     session, env = row
-    from app.services import game_challenges
+    from app.services import game_challenges, game_planning
 
     return DriverView(
         session.id, session.environment_id, session.state, session.control_owner, session.execution_generation,
         session.plan, session.plan_revision, session.profile_id, session.current_step_id,
         env.capture_gate, env.capture_epoch, session.autonomy, session.commentary_mode, env.controller_version,
         exploring=game_challenges.exploring(session),
+        goal_planning=game_planning.goal_waiting(db, session.id),
     )
 
 

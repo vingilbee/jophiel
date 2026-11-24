@@ -89,6 +89,7 @@ def pack(monkeypatch, alice):
     monkeypatch.setattr(game_pack, "get_settings", lambda: settings)
     monkeypatch.setattr(desktop_game, "get_settings", lambda: settings)
     monkeypatch.setattr(desktop_game, "_manual_cache", {"at": 0.0, "lines": []})
+    monkeypatch.setattr(game_pack, "_out_since", None)
     return fake
 
 
@@ -121,7 +122,8 @@ def test_leaving_the_world_disconnects_and_nothing_resumes_by_itself(db, alice, 
     desktop_game.start(db, alice.id, goal="Explore")
     game_pack.sync(db, pack)
     pack.spawned = False
-    game_pack.sync(db, pack)
+    game_pack.sync(db, pack, now=100.0)
+    game_pack.sync(db, pack, now=100.0 + game_pack.OFFLINE_GRACE_SECONDS)
     env = game_pack.ensure_environment(db, alice.id)
     session = _session(db, alice.id, env.id)
     assert (env.status, session.state, session.reason_code) == ("offline", "disconnected", "pack_offline")
@@ -163,9 +165,27 @@ def test_pack_unreachable_counts_as_offline(db, alice, pack):
     desktop_game.start(db, alice.id, goal="Explore")
     game_pack.sync(db, pack)
     pack.reachable = False
-    game_pack.sync(db, pack)
+    game_pack.sync(db, pack, now=100.0)
+    game_pack.sync(db, pack, now=100.0 + game_pack.OFFLINE_GRACE_SECONDS)
     env = game_pack.ensure_environment(db, alice.id)
     assert env.status == "offline"
+
+
+def test_one_missed_health_check_does_not_disconnect(db, alice, pack):
+    """Seen live 2026-11-24: one slow /health disconnected a session whose player never left the server."""
+    desktop_game.start(db, alice.id, goal="Make a bed")
+    game_pack.sync(db, pack, now=100.0)
+    pack.reachable = False
+    game_pack.sync(db, pack, now=101.0)
+    game_pack.sync(db, pack, now=102.0)
+    pack.reachable = True
+    game_pack.sync(db, pack, now=103.0)
+    pack.reachable = False
+    game_pack.sync(db, pack, now=104.0)
+    game_pack.sync(db, pack, now=104.0 + game_pack.OFFLINE_GRACE_SECONDS - 1)
+    env = game_pack.ensure_environment(db, alice.id)
+    session = _session(db, alice.id, env.id)
+    assert (env.status, session.state) == ("online", "running")
 
 
 def test_summary_describes_her_own_player_and_what_her_hands_do(db, alice, pack):

@@ -262,8 +262,10 @@ def _done_text(action: str, view: dict, data: dict | None) -> str:
     """What happened, as the chat line says it (replies with their full text)."""
     data = data or {}
     if action == "media_control":
-        return {"play": "Pressed play", "pause": "Paused the music", "next": "Skipped to the next track",
-                "previous": "Went back a track"}.get(view.get("command"), "Controlled the music")
+        # What was pressed, not what it did: "previous" may restart the track or go back one, and only the phone's
+        # next report shows which.
+        return {"play": "Pressed play", "pause": "Pressed pause", "next": "Pressed next",
+                "previous": "Pressed previous"}.get(view.get("command"), "Controlled the music")
     if action == "set_volume":
         return f"Set media volume to {view.get('level')}%"
     if action == "set_alarm":
