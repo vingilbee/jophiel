@@ -219,6 +219,20 @@ def build_mind_tools(ev) -> list[BaseTool]:
         return tools
     tools += [think_it_over, stop_thinking, come_back_to, drop_come_back]
 
+    from app.services import follow_through
+
+    if follow_through.of(ev) is not None:
+        @tool
+        async def settle_attempt(attempt: str, outcome: Literal["achieved", "not_achieved", "unresolved"],
+                                 evidence: str) -> str:
+            """Say how an attempt of yours for this promise turned out (its id in brackets under FOLLOWING THROUGH).
+            achieved / not_achieved: only when a fresh report after the attempt shows it (the device taking the
+            command is not the result); unresolved: when you can't tell. The promise itself stays as it is.
+            evidence: what the fresh report shows, in a few words."""
+            return await asyncio.to_thread(follow_through.settle, ev, attempt, outcome, evidence)
+
+        tools.append(settle_attempt)
+
     extra = ((ev.wake or {}).get("input") or {}).get("extra") or {}
     if ev.reason == "proposal" and extra.get("trial"):
         options = list(extra.get("options") or [])

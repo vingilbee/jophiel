@@ -3203,6 +3203,43 @@ class CoordinatorOutput(Base):
                                                  onupdate=func.now())
 
 
+class FollowThroughAttempt(Base):
+    """One thing she did to carry out a promise or intention of hers when a change made it due, on a wake that
+    wasn't a message (services/follow_through.py, migration a3f8c1e6d9b4). ``transition``: the observed change
+    that made it due (two observations of one change share it). ``observe``: what shows the result (a phone state
+    field, read fresh after ``issued_at``); None when the action's own answer proves it.
+    ``status``: sending -> pending (the device took it; the result isn't known) -> achieved / failed / unresolved;
+    cancelled when the item closed meanwhile. A command accepted is never the goal reached."""
+
+    __tablename__ = "follow_through_attempts"
+    __table_args__ = (
+        CheckConstraint("status IN ('sending', 'pending', 'achieved', 'failed', 'unresolved', 'cancelled')",
+                        name="ck_follow_through_attempts_status"),
+        Index("ix_follow_through_attempts_item", "user_id", "item_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("working_items.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    transition: Mapped[str] = mapped_column(String(80), nullable=False)
+    wake_work_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    observe: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="sending")
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    check_work_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
 # --------------------------------------------------------------------------- #
 # Learning capture (docs/learning-system/01-capture-and-ownership.md; implementation and settings:
 # docs/learning-system/01-implementation.md). Raw decision captures: what each learner was given and produced,

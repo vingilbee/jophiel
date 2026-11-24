@@ -277,7 +277,8 @@ _REASON_WORDS = {"user_message": "their message", "work_result": "thinking you s
                  "thought": "a thought from your background thinking", "proposal": "a proposal from another part of you",
                  "conflict": "memory noticing a disagreement", "finding": "a security finding",
                  "question": "an open question of yours you hadn't asked",
-                 "due": "something you scheduled coming due"}
+                 "due": "something you scheduled coming due",
+                 "follow_through": "something you promised or meant to do coming due"}
 _DID_WORDS = {"said": "you spoke", "partial": "you spoke, but were stopped part way",
               "silent": "you chose silence; no words were delivered",
               "no_words": "you wrote nothing; no words were delivered",
@@ -430,15 +431,16 @@ def _due(db, ev: Evaluation, work: CoordinatorWork, zone: str | None, now: datet
         out.append("- Nothing they said about urgency or consequences is recorded.")
     out += ["", "COMMITMENT"]
     entry = None
-    if inp.get("item"):
+    item = inp.get("item") or inp.get("follow_item")  # a check on a follow-through attempt is about its item
+    if item:
         try:
-            entry = db.get(WorkingItem, uuid.UUID(inp["item"]))
+            entry = db.get(WorkingItem, uuid.UUID(item))
         except ValueError:
             entry = None
     if entry is not None and entry.user_id == ev.user_id:
         state = entry.status + (f": {entry.status_reason}" if entry.status_reason else "")
         out.append(f"- Your working memory has it as {entry.kind} [{str(entry.id)[:8]}] \"{entry.text}\" ({state}).")
-    elif inp.get("item"):
+    elif item:
         out.append("- The working-memory item it was about can no longer be read.")
     else:
         out.append("- No promise or intention in your working memory tracks it.")
@@ -715,6 +717,8 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
     _safely(lambda: _record(ev, outcome=outcome, reply=reply, assistant_message_id=assistant_message_id,
                             error=error), None)
     _safely(lambda: _keep(ev, outcome=outcome, spoke=spoke, assistant_message_id=assistant_message_id), None)
+    from app.services import follow_through
+    follow_through.after(ev)  # a check that left its attempt pending: the next check, or unresolved
     try:
         turn = ev.recall_turn
         record = {

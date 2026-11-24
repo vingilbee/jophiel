@@ -501,6 +501,10 @@ def _set_status(db: Session, entry: WorkingItem, status: str, reason: str, now: 
     entry.closed_at = now if status in WORKING_ITEM_CLOSED else None
     entry.revision += 1
     entry.updated_at = now
+    if entry.closed_at is not None and entry.owner == "columbina" and entry.kind in ("commitment", "intention"):
+        # What she was still checking for it is moot: no check may act on a promise that's gone.
+        from app.services import follow_through
+        follow_through.item_closed(db, entry)
     record_event(db, entry.user_id, kind="item_changed", text=f"{_kind_word(entry)} {status}: {entry.text}"
                  + (f" ({reason})" if reason else ""), epistemic="reported", context_id=entry.context_id,
                  item_id=entry.id)

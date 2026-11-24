@@ -57,6 +57,7 @@ WAKES = ("mind", "wake")
 # A scheduled reconsideration is kept this long past its time (the worker was down): then it wakes her as late.
 WAKE_GRACE = timedelta(days=30)
 WAKE_MAX_AHEAD = timedelta(days=60)
+FOLLOW_KEYS = ("follow_item", "follow_check", "follow_transition")  # a follow-through check's identity
 
 
 @dataclass(frozen=True)
@@ -537,7 +538,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                   asked_by: str = "mind", origin_message: uuid.UUID | None = None,
                   their_urgency: str | None = None, moves: CoordinatorWork | None = None,
                   reason: str | None = None, third_party: bool = False,
-                  phone_follow_up: dict | None = None) -> CoordinatorWork:
+                  phone_follow_up: dict | None = None, extra: dict | None = None) -> CoordinatorWork:
     """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
     The caller commits.
 
@@ -551,7 +552,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     to read it from, so it is kept here and carried through revisions. ``third_party``: chosen on a turn someone
     else's words woke (a phone notification): the wake gets no device action either, through every revision.
     ``phone_follow_up`` (affinity B3, services/phone_replies.py ``follow_up_for``): who and where on the phone it's a
-    follow-up with, by stable ids (never a draft): kept through revisions, and it makes the wake ``third_party``."""
+    follow-up with, by stable ids (never a draft): kept through revisions, and it makes the wake ``third_party``.
+    ``extra``: what its producer reads back when it comes due (services/follow_through.py: the attempt a check is
+    about), kept on its input as is."""
     now = _now()
     if due_at.tzinfo is None:
         raise ValueError("a due time needs its time zone")
@@ -581,7 +584,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
                                              "first_scheduled_at", "item", "channel_identity_id", "third_party",
-                                             "phone_follow_up")}
+                                             "phone_follow_up", *FOLLOW_KEYS)}
         revisions = list(old.get("revisions") or [])
         # A follow-up with someone on the phone keeps its recipient through every revision: the same intention never
         # moves to another person or conversation (a new one is a new come_back_to).
@@ -623,6 +626,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                or inherited.get("channel_identity_id"),
                "moved": moved, "revisions": revisions[-12:],
                **({"phone_follow_up": phone_follow_up} if phone_follow_up else {}),
+               # A check on a follow-through attempt stays that check through every move (services/follow_through.py).
+               **{k: v for k, v in {**{k: inherited.get(k) for k in FOLLOW_KEYS}, **(extra or {})}.items()
+                  if k in FOLLOW_KEYS and v},
                **({"third_party": True} if third_party or phone_follow_up or inherited.get("third_party")
                   else {})})
     db.add(row)
@@ -735,7 +741,8 @@ def close_item_wakes(db, user_id: uuid.UUID, item_id: uuid.UUID) -> int:
     """The item a reconsideration was about closed: it no longer needs coming back to. The caller commits."""
     rows = list(db.scalars(select(CoordinatorWork).where(
         CoordinatorWork.user_id == user_id, CoordinatorWork.kind == "wake", CoordinatorWork.status.in_(ACTIVE),
-        CoordinatorWork.input["item"].astext == str(item_id)).with_for_update()))
+        (CoordinatorWork.input["item"].astext == str(item_id))
+        | (CoordinatorWork.input["follow_item"].astext == str(item_id))).with_for_update()))
     for row in rows:
         row.status, row.error_code = "cancelled", "item_closed"
         row.cancellation_generation += 1
@@ -810,6 +817,12 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
         if work.input.get("autonomous"):
             from app.services import autonomous_speech
             info["speech_facts"] = autonomous_speech.facts(db, work)
+        from app.services import follow_through
+        follow = follow_through.of(info)
+        if follow is not None:
+            act = (work.result or {}).get("conclusion") if follow.check is None else None
+            say = ((work.input or {}).get("extra") or {}).get("say") if follow.check is None else None
+            info["follow_through"] = follow_through.lines(db, work.user_id, follow, act=act, say=say)
         return True, info
 
 
@@ -825,6 +838,10 @@ def render_wake(info: dict) -> str:
     never shown."""
     r = info.get("result") or {}
     reason, inp = info.get("reason"), info.get("input") or {}
+    from app.services import follow_through
+    follow = follow_through.of(info)
+    if follow is not None:
+        return "\n".join(follow_through.render(follow, info.get("follow_through") or []))
     if reason == "due":
         # Who asked for it, its deadline against now, what was promised and what changed are in "Now" (read from
         # records when she runs): this only names it.

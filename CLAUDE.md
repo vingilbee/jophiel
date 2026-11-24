@@ -26,6 +26,10 @@ commit of the words that keep it (`workers/chat.py` `_carried_out`), after a che
 (`services/promise_check.py`, fails closed); on WhatsApp it waits for the channel's delivered status (migration
 `f2a6d9c3b8e1`, `working_items.keeping`). An undelivered attempt re-arms its wake (`coordinator.rearm_promise`).
 Questions: `services/open_questions.py`.
+Follow-through (2026-11-23): migration `a3f8c1e6d9b4` (`follow_through_attempts`). A quick thought that finds a promise
+or intention of hers due now (`act`) wakes her mind with her tools even with nothing to say, once per item and observed
+change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
+report (check wakes, bounded); `services/follow_through.py`, "Follow-through" in `docs/MIND_ARCHITECTURE.md`.
 
 ## Overview
 Columbina is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -273,6 +277,7 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
+                       #   follow_through.py: promises a change made due: her wake to act, attempts, checks;
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
                        #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
                        #   per wake; autonomous_speech.py: those events' delivery fences)

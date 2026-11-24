@@ -101,7 +101,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
                         ChatMessage.role == "user").order_by(ChatMessage.conversation_sequence.desc()).limit(1))
     request = uuid.uuid5(user_id, f"autonomous:{source}:{activity_id}:{event}")
     from app.services import system_signals
-    system_signals.emit(user_id, "mind", "mouth", "question" if question else "line", event)
+    if wake != "follow_through":  # a follow-through is her acting, not a line for her mouth
+        system_signals.emit(user_id, "mind", "mouth", "question" if question else "line", event)
     db.execute(select(func.pg_advisory_xact_lock(func.hashtext("coordinator:request-admission"))))
     if db.get(CoordinatorWork, request) is None:
         pending = db.scalar(select(func.count()).select_from(CoordinatorWork).where(
@@ -240,6 +241,9 @@ def _words(work) -> list[str]:
 
 
 def _key(work) -> str | None:
+    if work.input.get("wake") == "follow_through":
+        # Acting on a change, not a thing to say: each change is its own (services/follow_through.py dedupes them).
+        return f"follow:{work.id}"
     premise = work.input.get("premise") or {}
     if premise.get("investigation"):
         return f"security:{premise['investigation']}:{premise.get('revision')}"
@@ -276,7 +280,7 @@ def why_not(db, work) -> str | None:
         return why
     if memory_forget.forgotten_since(db, work.user_id, work.created_at):
         return "something was forgotten since it was thought, and it may rest on it"
-    if _said_already(db, work):
+    if work.input.get("wake") != "follow_through" and _said_already(db, work):
         return "already said in this quiet stretch"
     return None
 

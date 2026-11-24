@@ -533,7 +533,10 @@ def test_a_notification_moment_carries_what_she_promised_to_watch_for(channel):
     phone_notifications.acknowledge_news(channel.user, phone_notifications.pending_news(channel.user)[:1])
     phone_state.report(channel.user, {"screen": "off"})
     _, _, quiet = moment_for(channel)
-    assert "WHAT YOU'RE WAITING FOR" not in quiet.text  # only with a notification
+    # Her own moment (nobody else's words in it) lists the promise by id, so a thought can find it due
+    # (services/follow_through.py).
+    assert "WHAT YOU'RE WAITING FOR (your open promises and intentions)\n- [" in quiet.text
+    assert "You promised: Tell them when a WhatsApp message arrives" in quiet.text
 
 
 def test_a_notification_wake_says_it_arrived_and_when(channel):
