@@ -198,6 +198,9 @@ export interface DesktopAction {
   screen: string | null
   deviation: string | null
   turn_id: string | null
+  /** A command's (run_command): its exit code (null: it didn't finish) and the end of its output. */
+  exit_code?: number | null
+  output?: string | null
 }
 
 export interface HandsFeed {

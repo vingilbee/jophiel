@@ -55,6 +55,16 @@ def _last_seen_key(user_id: uuid.UUID) -> str:
     return f"desktop:seen:{user_id}"
 
 
+# Her hands' recent actions, for her background mind (services/mind_desktop.py): per user, newest first, short-lived.
+TRAIL_KEY = "desktop:trail:{user_id}"
+TRAIL_USERS_KEY = "desktop:trail:users"  # sorted set: user id -> when their hands last acted
+TRAIL_KEPT = 40
+TRAIL_TTL_SECONDS = 3600
+TYPED_SHOWN = 160
+OUTPUT_SHOWN = 600  # of a command's output, the end her background mind reads on the trail
+CAPTURE_OUTPUT_CHARS = 4000  # of a command's output, the end kept in the (owner-only) learning capture
+
+
 # --------------------------------------------------------------------------- #
 # Access: is there a desktop for her hands right now?
 # --------------------------------------------------------------------------- #
@@ -67,6 +77,8 @@ class DesktopAccess:
     online: bool
     gate: str  # allowed | blocked | manual_auth
     busy: bool  # a game session on the VM holds the keyboard and mouse
+    os_name: str | None = None  # what the controller says it runs on ("Linux 7.1.5+kali-arm64"), if it said
+    commands: bool = False  # its controller can run commands (0.13.0+, and a shell found there)
 
     @property
     def usable(self) -> bool:
@@ -86,7 +98,8 @@ class DesktopAccess:
     def prompt_line(self) -> str:
         why = self.why_not()
         state = "connected, and you can see and use it" if why is None else f"not usable right now: {why}"
-        return f'Your desktop "{self.display_name}" (a Windows computer of your own): {state}.'
+        what = f"a computer of your own running {self.os_name}" if self.os_name else "a computer of your own"
+        return f'Your desktop "{self.display_name}" ({what}): {state}.'
 
 
 def environment_for(db: Session, user_id: uuid.UUID) -> DesktopEnvironment | None:
@@ -107,7 +120,11 @@ def access_for(db: Session, user_id: uuid.UUID) -> DesktopAccess | None:
     from app.services import desktop_sessions
 
     busy = desktop_sessions.control_state(db, env.id) is not None
-    return DesktopAccess(env.id, env.display_name, env.status == "online", env.capture_gate, busy)
+    reported = env.controller_status if isinstance(env.controller_status, dict) else {}
+    commands = reported.get("commands") if isinstance(reported.get("commands"), dict) else {}
+    return DesktopAccess(env.id, env.display_name, env.status == "online", env.capture_gate, busy,
+                         os_name=(str(reported.get("os") or "").strip() or None) and str(reported["os"])[:80],
+                         commands=commands.get("available") is True)
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +144,9 @@ class Outcome:
     jpeg: bytes | None = None
     foreground_process: str | None = None
     foreground_title: str | None = None
+    exit_code: int | None = None  # a command's (None: it didn't finish, or not a command)
+    output: str | None = None  # a command's output, as text
+    output_cut: bool = False
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ended_at: datetime | None = None
 
@@ -143,6 +163,8 @@ def wait_seconds(action: dict) -> float:
         extra = int(action.get("hover_ms") or 0) / 1000
     elif kind == "scroll":
         extra = (abs(int(action.get("down") or 0)) + abs(int(action.get("right") or 0))) * 0.02
+    elif kind == "run_command":
+        extra = float(action.get("timeout_s") or 60) + 5  # the command's own limit, and stopping it
     return 8.0 + extra
 
 
@@ -182,6 +204,9 @@ def act(db: Session, user_id: uuid.UUID, action: dict) -> Outcome:
     outcome.screen = data.get("screen")
     outcome.foreground_process = data.get("foreground_process")
     outcome.foreground_title = data.get("foreground_title")
+    outcome.exit_code = data.get("exit_code") if isinstance(data.get("exit_code"), int) else None
+    outcome.output = data.get("output") if isinstance(data.get("output"), str) else None
+    outcome.output_cut = bool(data.get("output_cut"))
     if outcome.status == "done" and action.get("kind") == "screenshot":
         try:
             outcome.jpeg = client.get(shot_key(action_id))
@@ -253,6 +278,9 @@ def remember(db: Session, user_id: uuid.UUID, *, tool: str, intended: dict, outc
                 "foreground": {"process": outcome.foreground_process, "title": outcome.foreground_title}}
     if outcome.screen:
         executed["screen"] = outcome.screen
+    if tool == "run_command":
+        executed.update(exit_code=outcome.exit_code, output_cut=outcome.output_cut,
+                        output=(outcome.output or "")[-CAPTURE_OUTPUT_CHARS:] or None)
     try:
         learning_capture.execution(
             user_id=user_id, kind="desktop_action", executor="hands:desktop",
@@ -267,12 +295,14 @@ def remember(db: Session, user_id: uuid.UUID, *, tool: str, intended: dict, outc
     payload = {
         "action_id": outcome.action_id, "tool": tool, "status": outcome.status,
         "reason": (outcome.reason or None) and outcome.reason[:300],
-        "summary": _intended_words(tool, intended)[:200],
+        "summary": (_intended_words(tool, intended) + (f" (exit code {outcome.exit_code})"
+                    if tool == "run_command" and outcome.exit_code is not None else ""))[:200],
         "foreground_process": (process or None) and process[:64],
         "foreground_title": (title or None) and title[:200],
         "app_changed": _app_changed(user_id, process, title) if outcome.status == "done" else False,
         "turn_id": str(turn.turn_id) if turn.turn_id else None, "step": step,
     }
+    _add_to_trail(user_id, tool=tool, intended=intended, outcome=outcome, turn=turn, step=step)
     try:
         with db.begin_nested():
             observation.record(db, observation.Report(
@@ -285,10 +315,90 @@ def remember(db: Session, user_id: uuid.UUID, *, tool: str, intended: dict, outc
         log.exception("desktop control: observation of action %s failed", outcome.action_id)
 
 
+def _add_to_trail(user_id: uuid.UUID, *, tool: str, intended: dict, outcome: Outcome, turn: TurnRef,
+                  step: int) -> None:
+    """One action on her hands' trail, which her background mind reads while (and just after) they work. Unlike
+    memory's line, it carries what she typed (shortened): watching the work means knowing the commands. Never
+    raises; no Redis, no trail (her mind simply doesn't see the desktop)."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return
+    at = (outcome.ended_at or outcome.started_at).timestamp()
+    entry = {"id": outcome.action_id, "at": at, "tool": tool, "what": trail_words(tool, intended),
+             "status": outcome.status, "reason": (outcome.reason or None) and outcome.reason[:200],
+             "process": (outcome.foreground_process or None) and outcome.foreground_process[:64],
+             "title": (outcome.foreground_title or None) and outcome.foreground_title[:120], "step": step,
+             "exit_code": outcome.exit_code,
+             "output": (outcome.output or "").strip()[-OUTPUT_SHOWN:] or None if tool == "run_command" else None,
+             "turn": str(turn.turn_id) if turn.turn_id else None,
+             "conversation": str(turn.conversation_id) if turn.conversation_id else None,
+             "message": str(turn.message_id) if turn.message_id else None}
+    key = TRAIL_KEY.format(user_id=user_id)
+    try:
+        with client.pipeline() as pipe:
+            pipe.lpush(key, json.dumps(entry))
+            pipe.ltrim(key, 0, TRAIL_KEPT - 1)
+            pipe.expire(key, TRAIL_TTL_SECONDS)
+            pipe.zadd(TRAIL_USERS_KEY, {str(user_id): at})
+            pipe.zremrangebyscore(TRAIL_USERS_KEY, "-inf", at - TRAIL_TTL_SECONDS)
+            pipe.execute()
+    except Exception:  # noqa: BLE001 - her hands don't fail because her mind can't watch
+        log.warning("desktop control: trail of action %s not kept", outcome.action_id)
+
+
+def trail_users(since: float) -> list[uuid.UUID]:
+    """Users whose hands acted on their desktop since ``since`` (an epoch). Empty without Redis."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return []
+    try:
+        raw = client.zrangebyscore(TRAIL_USERS_KEY, since, "+inf")
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for value in raw:
+        try:
+            out.append(uuid.UUID(value.decode() if isinstance(value, bytes) else value))
+        except ValueError:
+            continue
+    return out
+
+
+def trail(user_id: uuid.UUID) -> list[dict]:
+    """Her hands' recent actions on this user's desktop, oldest first."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return []
+    try:
+        raw = client.lrange(TRAIL_KEY.format(user_id=user_id), 0, TRAIL_KEPT - 1)
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for value in reversed(raw):
+        try:
+            out.append(json.loads(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def trail_words(tool: str, intended: dict) -> str:
+    """What she did, for her own mind watching: memory's words, with what she typed."""
+    if tool == "keyboard" and intended.get("text") is not None:
+        text = " ".join(str(intended["text"]).split())
+        return f'typed "{text[:TYPED_SHOWN]}{"..." if len(text) > TYPED_SHOWN else ""}"'
+    if tool == "run_command":
+        text = " ".join(str(intended.get("command") or "").split())
+        return f'ran `{text[:TYPED_SHOWN]}{"..." if len(text) > TYPED_SHOWN else ""}`'
+    return _intended_words(tool, intended)
+
+
 def _intended_words(tool: str, intended: dict) -> str:
     """A short code-written line of what she meant to do (for her memory; never model text but hers)."""
     if tool == "screenshot":
         return "looked at part of the screen" if intended.get("crop") else "looked at the screen"
+    if tool == "run_command":
+        return "ran a command"
     if tool == "keyboard":
         if intended.get("text") is not None:
             return f"typed {len(intended['text'])} characters"
@@ -304,9 +414,10 @@ def line_for(user_id: uuid.UUID) -> str | None:
     return for_turn(user_id)[0]
 
 
-def for_turn(user_id: uuid.UUID) -> tuple[str | None, bool]:
-    """Her desktop's line for a reply turn's context and whether she can use it now. Not usable: the line says
-    why, and she gets neither the desktop tools nor how to use them. No desktop: ``(None, False)``."""
+def for_turn(user_id: uuid.UUID) -> tuple[str | None, bool, bool]:
+    """Her desktop's line for a reply turn's context, whether she can use it now, and whether it can run commands.
+    Not usable: the line says why, and she gets neither the desktop tools nor how to use them. No desktop:
+    ``(None, False, False)``."""
     from app.db.session import SessionLocal
 
     try:
@@ -315,5 +426,7 @@ def for_turn(user_id: uuid.UUID) -> tuple[str | None, bool]:
             db.commit()
     except Exception:  # noqa: BLE001 - a turn never fails because the desktop check did
         log.exception("desktop control: access check for %s failed", user_id)
-        return None, False
-    return (access.prompt_line(), access.usable) if access is not None else (None, False)
+        return None, False, False
+    if access is None:
+        return None, False, False
+    return access.prompt_line(), access.usable, access.usable and access.commands

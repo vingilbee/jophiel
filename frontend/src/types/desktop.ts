@@ -68,6 +68,8 @@ export interface DesktopMachineStatus {
   display: string | null
   capture: DesktopCapability
   input: DesktopCapability
+  /** Whether it can run commands (controller 0.13.0+; absent from older ones). */
+  commands?: DesktopCapability | null
   startup: 'registered' | 'not_registered' | 'unknown'
   startup_method: string | null
 }

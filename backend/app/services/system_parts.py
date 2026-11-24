@@ -248,7 +248,10 @@ def _desktop_out(x: DecisionExecution) -> dict[str, Any]:
             "args": _compact(args, 200), "result": x.result, "status": executed.get("status"),
             "app": _clip(front.get("process"), 64), "window": _clip(front.get("title"), 160),
             "screen": _clip(executed.get("screen"), 300) if isinstance(executed.get("screen"), str) else None,
-            "deviation": _clip(x.deviation, 300), "turn_id": str(x.turn_id) if x.turn_id else None}
+            "deviation": _clip(x.deviation, 300), "turn_id": str(x.turn_id) if x.turn_id else None,
+            # A command's (run_command): its exit code and the end of its output, as captured.
+            "exit_code": executed.get("exit_code") if isinstance(executed.get("exit_code"), int) else None,
+            "output": _clip(executed.get("output"), 4000) if isinstance(executed.get("output"), str) else None}
 
 
 def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:

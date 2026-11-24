@@ -33,7 +33,7 @@ from app.db.models import (
 )
 
 # Sources whose events belong to a conversation rather than a game (premise and repeat fences).
-CONVERSATIONAL = ("conversation", "security", "phone")
+CONVERSATIONAL = ("conversation", "security", "phone", "desktop")
 from app.services import agent_say, coordinator, desktop_preview, voice_target
 
 
@@ -48,6 +48,9 @@ def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, D
         target = investigation.conversation_id if investigation and investigation.user_id == user_id else None
     if source == "phone":
         target = _phone_conversation(db, user_id)
+    if source == "desktop":
+        from app.services import mind_desktop
+        target = mind_desktop.conversation_of(user_id)  # the turn her hands worked in (ownership checked below)
     conversation = db.get(Conversation, target) if target else None
     if conversation is None or conversation.user_id != user_id:
         return None, session

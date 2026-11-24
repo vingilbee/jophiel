@@ -226,7 +226,7 @@ async def _generate(job: ChatJob) -> None:
     recall_turn = mind.recall_turn
     spoke_at = payload.get("spoke_at")
     # Independent reads (each its own DB session): together, not one after another.
-    (game, (desktop, desktop_usable), security, files, working_memory, picture, now, personality_page,
+    (game, (desktop, desktop_usable, desktop_commands), security, files, working_memory, picture, now, personality_page,
      mind_state, phone) = await asyncio.gather(
         asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True)),
         asyncio.to_thread(desktop_control.for_turn, job.user_id),
@@ -248,6 +248,7 @@ async def _generate(job: ChatJob) -> None:
         from app.services import mind_phone_scope
         wake_text = mind_phone_scope.wake_text(mind)
         history, game, desktop, desktop_usable, security, files, working_memory = [], None, None, False, None, (), None
+        desktop_commands = False
         picture, mind_state, phone, recall_turn = None, None, None, None
         payload = {**payload, "awareness": "", "image_ids": [], "asset_ids": [], "vision_enabled": False}
         gmail_token = drive_token = None
@@ -296,6 +297,7 @@ async def _generate(job: ChatJob) -> None:
         game_picture_note=picture[1] if picture else None,
         desktop=desktop,
         desktop_usable=desktop_usable,
+        desktop_commands=desktop_commands,
         security=security,
         phone=phone,
         zone=payload.get("zone"),

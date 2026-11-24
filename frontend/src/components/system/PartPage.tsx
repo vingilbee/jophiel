@@ -455,10 +455,13 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
                   key={d.id}
                   at={d.at}
                   tone={d.result === 'failed' ? 'error' : d.result === 'unknown' ? 'muted' : undefined}
-                  meta={join(d.tool && words(d.tool), d.status && words(d.status), d.app && `in ${d.app}`)}
+                  meta={join(d.tool && words(d.tool), d.status && words(d.status),
+                    typeof d.exit_code === 'number' && `exit ${d.exit_code}`, d.app && `in ${d.app}`)}
                   action={traceButton(trace, d.turn_id ? { turn: d.turn_id } : null)}
-                  more={d.window || d.screen ? <Facts rows={{ 'window': d.window, 'saw': d.screen }} /> : undefined}
-                  moreLabel="What was in front"
+                  more={d.output
+                    ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-[#C5CDD5]">{d.output}</pre>
+                    : d.window || d.screen ? <Facts rows={{ 'window': d.window, 'saw': d.screen }} /> : undefined}
+                  moreLabel={d.output ? 'What it printed' : 'What was in front'}
                 >
                   {d.args ?? <span className="text-[#8C97A3]">{d.tool ? words(d.tool) : 'an action'}</span>}
                   {d.deviation && <p className="mt-1.5 text-[14px] text-[#FFB27A]">{d.deviation}</p>}

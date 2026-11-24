@@ -87,9 +87,10 @@ def sources() -> list:
     """Every source her mind reads (polled and event ones, live and shadow)."""
     global _sources
     if _sources is None:
-        from app.services import mind_conversation, mind_minecraft, mind_phone, mind_security
+        from app.services import mind_conversation, mind_desktop, mind_minecraft, mind_phone, mind_security
 
-        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE, mind_security.SOURCE, mind_phone.SOURCE]
+        _sources = [mind_minecraft.SOURCE, mind_conversation.SOURCE, mind_security.SOURCE, mind_phone.SOURCE,
+                    mind_desktop.SOURCE]
     return _sources
 
 
@@ -423,7 +424,11 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
                                  text=thought.text or f"Due now: {thought.act}", status=status, kind=thought.kind, source=scope.source,
                                  activity_id=scope.activity)
             act_outcome = None
-            if thought.act and status == "done" and not cause.get("third_party") and cause.get("transition"):
+            if thought.act and status == "done" and hasattr(source, "act"):
+                # A source whose own work her tools can pick up (her hands on her desktop): it checks the act.
+                act_outcome = source.act(db, scope, item=thought.item, act=thought.act, thought=thought.text,
+                                         level=level)
+            elif thought.act and status == "done" and not cause.get("third_party") and cause.get("transition"):
                 # Something she promised or meant to do is due (or an attempt of hers shows its result): her mind is
                 # woken with her tools to do it, whether or not there's anything to say. Someone else's words never
                 # make a moment that shows her promises, so never lead here.
