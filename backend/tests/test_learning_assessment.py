@@ -433,11 +433,15 @@ def test_ambiguous_targets_stay_ambiguous_and_lucky_success_is_kept_apart_from_c
     assert rev.result["choice_vs_outcome"][0] | {"choice": "poor", "outcome": "good"} == rev.result["choice_vs_outcome"][0]
     # The question is a proposal kept by memory as an open item of hers: her mind decides whether to ask it.
     from app.db.models import WorkingItem
+    from app.services import thought_memory
+    from app.services.thought_memory import Judgement
+    assert rev.result["follow_up"]["item"].startswith("observation:")  # handed to memory, matched there
+    while thought_memory.run_once(judge=lambda view, candidates: Judgement(keep=True)):
+        pass
     with env.db() as db:
         items = list(db.scalars(select(WorkingItem).where(WorkingItem.user_id == user.id, WorkingItem.kind == "question")))
     assert len(items) == 1 and items[0].owner == "columbina" and items[0].epistemic == "inferred"
     assert items[0].text == "Which thing I said felt weird?" and f"assessment {aid}" in items[0].reason
-    assert rev.result["follow_up"]["item"] == f"item:{items[0].id}"
 
 
 def test_incomplete_capture_withholds_attribution_until_the_capture_arrives(env):

@@ -31,7 +31,7 @@ from app.services import memory_manager
 from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
-from app.services import coordinator, mind_turn, personality
+from app.services import coordinator, mind_turn, personality, promise_check
 from app.services import agent_say, phone_notifications, push
 from app.ai import prompts
 from app.services import stickers
@@ -226,7 +226,7 @@ async def _generate(job: ChatJob) -> None:
     recall_turn = mind.recall_turn
     spoke_at = payload.get("spoke_at")
     # Independent reads (each its own DB session): together, not one after another.
-    (game, (desktop, desktop_usable), security, files, working_memory, picture, now, personality_page,
+    (game, (desktop, desktop_usable, desktop_commands), security, files, working_memory, picture, now, personality_page,
      mind_state, phone) = await asyncio.gather(
         asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True)),
         asyncio.to_thread(desktop_control.for_turn, job.user_id),
@@ -248,6 +248,7 @@ async def _generate(job: ChatJob) -> None:
         from app.services import mind_phone_scope
         wake_text = mind_phone_scope.wake_text(mind)
         history, game, desktop, desktop_usable, security, files, working_memory = [], None, None, False, None, (), None
+        desktop_commands = False
         picture, mind_state, phone, recall_turn = None, None, None, None
         payload = {**payload, "awareness": "", "image_ids": [], "asset_ids": [], "vision_enabled": False}
         gmail_token = drive_token = None
@@ -296,6 +297,7 @@ async def _generate(job: ChatJob) -> None:
         game_picture_note=picture[1] if picture else None,
         desktop=desktop,
         desktop_usable=desktop_usable,
+        desktop_commands=desktop_commands,
         security=security,
         phone=phone,
         zone=payload.get("zone"),
@@ -416,7 +418,9 @@ async def _generate(job: ChatJob) -> None:
     first_subagent = True
     # A wake has no new user message: a closing internal trigger (never persisted) stands in for one.
     messages = [*history, {"role": "user", "content": prompts.WAKE_TRIGGER}] if follow_up else history
-    events = stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage))
+    # Stopped while her context was put together (a barge-in during it): no model run, and none of its tools.
+    events = (_no_events() if _cancelled(turn_id)
+              else stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage)))
     try:
         while True:
             # Wait for the model only while the turn isn't stopped: a tool call
@@ -466,6 +470,14 @@ async def _generate(job: ChatJob) -> None:
             raise RuntimeError("assistant completed without a text reply")
         outcome = ("silent" if silent else "partial" if stopped and reply else
                    "cancelled" if stopped else "completed")
+        # Which promises these words carry out, read before the delivery commit (never inside it): a promise is
+        # kept by the promised action itself, not by any reply in the evaluation (services/promise_check.py).
+        kept: dict = {}
+        if outcome == "completed" and reply.strip():
+            candidates = _keep_candidates(mind, info if follow_up else None)
+            if candidates:
+                promises = await asyncio.to_thread(promise_check.candidates, job.user_id, candidates)
+                kept, mind.not_kept = await asyncio.to_thread(promise_check.check, promises, reply)
         receipt_id = None
         with SessionLocal() as db:
             conversation = chat_service.get_conversation(db, user_id=job.user_id,
@@ -508,6 +520,10 @@ async def _generate(job: ChatJob) -> None:
                         db, user_id=job.user_id, conversation_id=job.conversation_id,
                         assistant_message_id=assistant.id, commit=False,
                     )
+                    # What these words carried out, kept with them: a promise of hers counts kept exactly when
+                    # this commit stores them (and a retry finds them stored); a question she asks waits on them.
+                    _carried_out(db, mind, assistant.id, info if follow_up else None, kept=kept,
+                                 channel=context.channel, voice=context.voice)
                     if context.channel == "whatsapp":
                         identity_id = _whatsapp_identity(payload, job.id)
                         if identity_id is not None:
@@ -645,6 +661,11 @@ async def _none() -> None:
     return None
 
 
+async def _no_events():
+    return
+    yield  # an async generator with nothing in it
+
+
 def _personality() -> str | None:
     """Her text personality (one cached snapshot per process). None when it can't be read: the turn goes on
     without the section rather than failing."""
@@ -653,6 +674,56 @@ def _personality() -> str | None:
     except Exception:  # noqa: BLE001
         logger.exception("chat worker: personality unavailable for this evaluation")
         return None
+
+
+def _keep_candidates(mind, info: dict | None) -> list[uuid.UUID]:
+    """Promises these words might keep: the ones she marked kept in this evaluation, and the one a due wake woke her
+    for when she didn't move or let go of it."""
+    out = list(mind.fulfilled)
+    inp = (info or {}).get("input") or {}
+    if (info or {}).get("kind") == "wake" and inp.get("item") and not mind.deferred and not mind.dropped:
+        out.append(uuid.UUID(inp["item"]))
+    return list(dict.fromkeys(out))
+
+
+def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: dict, channel: str,
+                 voice: bool) -> None:
+    """In the delivery transaction, after her words are added (completed only: words cut off part way may not
+    carry what was promised). Promises these words carry out (``kept``: read by ``promise_check`` before this
+    commit) are fulfilled with this message as their evidence; on a channel that confirms delivery later
+    (WhatsApp) they wait on it instead (``memory_manager.await_delivery``). Questions of hers she meant to ask here
+    are marked as meant in this message (``memory_manager.meant_to_ask``): the questions reader decides whether the
+    words that reached them (heard, delivered) asked them. One savepoint each for promises and questions:
+    bookkeeping never fails a delivery, and a failure in one never skips the other (what isn't recorded stays
+    open and visible)."""
+    from app.services import coordinator, memory_manager
+
+    try:
+        with db.begin_nested():
+            for item_id, checked in kept.items():
+                if coordinator.promise_wake_of(db, mind.user_id, item_id) is not None and item_id not in mind.fulfilled:
+                    continue  # she gave it a new time in this evaluation: not this one
+                reason = mind.keeping.get(item_id) or "you said it when it came due"
+                if channel == "whatsapp":
+                    memory_manager.await_delivery(db, mind.user_id, item_id, message_id=message_id, reason=reason,
+                                                  revision=checked)
+                else:
+                    memory_manager.keep_promise(db, mind.user_id, item_id, message_id=message_id, reason=reason,
+                                                revision=checked)
+    except Exception:  # noqa: BLE001
+        logger.exception("chat worker: recording the promises a reply kept failed")
+    try:
+        with db.begin_nested():
+            asked = list(mind.asking)
+            inp = (info or {}).get("input") or {}
+            premise = inp.get("premise") or {}
+            if inp.get("autonomous") and inp.get("wake") == "question" and premise.get("item"):
+                asked.append(uuid.UUID(premise["item"]))
+            for item_id in dict.fromkeys(asked):
+                # Meant, not yet asked: the questions reader reads these words as they reached them.
+                memory_manager.meant_to_ask(db, mind.user_id, item_id, message_id=message_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("chat worker: recording the questions a reply meant to ask failed")
 
 
 def _wake_ended(mind, info: dict | None, job: ChatJob, *, decided: bool, why: str) -> None:

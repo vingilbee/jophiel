@@ -36,6 +36,10 @@ class MediaState(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     artist: str | None = Field(default=None, max_length=200)
     state: Literal["playing", "paused"]
+    # Where in the track it was when observed (the session's playback position) and how long the track is, in ms.
+    # Kept beside what's playing, never part of it: a position moving is not a change (services/phone_state.py).
+    position_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    duration_ms: int | None = Field(default=None, ge=0, le=86_400_000)
 
 
 class NavigationState(BaseModel):

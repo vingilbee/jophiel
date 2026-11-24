@@ -262,8 +262,10 @@ def _done_text(action: str, view: dict, data: dict | None) -> str:
     """What happened, as the chat line says it (replies with their full text)."""
     data = data or {}
     if action == "media_control":
-        return {"play": "Pressed play", "pause": "Paused the music", "next": "Skipped to the next track",
-                "previous": "Went back a track"}.get(view.get("command"), "Controlled the music")
+        # What was pressed, not what it did: "previous" may restart the track or go back one, and only the phone's
+        # next report shows which.
+        return {"play": "Pressed play", "pause": "Pressed pause", "next": "Pressed next",
+                "previous": "Pressed previous"}.get(view.get("command"), "Controlled the music")
     if action == "set_volume":
         return f"Set media volume to {view.get('level')}%"
     if action == "set_alarm":
@@ -440,6 +442,9 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
             if delivery == "failed":
                 client.delete(_pending_key(action_id))
                 return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
+            from app.services import system_signals
+            system_signals.emit(user_id, "mind", "phone", "reply" if action == "reply_notification" else action,
+                                action_id)
             if delivery in ("push", "uncertain") and started + PUSH_WAIT_SECONDS > deadline:
                 # The phone has to be woken first. Move the deadline the result endpoint checks too, so an
                 # answer inside the longer wait isn't taken as late.

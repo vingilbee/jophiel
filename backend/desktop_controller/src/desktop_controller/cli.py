@@ -243,7 +243,8 @@ def _run(args, saved, config_path: Path, status_path: Path) -> int:
 
 def _desktop_hands(capture, fake: bool):
     """Her hands on the whole desktop (general desktop control): this machine's input (Windows, macOS with
-    Accessibility permission, Linux X11), printed with --fake-input, none otherwise (actions are refused)."""
+    Accessibility permission, Linux X11), printed with --fake-input, none otherwise (actions are refused). Commands
+    run in this machine's shell; a dry run (--fake-input) has none."""
     from .desktop import DesktopHands
 
     if fake:
@@ -257,7 +258,10 @@ def _desktop_hands(capture, fake: bool):
     except Exception as exc:  # noqa: BLE001 - no hands, said so in the status report
         print(f"desktop input unavailable: {exc}", file=sys.stderr)
         backend = None
-    return DesktopHands(backend, capture)
+    from .commands import CommandRunner
+    from .machine import command_shell
+
+    return DesktopHands(backend, capture, commands=CommandRunner(command_shell()))
 
 
 def _input_factory(fake: bool):

@@ -27,10 +27,10 @@ os.chdir(REPO)
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "GPT_SoVITS"))
 
-GPT_CKPT = os.path.join(VOICE, "columbina-e15-2.ckpt")
-SOVITS_PTH = os.path.join(VOICE, "columbina_e8_s488.pth")
-REF_WAV = os.path.join(VOICE, "ref_columbina_6s.wav")
-REF_TXT = os.path.join(VOICE, "ref_columbina_6s.txt")
+GPT_CKPT = os.path.join(VOICE, "columbina_v2pro-e15.ckpt")
+SOVITS_PTH = os.path.join(VOICE, "columbina_v2pro_e8_s304.pth")
+REF_WAV = os.path.join(VOICE, "ref_columbina_v5.wav")
+REF_TXT = os.path.join(VOICE, "ref_columbina_v5.txt")
 
 # Representative of what a nutrition assistant actually says out loud.
 SENTENCES = [
@@ -71,7 +71,7 @@ def main() -> int:
             "custom": {
                 "device": device,
                 "is_half": False,
-                "version": "v1",
+                "version": "v2Pro",
                 "t2s_weights_path": GPT_CKPT,
                 "vits_weights_path": SOVITS_PTH,
                 "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",

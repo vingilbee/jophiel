@@ -143,7 +143,7 @@ def test_a_quick_thought_the_game_moved_past_is_not_said(monkeypatch):
     class Thinker:
         def think(self, level, text, user, situation):
             return SimpleNamespace(text="it slipped away", say="Aw, it got away!", latency_ms=500, error=None,
-                                   kind="feeling", noticed="sheep gone")
+                                   kind="feeling", noticed="sheep gone", act=None, item=None)
 
     monkeypatch.setattr(mind, "SessionLocal", ThoughtDb)
     monkeypatch.setattr(mind, "save_thought", lambda db, **kw: saved.append(kw))

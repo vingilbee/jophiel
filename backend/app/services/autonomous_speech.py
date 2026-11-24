@@ -33,7 +33,7 @@ from app.db.models import (
 )
 
 # Sources whose events belong to a conversation rather than a game (premise and repeat fences).
-CONVERSATIONAL = ("conversation", "security", "phone")
+CONVERSATIONAL = ("conversation", "security", "phone", "desktop")
 from app.services import agent_say, coordinator, desktop_preview, voice_target
 
 
@@ -48,6 +48,9 @@ def _target(db, *, user_id, activity_id, source) -> tuple[Conversation | None, D
         target = investigation.conversation_id if investigation and investigation.user_id == user_id else None
     if source == "phone":
         target = _phone_conversation(db, user_id)
+    if source == "desktop":
+        from app.services import mind_desktop
+        target = mind_desktop.conversation_of(user_id)  # the turn her hands worked in (ownership checked below)
     conversation = db.get(Conversation, target) if target else None
     if conversation is None or conversation.user_id != user_id:
         return None, session
@@ -72,7 +75,7 @@ SAME_WORDS = 0.6  # shared content words, of the shorter: the same thing in othe
 
 def submit(db, *, user_id, activity_id, source, event_id, text, reasons, commentary_mode,
            question=False, ttl=120, premise=None, wake="thought", extra=None, third_party=False,
-           arrived=None, reply_targets=None) -> str:
+           arrived=None, reply_targets=None, admitted=None) -> str:
     """``premise``: what it's about (its problem's anchor: a conflict, an item and its revision); checked again
     before the mind is woken and before anything is stored. ``wake``: why it wakes her (``thought``, ``proposal``,
     ``conflict``, ``finding``). ``extra``: what the producer needs back in that evaluation (a proposal's keys). ``third_party``: it came
@@ -80,7 +83,9 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
     anything it schedules (app/ai/chat.py). ``arrived``: the handles of the notifications that just arrived and
     prompted it (no text): the wake names them, so she reads it as news, not her own guess. ``reply_targets``
     (affinity B3): those of them she may answer on that wake, each bound to its own triggering message (ids only,
-    services/phone_replies.py); never inherited by anything the wake starts or schedules."""
+    services/phone_replies.py); never inherited by anything the wake starts or schedules. ``admitted(db)``: the
+    producer's own bookkeeping, run in the transaction that admits the wake (never on a refusal), so the two commit
+    together."""
     event = str(event_id)
     conversation, session = _target(db, user_id=user_id, activity_id=activity_id, source=source)
     voice_socket = None
@@ -99,7 +104,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
                         ChatMessage.role == "user").order_by(ChatMessage.conversation_sequence.desc()).limit(1))
     request = uuid.uuid5(user_id, f"autonomous:{source}:{activity_id}:{event}")
     from app.services import system_signals
-    system_signals.emit(user_id, "mind", "mouth", "question" if question else "line", event)
+    if wake != "follow_through":  # a follow-through is her acting, not a line for her mouth
+        system_signals.emit(user_id, "mind", "mouth", "question" if question else "line", event)
     db.execute(select(func.pg_advisory_xact_lock(func.hashtext("coordinator:request-admission"))))
     if db.get(CoordinatorWork, request) is None:
         pending = db.scalar(select(func.count()).select_from(CoordinatorWork).where(
@@ -126,6 +132,8 @@ def submit(db, *, user_id, activity_id, source, event_id, text, reasons, comment
                **({"reply_targets": list(reply_targets)[:8]} if reply_targets and third_party else {}),
                "premise": {k: str(v) for k, v in (premise or {}).items() if k in PREMISE_KEYS and v is not None}},
     ).on_conflict_do_nothing(constraint="uq_coordinator_work_idempotency"))
+    if admitted is not None:
+        admitted(db)
     db.commit()
     coordinator._log({"op": "autonomous_proposed", "request": str(request), "event": event,
                       "activity": str(activity_id), "conversation": str(target), "versions": versions})
@@ -236,6 +244,9 @@ def _words(work) -> list[str]:
 
 
 def _key(work) -> str | None:
+    if work.input.get("wake") == "follow_through":
+        # Acting on a change, not a thing to say: each change is its own (services/follow_through.py dedupes them).
+        return f"follow:{work.id}"
     premise = work.input.get("premise") or {}
     if premise.get("investigation"):
         return f"security:{premise['investigation']}:{premise.get('revision')}"
@@ -272,7 +283,7 @@ def why_not(db, work) -> str | None:
         return why
     if memory_forget.forgotten_since(db, work.user_id, work.created_at):
         return "something was forgotten since it was thought, and it may rest on it"
-    if _said_already(db, work):
+    if work.input.get("wake") != "follow_through" and _said_already(db, work):
         return "already said in this quiet stretch"
     return None
 

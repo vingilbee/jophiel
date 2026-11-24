@@ -106,6 +106,9 @@ def _finish_delivery(
                     claim_token=None,
                 )
             )
+            from app.services.whatsapp import _promises_settled
+            db.flush()
+            _promises_settled(db, delivery.assistant_message_id)
         db.commit()
 
 

@@ -38,14 +38,16 @@ def supports_reasoning_controls(model: str) -> bool:
 
 
 @lru_cache
-def get_chat_model(model: str | None = None) -> ChatOpenAI:
+def get_chat_model(model: str | None = None, reasoning: str | None = None) -> ChatOpenAI:
     """The OpenAI chat model. Streaming is driven by calling ``.astream``.
 
     ``model`` overrides ``settings.chat_model`` — voice turns pass a faster
     model, since time-to-first-token is invisible when you're reading a reply
     and very visible when you're waiting to hear one. Cached per model id.
 
-    Sampling parameters are intentionally left at provider defaults.
+    ``reasoning``: an effort for a model that reasons while it uses tools (her desktop turns), on the Responses
+    API; None: ``settings.chat_reasoning_effort`` on Chat Completions. Sampling parameters are intentionally left
+    at provider defaults.
     """
     settings = get_settings()
     model_id = model or settings.chat_model
@@ -55,7 +57,14 @@ def get_chat_model(model: str | None = None) -> ChatOpenAI:
     }
     # Reasoning-capable models (e.g. gpt-6-luna) would otherwise think for
     # seconds before the first word; conversation wants the quick reply.
-    if settings.chat_reasoning_effort and supports_reasoning_controls(model_id):
+    if reasoning and supports_reasoning_controls(model_id):
+        # A model that thinks while it uses tools (her desktop turns): Chat Completions refuses function tools with
+        # reasoning for these models, so this goes through the Responses API. Its reasoning comes back encrypted
+        # and is passed back with the next call (nothing stored at OpenAI), so what she thought at one step is
+        # still hers at the next.
+        kwargs.update(use_responses_api=True, reasoning={"effort": reasoning},
+                      include=["reasoning.encrypted_content"], store=False)
+    elif settings.chat_reasoning_effort and supports_reasoning_controls(model_id):
         kwargs["reasoning_effort"] = settings.chat_reasoning_effort
     if settings.openai_api_key:
         kwargs["api_key"] = settings.openai_api_key
@@ -75,14 +84,15 @@ def invoke_private(runnable, messages):
     return runnable.invoke(messages, config=dict(PRIVATE_RUN))
 
 
-def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None, pre_model_hook=None):
+def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None, pre_model_hook=None,
+                reasoning: str | None = None):
     """Compile a ReAct agent over the base tools plus any per-request ones.
 
     ``extra_tools`` is normally the set of sub-agent delegation tools built for
     this turn. ``pre_model_hook`` changes what each model call reads (her desktop
     tools use it to show her their screenshots).
     """
-    return create_react_agent(get_chat_model(model), tools=[*BASE_TOOLS, *extra_tools],
+    return create_react_agent(get_chat_model(model, reasoning), tools=[*BASE_TOOLS, *extra_tools],
                               pre_model_hook=pre_model_hook)
 
 

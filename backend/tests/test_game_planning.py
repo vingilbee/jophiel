@@ -354,3 +354,22 @@ def test_shared_tentative_lesson_changes_a_later_plan_and_records_the_exact_revi
     assert session.plan["steps"][0]["do"] == "inspect the shaft from above"
     use = db.query(MemoryLessonUse).filter_by(consumer="planner").one()
     assert use.received and use.revision == 1 and use.reported is None
+
+
+def test_her_own_wake_does_not_replace_a_users_goal_still_being_planned(db, alice, planning):
+    """Seen live 2026-11-24: three set_game_goal calls in 20 seconds (two of them from her own wakes) each made
+    the planner drop the answer it had just finished. A wake (no user message) restating it now leaves it be."""
+    import uuid
+
+    session = _session(db, alice)
+    desktop_game.set_goal(db, alice.id, goal="Make a bed", target="white_bed", message_id=uuid.uuid4())
+    assert desktop_sessions.driver_view(db, session.id).goal_planning is True
+    reply = desktop_game.set_goal(db, alice.id, goal="Make a bed in Minecraft", target="black_bed")
+    assert "already working out" in reply
+    [job] = _plan_jobs(db)
+    assert job.payload["goal"]["text"] == "Make a bed"
+    # The user's own next words still replace it.
+    desktop_game.set_goal(db, alice.id, goal="Make a black bed", target="black_bed", message_id=uuid.uuid4())
+    [job] = _plan_jobs(db)
+    db.refresh(job)
+    assert job.payload["goal"]["text"] == "Make a black bed"

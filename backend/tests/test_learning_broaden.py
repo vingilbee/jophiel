@@ -403,6 +403,10 @@ def test_a_follow_up_is_a_proposal_kept_by_memory_never_an_act_of_learning(env):
                    "resolves": "whether something is wrong with Nora"},
         inquiry={"question": "is Nora okay?", "provisional": "", "alternatives": ["just tired"], "unknown": "",
                  "resume_when": "Nora comes up"}, next={"step": "wait", "look": [], "why": "wait"})))
+    from app.services import thought_memory
+    from app.services.thought_memory import Judgement
+    while thought_memory.run_once(judge=lambda view, candidates: Judgement(keep=True)):
+        pass  # learning hands it to memory, which matches it against what she holds
     with env.db() as db:
         items = list(db.scalars(select(WorkingItem).where(WorkingItem.user_id == user.id)))
         after = db.scalar(select(M.func.count()).select_from(ChatMessage))

@@ -145,21 +145,30 @@
 #         pass
 
 
-"""Columbina voice, switchable between three GPT-SoVITS setups for A/B testing.
+"""Columbina voice, switchable between four GPT-SoVITS setups for A/B testing.
 
 Select with the TTS_MODE env var:
 
-    TTS_MODE=finetune  -- your original fine-tuned v1 checkpoint
+    TTS_MODE=finetune  -- your fine-tuned v2Pro checkpoint (Nov 2026)
     TTS_MODE=v2pro      -- zero-shot on v2Pro base weights (default; the repo's
                             own docs recommend v2Pro for "best compatibility
                             and stability")
     TTS_MODE=v4         -- zero-shot on v4 base weights (most reference-
                             faithful, but heavier CFM vocoder -- slower on
                             CPU, per the earlier RTF discussion)
+    TTS_MODE=v5         -- zero-shot on V5 base weights (Oct 2026: better
+                            similarity without fine-tuning). TTS_V5_VARIANT=turbo
+                            (default, 4 steps, RTF ~0.30 on the RTX 5070
+                            Laptop) or dev (32 steps, RTF ~0.65)
 
     .venv/bin/uvicorn server:app --port 8787                         # v2pro
     TTS_MODE=v4 .venv/bin/uvicorn server:app --port 8787
     TTS_MODE=finetune .venv/bin/uvicorn server:app --port 8787
+    TTS_MODE=v5 .venv/bin/uvicorn server:app --port 8787             # v5 turbo
+    TTS_MODE=v5 TTS_V5_VARIANT=dev .venv/bin/uvicorn server:app --port 8787
+
+All modes share the Nov 2026 reference clip (ref_columbina_v5.wav): the voice
+changed with the new recordings, so the old 6s clip was retired.
 
 TTS_DEVICE defaults to "auto": cuda with fp16 on an NVIDIA machine, cpu
 otherwise (see resolve_device / resolve_is_half).
@@ -195,32 +204,46 @@ MODE = os.environ.get("TTS_MODE", "v2pro").lower()
 
 _MODES = {
     "finetune": {
-        "version": "v1",
-        "t2s_weights_path": os.path.join(VOICE, "columbina-e15-2.ckpt"),
-        "vits_weights_path": os.path.join(VOICE, "columbina_e8_s488.pth"),
-        # The clip your original fine-tune was built and validated against --
-        # keep this distinct from the newer clean 18.9s ref used for the
-        # zero-shot modes below, since re-using the wrong ref with a
-        # fine-tuned checkpoint isn't an apples-to-apples comparison.
-        "ref_wav": os.path.join(VOICE, "ref_columbina_6s.wav"),
-        "ref_txt": os.path.join(VOICE, "ref_columbina_6s.txt"),
-        "native_sample_rate": None,  # matches tts_sample_rate already; no resample
+        # v2Pro fine-tune (Nov 2026): 148 UVR5-cleaned clips, GPT 15 epochs,
+        # SoVITS 8 epochs. Replaced the old v1 fine-tune.
+        "version": "v2Pro",
+        "t2s_weights_path": os.path.join(VOICE, "columbina_v2pro-e15.ckpt"),
+        "vits_weights_path": os.path.join(VOICE, "columbina_v2pro_e8_s304.pth"),
+        # One of the training clips, so the ref matches what the model learned.
+        "ref_wav": os.path.join(VOICE, "ref_columbina_v5.wav"),
+        "ref_txt": os.path.join(VOICE, "ref_columbina_v5.txt"),
+        "native_sample_rate": None,  # v2Pro outputs 32k already; no resample
     },
     "v2pro": {
         "version": "v2Pro",
         "t2s_weights_path": os.path.join(PRETRAINED, "s1v3.ckpt"),
         "vits_weights_path": os.path.join(PRETRAINED, "v2Pro", "s2Gv2Pro.pth"),
-        "ref_wav": os.path.join(VOICE, "ref_columbina_6s.wav"),
-        "ref_txt": os.path.join(VOICE, "ref_columbina_6s.txt"),
+        "ref_wav": os.path.join(VOICE, "ref_columbina_v5.wav"),
+        "ref_txt": os.path.join(VOICE, "ref_columbina_v5.txt"),
         "native_sample_rate": None,
     },
     "v4": {
         "version": "v4",
         "t2s_weights_path": os.path.join(PRETRAINED, "s1v3.ckpt"),
         "vits_weights_path": os.path.join(PRETRAINED, "gsv-v4-pretrained", "s2Gv4.pth"),
-        "ref_wav": os.path.join(VOICE, "ref_columbina_6s.wav"),
-        "ref_txt": os.path.join(VOICE, "ref_columbina_6s.txt"),
+        "ref_wav": os.path.join(VOICE, "ref_columbina_v5.wav"),
+        "ref_txt": os.path.join(VOICE, "ref_columbina_v5.txt"),
         "native_sample_rate": 48000,  # v4 outputs 48k; resample to match config
+    },
+    "v5": {
+        # v5turbo/v5dev share s1v3 and the v5 vocoder; only the SoVITS weights differ.
+        "version": "v5" + os.environ.get("TTS_V5_VARIANT", "turbo").lower(),
+        "t2s_weights_path": os.path.join(PRETRAINED, "s1v3.ckpt"),
+        "vits_weights_path": os.path.join(
+            PRETRAINED, "gsv-v5-pretrained",
+            "s2Gv5" + os.environ.get("TTS_V5_VARIANT", "turbo").lower() + ".pth",
+        ),
+        # Clean (UVR5 de-musicked) 6.7s clip from the Nov 2026 recordings.
+        "ref_wav": os.path.join(VOICE, "ref_columbina_v5.wav"),
+        "ref_txt": os.path.join(VOICE, "ref_columbina_v5.txt"),
+        "native_sample_rate": 48000,
+        # None lets upstream pick: 4 for v5turbo, 32 for v5dev.
+        "sample_steps": None,
     },
 }
 
@@ -384,8 +407,13 @@ def synthesize(pipeline, text: str, streaming: bool = True) -> Iterator[tuple[in
         "streaming_mode": streaming,
         "min_chunk_length": STREAM_MIN_CHUNK_LENGTH,
         "fixed_length_chunk": STREAM_FIXED_LENGTH_CHUNK,
-        # Only meaningful for v3/v4's CFM vocoder stage; harmless no-op on v1/v2Pro.
-        "sample_steps": 32,
+        # Only meaningful for v3/v4/v5's CFM vocoder stage; harmless no-op on v1/v2Pro.
+        "sample_steps": _CFG.get("sample_steps", 32),
+        # Upstream's CUDA Graph AR accelerator (on by default since the V5
+        # release) re-captures for every new sentence length: ~20s stall per
+        # new utterance on the RTX 5070 Laptop. The plain AR path is ~1s.
+        "use_cuda_graph": os.environ.get("TTS_CUDA_GRAPH", "false").lower() in {"1", "true", "yes"},
+        "use_flash_attention": False,
     }
     for sr, audio in pipeline.run(inputs):
         if audio is None or len(audio) == 0:

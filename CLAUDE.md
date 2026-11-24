@@ -7,8 +7,8 @@ the shared-state pipeline, appraisal and mood were removed. Every wake (a messag
 finished, a thought or proposal from another part of her, a reconsideration she scheduled) is one evaluation
 of the agent loop with her prompt and tools (`services/mind_turn.py`). Personality is text-only
 `core_memory.profile`, cached once per process by `services/personality.py`. Apply migrations `a6d2f8c4e9b1`
-and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14,
-): migration `c8e4a1f7b3d2` (`mind_evaluations`,
+and `b7e2c9f4a1d6` (`uv run alembic upgrade head`) before starting this version. Continuity follow-up (2026-11-14):
+migration `c8e4a1f7b3d2` (`mind_evaluations`,
 `learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
 Phone affinity B1 (2026-11-22): migration `a4d7e1c9b3f2` (phone people, conversations, affinities, outbound replies).
 Phone affinity B2 (2026-11-22): migration `b5e8d2a7c4f1` (exchange readings, shadow proposals, requests for space,
@@ -17,6 +17,17 @@ Phone affinity B3 (2026-11-22): migration `c6f9e3b8d5a2` (`phone_outbound.attemp
 reply attempt).
 Phone privacy (2026-11-23): migration `d7a1f4c8e2b9` (`phone_disclosures.verified`: grants checked against the user's
 own message).
+Promises and questions (2026-11-23): migration `e8b3f1a6c4d7` (`working_items.trigger` / `trigger_met_at` /
+`offered_at`, question statuses `asked` / `stale`, evidence role `asked`; the open-question backlog is marked handed
+over). A promise of hers is one item with its time (and durable wake) or condition; it's fulfilled only in the delivery
+commit of the words that keep it (`workers/chat.py` `_carried_out`), after a check model reads that those words carry it out
+(`services/promise_check.py`, fails closed); on WhatsApp it waits for the channel's delivered status (migration
+`f2a6d9c3b8e1`, `working_items.keeping`). An undelivered attempt re-arms its wake (`coordinator.rearm_promise`).
+Questions: `services/open_questions.py`.
+Follow-through (2026-11-23): migration `a3f8c1e6d9b4` (`follow_through_attempts`). A quick thought that finds a promise
+or intention of hers due now (`act`) wakes her mind with her tools even with nothing to say, once per item and observed
+change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
+report (check wakes, bounded); `services/follow_through.py`.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -203,7 +214,11 @@ Jophiel is a general conversational agent with a persistent identity, personalit
                        #   (GET /api/mind/state);
                        #   memory_manager.py: her working memory (contexts, goals, commitments, intentions,
                        #   questions, her hypotheses and decisions, events); GET /api/memory/working inspects it;
-                       #   thought_memory.py: her finished thoughts handed to memory, kept or skipped;
+                       #   thought_memory.py: her finished thoughts (and learning's follow-ups) handed to memory,
+                       #   matched against her open and recently closed items, kept or skipped;
+                       #   open_questions.py: her questions' states (unasked / asked / answered / stale): a consumer
+                       #   reading messages for what they ask or answer, and one question handed to her mind while
+                       #   the user is quiet;
                        #   observation.py + observation_adapters.py + observation_memory.py: what sources
                        #   report (conversation, Minecraft) reaching working memory;
                        #   GET /api/memory/observations inspects it;
@@ -257,9 +272,12 @@ Jophiel is a general conversational agent with a persistent identity, personalit
                        #   the person's relationship record and boundaries; nothing of the user's) +
                        #   phone_replies.py (B3: her own replies there: the messages that woke her bound at the tick,
                        #   follow-ups by stable ids, the checked send rechecked at the send point, claimed once) +
+                       #   mind_desktop.py (her hands' actions on her desktop as a source of her background mind: a
+                       #   trail in Redis from desktop_control; nothing when not connected or at rest) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
+                       #   follow_through.py: promises a change made due: her wake to act, attempts, checks;
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
                        #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
                        #   per wake; autonomous_speech.py: those events' delivery fences)
@@ -272,7 +290,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
     main.py             # FastAPI app entrypoint
   /desktop_controller   # desktop agent action contract + controller core (0.12: discovery.py finds the relay by mDNS,
                         #   startup.py = login start per OS, machine.py = status/capabilities, input_macos.py,
-                        #   input_linux.py); desktop.py = general desktop control (her hands
+                        #   input_linux.py); commands.py = run_command (one shell command, output as text, 0.13.0); desktop.py = general desktop control (her hands
                         #   on the whole VM desktop: bounded actions, released on failure); security.py = the VM's event
                         #   logs read only (wevtutil), bookmarks checked by record number, gaps/resets reported. uv workspace member (pydantic, pyyaml,
                         #   websockets only): runs in the game VM, also imported by the backend. Lives inside backend/ because

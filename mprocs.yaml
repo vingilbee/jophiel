@@ -29,3 +29,6 @@ procs:
     cwd: game_packs/minecraft
     shell: "node --env-file-if-exists=.env src/index.js"
     autostart: false
+  
+  tailscale:
+    shell: "tailscale serve 8000"

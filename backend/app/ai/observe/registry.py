@@ -135,6 +135,22 @@ class ThoughtConcluded(_Payload):
     assessment: dict[str, str] | None = None
 
 
+class LearningFollowUp(_Payload):
+    """A reviewer's follow-up (services/learning_review.propose): a question to ask the user, or something to
+    observe or practise, that could settle what records can't. A proposal for her mind, handed to memory like her
+    own thoughts, so it's matched against what she already holds (``thought_memory``) instead of added again."""
+
+    assessment_id: str
+    revision: int = Field(ge=1)
+    kind: Literal["question", "observation", "practice"]
+    text: str = Field(min_length=1, max_length=2000)
+    resolves: str | None = Field(default=None, max_length=1000)
+    alternatives: list[str] = Field(default_factory=list, max_length=6)
+    # The messages of the stretch it was about (ids), most recent last: which occurrence it is about.
+    messages: list[str] = Field(default_factory=list, max_length=20)
+    session_id: str | None = None
+
+
 class CaptureLink(_Payload):
     """Where the detail of a game event is kept (docs/learning-system/POST-AUDIT-01-implementation.md): the
     learning capture's decision and the pack's run id for an outcome; the pack's notice seq and its own time for
@@ -167,12 +183,13 @@ class GameNotice(_Payload):
 
 
 class DesktopAction(_Payload):
-    """One action of her hands on her own Windows desktop (services/desktop_control), and what was in front
-    once it finished. ``summary`` is code's words for what she meant to do; window titles are the desktop's
-    own text, quoted."""
+    """One action of her hands on her own desktop (services/desktop_control), and what was in front once it
+    finished. ``summary`` is code's words for what she meant to do (a command: that she ran one, and its exit
+    code; the command and its output stay in the owner-only capture); window titles are the desktop's own text,
+    quoted."""
 
     action_id: str = Field(max_length=40)
-    tool: Literal["screenshot", "move_mouse", "click", "drag", "scroll", "keyboard"]
+    tool: Literal["screenshot", "move_mouse", "click", "drag", "scroll", "keyboard", "run_command"]
     status: Literal["done", "failed", "refused", "unconfirmed"]
     reason: str | None = Field(default=None, max_length=300)
     summary: str = Field(max_length=200)
@@ -360,6 +377,10 @@ _CONCLUSION_WORDS = {"decision": "decided", "guess": "suspected", "question": "w
                      "intention": "meant to", "feeling": "felt"}
 
 
+def _follow_up_summary(p: LearningFollowUp) -> str:
+    return f'Learning proposed a follow-up ({p.kind}): "{quote(p.text, 300)}"'
+
+
 def _thought_summary(p: ThoughtConcluded) -> str:
     return f'Jophiel {_CONCLUSION_WORDS[p.conclusion_kind]} (her own thinking): "{quote(p.conclusion, 300)}"'
 
@@ -487,10 +508,10 @@ def _fixed(level: str) -> Callable[[Any], str]:
 _SPECS = [
     KindSpec("conversation", "user_message", 1, UserMessage, "user", "observed", "user", _fixed("routine"),
              _user_message_summary, _skip("kept in the conversation history"), needs_context=False,
-             consumers=("memory", "learning")),
+             consumers=("memory", "learning", "questions")),
     KindSpec("conversation", "reply_recorded", 1, ReplyRecorded, "columbina", "observed", "model",
              lambda p: "notable" if p.status == "failed" else "routine", _reply_summary,
-             _skip("kept in the conversation history"), needs_context=False),
+             _skip("kept in the conversation history"), needs_context=False, consumers=("memory", "questions")),
     KindSpec("conversation", "reply_interrupted", 1, ReplyInterrupted, "user", "reported", "system",
              _fixed("notable"), _interrupted_summary, _interrupted_memory, consumers=("memory", "learning")),
     KindSpec("conversation", "file_shared", 1, FileShared, "user", "observed", "user", _fixed("notable"),
@@ -521,6 +542,9 @@ _SPECS = [
              needs_context=False, consumers=()),
     KindSpec("mind", "thought_concluded", 1, ThoughtConcluded, "columbina", "inferred", "model", _fixed("notable"),
              _thought_summary, _skip("her thoughts go to thought memory"), consumers=("thought_memory",)),
+    KindSpec("learning", "follow_up_proposed", 1, LearningFollowUp, "columbina", "inferred", "model",
+             _fixed("notable"), _follow_up_summary, _skip("matched against her open items by thought memory"),
+             consumers=("thought_memory",)),
 ]
 REGISTRY: dict[tuple[str, str, int], KindSpec] = {(s.source, s.kind, s.version): s for s in _SPECS}
 

@@ -141,7 +141,7 @@ def open_assessment(db: Session, *, user_id: uuid.UUID, kind: str, key: str, anc
     added = attach(db, row, evidence)
     if created is not None:
         from app.services import system_signals
-        system_signals.emit(user_id, "observation", "learning", kind, row.id)
+        system_signals.emit(user_id, "phone" if kind == "phone" else "observation", "learning", kind, row.id)
     if created is None and added:
         _reopen(row, now, f"new evidence: {', '.join(added)}")
     return row, created is not None or bool(added)

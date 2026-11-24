@@ -26,6 +26,7 @@ action, no message: nothing she can send.
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import re
 import uuid
@@ -53,7 +54,10 @@ ACTION_HELP = {
                    "destination_place_id (a Maps ID from search_places, also one from an earlier reply), or "
                    "saved_place with destination = one of their saved names (home, work); mode from their request "
                    "and recent motion, default drive. A new trip replaces the current one.",
-    "media_control": "command: play / pause / next / previous, on whatever is playing.",
+    "media_control": "command: play / pause / next / previous, on whatever is playing. One press each: the "
+                     "phone's answer says it pressed, not what plays now. Most players' previous restarts the "
+                     "current track when it's past its first few seconds, and only a second press goes back a "
+                     "track; what plays (and where in it) shows in the phone's next report.",
     "set_volume": "level: 0-100, media volume only.",
     "set_alarm": 'time: "HH:MM" (24 h, their local time); label and days (mon..sun, for a repeating one) '
                  "optional. Set in their clock app. Alarms can't be listed or removed from here: to turn one off, "
@@ -194,13 +198,29 @@ def _operation(action: str, given: dict, who: str | None = None) -> str:
     return f"{action.replace('_', ' ')} on their phone" + (f" ({args})" if args else "")
 
 
+def _record_interrupted(evaluation, attempt) -> None:
+    import threading
+
+    def run():
+        try:
+            follow_through.finish(evaluation, attempt, "unconfirmed", "interrupted before the device answered")
+        except Exception:  # noqa: BLE001 - follow_through.sweep picks a stranded attempt up
+            logging.getLogger(__name__).exception("follow_through: recording an interrupted attempt")
+
+    threading.Thread(target=run, name="follow-through-interrupted", daemon=True).start()
+
+
 def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_turn: bool = False,
-                      message_id: uuid.UUID | None = None, authority=None) -> list[BaseTool]:
+                      message_id: uuid.UUID | None = None, authority=None, evaluation=None) -> list[BaseTool]:
     """Her phone tools for one turn. ``own_turn``: she wasn't written to (a wake): quiet actions only. On the user's
     reply turns every operation that reads something sensitive or acts on the phone is first bound to their
     message ``message_id`` (services/phone_authority.py: ``authority`` overrides, for tests), before the first
-    lookup or device call; messages to other people also pass the outgoing check (services/phone_reply_check.py)."""
-    from app.services import phone_authority, phone_reply_check
+    lookup or device call; messages to other people also pass the outgoing check (services/phone_reply_check.py).
+    ``evaluation``: her mind's evaluation; when it follows a promise through (services/follow_through.py), each
+    device action is an attempt for it, recorded and fenced before it's sent, its result said back with it."""
+    from app.services import follow_through, phone_authority, phone_reply_check
+
+    following = follow_through.of(evaluation) if own_turn and evaluation is not None else None
 
     found: dict[str, google_maps.Place] = {}
     owner = None if own_turn else (authority or phone_authority.Authority(user_id, message_id))
@@ -330,7 +350,22 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
                                                 args["text"], owner_request=owner.request_text())
                 if not check.send:
                     return _held_by_check(check).replace("Nothing was sent", "Nothing was opened")
-        outcome = await ask(action, {k: v for k, v in args.items() if v is not None}, view=view)
+        attempt = None
+        if following is not None:
+            attempt = await asyncio.to_thread(follow_through.begin, evaluation, action, view)
+            if isinstance(attempt, str):
+                return attempt
+        try:
+            outcome = await ask(action, {k: v for k, v in args.items() if v is not None}, view=view)
+        except BaseException:
+            if attempt is not None:
+                # It may still have reached the phone: unknown, checked like any other. Recorded off the event loop
+                # and never awaited (a cancellation stays a cancellation; the sweep covers it if this fails too).
+                _record_interrupted(evaluation, attempt)
+            raise
+        if attempt is not None:
+            note = await asyncio.to_thread(follow_through.finish, evaluation, attempt, outcome.status, outcome.text)
+            return f"{outcome.text}\n{note}".strip()
         return outcome.text
 
     allowed = tuple(a for a in (OWN_TURN_ACTIONS if own_turn else REPLY_TURN_ACTIONS))
@@ -472,7 +507,27 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
             return MAPS_UNAVAILABLE
         return _display(address) if address else "Maps couldn't identify a street or area there."
 
-    return [phone_action_tool, get_route, search_places, where_am_i]
+    @tool
+    async def check_notifications(app: str) -> str:
+        """Look through every notification still on their phone for one app, newest first, with what each says.
+        Use it when they ask about a particular app's notifications ("any WhatsApp messages?"): "Now" lists only
+        the newest few, so one from that app can be on the phone without being listed there. It says plainly when
+        there are none, and when you can't check (not shared, or unreadable): then say you can't check, never that
+        there are none. Read only: nothing is replied to, dismissed or sent.
+
+        app: the app's name as they say it (WhatsApp, Gmail), or its package (com.whatsapp).
+        """
+        name = " ".join((app or "").split())[:80]
+        if not name:
+            return "Say which app."
+        if why := await refused(f'read the notifications from "{name}" still on their phone (read only: nothing '
+                                "is replied to, dismissed or sent)"):
+            return why
+        return await asyncio.to_thread(phone_notifications.app_report, user_id, name)
+
+    # One app's notifications: the user's own turns only (her own turns see who and where, never anyone's words).
+    looked_up = [] if own_turn else [check_notifications]
+    return [phone_action_tool, get_route, search_places, where_am_i, *looked_up]
 
 
 def _held_by_check(check) -> str:

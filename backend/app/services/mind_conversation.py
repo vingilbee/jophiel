@@ -7,8 +7,9 @@ or a quiet stretch: those are her own choices, made with her tools.
 
 What stays is ``SOURCE.sweep`` (the mind worker, every ``SWEEP_SECONDS``): something the user said that disagrees
 with what she remembers (an open ``memory_conflicts`` row, once: services/memory_conflicts.py) wakes her mind in the
-conversation it was said in. An event from memory, handed over unchanged: whether to ask, think it over or leave it
-is hers.
+conversation it was said in; and a new open question of hers she hasn't asked, once, while that conversation is
+quiet (services/open_questions.py ``hand_over``). Events from memory, handed over unchanged: whether to ask, think it
+over or leave it is hers.
 """
 from __future__ import annotations
 
@@ -93,6 +94,9 @@ class ConversationEvents:
             memory_conflicts.mark_offered(db, conflict_id)
             db.commit()
             out.append(f"conflict {conflict_id.hex[:6]}: {outcome}")
+        # A new open question of hers, not asked yet, while they're quiet: handed to her once (open_questions.py).
+        from app.services import open_questions
+        out += open_questions.hand_over(db, now)
         return out
 
 

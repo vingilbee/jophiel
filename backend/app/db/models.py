@@ -1840,7 +1840,9 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "goal": (("active", "suspended"), ("completed", "abandoned")),
     "commitment": (("open", "needs_review"), ("fulfilled", "cancelled")),
     "intention": (("active",), ("done", "dropped", "lapsed")),
-    "question": (("open",), ("answered", "dropped")),
+    # Open: "open" (not asked yet, for hers; waiting on her, for theirs), "asked" (hers, asked and waiting on their
+    # answer: the asking message is its "asked" evidence). Closed: answered, dropped, or "stale" (no longer matters).
+    "question": (("open", "asked"), ("answered", "dropped", "stale")),
     # Hers, from her own thinking (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md): a suspicion, and what she decided.
     "hypothesis": (("open",), ("supported", "disproved", "unresolved")),
     "decision": (("active",), ("superseded", "withdrawn")),
@@ -1853,7 +1855,8 @@ WORKING_ITEM_STATUSES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 WORKING_ITEM_CLOSED = tuple(sorted({s for _, closed in WORKING_ITEM_STATUSES.values() for s in closed}))
 # basis: what she read when she thought it; restated: she reached it again. Neither is support.
-MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction", "basis", "restated")
+# asked: the message of hers that asked an open question of hers.
+MEMORY_EVIDENCE_ROLES = ("origin", "support", "resolution", "correction", "basis", "restated", "asked")
 
 
 def _in(values) -> str:
@@ -1941,6 +1944,20 @@ class WorkingItem(Base, TimeFieldsMixin):
     # The unresolved disagreement it depends on (a question her mind raised about a conflict): settling the
     # conflict closes it (services/memory_conflicts.settle).
     premise_conflict_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # A promise owed when something happens rather than at a time (services/memory_manager.note_commitment):
+    # {"kind": "event", "text": "when the report finishes"} (her mind recognises it), or {"kind": "work", "work_id",
+    # "request_id", "text"} (background work of hers: its end is recognised by code). ``trigger_met_at``: when code
+    # saw that work end; until then the promise can't be kept.
+    trigger: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    trigger_met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A question of hers handed to her mind as a wake once (services/mind_conversation.py), so she can choose to
+    # follow it up while they're quiet. Set for the backlog by migration e8b3f1a6c4d7, so it's never handed over.
+    offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A promise of hers kept by words that went out on a channel that confirms delivery later (WhatsApp):
+    # {"message_id", "reason", "at"} until the channel says delivered (then fulfilled) or failed (then it stays
+    # open, with why). A question of hers: {"message_id", "at"}, the message she meant to ask it in, until the
+    # questions reader marks it asked or lets it go back (services/open_questions.py). Migration f2a6d9c3b8e1.
+    keeping: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -3181,6 +3198,43 @@ class CoordinatorOutput(Base):
                                                           nullable=True)
     assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class FollowThroughAttempt(Base):
+    """One thing she did to carry out a promise or intention of hers when a change made it due, on a wake that
+    wasn't a message (services/follow_through.py, migration a3f8c1e6d9b4). ``transition``: the observed change
+    that made it due (two observations of one change share it). ``observe``: what shows the result (a phone state
+    field, read fresh after ``issued_at``); None when the action's own answer proves it.
+    ``status``: sending -> pending (the device took it; the result isn't known) -> achieved / failed / unresolved;
+    cancelled when the item closed meanwhile. A command accepted is never the goal reached."""
+
+    __tablename__ = "follow_through_attempts"
+    __table_args__ = (
+        CheckConstraint("status IN ('sending', 'pending', 'achieved', 'failed', 'unresolved', 'cancelled')",
+                        name="ck_follow_through_attempts_status"),
+        Index("ix_follow_through_attempts_item", "user_id", "item_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("working_items.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    transition: Mapped[str] = mapped_column(String(80), nullable=False)
+    wake_work_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    observe: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="sending")
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    check_work_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
                                                  onupdate=func.now())

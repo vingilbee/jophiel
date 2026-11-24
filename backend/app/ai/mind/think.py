@@ -50,6 +50,13 @@ just happened to you both, a thought worth sharing. Leave "say" empty when it's 
 routine, when your recent thoughts or what you said already covered it, or \
 when nothing changed. Never promise something you aren't doing: only what's in \
 your goal, what you're doing now, or what you're already watching for.
+
+Acting is separate from speaking. If the moment lists WHAT YOU'RE WAITING FOR, \
+and this moment makes one of those due now (what it waits for has happened), or \
+shows how an attempt of yours turned out, put that promise's id (the one in \
+brackets at the start of its line) in "item" and what to do about it, in a few words, in "act", even when "say" is \
+empty: you'll be woken with your tools to do it. Leave both empty otherwise: a \
+prediction, a passing thought, or something not due yet is no reason to act.
 {voice}"""
 
 REPEAT_RULES = {
@@ -80,6 +87,8 @@ class QuickThought:
     error: str | None = None
     kind: str | None = None
     noticed: str | None = None
+    act: str | None = None  # what a promise or intention of hers made due now calls for (follow_through)
+    item: str | None = None  # that item's id, as the moment shows it
 
 
 class QuickThinker:
@@ -103,8 +112,9 @@ class QuickThinker:
             "type": "object",
             "properties": {"noticed": {"type": "string"},
                            "kind": {"type": "string", "enum": [*KINDS] if level == "quiet" else [*KINDS, ""]},
-                           "thought": {"type": "string"}, "say": {"type": "string"}},
-            "required": ["noticed", "kind", "thought", "say"],
+                           "thought": {"type": "string"}, "say": {"type": "string"},
+                           "item": {"type": "string"}, "act": {"type": "string"}},
+            "required": ["noticed", "kind", "thought", "say", "item", "act"],
             "additionalProperties": False,
         }
         kwargs = {"reasoning_effort": "none"} if self.model.startswith(("gpt-5", "gpt-6")) else {}
@@ -115,7 +125,7 @@ class QuickThinker:
                           {"role": "user", "content": tick_text}],
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "thought", "strict": True, "schema": schema}},
-                max_completion_tokens=200,
+                max_completion_tokens=260,
                 store=False,
                 **kwargs,
             )
@@ -123,9 +133,11 @@ class QuickThinker:
         except Exception as exc:  # noqa: BLE001 - a failed thought is just no thought
             return QuickThought(None, None, _ms(started), error=f"{type(exc).__name__}: {exc}"[:300])
         text = _clean(out.get("thought"))
+        act, item = _clean(out.get("act")), _clean(out.get("item"))
         return QuickThought(text, _clean(out.get("say")) if text else None, _ms(started),
                             input_tokens=getattr(response.usage, "prompt_tokens", None),
-                            kind=(out.get("kind") or None) if text else None, noticed=_clean(out.get("noticed")))
+                            kind=(out.get("kind") or None) if text else None, noticed=_clean(out.get("noticed")),
+                            act=act if act and item else None, item=item if act and item else None)
 
 
 def _clean(value) -> str | None:

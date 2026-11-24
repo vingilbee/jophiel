@@ -280,7 +280,7 @@ def test_quick_thought_is_saved_said_through_the_gate_or_stale(monkeypatch):
             assert user == "Vincent" and situation.key == "minecraft"
             assert "Curious and honest." in text
             return SimpleNamespace(text="zombie on my left", say=self.say, latency_ms=500, error=None,
-                                   kind="next", noticed="zombie")
+                                   kind="next", noticed="zombie", act=None, item=None)
 
     session = SimpleNamespace(state="running", commentary_mode="occasional")
     monkeypatch.setattr(mind, "SessionLocal", lambda: Db(session))

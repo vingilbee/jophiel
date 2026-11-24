@@ -1,6 +1,6 @@
 // Her parts as one system (backend app/api/routes/system.py, owner only).
 
-export type PartId = 'mouth' | 'mind' | 'hands' | 'memory' | 'observation' | 'learning'
+export type PartId = 'mouth' | 'mind' | 'hands' | 'memory' | 'observation' | 'learning' | 'phone'
 
 /** busy: a worker is inside a job; partial: some of its workers are down; off: not running in this mode. */
 export type PartState = 'alive' | 'busy' | 'partial' | 'down' | 'failing' | 'off'
@@ -185,8 +185,27 @@ export interface HandsDecision {
   } | null
 }
 
+/** One action of her hands on her own desktop (backend services/desktop_control.remember), as code recorded it. */
+export interface DesktopAction {
+  id: string
+  at: string | null
+  tool: string | null
+  args: string | null
+  result: string
+  status: string | null
+  app: string | null
+  window: string | null
+  screen: string | null
+  deviation: string | null
+  turn_id: string | null
+  /** A command's (run_command): its exit code (null: it didn't finish) and the end of its output. */
+  exit_code?: number | null
+  output?: string | null
+}
+
 export interface HandsFeed {
   goal: GameGoal | null
+  desktop: DesktopAction[]
   decisions: HandsDecision[]
   checks: { id: string; at: string | null; do: string | null; done_when: string | null; counted: string | null }[]
   lessons: LessonUse[]
@@ -222,6 +241,24 @@ export interface ObservationFeed {
   reports: { id: number; source: string; kind: string; salience: string; text: string | null; at: string | null }[]
 }
 
+/** The user's phone as a part of her (backend services/system_parts._phone): what it reports, her replies to other
+ * people there and the check each one passed or was held by, the people she meets there, and pushes. */
+export interface PhoneFeed {
+  /** What the phone reports about itself, one line each, with how old each reading is. */
+  senses: string[]
+  /** The notifications still on the phone (null: Redis couldn't be read, so unknown). */
+  notifications: { key: string; app: string | null; conversation: string | null; group: boolean; can_reply: boolean; messages: number; at: string | null }[] | null
+  replies: { id: string; at: string | null; to: string | null; conversation: string | null; asked_by: string; status: string; echoed: boolean; text: string | null }[]
+  /** Outcomes of the phone's checks: reply / draft (a message going out), operation (a phone read or action on
+   * the user's turn), grant (a detail the user let her pass on). ok null: no verdict recorded. */
+  checks: { at: string | null; check: string | null; kind: string | null; ok: boolean | null; what: string | null; why: string | null; reveals: string[] }[]
+  people: { id: string; name: string | null; contact: boolean | null; status: string; at: string | null; familiarity: string | null; warmth: string | null; initiative: string | null; note: string | null }[]
+  exchanges: { id: string; at: string | null; person: string | null; conversation: string | null; addressed: string; participated: boolean; observation: string | null; their_words: string | null; lesson: string; lesson_why: string | null }[]
+  space: { id: string; at: string | null; person: string | null; conversation: string | null; scope: string; topic: string | null; words: string | null }[]
+  actions: { id: string; at: string | null; text: string | null }[]
+  pushes: { id: string; at: string | null; kind: string; status: string; attempts: number; error: string | null }[]
+}
+
 export interface PartFeeds {
   mouth: MouthFeed
   mind: MindFeed
@@ -229,6 +266,7 @@ export interface PartFeeds {
   memory: MemoryFeed
   observation: ObservationFeed
   learning: LearningFeed
+  phone: PhoneFeed
 }
 
 /** The watch log (GET /api/system/watch): what woke her mind and what she did, what she thought, what memory

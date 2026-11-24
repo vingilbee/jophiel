@@ -278,3 +278,11 @@ def test_access_explains_why_not():
     assert "switched off" in DesktopAccess(uuid.uuid4(), "VM", True, "blocked", False).why_not()
     assert "game session" in DesktopAccess(uuid.uuid4(), "VM", True, "allowed", True).why_not()
     assert DesktopAccess(uuid.uuid4(), "VM", True, "allowed", False).usable
+
+
+def test_the_graph_lets_the_action_budget_speak_first():
+    """The 80-action budget tells her to report; the graph's step limit must not end the turn before it (each action
+    is the picture hook, her call and the tool's answer: three steps)."""
+    from langgraph.prebuilt import create_react_agent  # noqa: F401 - the hook is a node of its own there
+    from app.ai.tools.desktop_control import tools as T
+    assert T.RECURSION_LIMIT >= 3 * T.MAX_ACTIONS_PER_TURN + 3

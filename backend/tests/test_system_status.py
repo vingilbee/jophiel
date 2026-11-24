@@ -42,7 +42,7 @@ def test_status_without_redis_says_it_cannot_tell(monkeypatch):
     out = S.status()
     assert out["known"] is False
     assert [p["id"] for p in out["parts"]] == ["mouth", "mind", "hands", "memory", "observation",
-                                               "learning"]
+                                               "learning", "phone"]
     assert all(p["state"] in ("down", "off") for p in out["parts"])
 
 

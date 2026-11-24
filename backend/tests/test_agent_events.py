@@ -442,3 +442,17 @@ def test_a_counted_check_in_her_plan_is_kept_and_shown_back_to_her(db, alice):
     assert steps[0]["check"] == {"kind": "top_here"} and "check" not in steps[1]
     lines = "\n".join(desktop_game._plan_lines(db, session))
     assert "(done when: on top of the pillar; counted: nothing next to you higher than where you stand)" in lines
+
+
+def test_her_own_thoughts_ask_her_planner_instead_of_setting_goals(database, alice):
+    """Seen live 2026-11-24: thought wakes called set_game_goal 37 times in 25 minutes (the user: 4), each sent to
+    her planner as "the user asked", and do_now six times, each replacing the plan. A thought asks for a rethink."""
+    import uuid
+
+    from app.ai.tools.desktop import build_desktop_tools
+
+    thought = {t.name for t in build_desktop_tools(alice.id, planner=True, own_thought=True)}
+    assert {"rethink_plan", "tell_my_hands"} <= thought
+    assert not thought & {"set_game_goal", "start_game", "do_now"}
+    reply = {t.name for t in build_desktop_tools(alice.id, planner=True, message_id=uuid.uuid4())}
+    assert {"set_game_goal", "start_game", "do_now"} <= reply

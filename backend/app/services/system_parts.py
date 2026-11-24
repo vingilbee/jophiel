@@ -24,12 +24,13 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     CaptureGap, ChatMessage, Conversation, CoordinatorWork, DecisionAttempt, DecisionExecution, DesktopSession,
     GameExperience, MemoryEvent, MemoryJob, MemoryLesson, MemoryLessonUse, MindThought, Observation,
-    ObservationSource, SemanticMemory, WorkingItem,
+    ObservationSource, PhoneActivity, PhoneAffinity, PhoneContactBoundary, PhoneConversation, PhoneExchange,
+    PhoneOutbound, PhonePerson, PushDelivery, SemanticMemory, WorkingItem,
 )
 from app.services.heard import heard_text
 
 LIMIT = 15
-PARTS = ("mouth", "mind", "hands", "memory", "observation", "learning")
+PARTS = ("mouth", "mind", "hands", "memory", "observation", "learning", "phone")
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -238,6 +239,21 @@ def _game_goal(db: Session, user_id: uuid.UUID) -> dict[str, Any] | None:
     return out
 
 
+def _desktop_out(x: DecisionExecution) -> dict[str, Any]:
+    """One action of her hands on her own desktop (services/desktop_control.remember), as code recorded it."""
+    intended, executed = x.intended or {}, x.executed or {}
+    front = executed.get("foreground") or {}
+    args = {k: v for k, v in intended.items() if k != "tool"}
+    return {"id": str(x.id), "at": _iso(x.ended_at or x.captured_at), "tool": intended.get("tool"),
+            "args": _compact(args, 200), "result": x.result, "status": executed.get("status"),
+            "app": _clip(front.get("process"), 64), "window": _clip(front.get("title"), 160),
+            "screen": _clip(executed.get("screen"), 300) if isinstance(executed.get("screen"), str) else None,
+            "deviation": _clip(x.deviation, 300), "turn_id": str(x.turn_id) if x.turn_id else None,
+            # A command's (run_command): its exit code and the end of its output, as captured.
+            "exit_code": executed.get("exit_code") if isinstance(executed.get("exit_code"), int) else None,
+            "output": _clip(executed.get("output"), 4000) if isinstance(executed.get("output"), str) else None}
+
+
 def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     picks = db.scalars(select(DecisionAttempt).where(DecisionAttempt.user_id == user_id,
                                                      DecisionAttempt.learner == "hands")
@@ -276,8 +292,12 @@ def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                         for w in answer.get("lessons_weighed") or [] if isinstance(w, dict)][:6],
             "run": _run_out(run) if run is not None else None,
         })
+    desktop = db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
+                                                         DecisionExecution.kind == "desktop_action")
+                         .order_by(DecisionExecution.captured_at.desc()).limit(LIMIT)).all()
     return {
         "goal": _game_goal(db, user_id),
+        "desktop": [_desktop_out(x) for x in desktop],
         "decisions": decisions,
         "checks": [{"id": str(c.id), "at": _iso(c.ended_at or c.captured_at), "do": _clip((c.intended or {}).get("do"), 200),
                     "done_when": _clip((c.intended or {}).get("done_when"), 200),
@@ -338,8 +358,118 @@ def _observation(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
+def _person_name(p: PhonePerson | None) -> str | None:
+    if p is None:
+        return None
+    return p.display_name or (p.names[0] if p.names else None)
+
+
+def _phone_checks(user_id: uuid.UUID, limit: int = LIMIT) -> list[dict[str, Any]]:
+    """The newest outcomes of the phone's checks for this user (services/phone_reply_check.trace: her replies to
+    others, messages the user asked her to send, phone operations on their turns, grants), from the end of the log."""
+    import os
+
+    from app.core.config import get_settings
+
+    path = get_settings().phone_check_log_path
+    if not path:
+        return []
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), path)
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 512_000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    me, out = str(user_id), []
+    for line in reversed(lines):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue  # the first line of the window may be cut
+        if r.get("user") != me:
+            continue
+        check = r.get("check")
+        ok = r.get("send") if check in ("reply", "draft") else r.get("allowed") if check == "operation" else r.get("stands")
+        what = (r.get("operation") if check == "operation"
+                else f"conversation {r['conversation']}" if r.get("conversation") else None)
+        out.append({"at": r.get("at"), "check": check, "kind": r.get("kind"), "ok": ok, "what": _clip(what, 200),
+                    "why": _clip(r.get("why"), 300), "reveals": [_clip(x, 160) for x in r.get("reveals") or []][:4]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _phone(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
+    from app.services import phone_notifications, phone_state
+
+    now = time.time()
+    try:
+        state = phone_state.read(user_id, now=now)
+    except Exception:  # noqa: BLE001 - an unreadable Redis means the page can't tell, never a broken page
+        state = None
+    try:
+        notes = phone_notifications.live(user_id, now=now)
+    except Exception:  # noqa: BLE001
+        notes = None
+    sent = db.scalars(select(PhoneOutbound).where(PhoneOutbound.user_id == user_id)
+                      .order_by(PhoneOutbound.created_at.desc()).limit(LIMIT)).all()
+    convs = {c.conversation_id: c for c in db.scalars(select(PhoneConversation).where(
+        PhoneConversation.user_id == user_id,
+        PhoneConversation.conversation_id.in_([o.conversation_id for o in sent if o.conversation_id] or [""])))}
+    people = db.scalars(select(PhonePerson).where(PhonePerson.user_id == user_id)
+                        .order_by(PhonePerson.last_seen_at.desc()).limit(LIMIT)).all()
+    exchanges = db.scalars(select(PhoneExchange).where(PhoneExchange.user_id == user_id)
+                           .order_by(PhoneExchange.at.desc()).limit(LIMIT)).all()
+    space = db.scalars(select(PhoneContactBoundary).where(PhoneContactBoundary.user_id == user_id,
+                                                          PhoneContactBoundary.lifted_at.is_(None))
+                       .order_by(PhoneContactBoundary.created_at.desc()).limit(LIMIT)).all()
+    person_ids = {o.person_id for o in sent} | {e.person_id for e in exchanges} | {b.person_id for b in space}
+    known = {p.id: p for p in people}
+    known.update({p.id: p for p in db.scalars(select(PhonePerson).where(
+        PhonePerson.id.in_([i for i in person_ids if i is not None and i not in known] or [uuid.uuid4()])))})
+    affinity = {a.person_id: a for a in db.scalars(select(PhoneAffinity).where(
+        PhoneAffinity.user_id == user_id, PhoneAffinity.person_id.in_([p.id for p in people] or [uuid.uuid4()])))}
+    conv_titles = {c.id: c.title for c in db.scalars(select(PhoneConversation).where(
+        PhoneConversation.id.in_([e.conversation_id for e in exchanges] + [b.conversation_id for b in space]
+                                 or [uuid.uuid4()])))}
+    actions = db.scalars(select(PhoneActivity).join(Conversation, Conversation.id == PhoneActivity.conversation_id)
+                         .where(Conversation.user_id == user_id)
+                         .order_by(PhoneActivity.created_at.desc()).limit(LIMIT)).all()
+    pushes = db.scalars(select(PushDelivery).where(PushDelivery.user_id == user_id)
+                        .order_by(PushDelivery.queued_at.desc()).limit(LIMIT)).all()
+    return {
+        "senses": phone_state.describe(state, now) if state is not None else [],
+        "notifications": None if notes is None else [
+            {"key": n.key, "app": n.app, "conversation": _clip(n.conversation or n.title, 120), "group": n.is_group,
+             "can_reply": n.can_reply, "messages": len(n.messages), "at": n.posted_at} for n in notes[:LIMIT]],
+        "replies": [{"id": str(o.id), "at": _iso(o.created_at), "to": _person_name(known.get(o.person_id)),
+                     "conversation": (c.title if (c := convs.get(o.conversation_id)) else None),
+                     "asked_by": o.asked_by, "status": o.status, "echoed": o.echo_event_id is not None,
+                     "text": _clip(o.text, 600)} for o in sent],
+        "checks": _phone_checks(user_id),
+        "people": [{"id": str(p.id), "name": _person_name(p), "contact": p.in_contacts, "status": p.status,
+                    "at": _iso(p.last_seen_at),
+                    "familiarity": (a := affinity.get(p.id)) and a.familiarity, "warmth": a and a.warmth,
+                    "initiative": a and a.initiative, "note": a and _clip(a.note, 300)} for p in people],
+        "exchanges": [{"id": str(e.id), "at": _iso(e.at), "person": _person_name(known.get(e.person_id)),
+                       "conversation": conv_titles.get(e.conversation_id), "addressed": e.addressed,
+                       "participated": e.participated, "observation": _clip(e.observation, 300),
+                       "their_words": _clip(e.their_words, 300), "lesson": e.lesson,
+                       "lesson_why": _clip(e.lesson_why, 300)} for e in exchanges],
+        "space": [{"id": str(b.id), "at": _iso(b.created_at), "person": _person_name(known.get(b.person_id)),
+                   "conversation": conv_titles.get(b.conversation_id), "scope": b.scope, "topic": _clip(b.topic, 160),
+                   "words": _clip(b.words, 300)} for b in space],
+        "actions": [{"id": str(a.id), "at": _iso(a.created_at), "text": _clip(a.content, 300)} for a in actions],
+        "pushes": [{"id": str(r.id), "at": _iso(r.finished_at or r.queued_at), "kind": r.kind, "status": r.status,
+                    "attempts": r.attempts, "error": _clip(r.last_error, 200)} for r in pushes],
+    }
+
+
 _FEEDS = {"mouth": _mouth, "mind": _mind, "hands": _hands, "memory": _memory,
-          "observation": _observation, "learning": _learning}
+          "observation": _observation, "learning": _learning, "phone": _phone}
 
 
 def feed(db: Session, user_id: uuid.UUID, part: str) -> dict[str, Any] | None:
@@ -425,6 +555,26 @@ def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
             add("hands", "plan", at, f"plan applied · {x.result}", _clip(plan.get("goal") or (x.intended or {}).get("goal"), 300),
                 anchor="goal", ref=str(x.id), tone="error" if x.result == "failed" else None,
                 detail=_clip(x.deviation, 300))
+    for x in db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
+                                                        DecisionExecution.kind == "desktop_action")
+                        .order_by(DecisionExecution.captured_at.desc()).limit(15)):
+        d = _desktop_out(x)
+        add("hands", "desktop", d["at"], f"desktop · {d['tool']} · {x.result}",
+            " · ".join(b for b in (d["args"], d["app"] and f"in {d['app']}") if b) or None, anchor="desktop",
+            ref=d["id"], tone="error" if x.result == "failed" else None, detail=d["deviation"])
+    sent = db.scalars(select(PhoneOutbound).where(PhoneOutbound.user_id == user_id)
+                      .order_by(PhoneOutbound.created_at.desc()).limit(10)).all()
+    names = {p.id: _person_name(p) for p in db.scalars(select(PhonePerson).where(
+        PhonePerson.id.in_([o.person_id for o in sent if o.person_id] or [uuid.uuid4()])))}
+    for o in sent:
+        add("phone", "reply", _iso(o.created_at),
+            " · ".join(b for b in ("reply", names.get(o.person_id) and f"to {names[o.person_id]}",
+                                   "she chose to" if o.asked_by == "her" else "you asked", o.status) if b),
+            _clip(o.text, 300), anchor="replies", ref=str(o.id), tone="error" if o.status == "failed" else None)
+    for n, c in enumerate(_phone_checks(user_id, 10)):
+        if c["ok"] is False:
+            add("phone", "check", c["at"], f"held by the {c['check']} check", c["why"], anchor="checks",
+                ref=f"{c['at']}:{n}", detail=c["what"])
     items.sort(key=lambda i: i["at"], reverse=True)
     return {"goal": _game_goal(db, user_id), "items": items[:WATCH_LIMIT]}
 
@@ -481,6 +631,10 @@ def errors(db: Session, user_id: uuid.UUID, status: dict[str, Any] | None = None
         out.append({"id": f"source:{src.source}:{src.source_instance}", "part": "observation",
                     "at": _iso(src.last_received_at) or now.isoformat(), "what": f"source {src.source}",
                     "text": _clip(src.last_error, 400)})
+    for r in db.scalars(select(PushDelivery).where(PushDelivery.user_id == user_id, PushDelivery.status == "failed")
+                        .order_by(PushDelivery.queued_at.desc()).limit(10)):
+        out.append({"id": f"push:{r.id}", "part": "phone", "at": _iso(r.finished_at or r.queued_at),
+                    "what": f"push · {r.kind} failed", "text": _clip(r.last_error, 400)})
     out.sort(key=lambda e: e["at"] or "", reverse=True)
     return out[:60]
 

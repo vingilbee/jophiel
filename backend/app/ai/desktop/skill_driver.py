@@ -424,6 +424,7 @@ class SkillDriverRun:
     pack_down_since: float | None = None
     died_at: float | None = None
     planning_since: float | None = None
+    goal_hold_since: float | None = None  # holding for the user's new goal to be planned (view.goal_planning)
     step_started: tuple[str, float] | None = None
     # The current step's tries: {"id", "do", "since", "tries", "failures": [...], "failed"}.
     step_log: dict | None = None
@@ -487,6 +488,8 @@ class SkillDriverRun:
                 return True
             self.waiting_until = None
 
+        if self._hold_for_new_goal(view):
+            return True
         current = view.current_step()
         if current is None:
             self._stop_running("the plan changed")
@@ -1057,6 +1060,22 @@ class SkillDriverRun:
             return []
 
     # -- helpers ----------------------------------------------------------------
+
+    def _hold_for_new_goal(self, view: DriverView) -> bool:
+        """The user gave a new goal and her planner is still on it: her hands start nothing from the old plan
+        until it lands (a skill already running carries on, and stops if the plan changes). Bounded: past
+        ``planning_wait_seconds`` she carries on with the plan she has."""
+        if not view.goal_planning:
+            self.goal_hold_since = None
+            return False
+        now = self.deps.now()
+        if self.goal_hold_since is None:
+            self.goal_hold_since = now
+            self._save(waiting="new_goal")
+        if now - self.goal_hold_since > self.planning_wait_seconds:
+            return False
+        self.deps.sleep(POLL_SECONDS)
+        return True
 
     def _between_goals(self, view: DriverView) -> bool:
         """Every step is done: wait for Jophiel's next goal when playing on

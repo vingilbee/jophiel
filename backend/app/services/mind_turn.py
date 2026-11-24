@@ -83,6 +83,10 @@ class Evaluation:
     deferred: list[dict[str, Any]] = field(default_factory=list)  # wakes she moved: from, to, reason
     dropped: list[dict[str, Any]] = field(default_factory=list)  # wakes she dropped or let go, with why
     fulfilled: list[uuid.UUID] = field(default_factory=list)  # promises she marked fulfilled (count once delivered)
+    keeping: dict[uuid.UUID, str] = field(default_factory=dict)  # her reason, per promise she means to keep
+    promises: list[uuid.UUID] = field(default_factory=list)  # promises of hers she noted in this evaluation
+    asking: list[uuid.UUID] = field(default_factory=list)  # questions of hers she asks in what she says now
+    not_kept: dict[uuid.UUID, str] = field(default_factory=dict)  # candidates her delivered words didn't carry out
 
     # --- what the prompt reads -------------------------------------------------------------- #
 
@@ -272,7 +276,9 @@ def _unsettled(db, ev: Evaluation, now: datetime) -> list[str]:
 _REASON_WORDS = {"user_message": "their message", "work_result": "thinking you started ending",
                  "thought": "a thought from your background thinking", "proposal": "a proposal from another part of you",
                  "conflict": "memory noticing a disagreement", "finding": "a security finding",
-                 "due": "something you scheduled coming due"}
+                 "question": "an open question of yours you hadn't asked",
+                 "due": "something you scheduled coming due",
+                 "follow_through": "something you promised or meant to do coming due"}
 _DID_WORDS = {"said": "you spoke", "partial": "you spoke, but were stopped part way",
               "silent": "you chose silence; no words were delivered",
               "no_words": "you wrote nothing; no words were delivered",
@@ -425,15 +431,16 @@ def _due(db, ev: Evaluation, work: CoordinatorWork, zone: str | None, now: datet
         out.append("- Nothing they said about urgency or consequences is recorded.")
     out += ["", "COMMITMENT"]
     entry = None
-    if inp.get("item"):
+    item = inp.get("item") or inp.get("follow_item")  # a check on a follow-through attempt is about its item
+    if item:
         try:
-            entry = db.get(WorkingItem, uuid.UUID(inp["item"]))
+            entry = db.get(WorkingItem, uuid.UUID(item))
         except ValueError:
             entry = None
     if entry is not None and entry.user_id == ev.user_id:
         state = entry.status + (f": {entry.status_reason}" if entry.status_reason else "")
         out.append(f"- Your working memory has it as {entry.kind} [{str(entry.id)[:8]}] \"{entry.text}\" ({state}).")
-    elif inp.get("item"):
+    elif item:
         out.append("- The working-memory item it was about can no longer be read.")
     else:
         out.append("- No promise or intention in your working memory tracks it.")
@@ -710,6 +717,8 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
     _safely(lambda: _record(ev, outcome=outcome, reply=reply, assistant_message_id=assistant_message_id,
                             error=error), None)
     _safely(lambda: _keep(ev, outcome=outcome, spoke=spoke, assistant_message_id=assistant_message_id), None)
+    from app.services import follow_through
+    follow_through.after(ev)  # a check that left its attempt pending: the next check, or unresolved
     try:
         turn = ev.recall_turn
         record = {
@@ -755,19 +764,58 @@ def _keep(ev: Evaluation, *, outcome: str, spoke: bool, assistant_message_id: uu
            outcome if outcome in ("cancelled", "failed") else "no_words")
     delivery = _DELIVERY.get(outcome, "failed")
     with SessionLocal() as db:
-        db.execute(insert(MindEvaluation).values(
+        first = db.execute(insert(MindEvaluation).values(
             id=uuid.uuid4(), user_id=ev.user_id, conversation_id=ev.conversation_id, turn_id=ev.request_id,
             reason=ev.reason[:24], trigger_message_id=ev.trigger_message_id if not ev.is_wake else None,
             work_id=uuid.UUID(ev.wake["work_id"]) if ev.wake and ev.wake.get("work_id") else None,
             outcome=did, delivery=delivery, assistant_message_id=assistant_message_id,
             silence_reason=ev.silent, tools=[a.get("tool") for a in ev.actions][:60],
             started_at=ev.started_at, finished_at=datetime.now(timezone.utc),
-        ).on_conflict_do_nothing(constraint="uq_mind_evaluations_turn"))
-        if ev.fulfilled and delivery not in ("delivered", "partial"):
+        ).on_conflict_do_nothing(constraint="uq_mind_evaluations_turn").returning(MindEvaluation.id)).scalar()
+        if first is not None and delivery == "delivered" and ev.not_kept:
+            # She spoke, but the check found these words don't carry the promise out: open, and why, on it.
             from app.services import memory_manager
-            for item_id in dict.fromkeys(ev.fulfilled):
-                memory_manager.reopen_undelivered(db, ev.user_id, item_id, delivery=delivery)
+            for item_id, why in ev.not_kept.items():
+                memory_manager.note_unkept(db, ev.user_id, item_id, delivery=why, said=True)
+        if first is not None and delivery != "delivered":
+            # Promises she meant to keep here weren't: they stay open, and the attempt stays visible on them. Words
+            # that were delivered closed them in the delivery commit (workers/chat.py ``_carried_out``).
+            from app.services import memory_manager
+            unkept = list(ev.fulfilled)
+            due_item = ((ev.wake or {}).get("input") or {}).get("item") if (ev.wake or {}).get("kind") == "wake" else None
+            if due_item and delivery in ("failed", "cancelled", "partial") and not ev.deferred and not ev.dropped:
+                unkept.append(uuid.UUID(due_item))  # woken to keep it, and nothing she said reached them
+            for item_id in dict.fromkeys(unkept):
+                memory_manager.note_unkept(db, ev.user_id, item_id, delivery=delivery)
+            meant = list(ev.asking)
+            inp = (ev.wake or {}).get("input") or {}
+            if (delivery in ("failed", "cancelled", "partial") and inp.get("wake") == "question"
+                    and (inp.get("premise") or {}).get("item")):
+                meant.append(uuid.UUID(inp["premise"]["item"]))  # woken to ask it, and her words didn't reach them
+            if meant:  # questions she meant to ask in words that never went out: still unasked, eligible again
+                memory_manager.not_asked(db, ev.user_id, item_ids=meant)
+            if delivery in ("failed", "cancelled", "partial"):
+                _retry_promise(db, ev, delivery)
         db.commit()
+
+
+RETRIES = {"failed": (60, 300, 900), "cancelled": (60,), "partial": (60,)}
+
+
+def _retry_promise(db, ev: Evaluation, delivery: str) -> None:
+    """A due wake for a promise of hers whose words didn't reach them (an error, their message arriving while she
+    worded it, words cut off): its only wake isn't used up. The same intention comes due again shortly, a bounded
+    number of times, as a revision of its chain (``coordinator.rearm_promise``). Once per evaluation (the caller
+    holds its first record); never when she moved, dropped or kept it. A reply to their message that keeps it
+    closes the promise, and with it this wake."""
+    info = ev.wake or {}
+    inp = info.get("input") or {}
+    if info.get("kind") != "wake" or not inp.get("item") or ev.deferred or ev.dropped:
+        return
+    tries = sum(1 for r in inp.get("revisions") or [] if r.get("retry"))
+    delays = RETRIES[delivery]
+    coordinator.rearm_promise(db, ev.user_id, uuid.UUID(inp["item"]), delay_seconds=delays[min(tries, len(delays) - 1)],
+                              reason=f"the attempt to keep it wasn't delivered ({delivery})")
 
 
 def _record(ev: Evaluation, *, outcome: str, reply: str, assistant_message_id: uuid.UUID | None,

@@ -191,6 +191,8 @@ def send(user_id: uuid.UUID, chat_conversation_id: uuid.UUID, target: Target, te
         return _held("no signed-in phone can take it")
     check = phone_reply_check.check_reply(user_id, target.handle, draft, model=model, now=now)
     if not check.send:
+        from app.services import system_signals
+        system_signals.emit(user_id, "mind", "phone", "held", target.conversation_id)
         reveals = f" (it would reveal: {'; '.join(check.reveals)})" if check.reveals else ""
         return (f"Held by the check before sending: {check.why}{reveals}. {NOTHING_SENT} You can say it "
                 "otherwise, ask the user privately, or leave it.")

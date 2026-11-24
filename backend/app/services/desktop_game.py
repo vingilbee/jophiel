@@ -981,6 +981,13 @@ def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None =
     session = _live(db, user_id)
     if not game_planning.handles(session):
         return set_plan(db, user_id, goal=goal, constraints=rules, new_goal=new_goal, message_id=message_id)
+    waiting = game_planning.planning_now(db, session.id) if message_id is None else None
+    if waiting is not None and game_planning.goal_waiting(db, session.id):
+        # Her own wake (no user message) restating a goal still being planned would replace it, and the
+        # planner drops an answer when a newer goal waits. Seen live 2026-11-24: three set_game_goal calls in
+        # 20 seconds ("make a bed", "...in Minecraft", white then black bed) threw away two finished plans.
+        return (f"Your mind is already working out {waiting}; your plan follows in a few seconds and your "
+                "hands start on it then. Nothing to set again.")
     if new_goal:
         _begin_goal(db, user_id, goal, message_id)
     game_planning.request(db, session, "goal: the user asked", goal=_goal(goal, target, rules))
@@ -988,11 +995,13 @@ def set_goal(db: Session, user_id: uuid.UUID, *, goal: str, target: str | None =
     agent_events.wake()
     stopped = _stop_own_lesson(db, user_id)
     if session.state == "running":
-        return ("Got it: you're working out how (your plan follows in a few seconds; your hands carry on "
-                "with what they were doing until then). Say you're on it, not what your steps will be." + stopped)
+        return ("Got it: you're working out how (your plan follows in a few seconds; your hands wait for it, "
+                "and start nothing more from the old plan). Say you're on it, not what your steps will be."
+                + stopped)
     why = REASONS.get(session.reason_code or "", "")
     return ("Got it: you're working out how; your plan follows in a few seconds. You're paused right now"
-            + (f" ({why})" if why else "") + ": not moving yet." + stopped)
+            + (f" ({why})" if why else "") + ": not moving yet. If the user wants you playing, resume_game now: "
+            "your hands wait for the new plan either way." + stopped)
 
 
 def do_now(db: Session, user_id: uuid.UUID, *, do: str, done_when: str, rules: list[str] | None = None) -> str:

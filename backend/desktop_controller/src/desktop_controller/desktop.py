@@ -14,6 +14,9 @@ whatever is in front, the way a person's would.
 - **Never behind a sign-in prompt.** While a Windows credential or elevation prompt is in front, nothing is
   pressed (``Refused``): those are for the user.
 
+- **Commands** (``run_command``, 0.13.0+): one shell command, its output back as text (``commands.py``). It
+  doesn't touch the screen, so no sign-in check; the user's view switch still governs it (connection.py).
+
 ``DesktopHands.run`` takes the raw action dict and returns a ``DesktopResult``; it never raises.
 """
 from __future__ import annotations
@@ -25,6 +28,7 @@ from typing import Annotated, Literal, Protocol, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
+from .commands import MAX_COMMAND, MAX_TIMEOUT_S, CommandFailed, CommandRunner
 from .link import DesktopResult, ScreenInfo
 
 MAX_TEXT = 2000
@@ -143,7 +147,15 @@ class Keyboard(_Action):
     repeat: Annotated[int, Field(ge=1, le=MAX_PRESSES)] = 1
 
 
-Action = Annotated[Union[Screenshot, Move, Click, Drag, Scroll, Keyboard], Field(discriminator="kind")]
+class RunCommand(_Action):
+    """One shell command on the machine (0.13.0+); its output comes back as text (``commands``)."""
+
+    kind: Literal["run_command"]
+    command: Annotated[str, Field(min_length=1, max_length=MAX_COMMAND)]
+    timeout_s: Annotated[int, Field(ge=1, le=MAX_TIMEOUT_S)] = 60
+
+
+Action = Annotated[Union[Screenshot, Move, Click, Drag, Scroll, Keyboard, RunCommand], Field(discriminator="kind")]
 action_adapter = TypeAdapter(Action)
 INPUT_KINDS = frozenset({"move", "click", "drag", "scroll", "keyboard"})
 
@@ -215,10 +227,12 @@ class DesktopHands:
     """Carries out one action at a time. ``sleep`` is injectable for tests (``None``: real time, woken by a
     stop)."""
 
-    def __init__(self, backend: DesktopInput | None, screen: DesktopScreen | None, *, sleep=None):
+    def __init__(self, backend: DesktopInput | None, screen: DesktopScreen | None, *, sleep=None,
+                 commands: CommandRunner | None = None):
         self.backend = backend
         self.screen = screen
         self.sleep = sleep
+        self.commands = commands
         self._stop = threading.Event()  # the running action's stop (``run`` sets it per action)
 
     def run(self, action_id: str, raw: object, stop: threading.Event | None = None) -> tuple[DesktopResult, bytes | None]:
@@ -228,9 +242,20 @@ class DesktopHands:
         self._stop = stop or threading.Event()
         jpeg: bytes | None = None
         screen: ScreenInfo | None = None
+        ran: dict = {}
         try:
             action = parse_action(raw)
-            if isinstance(action, Screenshot):
+            if isinstance(action, RunCommand):
+                if self.commands is None:
+                    raise Refused("this machine can't run commands")
+                try:
+                    code, output, cut, why = self.commands.run(action.command, action.timeout_s, self._stop)
+                except CommandFailed as exc:
+                    raise Failed(str(exc)) from None
+                ran = {"exit_code": code, "output": output, "output_cut": cut}
+                if why is not None:
+                    raise Failed(why)
+            elif isinstance(action, Screenshot):
                 if self.screen is None:
                     raise Refused("this machine can't take screenshots")
                 shot = self.screen.screenshot(action)
@@ -254,6 +279,7 @@ class DesktopHands:
             action_id=action_id, status=status, reason=(reason or None) and reason[:300],
             ran_ms=int((time.monotonic() - started) * 1000), screen=screen,
             foreground_process=(process or None) and process[:64], foreground_title=(title or None) and title[:200],
+            **ran,
         ), jpeg
 
     # -- input -----------------------------------------------------------------

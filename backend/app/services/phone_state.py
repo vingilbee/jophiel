@@ -35,6 +35,10 @@ USERS_KEY = "phone_state:users"
 MIND_WAKEUPS = "macrovision:mind:wakeups"  # the mind worker's queue (workers/runner.py): a change ticks at once
 WRITE_TRIES = 5  # a report's compare-and-write, retried when another report changed the hash under it
 CONVERSATION = "_conversation"  # the conversation the phone app is in (where her lines go)
+# Where in the track what's playing was (``position_ms`` / ``duration_ms`` with when it was observed): kept beside
+# ``media``, never in it, so a position moving never changes what's playing, its ``since`` or a change's key.
+POSITION = "_media_position"
+POSITION_KEYS = ("position_ms", "duration_ms")
 ZONE = "_zone"  # the IANA time zone the phone app reported
 AWAY = "away"  # ``place``: the phone confirmed they're at none of their named places (None: where isn't known)
 
@@ -60,6 +64,9 @@ class PhoneState:
     (``app`` None: unknown)."""
 
     values: dict[str, Value] = field(default_factory=dict)
+    # Where in the track (``position_ms``, ``duration_ms``, ``at``: when observed), from the latest media report
+    # that had it; None when it didn't (or nothing plays).
+    media_position: dict | None = None
     reported_at: float | None = None
     conversation_id: uuid.UUID | None = None
     zone: str | None = None
@@ -85,10 +92,10 @@ def _observed(observed_at: datetime | None, now: float) -> float:
 
 
 def _merge(stored: dict, fields: dict, at: float, confirm: frozenset[str] = frozenset(),
-           confirm_at: float = 0.0) -> tuple[dict, list[str]]:
+           confirm_at: float = 0.0, position: dict | None = None) -> tuple[dict, list[str]]:
     """The hash fields to write for one report over what's stored, and the state fields whose value changed.
     ``confirm``: fields the phone is watching live (it sends only changes), so what it didn't send this time still
-    holds as of ``confirm_at``."""
+    holds as of ``confirm_at``. ``position``: where in the track, from a media report (``_split_position``)."""
     updates, changed = {}, []
     for name, value in fields.items():
         if name not in FIELDS:
@@ -106,18 +113,50 @@ def _merge(stored: dict, fields: dict, at: float, confirm: frozenset[str] = froz
             old = _load(stored.get(name))
             if name not in updates and old is not None and old.as_of < confirm_at:
                 updates[name] = json.dumps({"value": old.value, "since": old.since, "as_of": confirm_at})
+    if position is not None:
+        # A media report: its position replaces the last one (none in it: no position known), unless it's older.
+        old = _position(stored.get(POSITION))
+        if old is None or at >= old["at"]:
+            updates[POSITION] = json.dumps({**position, "at": at} if position else None)
     return updates, changed
+
+
+def _split_position(fields: dict) -> tuple[dict, dict | None]:
+    """A report's fields with the position taken out of what's playing, and that position (``{}``: a media report
+    without one; None: no media in this report)."""
+    if "media" not in fields:
+        return fields, None
+    media = fields["media"]
+    if not isinstance(media, dict):
+        return fields, {}
+    position = {k: media[k] for k in POSITION_KEYS if media.get(k) is not None}
+    rest = {k: v for k, v in media.items() if k not in POSITION_KEYS}
+    return {**fields, "media": rest}, position
+
+
+def _position(raw) -> dict | None:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("at"), (int, float)):
+        return None
+    return data
 
 
 def _write(client: redis.Redis, key: str, fields: dict, at: float, extra: dict,
            confirm: frozenset[str], confirm_at: float) -> list[str]:
     """Compare and write in one transaction: two reports at once (the socket and the REST endpoint) can't both read
     the same state and then land in the wrong order. Retried when the hash changed under it."""
+    fields, position = _split_position(fields)
     for _ in range(WRITE_TRIES):
         with client.pipeline() as pipe:
             try:
                 pipe.watch(key)
-                updates, changed = _merge(_decoded(pipe.hgetall(key) or {}), fields, at, confirm, confirm_at)
+                updates, changed = _merge(_decoded(pipe.hgetall(key) or {}), fields, at, confirm, confirm_at,
+                                          position)
                 pipe.multi()
                 pipe.hset(key, mapping={**updates, **extra})
                 pipe.expire(key, int(get_settings().phone_state_keep_hours * 3600 * 7))
@@ -194,6 +233,8 @@ def read(user_id: uuid.UUID | str, *, now: float | None = None) -> PhoneState | 
         entry = _load(stored.get(name))
         if entry is not None:
             state.values[name] = entry
+    if isinstance(state.get("media"), dict):
+        state.media_position = _position(stored.get(POSITION))
     try:
         state.reported_at = float(json.loads(stored["_reported_at"])) if "_reported_at" in stored else None
         state.conversation_id = uuid.UUID(json.loads(stored[CONVERSATION])) if CONVERSATION in stored else None
@@ -325,7 +366,7 @@ def lines(state: PhoneState, now: float) -> list[str]:
         line(f"- Place: {what}{held('place')}", "place")
     media = state.get("media")
     if isinstance(media, dict):
-        line(f"- Media: {now_playing(media)}{held('media')}", "media")
+        line(f"- Media: {now_playing(media, state.media_position, now)}{held('media')}", "media")
     navigation = state.get("navigation")
     if isinstance(navigation, dict):
         line(f"- Maps trip under way{held('navigation')}: {trip(navigation)}", "navigation")
@@ -339,15 +380,29 @@ def _short(value: Any, limit: int = 80) -> str:
     return words if len(words) <= limit else words[: limit - 1] + "…"
 
 
-def now_playing(media: dict) -> str:
-    """What's playing, in words ("playing 'Song' by Artist on Spotify")."""
+def now_playing(media: dict, position: dict | None = None, now: float | None = None) -> str:
+    """What's playing, in words ("playing 'Song' by Artist on Spotify"), and where in the track it was when the
+    phone reported it, when the report said ("at 0:03 of 2:45, reported 5 s ago"): as reported, never extrapolated."""
     title, artist, app = _short(media.get("title")), _short(media.get("artist")), _short(media.get("app"), 40)
     what = f'"{title}"' if title else "something"
     if artist:
         what += f" by {artist}"
     if app:
         what += f" on {app}"
-    return f"{media.get('state') or 'playing'} {what}"
+    text = f"{media.get('state') or 'playing'} {what}"
+    if position and position.get("position_ms") is not None:
+        text += f", at {_clock(position['position_ms'])}"
+        if position.get("duration_ms"):
+            text += f" of {_clock(position['duration_ms'])}"
+        if now is not None:
+            text += f", reported {span(max(0.0, now - position['at']))} ago"
+    return text
+
+
+def _clock(ms: int) -> str:
+    seconds = int(ms // 1000)
+    hours, rest = divmod(seconds, 3600)
+    return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
 
 
 def trip(navigation: dict) -> str:

@@ -337,8 +337,8 @@ def test_the_tools_act_for_their_own_user_with_the_message_as_evidence(database,
     with database() as setup:
         message = _message(setup, alice, "let's plan my interview")
     tools = {t.name: t for t in build_memory_tools(alice.id, message_id=message.id)}
-    assert set(tools) == {"set_goal", "update_item", "note_commitment", "note_intention", "note_question",
-                          "switch_context"}
+    assert set(tools) == {"set_goal", "update_item", "note_commitment", "change_promise", "note_intention",
+                          "note_question", "switch_context"}
     assert asyncio.run(tools["switch_context"].ainvoke({"name": "Interview prep", "kind": "project"})) \
         == "Now in: Interview prep."
     kept = asyncio.run(tools["set_goal"].ainvoke({"goal": "prepare answers for Friday"}))
@@ -353,3 +353,63 @@ def test_the_tools_act_for_their_own_user_with_the_message_as_evidence(database,
     with database() as check:
         assert check.scalar(select(MemoryEvidence).where(MemoryEvidence.message_id == message.id,
                                                          MemoryEvidence.role == "resolution")) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Her promises in view: the newest never hidden behind an old backlog
+# --------------------------------------------------------------------------- #
+
+
+def _her_promises_like_the_spotify_evening(db, user_id):
+    """The 03:17 view: three cardio reminders with times (two overdue), two older WhatsApp promises, then six
+    rewordings of one Spotify promise, oldest to newest."""
+    now = datetime.now(timezone.utc)
+    made = {}
+
+    def promise(text, *, minutes_ago, due=None, status=None):
+        entry = memory_manager.note_commitment(db, user_id, text, due_at=due)
+        entry.created_at = now - timedelta(minutes=minutes_ago)
+        if status:
+            entry.status = status
+        made[text] = entry
+        return entry
+
+    promise("Remind him about cardio at 3 PM", minutes_ago=900, due=now + timedelta(hours=2))
+    promise("Remind him about cardio (first)", minutes_ago=950, due=now - timedelta(hours=5), status="needs_review")
+    promise("Remind him about cardio (second)", minutes_ago=940, due=now - timedelta(hours=4), status="needs_review")
+    promise("Tell him when a WhatsApp notification arrives", minutes_ago=2000)
+    promise("Don't reply to WhatsApp unless he asks", minutes_ago=1990)
+    for n in range(6):
+        promise(f"Switch Spotify back to Into You (wording {n})", minutes_ago=60 - n)
+    db.commit()
+    return made
+
+
+def test_her_newest_promises_are_in_view_and_the_rest_are_still_named(db, alice):
+    made = _her_promises_like_the_spotify_evening(db, alice.id)
+    view = memory_manager.view(db, alice.id)
+    shown, _, hidden = view.partition("more open promises (older):")
+    # The timed one still ahead comes first; then hers newest first: the latest Spotify wordings, not the backlog.
+    assert shown.index("cardio at 3 PM") < shown.index("wording 5") < shown.index("wording 4")
+    assert "wording 5" in shown and "WhatsApp" not in shown
+    # Everything left out is still reachable by its id.
+    for text, entry in made.items():
+        if text not in shown:
+            assert f"[{memory_manager.ref(entry)}]" in hidden or "…" in hidden
+
+
+def test_noting_a_promise_shows_her_other_open_ones_to_see_a_repeat(db, alice, bob):
+    from app.ai.tools.memory.tools import build_memory_tools
+
+    first = memory_manager.note_commitment(db, alice.id, "Switch Spotify back to Into You if it moves on")
+    db.commit()
+    tools = {t.name: t for t in build_memory_tools(alice.id)}
+    kept = asyncio.run(tools["note_commitment"].ainvoke({
+        "what": "Keep Into You playing, press Previous if it changes", "when": "Spotify moves to another song"}))
+    assert kept.startswith("Kept: promise [")
+    assert f'Also open: [{memory_manager.ref(first)}] "Switch Spotify back to Into You if it moves on"' in kept
+    assert "keep one" in kept
+    # Another user's promises are never shown, and with none other open there's nothing to add.
+    bobs = {t.name: t for t in build_memory_tools(bob.id)}
+    alone = asyncio.run(bobs["note_commitment"].ainvoke({"what": "Remind Bob about the dentist"}))
+    assert alone.startswith("Kept: promise [") and "Also open" not in alone

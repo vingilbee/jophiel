@@ -41,6 +41,8 @@ class Runtime:
             return False
         self._reap_and_renew()
         service.expire_due()
+        from app.services import follow_through
+        follow_through.sweep()  # attempts whose check died move on by themselves (throttled inside)
         # Recovery and waking the mind with finished work have their own capacity, never the slow thinking lane.
         pending = self.active["conclusion"]
         if len(pending) < self.slots:
