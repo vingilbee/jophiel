@@ -472,7 +472,27 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
             return MAPS_UNAVAILABLE
         return _display(address) if address else "Maps couldn't identify a street or area there."
 
-    return [phone_action_tool, get_route, search_places, where_am_i]
+    @tool
+    async def check_notifications(app: str) -> str:
+        """Look through every notification still on their phone for one app, newest first, with what each says.
+        Use it when they ask about a particular app's notifications ("any WhatsApp messages?"): "Now" lists only
+        the newest few, so one from that app can be on the phone without being listed there. It says plainly when
+        there are none, and when you can't check (not shared, or unreadable): then say you can't check, never that
+        there are none. Read only: nothing is replied to, dismissed or sent.
+
+        app: the app's name as they say it (WhatsApp, Gmail), or its package (com.whatsapp).
+        """
+        name = " ".join((app or "").split())[:80]
+        if not name:
+            return "Say which app."
+        if why := await refused(f'read the notifications from "{name}" still on their phone (read only: nothing '
+                                "is replied to, dismissed or sent)"):
+            return why
+        return await asyncio.to_thread(phone_notifications.app_report, user_id, name)
+
+    # One app's notifications: the user's own turns only (her own turns see who and where, never anyone's words).
+    looked_up = [] if own_turn else [check_notifications]
+    return [phone_action_tool, get_route, search_places, where_am_i, *looked_up]
 
 
 def _held_by_check(check) -> str:

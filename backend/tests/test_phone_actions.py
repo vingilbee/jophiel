@@ -309,7 +309,7 @@ def test_position_reply_is_encrypted_and_only_activity_is_persisted(channel, mon
     point = (21.127331, 34.872212)
     room = channel.conversation
     monkeypatch.setattr(google_maps, "address_at", lambda coords: "Main Street" if coords == point else None)
-    _, _, _, where = tools.build_phone_tools(channel.user, room, authority=Allow())
+    _, _, _, where, _ = tools.build_phone_tools(channel.user, room, authority=Allow())
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
@@ -392,7 +392,7 @@ def test_maps_tools_are_registered_only_on_direct_replies(monkeypatch):
             return names
 
     assert asyncio.run(registered(reply)) == {"phone_action", "get_route", "search_places", "where_am_i",
-                                              "read_person", "authorize_detail"}
+                                              "check_notifications", "read_person", "authorize_detail"}
     # Her own turns get the quiet actions (tests/test_phone_phase8.py checks which); a turn someone else's words
     # caused gets none, nor do nudges.
     own = replace(reply, source_message_id=None, wake="late result")
@@ -431,7 +431,7 @@ def test_route_and_nearby_return_only_human_readable_location_data(monkeypatch):
     monkeypatch.setattr(phone_actions, "act", act)
     monkeypatch.setattr(phone_actions, "record_position_use", lambda *_: None)
     monkeypatch.setattr(google_maps.httpx, "post", post)
-    _, route, nearby, _ = tools.build_phone_tools(uuid.uuid4(), uuid.uuid4(), authority=Allow())
+    _, route, nearby, _, _ = tools.build_phone_tools(uuid.uuid4(), uuid.uuid4(), authority=Allow())
     estimate = asyncio.run(route.ainvoke({"destination": "Office", "mode": "two_wheeler"}))
     assert estimate == "Two-wheeler routing is unavailable here. Using driving instead. About 25 min by car, 8.2 km with live traffic."
     places = json.loads(asyncio.run(nearby.ainvoke({"query": "pharmacy", "nearby": True})))
@@ -472,7 +472,7 @@ def test_place_ids_resolve_in_a_fresh_turn(monkeypatch):
     monkeypatch.setattr(google_maps.httpx, "get", get)
     monkeypatch.setattr(phone_actions, "act", act)
     user, room = uuid.uuid4(), uuid.uuid4()
-    _, _, search, _ = tools.build_phone_tools(user, room, authority=Allow())
+    _, _, search, _, _ = tools.build_phone_tools(user, room, authority=Allow())
     [result] = json.loads(asyncio.run(search.ainvoke({"query": "Museum"})))
     navigate, route, *_ = tools.build_phone_tools(user, room, authority=Allow())
     destination = {"destination_place_id": result["place_id"]}
