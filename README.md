@@ -13,7 +13,7 @@ She's alive every tick, aware of time, and adapts and learns from her own experi
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Redis-4169E1?logo=postgresql&logoColor=white)
 
-[Meet her](#meet-her) · [How that happened](#how-that-happened) · [The five loops](#the-five-loops) · [What she can do](#what-she-can-do) · [System page](#the-system-page) · [Demo](#demo)
+[Meet her](#meet-her) · [How that happened](#how-that-happened) · [The five loops](#the-five-loops-her-harness) · [What she can do](#what-she-can-do) · [System page](#the-system-page) · [Demo](#demo)
 
 </div>
 
