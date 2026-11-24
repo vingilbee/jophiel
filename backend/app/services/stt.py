@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # biases the model far more strongly than the language code does.
 # No example phrases in it: on near-silent audio these models can echo prompt
 # words back as a transcript, which would put "stop" in the user's mouth.
-TRANSCRIBE_PROMPT = "The speaker is talking in English."
+TRANSCRIBE_PROMPT = "The speaker is talking in English to Jophiel, nicknamed Jofy."
 # While the user plays Minecraft with Columbina: game words the model would
 # otherwise hear as everyday ones ("sheep" as "ship", "creeper" as "keeper").
 # Only nouns, and no command words, for the echo reason above; a transcript made
@@ -42,7 +42,7 @@ MINECRAFT_WORDS = (
     "planks", "iron", "diamond", "village", "cave", "Nether",
 )
 MINECRAFT_PROMPT = (
-    "The speaker is talking in English while playing Minecraft, so they may "
+    "The speaker is talking in English to Jophiel (Jofy) while playing Minecraft, so they may "
     "mention " + ", ".join(MINECRAFT_WORDS) + "."
 )
 _PROMPT_WORDS = {w for phrase in MINECRAFT_WORDS for w in phrase.lower().split()} | {
@@ -52,6 +52,13 @@ _PROMPT_WORDS = {w for phrase in MINECRAFT_WORDS for w in phrase.lower().split()
 # back (seen live: "The speaker is talking in English while playing Minecraft,
 # so they may mention sheep, ..." and "context: ### The speaker is ...").
 _ECHO_RUN = 4
+# Her name ("Jo-fy-el") and nickname ("Jofy") spelled the way the transcriber
+# guesses them. Only spellings that aren't English words, so a real "jovial" is
+# never rewritten; the prompt's names are what steer that one.
+_NAME_VARIANTS = re.compile(
+    r"\bjo[\s-]?(?:ph|f|ff)(?:i|y|ee|ie)[\s-]?(?:e|ie)?l+e?\b", re.IGNORECASE,
+)
+_NICKNAME_VARIANTS = re.compile(r"\bjo(?:ph|f|ff)(?:y|ie|ey|ee)\b", re.IGNORECASE)
 # whisper-1 enforces `language` strictly, so it is the retry when the primary
 # model still returns another script. Slower, but only paid in that rare case.
 FALLBACK_MODEL = "whisper-1"
@@ -116,7 +123,13 @@ async def transcribe(pcm: bytes, sample_rate: int, *, minecraft: bool = False) -
     if is_prompt_echo(text):
         logger.warning("STT echoed its prompt; treating it as silence")
         return ""
-    return text
+    return fix_name(text)
+
+
+def fix_name(text: str) -> str:
+    """Write her name as Jophiel and her nickname as Jofy, however the
+    transcriber spelled them."""
+    return _NICKNAME_VARIANTS.sub("Jofy", _NAME_VARIANTS.sub("Jophiel", text))
 
 
 def _runs(words: list[str], n: int) -> set[tuple[str, ...]]:
