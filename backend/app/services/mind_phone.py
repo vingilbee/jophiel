@@ -12,6 +12,12 @@ network, Do Not Disturb, moving, a named place, the part of the day, a longer qu
 restart, a phone seen again) is the baseline, not news. No pressure is ever "urgent" here and nothing is a problem
 for hard thinking: code reports facts; whether any of it matters is her mind's.
 
+Follow-through (services/follow_through.py): her own moments list what she's waiting for (her open promises and
+intentions, by id, with attempts still waiting for a result), and carry a key for what was observed
+(``transition``), so a quick thought that finds one due wakes her mind once per change. While something of hers waits
+on a condition, each track is news too (``snapshot(tracks=True)``): a promise about what plays can't be missed between
+other news. A pacing rule only: whether the track matters is hers.
+
 Phase 8: what's playing starting or stopping, a Maps trip starting or ending, the Messages switch, and the phone's
 notifications (services/phone_notifications.py: a new message, a removal), always as someone else's words. A moment
 with a posted or removed notification is ``third_party``: the wake it leads to gets no device action (app/ai/chat.py).
@@ -84,8 +90,9 @@ def quiet_band(seconds: float | None) -> str | None:
     return next((label for limit, label in QUIET_BANDS if seconds >= limit), None)
 
 
-def snapshot(state: phone_state.PhoneState) -> dict[str, Any]:
-    """What the phone says, as news reads it (bands, not numbers): two equal snapshots mean nothing to notice."""
+def snapshot(state: phone_state.PhoneState, *, tracks: bool = False) -> dict[str, Any]:
+    """What the phone says, as news reads it (bands, not numbers): two equal snapshots mean nothing to notice.
+    ``tracks``: each track is news too (she's waiting on a condition: services/follow_through.watching)."""
     return {
         "app": state.app, "voice": state.voice, "screen": state.get("screen"), "locked": state.get("locked"),
         "battery": phone_state.battery_band(state.get("battery"), state.get("charging")),
@@ -94,13 +101,26 @@ def snapshot(state: phone_state.PhoneState) -> dict[str, Any]:
         "ringer": state.get("ringer"), "motion": state.get("motion"), "place": state.get("place"),
         # What's playing (the app and playing / paused, not each track) and whether a Maps trip is under way (not
         # each step): what a person notices; the track and the step are read in "THEIR PHONE".
-        "media": _media(state.get("media")), "navigating": isinstance(state.get("navigation"), dict) or None,
+        "media": _media(state.get("media"), tracks), "navigating": isinstance(state.get("navigation"), dict) or None,
         "messages_on": state.get("messages_on"),
     }
 
 
-def _media(value) -> tuple | None:
-    return (value.get("app"), value.get("state")) if isinstance(value, dict) else None
+def _media(value, tracks: bool = False) -> tuple | None:
+    if not isinstance(value, dict):
+        return None
+    return ((value.get("app"), value.get("state"), value.get("title"), value.get("artist")) if tracks
+            else (value.get("app"), value.get("state")))
+
+
+def transition(state: phone_state.PhoneState) -> str:
+    """What the phone reports, as a key for the change she observed: when each reading last changed (the battery by
+    band). Two ticks seeing the same change share it; the same value coming back later is a new change."""
+    from app.services import follow_through
+
+    values = {name: round(value.since, 3) for name, value in state.values.items() if name != "battery"}
+    values["battery"] = phone_state.battery_band(state.get("battery"), state.get("charging"))
+    return "phone:" + follow_through.key_of(values)
 
 
 def _network(value) -> str:
@@ -177,6 +197,19 @@ def news(now: dict[str, Any], before: dict[str, Any] | None, state: phone_state.
 
 
 PROMISES_SHOWN = 6
+WATCH_READ_SECONDS = 10.0
+
+
+def _waiting_lines(db: Session | None, user_id: uuid.UUID, at: float) -> list[str]:
+    """Her open promises and intentions with their ids (services/follow_through.waiting_lines); nothing without a
+    database, or when they can't be read (the moment goes on without them)."""
+    if db is None:
+        return []
+    from app.services import follow_through
+    try:
+        return follow_through.waiting_lines(db, user_id, datetime.fromtimestamp(at, timezone.utc))
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def open_promises(db: Session | None, user_id: uuid.UUID) -> list[str]:
@@ -234,6 +267,23 @@ class PhoneSource:
         self._seen: dict[uuid.UUID, tuple[dict, float]] = {}  # per user: the last ticked snapshot, when
         self._live: set[uuid.UUID] = set()  # every user with a phone, ticked this loop or not
         self._news_ticks: dict[uuid.UUID, deque[float]] = {}  # per user: ticks notifications alone caused, last hour
+        self._watching: dict[uuid.UUID, tuple[bool, float]] = {}  # per user: waiting on a condition, read when
+
+    def _tracks(self, db: Session | None, user_id: uuid.UUID, now: float) -> bool:
+        """Whether each track is news for this user now: something of hers waits on a condition. Read at most every
+        ``WATCH_READ_SECONDS``; unknown (no database) is no."""
+        seen = self._watching.get(user_id)
+        if seen is not None and now - seen[1] < WATCH_READ_SECONDS:
+            return seen[0]
+        if db is None:
+            return False
+        from app.services import follow_through
+        try:
+            value = follow_through.watching(db, user_id)
+        except Exception:  # noqa: BLE001 - the coarser news still flows
+            value = seen[0] if seen is not None else False
+        self._watching[user_id] = (value, now)
+        return value
 
     def _news_tick_allowed(self, user_id: uuid.UUID, now: float) -> bool:
         ticks = self._news_ticks.setdefault(user_id, deque())
@@ -264,7 +314,7 @@ class PhoneSource:
                 continue
             state = state or phone_state.PhoneState()
             seen = self._seen.get(user_id)
-            current = snapshot(state)
+            current = snapshot(state, tracks=self._tracks(db, user_id, now))
             if not updates and seen is not None and seen[0] == current and now - seen[1] < every:
                 # Nothing but notification news would make this tick: paced by the hourly cap.
                 if not notes or not self._news_tick_allowed(user_id, now):
@@ -287,6 +337,7 @@ class PhoneSource:
             if user_id not in live:
                 self._seen.pop(user_id, None)
                 self._news_ticks.pop(user_id, None)
+                self._watching.pop(user_id, None)
         self._live = {activity_of(user_id) for user_id in live}
         return out
 
@@ -304,7 +355,7 @@ class PhoneSource:
         local = datetime.fromtimestamp(at, zone or timezone.utc)
         theirs = _last_message_at(db, scope.user_id, "user")
         hers = _last_message_at(db, scope.user_id, "assistant")
-        current = {**snapshot(state), "part_of_day": part_of_day(local.hour),
+        current = {**snapshot(state, tracks=self._tracks(db, scope.user_id, at)), "part_of_day": part_of_day(local.hour),
                    "quiet": quiet_band(at - theirs if theirs is not None else None)}
         fresh = [*(text for _, text in action_news), *news(current, previous, state),
                  *phone_notifications.news_lines(notes, people=phone_notifications.news_people(
@@ -334,6 +385,9 @@ class PhoneSource:
             text.append("NEW SINCE THE LAST MOMENT\n" + "\n".join(f"- {line}" for line in fresh))
         else:
             text.append("NEW SINCE THE LAST MOMENT\n- nothing")
+        waiting = _waiting_lines(db, scope.user_id, at)
+        if waiting:
+            text.append("WHAT YOU'RE WAITING FOR (your open promises and intentions)\n" + "\n".join(waiting))
         if talk:
             text.append("RECENT TALK\n" + "\n".join(
                 f"- {'They' if m['role'] == 'user' else 'You'}: {' '.join(m['content'].split())[:200]}"
@@ -355,7 +409,9 @@ class PhoneSource:
                             "arrived": phone_notifications.arrived(notes),
                             # Affinity B3: each eligible one bound to the message that caused it (ids only): the
                             # only exchanges the wake this leads to may answer (services/phone_replies.py).
-                            "reply_targets": phone_replies.targets_from_news(notes)})
+                            "reply_targets": phone_replies.targets_from_news(notes),
+                            # The change observed, for follow-through (two ticks of one change share it).
+                            "transition": transition(state)})
 
     def _their_moment(self, db, scope: Scope, state, notes: list[dict], current: dict, previous: Any,
                       fresh: list[str], talk: list[dict], local: datetime, zone) -> Moment:

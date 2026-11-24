@@ -267,7 +267,8 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if (settings.redis_url and context.conversation_id is not None and not context.third_party
             and context.game_event is None and context.nudge is None and (phone_reply or context.wake is not None)):
         direct_tools.extend(build_phone_tools(context.user_id, context.conversation_id, own_turn=not phone_reply,
-                                              message_id=context.source_message_id if phone_reply else None))
+                                              message_id=context.source_message_id if phone_reply else None,
+                                              evaluation=context.mind))
         # Who she knows on the phone (read only): the user's own reply turns, never a wake.
         if phone_reply:
             direct_tools.extend(build_people_tools(context.user_id, context.source_message_id))

@@ -187,6 +187,37 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **`read_person`**: on the user's reply turns only (not wakes, not third-party turns): her record for one person,
   or the list when several match. Inspection: `GET /api/memory/people`, `DELETE /api/memory/people/{id}`.
 
+### Follow-through (2026-11-23, `services/follow_through.py`, migration `a3f8c1e6d9b4`)
+
+The reproduction: she promised to keep a song playing and switch back if Spotify moved on; twice her background
+mind saw the change and the promise, and both quick thoughts ended without a command, because only a line to *say*
+woke her mind. Now acting is separate from speaking, in shared Mind behaviour for any source:
+
+- **What a moment shows**: her own phone moments list WHAT YOU'RE WAITING FOR (her open promises and intentions by
+  id, their condition, attempts still waiting for a result) and carry `transition`, a key for the observed change (when
+  each reading last changed). Someone else's words never share a moment with them (privacy step 3), so a notification
+  moment never leads here. While something of hers waits on a condition, each track is news too.
+- **`act`** (app/ai/mind/think.py): a quick thought that finds one of them due now, or sees how an attempt turned out,
+  names the item and what to do, even with nothing to say. `follow_through.request` wakes her mind once per item and
+  change (`coordinator_work`, `wake="follow_through"`, the item as its premise): duplicate observations, a retry or a
+  restart find the first. Passing thoughts and predictions stay private. Its line, if any, rides on that wake.
+- **The evaluation** (`render_wake`: FOLLOWING THROUGH) rereads the item, "Now" and her attempts, and decides:
+  nothing (cancelled, changed, already as they want), an action, or telling them what she can't do. Permissions are
+  her own turn's: on the phone the quiet actions (media previous, alarms...), never `play_music`.
+- **Attempts** (`follow_through_attempts`): every device action on such a wake is recorded before it's sent and
+  fenced (execution facts): the item still open; nothing else for it waiting for its result; `MAX_PER_CHANGE` (2) per
+  change, `MAX_PER_HOUR` (8) per item; a check after which they wrote sends nothing (their latest message decides).
+- **Accepted is not achieved**: an action whose own answer proves it (an alarm set) is achieved; otherwise the attempt
+  is `pending` and a check wake (`CHECK_DELAYS` 20 s, 60 s) shows her whether the phone reported the observed field
+  (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt`: achieved / not achieved only on such a fresh report,
+  unresolved any time. A check that ends with it still pending schedules the next one; after the last it's
+  `unresolved`, never success.
+- **Cancelled**: the item closing (any status change through `memory_manager._set_status`) cancels its pending
+  attempts and their checks; `begin` rereads the item under lock before any send.
+- **Records**: `mind.jsonl` (the thought's `act`, `item`, `act_outcome`), the coordinator log (`follow_through_seen`,
+  `attempt`, `settled`, `after_check`), `follow_through_attempts` (issued, device answer, observed field, outcome, each
+  with its time): observation, decision, command, fresh report and outcome in one timestamped sequence.
+
 ## Records
 
 - `mind_turns.jsonl` (`MIND_TURN_LOG_PATH`): one line per evaluation and the coordinator's lifecycle lines: ids,
@@ -212,6 +243,7 @@ Adaptation and hot reload are outside the current scope.
   `effect` executions, their lesson and assessment uses and `cognition` coordinator work, and updates the learner,
   execution-kind and work-kind constraints. Downgrade recreates the empty tables and old constraints, deleting her
   mind's own records first; removed rows are not restored.
+- `a3f8c1e6d9b4`: `follow_through_attempts` (her follow-through on promises a change made due).
 
 Deployment: stop the workers and the API, `uv run alembic upgrade head`, start both (the personality snapshot loads
 on first use). Nothing serves a student model any more: stop any `student_model.py serve` process.

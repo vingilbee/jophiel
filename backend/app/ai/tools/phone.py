@@ -195,12 +195,16 @@ def _operation(action: str, given: dict, who: str | None = None) -> str:
 
 
 def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_turn: bool = False,
-                      message_id: uuid.UUID | None = None, authority=None) -> list[BaseTool]:
+                      message_id: uuid.UUID | None = None, authority=None, evaluation=None) -> list[BaseTool]:
     """Her phone tools for one turn. ``own_turn``: she wasn't written to (a wake): quiet actions only. On the user's
     reply turns every operation that reads something sensitive or acts on the phone is first bound to their
     message ``message_id`` (services/phone_authority.py: ``authority`` overrides, for tests), before the first
-    lookup or device call; messages to other people also pass the outgoing check (services/phone_reply_check.py)."""
-    from app.services import phone_authority, phone_reply_check
+    lookup or device call; messages to other people also pass the outgoing check (services/phone_reply_check.py).
+    ``evaluation``: her mind's evaluation; when it follows a promise through (services/follow_through.py), each
+    device action is an attempt for it, recorded and fenced before it's sent, its result said back with it."""
+    from app.services import follow_through, phone_authority, phone_reply_check
+
+    following = follow_through.of(evaluation) if own_turn and evaluation is not None else None
 
     found: dict[str, google_maps.Place] = {}
     owner = None if own_turn else (authority or phone_authority.Authority(user_id, message_id))
@@ -330,7 +334,20 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
                                                 args["text"], owner_request=owner.request_text())
                 if not check.send:
                     return _held_by_check(check).replace("Nothing was sent", "Nothing was opened")
-        outcome = await ask(action, {k: v for k, v in args.items() if v is not None}, view=view)
+        attempt = None
+        if following is not None:
+            attempt = await asyncio.to_thread(follow_through.begin, evaluation, action, view)
+            if isinstance(attempt, str):
+                return attempt
+        try:
+            outcome = await ask(action, {k: v for k, v in args.items() if v is not None}, view=view)
+        except BaseException:
+            if attempt is not None:  # it may still have reached the phone: unknown, checked like any other
+                follow_through.finish(evaluation, attempt, "unconfirmed", "interrupted before the device answered")
+            raise
+        if attempt is not None:
+            note = await asyncio.to_thread(follow_through.finish, evaluation, attempt, outcome.status, outcome.text)
+            return f"{outcome.text}\n{note}".strip()
         return outcome.text
 
     allowed = tuple(a for a in (OWN_TURN_ACTIONS if own_turn else REPLY_TURN_ACTIONS))

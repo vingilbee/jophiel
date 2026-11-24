@@ -9,6 +9,8 @@ and then:
 
 - ``react``/``light``: a quick thought on a small pool thread (a fast model),
   saved, and its proposed line (if any) handed to her mind as a wake (autonomous_speech), which decides whether it's said;
+  a thought that finds a promise or intention of hers due now (``act``) wakes her mind with her tools even when it
+  has nothing to say (services/follow_through.py), once per item and observed change;
 - ``hard``: slow thinking about a problem (services/mind_hard.py), with attention shared per
   user across her activities. The gate's ``hard`` level is only one of its triggers (a
   surprise); here it becomes a light thought.
@@ -370,7 +372,9 @@ def _start_quick(mind: ActivityMind, source: Source, scope: Scope, level: str, m
     # Someone else's words in the moment (a notification): whatever it leads to is theirs, not the user's.
     data = moment.data if isinstance(moment.data, dict) else {}
     cause = {"third_party": bool(data.get("third_party")), "arrived": list(data.get("arrived") or []),
-             "reply_targets": list(data.get("reply_targets") or [])}
+             "reply_targets": list(data.get("reply_targets") or []),
+             # What was observed, as a stable key: two observations of one change share it (follow_through).
+             "transition": str(data.get("transition") or f"{scope.activity}:{int(at)}")}
     _pool.submit(_think_quick, source, scope, level, moment.text, at, thinker, cause)
 
 
@@ -399,6 +403,7 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             text = f"PERSONALITY\n{current().text}\n\nCURRENT MOMENT\n{text}"
             thought = thinker.think(level, text, user=(user.name if user and user.name else "the user"),
                                     situation=source.situation())
+            thought_at = time.time()
             if not thought.text:
                 _log({"ts": time.time(), "session": str(scope.activity), "quick": level,
                       "error": thought.error, "skipped": None if thought.error else "nothing new to think",
@@ -416,7 +421,19 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             saved = save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
                                  text=thought.text, status=status, kind=thought.kind, source=scope.source,
                                  activity_id=scope.activity)
-            if thought.say and status == "done":
+            act_outcome = None
+            if thought.act and status == "done" and not cause.get("third_party"):
+                # Something she promised or meant to do is due (or an attempt of hers shows its result): her mind is
+                # woken with her tools to do it, whether or not there's anything to say. Someone else's words never
+                # make a moment that shows her promises, so never lead here.
+                from app.services import follow_through
+                act_outcome = follow_through.request(
+                    db, user_id=scope.user_id, source=scope.source, activity_id=scope.activity, item=thought.item,
+                    act=thought.act, transition=cause.get("transition") or f"{scope.activity}:{int(at)}",
+                    reasons=[f"{level}: {thought.text}"], speaking=source.speaking(db, scope), say=thought.say,
+                    ttl=source.say_ttl() if hasattr(source, "say_ttl") else STALE_AFTER[level])
+            if thought.say and status == "done" and not (act_outcome or "").startswith(("Proposed", "Already")):
+                # (A follow-through wake already carries this moment: she can say it there.)
                 from app.services import autonomous_speech
                 outcome = autonomous_speech.submit(
                     db, user_id=scope.user_id, activity_id=scope.activity, source=scope.source,
@@ -428,6 +445,7 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             _log({"ts": time.time(), "session": str(scope.activity), "quick": level, "kind": thought.kind,
                   "noticed": thought.noticed, "thought": thought.text,
                   "say": thought.say, "said": bool(said), "say_outcome": outcome, "status": status,
+                  "act": thought.act, "item": thought.item, "act_outcome": act_outcome, "thought_at": thought_at,
                   "changed": outdated or None,
                   "ms": thought.latency_ms})
     except Exception:  # noqa: BLE001
