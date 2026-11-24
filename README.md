@@ -65,7 +65,7 @@ The same machinery handles *"I'll ask you how the interview went on Thursday."* 
 
 ---
 
-## The five loops
+## The five loops (Her Harness)
 
 Everything Jophiel does runs on five loops that feed each other:
 
