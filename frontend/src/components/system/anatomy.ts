@@ -156,6 +156,7 @@ export const WIRES: { from: PartId; to: PartId }[] = [
   { from: 'mind', to: 'phone' }, // an action on the phone, a reply she sent there, or one the check held
   { from: 'mouth', to: 'phone' }, // her message pushed to the phone when the user wasn't at any app
   { from: 'phone', to: 'learning' }, // a phone exchange she took part in, for assessment
+  { from: 'hands', to: 'mind' }, // her hands' actions on her desktop, watched by her background mind
 ]
 
 /** Zoom (as magnification over the fitted view) at which sub-parts begin to resolve. */

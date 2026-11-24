@@ -1131,7 +1131,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             turn_id=turn_id, voice=voice, user_name=user_name)
         recall_turn = mind.recall_turn
         # Independent reads (each its own DB session): together, not one after another.
-        now, personality_page, working_memory, mind_state, game, (desktop, desktop_usable), security = \
+        now, personality_page, working_memory, mind_state, game, (desktop, desktop_usable, desktop_commands), security = \
             await asyncio.gather(
                 asyncio.to_thread(mind.situation),
                 asyncio.to_thread(chat_worker._personality),
@@ -1171,6 +1171,7 @@ async def chat_ws(websocket: WebSocket) -> None:
             **_game_fields(game),
             desktop=desktop,
             desktop_usable=desktop_usable,
+            desktop_commands=desktop_commands,
             security=security,
             zone=state.zone_name,
             turn_id=turn_id,

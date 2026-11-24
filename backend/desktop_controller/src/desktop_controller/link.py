@@ -191,6 +191,8 @@ class ScreenInfo(_Msg):
 
 
 DesktopStatus = Literal["done", "failed", "refused"]
+# A command's output carried back (0.13.0+): kept well inside the relay's 64 KiB message limit.
+COMMAND_OUTPUT_CHARS = 12000
 
 
 class DesktopResult(_Msg):
@@ -208,6 +210,11 @@ class DesktopResult(_Msg):
     # What was in front once the action finished, when known.
     foreground_process: str | None = Field(default=None, max_length=64)
     foreground_title: str | None = Field(default=None, max_length=200)
+    # For a command (0.13.0+): its exit code (None: it didn't finish) and its output (stdout and stderr together,
+    # as text, cut in the middle when long: ``output_cut``).
+    exit_code: int | None = None
+    output: str | None = Field(default=None, max_length=COMMAND_OUTPUT_CHARS + 200)
+    output_cut: bool = False
 
 
 # --- Security activity (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md): the VM's event logs, read only ---------
@@ -303,6 +310,8 @@ class ControllerStatus(_Msg):
     display: str | None = Field(default=None, max_length=16)
     capture: Capability
     input: Capability
+    # Whether it can run commands in a shell (0.13.0+; older controllers don't say, and can't).
+    commands: Capability | None = None
     startup: Literal["registered", "not_registered", "unknown"] = "unknown"
     startup_method: str | None = Field(default=None, max_length=32)
 

@@ -255,11 +255,19 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     # actions, so an extra model hop per action would make it crawl. Replies only: a background turn
     # never starts using the desktop on its own.
     hook = None
+    reasoning = None
+    base_model = model  # specialists keep the turn's usual model (their calls run without reasoning)
     if context.desktop is not None and context.desktop_usable and context.game_event is None and context.nudge is None:
         direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
                                                         conversation_id=context.conversation_id,
-                                                        message_id=context.source_message_id))
+                                                        message_id=context.source_message_id,
+                                                        commands=context.desktop_commands))
         hook = screenshot_hook
+        # Working on her desktop is many steps, each chosen from what the last showed: worth a reasoning model that
+        # thinks before each (a reply turn without the desktop stays on the quick one). An explicit override wins.
+        reasoning = settings.desktop_control_reasoning_effort
+        if not context.model_override and settings.desktop_control_model:
+            model = settings.desktop_control_model
     # Her phone (app/ai/tools/phone.py): every action on a reply to the user; the quiet ones on her own turns (a
     # wake); none at all on a turn someone else's words caused (a notification, or what such a wake started or
     # scheduled), however it was carried; never on game events (other players' chat) or nudges.
@@ -319,19 +327,19 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     if not server_config or not specs:
         # No specialists, but possibly still the eye. `get_agent` is the cached
         # tool-less agent and can only serve the genuinely tool-less case.
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools else get_agent(model)), []
         return
 
-    subagent_tools = await _load_subagent_tools(server_config, specs, model, queue=queue)
+    subagent_tools = await _load_subagent_tools(server_config, specs, base_model, queue=queue)
     if not subagent_tools:
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook) if direct_tools else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools else get_agent(model)), []
         return
 
     # Keep specs in step with the tools that actually built, so the prompt
     # never advertises a specialist whose server didn't come up.
     live = {tool.name for tool in subagent_tools}
     specs = [spec for spec in specs if spec.tool_name in live]
-    yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook), specs
+    yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook, reasoning=reasoning), specs
 
 def _run_config(context: AgentRuntimeContext) -> dict | None:
     """A desktop turn alternates looking and acting many times: more graph steps than a chat turn."""

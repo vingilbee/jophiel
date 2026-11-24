@@ -183,12 +183,13 @@ class GameNotice(_Payload):
 
 
 class DesktopAction(_Payload):
-    """One action of her hands on her own Windows desktop (services/desktop_control), and what was in front
-    once it finished. ``summary`` is code's words for what she meant to do; window titles are the desktop's
-    own text, quoted."""
+    """One action of her hands on her own desktop (services/desktop_control), and what was in front once it
+    finished. ``summary`` is code's words for what she meant to do (a command: that she ran one, and its exit
+    code; the command and its output stay in the owner-only capture); window titles are the desktop's own text,
+    quoted."""
 
     action_id: str = Field(max_length=40)
-    tool: Literal["screenshot", "move_mouse", "click", "drag", "scroll", "keyboard"]
+    tool: Literal["screenshot", "move_mouse", "click", "drag", "scroll", "keyboard", "run_command"]
     status: Literal["done", "failed", "refused", "unconfirmed"]
     reason: str | None = Field(default=None, max_length=300)
     summary: str = Field(max_length=200)

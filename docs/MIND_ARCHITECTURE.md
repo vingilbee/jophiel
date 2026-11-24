@@ -238,6 +238,30 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
   `attempt`, `settled`, `after_check`), `follow_through_attempts` (issued, device answer, observed field, outcome, each
   with its time): observation, decision, command, fresh report and outcome in one timestamped sequence.
 
+### Her hands on her desktop (2026-11-23, `services/mind_desktop.py`)
+
+General desktop control runs inside one evaluation of her mind (its `screenshot` / `click` / `keyboard` tools); her
+background mind used to see none of it. Now each action leaves a line on a short trail in Redis
+(`desktop_control._add_to_trail`: what she did, with what she typed shortened, its status and reason, what was in
+front, the turn, conversation and message it belongs to; 40 kept, 1 h TTL), and the `desktop` source ticks on it.
+
+- One activity per user, live while her hands acted in the last 5 min and the desktop is paired and online. No
+  desktop, a desktop that isn't connected, or hands at rest: no activity, so no tick, no moment, nothing in any
+  prompt. The turn's own prompt is untouched.
+- A tick only on news: new actions (batched, at most one tick every 5 s) or the turn they belong to ending (its
+  `mind_evaluations` row: said / silent / no_words / cancelled ...). No heartbeat.
+- The moment: the desktop's name, how long the hands have worked, what the user asked (the turn's message), the
+  latest actions, what she told them if the turn ended. It reads no pixels and says so.
+- No body (`can_act` False): it can't steer the running turn. A thought is saved (thoughts panel); a line it
+  proposes wakes her mind in that turn's conversation, behind the turn (`autonomous_speech`, source `desktop` is
+  conversational). A thought is outdated only when that turn ends or another begins, never by more actions.
+- Acting on a turn that ended unfinished (2026-11-24): a moment names its turn (`[turn:1a2b3c4d]`); a quick thought
+  may put it in `item` with what to do in `act`, even with nothing to say (the source reads no pixels, so it often
+  has no words). `DesktopSource.act` wakes her mind once per turn (`thought` wake, event `act:<turn>`) with her
+  tools, desktop among them, to look and report. Refused while the turn runs, for any turn but the latest, and for
+  a turn that was itself such a wake (no chains).
+- System page: wire `hands -> mind`.
+
 ## Records
 
 - `mind_turns.jsonl` (`MIND_TURN_LOG_PATH`): one line per evaluation and the coordinator's lifecycle lines: ids,

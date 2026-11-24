@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     chat_model: str = "gpt-6-luna"
     # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*).
     chat_reasoning_effort: str | None = "none"
+    # Turns with her desktop tools (general desktop control): many steps, each from what the last showed, so her
+    # mind runs on a reasoning model there and thinks before each. None: the turn's usual model / chat_reasoning_effort.
+    # (gpt-6.2-sol refuses reasoning_effort "none": keep an effort set while it's the model.)
+    desktop_control_model: str | None = "gpt-6.2-sol"
+    desktop_control_reasoning_effort: str | None = "low"
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
     # remains the complete transcript; this is the agent's bounded working

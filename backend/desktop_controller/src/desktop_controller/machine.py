@@ -183,12 +183,29 @@ def input_capability() -> Capability:
     return Capability(available=False, reason=f"input isn't supported on {sys.platform}")
 
 
+def command_shell() -> list[str] | None:
+    """How a command runs here (the program and its flags, the command goes last), or None without a shell."""
+    import shutil
+
+    if current_platform() == "windows":
+        found = shutil.which("powershell") or shutil.which("pwsh")
+        return [found, "-NoProfile", "-NonInteractive", "-Command"] if found else None
+    found = shutil.which("bash") or shutil.which("sh")
+    return [found, "-c"] if found else None
+
+
+def commands_capability() -> Capability:
+    if command_shell() is None:
+        return Capability(available=False, reason="no shell found (bash, sh or PowerShell)")
+    return Capability(available=True)
+
+
 def status(*, startup: str = "unknown", startup_method: str | None = None) -> ControllerStatus:
     plat = current_platform()
     return ControllerStatus(
         machine=machine_name(), platform=plat, os=os_description(),
         display=linux_display() if plat == "linux" else None,
-        capture=capture_capability(), input=input_capability(),
+        capture=capture_capability(), input=input_capability(), commands=commands_capability(),
         startup=startup, startup_method=startup_method,
     )
 

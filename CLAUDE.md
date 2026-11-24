@@ -274,6 +274,8 @@ Columbina is a general conversational agent with a persistent identity, personal
                        #   the person's relationship record and boundaries; nothing of the user's) +
                        #   phone_replies.py (B3: her own replies there: the messages that woke her bound at the tick,
                        #   follow-ups by stable ids, the checked send rechecked at the send point, claimed once) +
+                       #   mind_desktop.py (her hands' actions on her desktop as a source of her background mind: a
+                       #   trail in Redis from desktop_control; nothing when not connected or at rest) +
                        #   mind_phone.py (the phone as a source of her background mind: a tick on each change and a
                        #   heartbeat; "Her phone" in docs/MIND_ARCHITECTURE.md), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
@@ -290,7 +292,7 @@ Columbina is a general conversational agent with a persistent identity, personal
     main.py             # FastAPI app entrypoint
   /desktop_controller   # desktop agent action contract + controller core (0.12: discovery.py finds the relay by mDNS,
                         #   startup.py = login start per OS, machine.py = status/capabilities, input_macos.py,
-                        #   input_linux.py); desktop.py = general desktop control (her hands
+                        #   input_linux.py); commands.py = run_command (one shell command, output as text, 0.13.0); desktop.py = general desktop control (her hands
                         #   on the whole VM desktop: bounded actions, released on failure); security.py = the VM's event
                         #   logs read only (wevtutil), bookmarks checked by record number, gaps/resets reported. uv workspace member (pydantic, pyyaml,
                         #   websockets only): runs in the game VM, also imported by the backend. Lives inside backend/ because

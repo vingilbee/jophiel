@@ -161,6 +161,8 @@ class AgentRuntimeContext:
     desktop: str | None = None
     # Whether she can use it now (``DesktopAccess.usable``). Not usable: the line alone, no tools.
     desktop_usable: bool = True
+    # Whether its controller can run commands (0.13.0+): then ``run_command`` is among her desktop tools.
+    desktop_commands: bool = False
     # The turn and conversation her desktop actions belong to (their experience records link to them).
     turn_id: uuid.UUID | None = None
     conversation_id: uuid.UUID | None = None
