@@ -54,7 +54,10 @@ ACTION_HELP = {
                    "destination_place_id (a Maps ID from search_places, also one from an earlier reply), or "
                    "saved_place with destination = one of their saved names (home, work); mode from their request "
                    "and recent motion, default drive. A new trip replaces the current one.",
-    "media_control": "command: play / pause / next / previous, on whatever is playing.",
+    "media_control": "command: play / pause / next / previous, on whatever is playing. One press each: the "
+                     "phone's answer says it pressed, not what plays now. Most players' previous restarts the "
+                     "current track when it's past its first few seconds, and only a second press goes back a "
+                     "track; what plays (and where in it) shows in the phone's next report.",
     "set_volume": "level: 0-100, media volume only.",
     "set_alarm": 'time: "HH:MM" (24 h, their local time); label and days (mon..sun, for a repeating one) '
                  "optional. Set in their clock app. Alarms can't be listed or removed from here: to turn one off, "

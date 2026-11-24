@@ -124,7 +124,7 @@ with nothing about what they showed). `run_command` returns the output as text t
   anything else; screen tools for apps with windows. The desktop line names the OS the controller reports (no
   longer "Windows" for every machine).
 - **Her mind on the desktop** (2026-11-24): turns with the desktop tools run on `desktop_control_model`
-  (`gpt-6.2-sol`) with `desktop_control_reasoning_effort` (`low`); other turns keep the quick model with no
+  (`gpt-6-luna`, was `gpt-6.2-sol` until 2026-11-24) with `desktop_control_reasoning_effort` (`low`); other turns keep the quick model with no
   reasoning. Chat Completions refuses function tools with reasoning for these models (luna and sol alike), so such a
   turn goes through the **Responses API** (`agent.get_chat_model(model, reasoning)`): its reasoning comes back
   encrypted and is passed back on the next call (`store=False`, nothing kept at OpenAI), so what she worked out at

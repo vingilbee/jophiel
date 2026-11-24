@@ -144,6 +144,15 @@ def planning_now(db: Session, session_id: uuid.UUID) -> str | None:
     return "whether your plan still fits (" + "; ".join(agent_events.reasons_of(jobs[-1]))[:200] + ")"
 
 
+def goal_waiting(db: Session, session_id: uuid.UUID) -> bool:
+    """A goal from the user waits for her planner or is being planned. Her hands hold until it lands: seen live
+    2026-11-24, "make a bed" then resume_game ran the old plan's step ("scan the network") into three stuck pauses
+    in 30 seconds while the bed was still being planned."""
+    found = any(job.payload.get("goal") for job in _jobs(db, session_id, ("pending", "running")))
+    db.commit()
+    return found
+
+
 def _newer_goal_waiting(db: Session, session_id: uuid.UUID) -> bool:
     return any(job.payload.get("goal") for job in _jobs(db, session_id, ("pending",)))
 

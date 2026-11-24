@@ -103,10 +103,22 @@ def ensure_environment(db: Session, user_id: uuid.UUID) -> DesktopEnvironment | 
 # --------------------------------------------------------------------------- #
 
 
-def sync(db: Session, client) -> None:
-    """One pass of the link (desktop worker poll, about once a second)."""
+# Out of the world (or unreachable) this long before a session is disconnected. Seen live 2026-11-24: twice in a
+# minute one missed health check (2 s timeout) disconnected a session whose player never left the server, and
+# the decision her hands had just made was thrown away; later the pack went quiet for ~6 s during a long
+# go_to (to the peak, digging). The same wait as her hands' own (skill_driver.PACK_DOWN_SECONDS).
+OFFLINE_GRACE_SECONDS = 15.0
+_out_since: float | None = None  # when the link last went from in the world to out of it (this process)
+
+
+def sync(db: Session, client, *, now: float | None = None) -> None:
+    """One pass of the link (desktop worker poll, about once a second). ``now``: for tests."""
+    import time
+
     from app.ai.desktop.pack_client import PackError
     from app.services import desktop_sessions as sessions
+
+    global _out_since
 
     envs = list(db.scalars(select(DesktopEnvironment).where(
         DesktopEnvironment.hosting_kind == "game_pack", DesktopEnvironment.revoked_at.is_(None),
@@ -119,12 +131,18 @@ def sync(db: Session, client) -> None:
         online = bool(health.get("spawned"))
     except PackError:
         online = False
+    now = time.monotonic() if now is None else now
+    if online:
+        _out_since = None
+    elif _out_since is None:
+        _out_since = now
+    gone = not online and now - _out_since >= OFFLINE_GRACE_SECONDS
 
     for env in envs:
         if online and env.status != "online":
             sessions.controller_online(db, env.id, controller_generation=env.controller_generation + 1)
             log.info("game pack %s: in the world", env.id)
-        elif not online and env.status == "online":
+        elif gone and env.status == "online":
             sessions.controller_offline(db, env.id, reason="pack_offline")
             log.info("game pack %s: not in the world", env.id)
 

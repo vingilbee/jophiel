@@ -107,6 +107,7 @@ async def _ask_about_frame(jpeg: bytes, question: str) -> str:
 def build_desktop_tools(
     user_id: uuid.UUID, event: GameEvent | None = None, *, spoke_at: float | None = None, planner: bool = False,
     since: game_moment.Moment | None = None, message_id: uuid.UUID | None = None, idle: bool = False,
+    own_thought: bool = False,
 ) -> list[BaseTool]:
     """Game tools for one user. ``event`` set = a background turn: no
     start_game, plans are hers (planning source, capped), resume only undoes
@@ -200,6 +201,8 @@ def build_desktop_tools(
         """Start playing a game with a goal (or set the goal if already set up).
 
         Use it as soon as the user wants you to play something; don't ask to confirm a clear request.
+        Only for something to do inside the game: work on a computer or a network (a scan, a command,
+        a file) isn't a game goal, even when nothing else can do it right now; say so instead.
         goal: what to achieve, in a short sentence. Only the what: conditions on how ("without
         sleeping", "avoid hostiles", "stay close to me") go in rules, not the goal.
         steps: 2-5 concrete steps in order, each with a done_when you could check. Omit for a one-step goal.
@@ -251,6 +254,8 @@ def build_desktop_tools(
         the steps in a few seconds.
 
         Use it as soon as the user wants you to play something; don't ask to confirm a clear request.
+        Only for something to do inside the game: work on a computer or a network (a scan, a command,
+        a file) isn't a game goal, even when nothing else can do it right now; say so instead.
         goal: what to achieve, in the user's words, a short sentence. Only the what: conditions on how
         ("without sleeping", "stay close to me") go in rules.
         target: the one item or block it's about, as a Minecraft id (iron_ore, oak_log, white_bed), if any.
@@ -270,7 +275,8 @@ def build_desktop_tools(
         """Tell your mind what the user wants you to do in the game now. It works out the steps (in a
         few seconds) and your hands start on them; you don't write steps. Only when the user wants
         something different from what you're doing: an "ok", a question or a chat about something
-        else needs no new goal.
+        else needs no new goal. Once per request: while it's being planned, don't set it again.
+        Only for something to do inside the game.
 
         goal: what to achieve, in the user's words, a short sentence ("mine some iron"). Conditions on
         how go in rules.
@@ -502,6 +508,15 @@ def build_desktop_tools(
         if event is not None:
             return [look_at_my_game, how_to_make, rethink_plan, tell_my_hands, set_my_modes, play_carefully,
                     pause_game, resume_game, end_game, drop_promise, say, *learning]
+        # A wake from a thought or proposal of her own doesn't set goals or commands: those are the user's, and her planner
+        # owns the plan. Seen live 2026-11-24: her thoughts called do_now six times in six minutes, each replacing
+        # the whole bed plan; then set_game_goal 37 times in 25 minutes (the user: 4), each sent to her planner as
+        # "the user asked", and the bed's plan churned through oak, cherry and spruce. A thought that the plan
+        # doesn't fit asks her planner to rethink it; a move goes to her hands as a tip.
+        if own_thought:
+            return [look_at_my_game, how_to_make, rethink_plan, tell_my_hands, set_my_modes, play_carefully,
+                    pause_game, resume_game, end_game, keep_playing, explore_and_learn, note_promise, drop_promise,
+                    learn_skill, stop_learning, think_it_over]
         return [look_at_my_game, how_to_make, start_game_with_planner, set_game_goal, do_now, tell_my_hands,
                 set_my_modes, play_carefully, pause_game, resume_game, end_game, keep_playing, explore_and_learn,
                 this_is_me, note_promise, drop_promise, learn_skill, stop_learning, think_it_over]

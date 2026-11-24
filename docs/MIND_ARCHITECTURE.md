@@ -69,6 +69,11 @@ The database is the record between wakes; nothing lives only in process memory o
   unfinished thinking moot (`supersede_older`).
 - **Continuity** (`note_question`, `note_commitment`, `note_intention`, `update_item`, `set_goal`, `switch_context`):
   working memory persists it. A promise of hers she keeps in a wake (with no user message) can be closed there.
+  Her promises in view (`memory_manager.view`): timed ones still live first, soonest owed first, then her others
+  newest first (an old backlog never hides the latest), then theirs; any past `VIEW_ITEMS` are still named by id and
+  the start of their text. `note_commitment` answers with her other open promises, newest first, so she can see a
+  rewording of one she already has and keep one (2026-11-24: "let it play on its own" closed the two promises she
+  could see and left six rewordings of the Spotify one open behind them).
 - **Coming back** (`come_back_to`, `drop_come_back`): a `wake` row due at the time she chose (at most 60 days ahead):
   `in_seconds`, or `at` as an exact local time (resolved with the user's zone; ambiguous or nonexistent local times,
   an unknown zone for a local time, and past times are refused; `app/ai/mind/when.py`); the tool returns the exact
@@ -169,7 +174,12 @@ Plans: `frontend-phone/PLAN_PHASE_8.md` (the contract, as built below) and `docs
 - **Phone state** gains `media` (`{app, title, artist, state: playing|paused}`), `navigation`
   (`{next_step, distance_text, eta_text}`) and `messages_on` (the phone's Messages switch: false = her replies and
   drafts to other people are paused). These are news when what's playing starts or stops, when a trip starts or
-  ends, or when the switch flips. Not news: each track, each step.
+  ends, or when the switch flips. Not news: each track, each step. `media` may also carry `position_ms` /
+  `duration_ms` (2026-11-24, optional: older phones send neither): kept beside what's playing
+  (`phone_state.POSITION`, the newest observation wins, a media report without one clears it), never part of it, so a
+  position moving changes nothing's `since` or a change's key. Shown as reported ("at 0:01 of 2:45, reported 5 s
+  ago"), never extrapolated; a follow-through check shows it only from a report after the attempt, so a press of
+  previous that restarted the track reads as the same track near its start.
 - **Actions** (`app/ai/tools/phone.py`, `services/phone_actions.py`): reply turns get every action. Her own turns (a
   wake) get only the quiet ones: media, volume, alarm, timer, dismiss, ringer, DND, and the lookups. Nudges and game
   events get none. `reply_notification` never on a plain own turn: only on a wake bound to an exchange (affinity
@@ -223,9 +233,14 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
   attempt on is recorded and settles it only when conclusive, never a second chain of checks.
 - **Accepted is not achieved**: an action whose own answer proves it (an alarm set) is achieved; otherwise the attempt
   is `pending` and a check wake (`CHECK_DELAYS` 20 s, 60 s) shows her whether the phone reported the observed field
-  (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt`: achieved / not achieved only on such a fresh report,
-  unresolved any time. A check that ends with it still pending schedules the next one; after the last it's
-  `unresolved`, never success. A check keeps its attempt's identity when moved (`coordinator.FOLLOW_KEYS`); one that
+  (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt` only on such a fresh report: achieved / not achieved,
+  or unresolved when it can't tell; without one it's refused (settling would cancel the checks that wait for it: on
+  2026-11-24 she pressed Previous, settled "unresolved" two seconds later and never looked again). A check that ends
+  with it still pending schedules the next one. After the last timed check, an attempt with a field to read waits for
+  the phone's next report of it (`AWAIT_READING`, 10 min from the attempt: the phone reports from the background every
+  few minutes, and a command that changes nothing it shows prompts no report of its own); the sweep wakes her once
+  when one comes (a reading check), else it's `unresolved` when the wait ends. A fresh report she read on the last
+  check and left open is `unresolved` too, never success. A check keeps its attempt's identity when moved (`coordinator.FOLLOW_KEYS`); one that
   died (dropped, expired, never ran, a worker down past it) is reconciled on its own by the coordinator's heartbeat
   (`follow_through.sweep`, every 15 s) and by the next try; so is an attempt left `sending` past `SENDING_STALE`
   (2 min) by a worker that died mid-command: it may or may not have acted, so it is checked on what the phone reports

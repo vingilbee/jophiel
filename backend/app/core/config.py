@@ -101,8 +101,14 @@ class Settings(BaseSettings):
     # Turns with her desktop tools (general desktop control): many steps, each from what the last showed, so her
     # mind runs on a reasoning model there and thinks before each. None: the turn's usual model / chat_reasoning_effort.
     # (gpt-6.2-sol refuses reasoning_effort "none": keep an effort set while it's the model.)
-    desktop_control_model: str | None = "gpt-6.2-sol"
+    desktop_control_model: str | None = "gpt-6-luna"
     desktop_control_reasoning_effort: str | None = "low"
+    # Turns while she's in a game (a game session on, or a game event woke her): her mind there runs on a reasoning
+    # model too. None: the turn's usual model / chat_reasoning_effort. Her desktop's own model wins when both apply.
+    # gpt-6-luna with reasoning (2026-11-24, the user's choice): sol took ~7.5 s before her first word in a game
+    # turn with two tool calls; luna keeps the thinking-before-answering, faster.
+    game_mind_model: str | None = "gpt-6-luna"
+    game_mind_reasoning_effort: str | None = "low"
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
     # remains the complete transcript; this is the agent's bounded working
@@ -376,11 +382,12 @@ class Settings(BaseSettings):
     desktop_driver_backend: str = "openai"
     desktop_driver_model: str = "gpt-6-luna"
     # Sent only to models with reasoning controls (gpt-5*, gpt-6*, o*); "none"
-    # keeps a step to one quick answer instead of seconds of thinking.
+    # keeps a step to one quick answer instead of seconds of thinking (reasoning would count against max_tokens:
+    # size it up if this is ever turned on).
     desktop_driver_reasoning_effort: str | None = "none"
     desktop_driver_image_detail: str = Field(default="auto", pattern="^(low|high|auto)$")
     desktop_driver_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
-    desktop_driver_max_tokens: int = Field(default=400, ge=64, le=2000)
+    desktop_driver_max_tokens: int = Field(default=400, ge=64, le=4000)
     # A frame older than this is never decided on.
     desktop_driver_freshness_ms: int = Field(default=3000, ge=200, le=10_000)
     # Spending bound: model steps per session before it pauses ("budget").
@@ -513,6 +520,8 @@ class Settings(BaseSettings):
     # A new goal from a reply, stuck, struggling, the last step and a finished goal all go to one
     # planning call (reasoning on, no tools), which keeps or revises the plan; replies set goals
     # and one-step commands, background turns and hard thoughts never write plans.
+    # (gpt-6.2-sol refuses reasoning_effort "none": keep an effort set while it's the model.)
+    # gpt-6-luna with reasoning (2026-11-24, the user's choice): sol took 8-17 s a plan, her hands waiting on it.
     mind_plan_model: str = "gpt-6-luna"
     mind_plan_reasoning_effort: str | None = "low"
     # Every tick of her mind in a game, for comparing gates offline (scripts/mind_gate_eval.py).

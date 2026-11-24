@@ -583,3 +583,25 @@ def test_a_lesson_that_held_her_hands_reaches_them_when_it_ends():
     assert (lesson["status"], lesson["params"]) == ("done", {"task": "attack a passive sheep"})
     assert lesson["data"]["counted"] == "mutton +2, white_wool +1"
     assert "lesson(task=attack a passive sheep) -> done" in h.model.prompts[-1]
+
+
+def test_hands_hold_while_the_users_new_goal_is_planned():
+    """Seen live 2026-11-24: "make a bed" then resume_game ran the old plan's step ("scan the network") into three
+    stuck pauses while the bed was being planned. Her hands now start nothing from the old plan until it lands."""
+    model = ScriptedModel(_decide("mine", {"block": "oak_log", "count": 3, "time_limit": None}))
+    h = Harness(model, view=_view(goal_planning=True))
+    assert h.steps(3) == [True, True, True]
+    assert model.prompts == [] and h.pack.runs == [] and h.pauses == []
+    assert h.saved.get("waiting") == "new_goal"
+    h.view = _view()  # the plan landed
+    h.steps(1)
+    assert len(model.prompts) == 1
+
+
+def test_the_hold_for_a_new_goal_is_bounded():
+    model = ScriptedModel(_decide("mine", {"block": "oak_log", "count": 3, "time_limit": None}))
+    h = Harness(model, view=_view(goal_planning=True))
+    h.steps(1)
+    h.clock += h.run.planning_wait_seconds + 1
+    h.steps(1)
+    assert len(model.prompts) == 1  # past the wait she carries on with the plan she has

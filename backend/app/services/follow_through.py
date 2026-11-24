@@ -16,8 +16,11 @@
 4. A command the device took is not the goal reached. When the action's own answer proves it (an alarm set), that
    is the result; otherwise the attempt stays ``pending`` and a check wakes her (``CHECK_DELAYS``) to read a fresh
    report (``observe``: the phone field, reported after the attempt). Only she judges whether what's reported is what
-   they wanted (``settle``), and only on a fresh report: without one it can't be counted achieved or failed. After
-   the last check an attempt still pending is ``unresolved``, never success.
+   they wanted (``settle``), and only on a fresh report: without one it can't be counted achieved, failed or even
+   unresolved (her checks are what wait for it; settling first would cancel them). After the last timed check, an
+   attempt with a field to read keeps waiting for the phone's next report of it (``AWAIT_READING``): the sweep wakes
+   her once when one comes (``_out_of_checks``). Still nothing then, or nothing to read: ``unresolved``, never
+   success.
 5. The item closing (kept, cancelled, changed by them) cancels its pending attempts and their checks
    (``item_closed``, from ``memory_manager``), so a check can't act on a promise that's gone.
 
@@ -45,6 +48,11 @@ OBSERVED = {"media_control": "media", "set_ringer": "ringer", "set_dnd": "dnd"}
 MAX_PER_CHANGE = 2  # tries while it stays unmet (``_episode``): a change elsewhere on the phone adds none
 MAX_PER_HOUR = 8  # tries for one item in any hour, across changes: a recurring promise can't loop without end
 CHECK_DELAYS = (20, 60)  # seconds after the attempt (then after the first check) that a check wakes her
+# After those, how long an attempt waits for the phone's next report of what it observes (the phone reports from the
+# background every few minutes, and a command that changes nothing it shows prompts no report of its own); the
+# report wakes her once (``READING_DELAY`` later). A pacing bound only.
+AWAIT_READING = timedelta(minutes=10)
+READING_DELAY = 1
 SENDING_STALE = timedelta(minutes=2)  # an attempt never answered (the worker died mid-call) stops blocking then
 OPEN = ("sending", "pending")
 ITEMS_SHOWN = 6
@@ -251,11 +259,11 @@ def begin(ev, action: str, detail: dict) -> uuid.UUID | str:
             if a.status == "sending" and now - a.issued_at > SENDING_STALE:
                 _interrupted(db, a, ev, now)
             if a.status == "pending" and a.id != follow.check and not _check_alive(db, a, now):
-                # Its check was dropped, expired or never ran: the next one, or unresolved after the last.
+                # Its check was dropped, expired or never ran: the next one; after the last, the phone's next report.
                 if _schedule_check(db, a, ev) is None:
-                    a.status, a.settled_at = "unresolved", now
-                    a.settled_reason = "its check ended without a reading"
-                    continue
+                    _out_of_checks(db, a, ev, now)
+                    if a.status not in OPEN:
+                        continue
             if a.status in OPEN:
                 db.commit()
                 return (f"Not done: your attempt [{_short(a.id)}] ({describe(a)}) is still waiting for its result, so "
@@ -417,18 +425,22 @@ def _tried(db, row: FollowThroughAttempt) -> int:
         FollowThroughAttempt.transition == row.transition, FollowThroughAttempt.status != "cancelled")) or 0
 
 
-def _schedule_check(db, row: FollowThroughAttempt, ev) -> CoordinatorWork | None:
+def _schedule_check(db, row: FollowThroughAttempt, ev, *, reading: bool = False) -> CoordinatorWork | None:
     """The next check of a pending attempt, as a durable wake in its conversation; None when the checks are used up
-    or there's no conversation. The caller commits."""
+    or there's no conversation. ``reading``: the one more check a report after the timed ones brings
+    (``_out_of_checks``). The caller commits."""
     from app.services import coordinator
 
-    if row.checks >= len(CHECK_DELAYS) or row.conversation_id is None:
+    if row.conversation_id is None or row.checks > len(CHECK_DELAYS) or (
+            row.checks == len(CHECK_DELAYS) and not reading):
         return None
-    delay = CHECK_DELAYS[row.checks]
+    delay = READING_DELAY if reading else CHECK_DELAYS[row.checks]
+    about = (f"A report came for your attempt [{_short(row.id)}] ({describe(row)}) for [{_short(row.item_id)}]: "
+             "check whether it worked" if reading else
+             f"Check whether your attempt [{_short(row.id)}] ({describe(row)}) for [{_short(row.item_id)}] worked")
     work = coordinator.schedule_wake(
         db, user_id=row.user_id, conversation_id=row.conversation_id,
-        about=f"Check whether your attempt [{_short(row.id)}] ({describe(row)}) for [{_short(row.item_id)}] worked",
-        due_at=_now() + timedelta(seconds=delay), origin=f"follow:{row.id}", asked_by="mind",
+        about=about, due_at=_now() + timedelta(seconds=delay), origin=f"follow:{row.id}", asked_by="mind",
         zone=getattr(ev, "zone", None), channel=getattr(ev, "channel", "web") or "web",
         extra={"follow_item": str(row.item_id), "follow_check": str(row.id), "follow_transition": row.transition})
     row.checks += 1
@@ -436,9 +448,32 @@ def _schedule_check(db, row: FollowThroughAttempt, ev) -> CoordinatorWork | None
     return work
 
 
+def _out_of_checks(db, row: FollowThroughAttempt, where, now: datetime) -> bool:
+    """A pending attempt whose timed checks are used up. With a field the phone reports, it keeps waiting for the
+    next report of it (``AWAIT_READING`` from the attempt): one that came wakes her once more (a reading check);
+    none yet leaves it pending for the sweep to look again (returns False: nothing moved). Nothing to read, its
+    reading check already had, or the wait over: ``unresolved``. The caller commits."""
+    if (row.observe is not None and row.conversation_id is not None and row.checks == len(CHECK_DELAYS)
+            and now - row.issued_at < AWAIT_READING):
+        if not fresh(row.user_id, row)[0]:
+            return False  # still waiting for a report
+        if _schedule_check(db, row, where, reading=True) is not None:
+            return True
+    row.status, row.settled_at = "unresolved", now
+    if row.checks > len(CHECK_DELAYS):
+        row.settled_reason = "no fresh report showed the result, even the one after its checks"
+    elif row.observe is not None and now - row.issued_at >= AWAIT_READING:
+        row.settled_reason = (f"no report of {row.observe} from the phone within "
+                              f"{int(AWAIT_READING.total_seconds() // 60)} min of the attempt")
+    else:
+        row.settled_reason = (f"no fresh report showed the result after {row.checks} "
+                              f"check{'s' if row.checks != 1 else ''}")
+    return True
+
+
 def after(ev) -> None:
-    """When a check's evaluation ends with its attempt still pending: the next check, or, after the last one,
-    ``unresolved`` (never success). Never raises."""
+    """When a check's evaluation ends with its attempt still pending: the next check; after the last one, the
+    phone's next report (``_out_of_checks``), else ``unresolved`` (never success). Never raises."""
     follow = of(ev)
     if follow is None or follow.check is None:
         return
@@ -448,9 +483,13 @@ def after(ev) -> None:
             if row is None or row.status != "pending":
                 return
             if _schedule_check(db, row, ev) is None:
-                row.status, row.settled_at = "unresolved", _now()
-                row.settled_reason = (f"no fresh report showed the result after {row.checks} "
-                                      f"check{'s' if row.checks != 1 else ''}")
+                now = _now()
+                if fresh(row.user_id, row)[0]:
+                    # She read a fresh report on its last check and left it open: no later check reads more.
+                    row.status, row.settled_at = "unresolved", now
+                    row.settled_reason = "a fresh report was there on its last check and it was left open"
+                else:
+                    _out_of_checks(db, row, ev, now)
             db.commit()
             _log({"op": "after_check", "attempt": str(row.id), "status": row.status, "checks": row.checks})
     except Exception:  # noqa: BLE001
@@ -524,9 +563,9 @@ def _reconcile(attempt_id: uuid.UUID) -> int:
                 .limit(1))
             where = SimpleNamespace(zone=(last.input or {}).get("zone") if last else None,
                                     channel=((last.input or {}).get("channel") if last else None) or "web")
-            if _schedule_check(db, row, where) is None:
-                row.status, row.settled_at = "unresolved", now
-                row.settled_reason = "its check ended without a reading"
+            if _schedule_check(db, row, where) is None and not _out_of_checks(db, row, where, now):
+                db.rollback()
+                return 0  # still waiting for the phone's report: nothing moved
         db.commit()
         _log({"op": "reconciled", "attempt": str(row.id), "status": row.status, "checks": row.checks})
         return 1
@@ -547,7 +586,10 @@ def fresh(user_id: uuid.UUID, row: FollowThroughAttempt) -> tuple[bool, str]:
     if value is None or value.as_of <= issued:
         return False, f"no report of {row.observe} from the phone since the attempt"
     if row.observe == "media":
-        shown = phone_state.now_playing(value.value) if isinstance(value.value, dict) else "nothing playing"
+        # Where in the track only from a report after the attempt (a restart shows as the track near its start).
+        position = state.media_position if state.media_position and state.media_position["at"] > issued else None
+        shown = (phone_state.now_playing(value.value, position) if isinstance(value.value, dict)
+                 else "nothing playing")
     else:
         shown = f"{row.observe} {value.value}"
     after_s = int(value.as_of - issued)
@@ -558,8 +600,10 @@ SETTLED = {"achieved": "achieved", "not_achieved": "failed", "unresolved": "unre
 
 
 def settle(ev, attempt: str, outcome: str, evidence: str) -> str:
-    """Her judgement of how an attempt turned out. ``achieved`` / ``not_achieved`` only on a fresh report (or the
-    device's own answer); ``unresolved`` any time. Never closes the promise itself."""
+    """Her judgement of how an attempt turned out, only on a fresh report (or the device's own answer):
+    ``achieved`` / ``not_achieved``, or ``unresolved`` when what it shows can't tell. Without one there's nothing to
+    judge yet: its checks wait for it, and settling would cancel them (it becomes unresolved on its own if no report
+    ever comes). Never closes the promise itself."""
     from app.services import coordinator
 
     follow = of(ev)
@@ -580,9 +624,9 @@ def settle(ev, attempt: str, outcome: str, evidence: str) -> str:
             return "Not done: no attempt of yours for this still waiting with that id."
         row = rows[0]
         seen, shown = fresh(ev.user_id, row)
-        if outcome != "unresolved" and not seen:
-            return (f"Not settled: {shown}, so it can't count as {outcome.replace('_', ' ')}. Leave it for its "
-                    "check, or mark it unresolved.")
+        if not seen:
+            return (f"Not settled: {shown}, so there's nothing to judge yet. Leave it pending: its check reads the "
+                    "next report and wakes you; if none ever comes it becomes unresolved on its own.")
         # Her reading, with what the record showed when she gave it (the fresh report, or that there was none).
         row.status, row.settled_at, row.settled_reason = SETTLED[outcome], _now(), f"{why} [{shown}]"[:600]
         for check in db.scalars(select(CoordinatorWork).where(
@@ -636,8 +680,11 @@ def lines(db, user_id: uuid.UUID, follow: Follow, *, act: str | None = None, say
         if a.status in OPEN:
             seen, shown = fresh(user_id, a)
             line += f"; {shown}" + ("" if seen else " (so its result isn't known)")
-            if a.checks >= len(CHECK_DELAYS):
+            if a.checks > len(CHECK_DELAYS) or (a.checks == len(CHECK_DELAYS) and a.observe is None):
                 line += "; this is its last check: if you leave it pending it becomes unresolved"
+            elif a.checks == len(CHECK_DELAYS):
+                line += (f"; its last timed check: if you leave it pending, the phone's next report of {a.observe} "
+                         f"(within {int(AWAIT_READING.total_seconds() // 60)} min of the attempt) wakes you once more")
         out.append(line)
     current = next((a for a in rows if a.status != "cancelled"), None)
     if current is not None and current.status != "achieved":
@@ -658,7 +705,8 @@ def render(follow: Follow, extra_lines: list[str]) -> list[str]:
             "Read it against \"Now\" and the conversation: if they cancelled or changed it, their latest word stands; "
             "if it's already as they want, do nothing (stay_silent). Otherwise do what your tools here allow. A "
             "command the device takes isn't the result: only a fresh report is. Judge a pending attempt with "
-            "settle_attempt (achieved / not_achieved only on a fresh report; unresolved otherwise). If your tools "
+            "settle_attempt only on a fresh report (achieved / not_achieved, or unresolved when it can't tell); "
+            "without one, leave it pending for its check. If your tools "
             "can't do what they asked, tell them so instead of trying something else. Never say it worked without a "
             "fresh report showing it."]
 

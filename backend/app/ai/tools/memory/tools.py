@@ -182,6 +182,16 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             return f'Done: [{memory_manager.ref(entry)}] "{entry.text}" is {entry.status}.{note}'
         return await _run(do, user_id, "item_update")
 
+    def also_open(db, entry) -> str:
+        """Her other open promises, newest first: whether one is this same promise is hers to see (a record, never
+        a match made here)."""
+        others = memory_manager.open_promises(db, user_id, owner=entry.owner, excluding=entry.id)
+        if not others:
+            return ""
+        return (" Also open: " + "; ".join(f'[{memory_manager.ref(e)}] "{e.text}"' for e in others)
+                + ". If one of these is this same promise, keep one: update_item the other cancelled"
+                + " (change_promise the one you keep if its wording should change).")
+
     @tool
     async def note_commitment(what: str, who_owes: Literal["columbina", "user"] = "columbina",
                               at: str | None = None, in_seconds: int | None = None, when: str | None = None,
@@ -209,7 +219,7 @@ def build_memory_tools(user_id: uuid.UUID, *, message_id: uuid.UUID | None = Non
             if evaluation is not None and who_owes == "columbina":
                 evaluation.promises.append(entry.id)
             return (f'Kept: promise [{memory_manager.ref(entry)}] "{entry.text}".' + timed(db, entry, moving=False)
-                    + relying(db, entry, relies_on))
+                    + relying(db, entry, relies_on) + also_open(db, entry))
         return await _run(do, user_id, "commitment")
 
     @tool
