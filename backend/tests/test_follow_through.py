@@ -514,6 +514,49 @@ def test_after_a_restart_past_its_check_the_attempt_moves_on_with_the_phone_unto
     assert follow_through.sweep(force=True) == 0  # settled: nothing more
 
 
+def test_a_worker_dying_mid_command_never_loses_whether_she_acted(env, phone):
+    """Review of #54: the attempt is recorded before the command and the worker dies before the phone's answer is
+    recorded. With the phone untouched the sweep alone moves it: checked on what the phone reports, never success."""
+    entry = promise(env, "Keep Into You playing", "if Spotify moves on")
+    report(env, media=NEXT_SONG)
+    ev = _follow_ev(env, entry)
+    attempt_id = follow_through.begin(ev, "media_control", {"command": "previous"})  # ...and the worker dies here
+    assert follow_through.sweep(force=True) == 0  # it may still be on its way: left alone while recent
+
+    def aged():
+        with env.db() as db:
+            db.execute(update(FollowThroughAttempt).where(FollowThroughAttempt.id == attempt_id).values(
+                issued_at=datetime.now(timezone.utc) - follow_through.SENDING_STALE - timedelta(seconds=5)))
+            db.commit()
+
+    aged()
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 1 and "may or may not" in attempt.result
+    [check] = checks(env)
+    assert check.input["follow_check"] == str(attempt_id)
+    # A fresh report settles it like any other: here, it had reached the phone.
+    report(env, media=INTO_YOU)
+    check_ev = SimpleNamespace(wake={"kind": "wake", "input": check.input}, user_id=env.user.id)
+    assert follow_through.settle(check_ev, str(attempt_id)[:8], "achieved", "Into You").startswith("Settled: achieved")
+
+
+def test_a_worker_dying_mid_command_with_nothing_to_read_it_on_is_unresolved(env, phone):
+    entry = promise(env, "Set an alarm for 7", "when I get home")
+    ev = _follow_ev(env, entry)
+    attempt_id = follow_through.begin(ev, "set_alarm", {"hour": 7, "minute": 0})
+    with env.db() as db:
+        db.execute(update(FollowThroughAttempt).where(FollowThroughAttempt.id == attempt_id).values(
+            issued_at=datetime.now(timezone.utc) - timedelta(minutes=10)))
+        db.commit()
+    assert follow_through.sweep(force=True) == 1
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved" and "interrupted" in attempt.settled_reason and checks(env) == []
+    # Not blocked: the next due moment can try again.
+    assert isinstance(follow_through.begin(_follow_ev(env, entry, "t2"), "set_alarm", {"hour": 7, "minute": 0}),
+                      uuid.UUID)
+
+
 def test_the_sweep_runs_on_the_coordinators_heartbeat(monkeypatch):
     from app.services import coordinator_runtime
 

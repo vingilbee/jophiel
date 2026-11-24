@@ -238,9 +238,7 @@ def begin(ev, action: str, detail: dict) -> uuid.UUID | str:
                 FollowThroughAttempt.user_id == ev.user_id, FollowThroughAttempt.item_id == entry.id,
                 FollowThroughAttempt.status.in_(OPEN)).with_for_update()):
             if a.status == "sending" and now - a.issued_at > SENDING_STALE:
-                a.status, a.settled_at = "unresolved", now
-                a.settled_reason = "its answer never came back (interrupted)"
-                continue
+                _interrupted(db, a, ev, now)
             if a.status == "pending" and a.id != follow.check and not _check_alive(db, a, now):
                 # Its check was dropped, expired or never ran: the next one, or unresolved after the last.
                 if _schedule_check(db, a, ev) is None:
@@ -424,9 +422,23 @@ SWEEP_SECONDS = 15.0
 _last_sweep = 0.0
 
 
+def _interrupted(db, row: FollowThroughAttempt, where, now: datetime) -> None:
+    """An attempt whose answer never came back (the worker died while the phone had it): it may or may not have
+    acted. With something the phone reports to read it on, it waits for that like any unanswered command (a check,
+    ``unresolved`` after the last); otherwise ``unresolved``. Never success, never silently dropped."""
+    row.result = "its answer never came back (interrupted): it may or may not have reached the phone"
+    if row.observe is not None:
+        row.status = "pending"
+        if _schedule_check(db, row, where) is not None:
+            return
+    row.status, row.settled_at = "unresolved", now
+    row.settled_reason = "its answer never came back (interrupted)"
+
+
 def sweep(*, force: bool = False, limit: int = 50) -> int:
     """From the coordinator's heartbeat: pending attempts whose check died (dropped, expired, never ran, a worker
-    down past it) get their next check, or ``unresolved`` after the last, on their own: no new observation or
+    down past it) get their next check, or ``unresolved`` after the last; attempts left ``sending`` by a worker that
+    died mid-command (``_interrupted``) are checked or made ``unresolved``. All on their own: no new observation or
     device action is needed to move them. Returns how many it moved. Never raises."""
     import time
 
@@ -437,8 +449,10 @@ def sweep(*, force: bool = False, limit: int = 50) -> int:
     moved = 0
     try:
         with SessionLocal() as db:
-            ids = list(db.scalars(select(FollowThroughAttempt.id).where(FollowThroughAttempt.status == "pending")
-                                  .order_by(FollowThroughAttempt.issued_at).limit(limit)))
+            ids = list(db.scalars(select(FollowThroughAttempt.id).where(
+                (FollowThroughAttempt.status == "pending")
+                | ((FollowThroughAttempt.status == "sending") & (FollowThroughAttempt.issued_at < _now() - SENDING_STALE)))
+                .order_by(FollowThroughAttempt.issued_at).limit(limit)))
         for attempt_id in ids:
             moved += _reconcile(attempt_id)
     except Exception:  # noqa: BLE001
@@ -452,10 +466,18 @@ def _reconcile(attempt_id: uuid.UUID) -> int:
     now = _now()
     with SessionLocal() as db:
         entry, row = _locked(db, attempt_id)
-        if row is None or row.status != "pending" or _check_alive(db, row, now):
+        if row is None:
+            return 0
+        stuck = row.status == "sending" and now - row.issued_at > SENDING_STALE
+        if not stuck and (row.status != "pending" or _check_alive(db, row, now)):
             return 0
         if entry is None or entry.closed_at is not None:
             row.status, row.settled_at, row.settled_reason = "cancelled", now, "the item closed meanwhile"
+        elif stuck:
+            wake = db.get(CoordinatorWork, row.wake_work_id) if row.wake_work_id else None
+            _interrupted(db, row, SimpleNamespace(zone=(wake.input or {}).get("zone") if wake else None,
+                                                  channel=((wake.input or {}).get("channel") if wake else None)
+                                                  or "web"), now)
         else:
             last = db.scalar(select(CoordinatorWork).where(
                 CoordinatorWork.user_id == row.user_id, CoordinatorWork.kind == "wake",

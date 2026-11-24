@@ -222,7 +222,9 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
   unresolved any time. A check that ends with it still pending schedules the next one; after the last it's
   `unresolved`, never success. A check keeps its attempt's identity when moved (`coordinator.FOLLOW_KEYS`); one that
   died (dropped, expired, never ran, a worker down past it) is reconciled on its own by the coordinator's heartbeat
-  (`follow_through.sweep`, every 15 s) and by the next try: the next check, or `unresolved` after the last, so a
+  (`follow_through.sweep`, every 15 s) and by the next try; so is an attempt left `sending` past `SENDING_STALE`
+  (2 min) by a worker that died mid-command: it may or may not have acted, so it is checked on what the phone reports
+  (or `unresolved` with nothing to read it on), never success: the next check, or `unresolved` after the last, so a
   promise is never left blocked behind it. Every path locks the item, then the attempt (no deadlock between a new
   wake's admission and the phone's answer to the last command).
 - **Cancelled**: the item closing (any status change through `memory_manager._set_status`) cancels its pending
