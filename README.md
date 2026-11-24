@@ -296,8 +296,7 @@ Each part page shows what the part is for, the workers running it and when each 
 
 Jophiel playing Minecraft while I talk to her from the Android app.
 
-<!-- Video: on github.com, edit this file and drag Jophiel_Demo_1080p.mp4 onto the next line. GitHub replaces it with a link that plays here. -->
-https://github.com/user-attachments/assets/REPLACE-WITH-UPLOADED-VIDEO
+https://github.com/user-attachments/assets/2d4f5962-6d25-47e1-b0f7-a77a5a9f4aaa
 
 ---
 
