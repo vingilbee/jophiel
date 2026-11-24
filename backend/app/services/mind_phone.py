@@ -113,6 +113,18 @@ def _media(value, tracks: bool = False) -> tuple | None:
             else (value.get("app"), value.get("state")))
 
 
+def aligned(before: dict[str, Any] | None, now: dict[str, Any]) -> dict[str, Any] | None:
+    """``before`` read the way ``now`` is: when waiting on a condition began or ended between them, what's playing
+    changed shape (with or without the track), not what plays: the same app and state isn't a change."""
+    if before is None:
+        return None
+    then, current = before.get("media"), now.get("media")
+    if (isinstance(then, tuple) and isinstance(current, tuple) and len(then) != len(current)
+            and then[:2] == current[:2]):
+        return {**before, "media": current}
+    return before
+
+
 def transition(state: phone_state.PhoneState) -> str:
     """What the phone reports, as a key for the change she observed: when each reading last changed (the battery by
     band). Two ticks seeing the same change share it; the same value coming back later is a new change."""
@@ -315,6 +327,8 @@ class PhoneSource:
             state = state or phone_state.PhoneState()
             seen = self._seen.get(user_id)
             current = snapshot(state, tracks=self._tracks(db, user_id, now))
+            if seen is not None:
+                seen = (aligned(seen[0], current), seen[1])
             if not updates and seen is not None and seen[0] == current and now - seen[1] < every:
                 # Nothing but notification news would make this tick: paced by the hourly cap.
                 if not notes or not self._news_tick_allowed(user_id, now):
@@ -357,6 +371,7 @@ class PhoneSource:
         hers = _last_message_at(db, scope.user_id, "assistant")
         current = {**snapshot(state, tracks=self._tracks(db, scope.user_id, at)), "part_of_day": part_of_day(local.hour),
                    "quiet": quiet_band(at - theirs if theirs is not None else None)}
+        previous = aligned(previous, current)
         fresh = [*(text for _, text in action_news), *news(current, previous, state),
                  *phone_notifications.news_lines(notes, people=phone_notifications.news_people(
                      scope.user_id, notes, at=at) if notes else None)]

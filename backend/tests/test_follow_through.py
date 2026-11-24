@@ -475,7 +475,20 @@ def test_a_check_that_died_never_leaves_the_promise_blocked(env, phone):
     snap = _wake_and_run(env, source, base.data["snapshot"], waiting, entry, charging=True)
     [attempt] = attempts(env)
     assert attempt.status == "pending" and attempt.checks == 2 and len(checks(env)) == 1
-    kill_checks()  # the last check dies too
+    kill_checks()  # the last check dies too...
+    drain(env)  # ...and the worker, back, hands the late one to her mind: it's in flight, not dead
+
+    async def late(use, context):
+        await use("stay_silent", reason="no report")
+        return ""
+
+    for _ in range(4):  # what's queued, the late check among it
+        env.scripts.append(late)
+        if not run_job(env):
+            env.scripts.pop()
+            break
+    [attempt] = attempts(env)
+    assert attempt.status == "unresolved"  # the late check ended it: never left blocked
 
     async def again(use, context):
         result = await use("phone_action", action="media_control", command="previous")
@@ -484,7 +497,7 @@ def test_a_check_that_died_never_leaves_the_promise_blocked(env, phone):
 
     _wake_and_run(env, source, snap, again, entry, charging=False)
     first, second = attempts(env)
-    assert first.status == "unresolved" and "its check ended without a reading" in first.settled_reason
+    assert first.status == "unresolved"
     assert second.status == "pending" and len(phone.sent) == 2
 
 
@@ -818,3 +831,105 @@ def test_a_follow_through_wake_has_only_her_own_turns_quiet_actions(env, phone):
     drain(env)
     assert run_job(env)
     assert phone.sent == [] and attempts(env) == []
+
+
+# --------------------------------------------------------------------------- #
+# Third review of #54
+# --------------------------------------------------------------------------- #
+
+def test_an_attempts_id_in_item_reaches_its_promise(env, phone):
+    """The moment lists "your attempt [abcd1234]": a thought naming it wakes her for its promise."""
+    entry = _first_attempt(env, phone)
+    [attempt] = attempts(env)
+    before = len(follow_wakes(env))
+    report(env, media=INTO_YOU)
+    source = mind_phone.PhoneSource()
+    scope, moment = tick(env, source)
+    assert f"your attempt [{str(attempt.id)[:8]}]" in moment.text
+    think(scope, moment, source, Thinker("It's back on Into You.", act="settle the attempt: it worked",
+                                         item=str(attempt.id)[:8]))
+    wakes = follow_wakes(env)
+    assert len(wakes) == before + 1 and wakes[-1].input["extra"]["item"] == str(entry.id)
+
+
+def test_an_act_with_no_thought_text_still_wakes_her(env, phone):
+    entry, source, scope, moment = spotify_moves_on(env, phone)
+    think(scope, moment, source, Thinker(None, act="switch back to Into You", item=ref(entry)))
+    [wake] = follow_wakes(env)
+    assert wake.input["extra"]["item"] == str(entry.id)
+
+
+def test_a_source_without_a_transition_never_acts(env, phone):
+    entry, source, scope, moment = spotify_moves_on(env, phone)
+    cause = {"third_party": False, "arrived": [], "reply_targets": [], "transition": None}
+    mind._think_quick(source, scope, "light", moment.text, time.time(),
+                      Thinker("Due.", act="switch back", item=ref(entry)), cause)
+    assert follow_wakes(env) == []
+
+
+def test_an_action_the_phone_reports_nothing_on_gets_no_tries_from_unrelated_changes(env, phone):
+    entry = promise(env, "Set an alarm for 07:00 when they get home", "when they get home")
+    for n in range(2):
+        attempt = follow_through.begin(_follow_ev(env, entry, f"phone:{n}"), "set_alarm", {"time": "07:00"})
+        assert isinstance(attempt, uuid.UUID)
+        follow_through.finish(_follow_ev(env, entry, f"phone:{n}"), attempt, "failed", "no clock app")
+    # The screen unlocking, an app opening: new phone transitions, the same unmet stretch.
+    for n in range(2, 5):
+        refused = follow_through.begin(_follow_ev(env, entry, f"phone:{n}"), "set_alarm", {"time": "07:00"})
+        assert isinstance(refused, str) and refused.startswith("Not done: you've tried 2 times")
+    write(env, "try the alarm again")  # their latest word renews it
+    assert isinstance(follow_through.begin(_follow_ev(env, entry, "phone:9"), "set_alarm", {"time": "07:00"}),
+                      uuid.UUID)
+
+
+def test_a_check_dropped_without_an_output_stops_blocking_after_the_grace(env, phone):
+    _first_attempt(env, phone)
+    [attempt] = attempts(env)
+
+    def dropped(ago):
+        with env.db() as db:
+            db.execute(update(CoordinatorWork).where(
+                CoordinatorWork.user_id == env.user.id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.input["follow_check"].astext == str(attempt.id)).values(
+                status="completed", updated_at=datetime.now(timezone.utc) - ago))
+            db.commit()
+
+    dropped(timedelta(seconds=10))
+    assert follow_through.sweep(force=True) == 0  # still being handed on
+    dropped(follow_through.CONCLUDE_GRACE + timedelta(seconds=5))
+    assert follow_through.sweep(force=True) == 1  # dropped: its next check, not ten minutes' wait
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 2 and len(checks(env)) == 1
+
+
+def test_a_late_answer_never_starts_a_second_chain_of_checks(env, phone):
+    entry = promise(env, "Keep Into You playing", "if Spotify moves on")
+    report(env, media=NEXT_SONG)
+    ev = _follow_ev(env, entry)
+    attempt_id = follow_through.begin(ev, "media_control", {"command": "previous"})
+    with env.db() as db:
+        db.execute(update(FollowThroughAttempt).where(FollowThroughAttempt.id == attempt_id).values(
+            issued_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
+        db.commit()
+    assert follow_through.sweep(force=True) == 1  # interrupted: pending with one check
+    note = follow_through.finish(ev, attempt_id, "done", "Went back a track")
+    assert "answered late" in note
+    [attempt] = attempts(env)
+    assert attempt.status == "pending" and attempt.checks == 1 and len(checks(env)) == 1
+    # A late "didn't do it" is conclusive: settled, its check cancelled.
+    follow_through.finish(ev, attempt_id, "failed", "no media session")
+    [attempt] = attempts(env)
+    assert attempt.status == "failed" and checks(env) == []
+
+
+def test_watching_starting_is_not_a_media_change():
+    before = {"media": ("Spotify", "playing"), "app": "Spotify"}
+    now = {"media": ("Spotify", "playing", "Into You", "Artist"), "app": "Spotify"}
+    assert mind_phone.aligned(before, now) == now
+    moved = {"media": ("Spotify", "paused", "Into You", "Artist"), "app": "Spotify"}
+    assert mind_phone.aligned(before, moved) == before  # a real change stays one
+
+
+def test_her_prompt_names_a_follow_through_wake_in_words():
+    from app.services import mind_turn
+    assert mind_turn._REASON_WORDS["follow_through"].startswith("something you promised")

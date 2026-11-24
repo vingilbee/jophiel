@@ -26,6 +26,7 @@ action, no message: nothing she can send.
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import re
 import uuid
@@ -194,6 +195,18 @@ def _operation(action: str, given: dict, who: str | None = None) -> str:
     return f"{action.replace('_', ' ')} on their phone" + (f" ({args})" if args else "")
 
 
+def _record_interrupted(evaluation, attempt) -> None:
+    import threading
+
+    def run():
+        try:
+            follow_through.finish(evaluation, attempt, "unconfirmed", "interrupted before the device answered")
+        except Exception:  # noqa: BLE001 - follow_through.sweep picks a stranded attempt up
+            logging.getLogger(__name__).exception("follow_through: recording an interrupted attempt")
+
+    threading.Thread(target=run, name="follow-through-interrupted", daemon=True).start()
+
+
 def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_turn: bool = False,
                       message_id: uuid.UUID | None = None, authority=None, evaluation=None) -> list[BaseTool]:
     """Her phone tools for one turn. ``own_turn``: she wasn't written to (a wake): quiet actions only. On the user's
@@ -342,8 +355,10 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         try:
             outcome = await ask(action, {k: v for k, v in args.items() if v is not None}, view=view)
         except BaseException:
-            if attempt is not None:  # it may still have reached the phone: unknown, checked like any other
-                follow_through.finish(evaluation, attempt, "unconfirmed", "interrupted before the device answered")
+            if attempt is not None:
+                # It may still have reached the phone: unknown, checked like any other. Recorded off the event loop
+                # and never awaited (a cancellation stays a cancellation; the sweep covers it if this fails too).
+                _record_interrupted(evaluation, attempt)
             raise
         if attempt is not None:
             note = await asyncio.to_thread(follow_through.finish, evaluation, attempt, outcome.status, outcome.text)

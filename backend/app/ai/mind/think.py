@@ -53,8 +53,8 @@ your goal, what you're doing now, or what you're already watching for.
 
 Acting is separate from speaking. If the moment lists WHAT YOU'RE WAITING FOR, \
 and this moment makes one of those due now (what it waits for has happened), or \
-shows how an attempt of yours turned out, put its id (the one in brackets) in \
-"item" and what to do about it, in a few words, in "act", even when "say" is \
+shows how an attempt of yours turned out, put that promise's id (the one in \
+brackets at the start of its line) in "item" and what to do about it, in a few words, in "act", even when "say" is \
 empty: you'll be woken with your tools to do it. Leave both empty otherwise: a \
 prediction, a passing thought, or something not due yet is no reason to act.
 {voice}"""

@@ -32,7 +32,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, String
 
 from app.db.models import ChatMessage, CoordinatorWork, FollowThroughAttempt, WorkingItem
 from app.db.session import SessionLocal
@@ -116,13 +116,24 @@ def waiting_lines(db, user_id: uuid.UUID, now: datetime | None = None) -> list[s
 # --------------------------------------------------------------------------- #
 
 def open_item(db, user_id: uuid.UUID, key: str | uuid.UUID) -> WorkingItem | None:
-    """An open promise or intention of hers by the id she was shown (or its prefix); None otherwise."""
+    """An open promise or intention of hers by the id she was shown (or its prefix), or by the id of an attempt of
+    hers for one (the moment shows both: an attempt's result is about its promise); None otherwise."""
     from app.services import memory_manager
 
+    ref = key if isinstance(key, uuid.UUID) else str(key).strip("[] ").lower()
     try:
-        entry = memory_manager.item(db, user_id, key if isinstance(key, uuid.UUID) else str(key).strip("[] "))
+        entry = memory_manager.item(db, user_id, ref)
     except memory_manager.MemoryError:
-        return None
+        entry = None
+        if isinstance(ref, uuid.UUID) or len(ref) >= 6:
+            found = list(db.scalars(select(FollowThroughAttempt.item_id).where(
+                FollowThroughAttempt.user_id == user_id,
+                FollowThroughAttempt.id == ref if isinstance(ref, uuid.UUID)
+                else func.cast(FollowThroughAttempt.id, String).like(f"{ref}%")).limit(2)))
+            if len(found) == 1:
+                entry = db.get(WorkingItem, found[0])
+        if entry is None or entry.user_id != user_id:
+            return None
     if entry.closed_at is not None or entry.owner != "columbina" or entry.kind not in ("commitment", "intention"):
         return None
     return entry
@@ -285,9 +296,11 @@ def _tries(db, user_id: uuid.UUID, item_id: uuid.UUID, episode: str) -> int:
 
 def _episode(db, user_id: uuid.UUID, item_id: uuid.UUID, follow: Follow, action: str) -> str:
     """Which unmet stretch an attempt belongs to (its tries share ``MAX_PER_CHANGE``): a check's attempt's own; else
-    the last attempt's, unless what it waited for was reached since (an attempt achieved) or what it observes changed
-    on the phone after that attempt was settled (not her doing: hers shows before she settles). Anything else on the
-    phone changing (the app opened, the screen) is the same unmet stretch, so it never buys more tries."""
+    the last attempt's, unless what it waited for was reached since (an attempt achieved), they wrote since it (their
+    latest word renews it), or what it observes changed on the phone after that attempt was settled (not her doing:
+    hers shows before she settles). Anything else on the phone changing (the app opened, the screen) is the same
+    unmet stretch, so it never buys more tries; an action the phone reports nothing back on (an alarm, a timer)
+    has only those first two."""
     if follow.check is not None:
         checked = db.get(FollowThroughAttempt, follow.check)
         if checked is not None:
@@ -295,7 +308,7 @@ def _episode(db, user_id: uuid.UUID, item_id: uuid.UUID, follow: Follow, action:
     last = db.scalar(select(FollowThroughAttempt).where(
         FollowThroughAttempt.user_id == user_id, FollowThroughAttempt.item_id == item_id,
         FollowThroughAttempt.status != "cancelled").order_by(FollowThroughAttempt.issued_at.desc()).limit(1))
-    if last is None or last.status == "achieved":
+    if last is None or last.status == "achieved" or _wrote_since(db, last.conversation_id, last.issued_at):
         return f"ep:{uuid.uuid4().hex[:20]}"
     field = OBSERVED.get(action) or last.observe
     if field is not None:
@@ -308,13 +321,11 @@ def _episode(db, user_id: uuid.UUID, item_id: uuid.UUID, follow: Follow, action:
         settled = (last.settled_at or last.issued_at).timestamp()
         if value is not None and value.since > settled:
             return f"ep:{uuid.uuid4().hex[:20]}"
-        return last.transition
-    if (last.detail or {}).get("_change") != follow.transition:
-        return f"ep:{uuid.uuid4().hex[:20]}"  # nothing to read it on: a new observed change is a new stretch
     return last.transition
 
 
 IN_FLIGHT = timedelta(minutes=10)  # a check whose evaluation was dispatched this recently is still running
+CONCLUDE_GRACE = timedelta(seconds=60)  # a check that came due this recently is still being handed on
 
 
 def _check_alive(db, row: FollowThroughAttempt, now: datetime) -> bool:
@@ -329,12 +340,15 @@ def _check_alive(db, row: FollowThroughAttempt, now: datetime) -> bool:
     for work in wakes:
         if work.status in coordinator.ACTIVE:
             return True
-        if work.status not in ("completed", "expired") or now - work.updated_at > IN_FLIGHT:
-            continue  # (an expired check is still dispatched, late: in flight while recent)
+        if work.status not in ("completed", "expired"):
+            continue  # (an expired check is still dispatched, late)
         output = db.scalar(select(CoordinatorOutput).where(CoordinatorOutput.work_id == work.id,
                                                            CoordinatorOutput.phase == "follow_up"))
-        if output is None or output.status in ("decided", "dispatched"):
-            return True
+        if output is None:
+            if now - work.updated_at <= CONCLUDE_GRACE:
+                return True  # being handed to her mind; one never handed on in that time was dropped
+        elif output.status in ("decided", "dispatched") and now - output.created_at <= IN_FLIGHT:
+            return True  # her evaluation of it is running
     return False
 
 
@@ -346,8 +360,10 @@ def finish(ev, attempt_id: uuid.UUID, status: str, text: str) -> str:
         entry, row = _locked(db, attempt_id)
         if row is None:
             return ""
-        row.result = (text or "")[:500]
         ref = f"[{_short(row.id)}]"
+        if row.status != "sending":
+            return _late_answer(db, row, status, text, now)
+        row.result = (text or "")[:500]
         if entry is None or entry.closed_at is not None:
             row.status, row.settled_at, row.settled_reason = "cancelled", now, "the item closed meanwhile"
             db.commit()
@@ -370,6 +386,29 @@ def finish(ev, attempt_id: uuid.UUID, status: str, text: str) -> str:
         when = f"A check wakes you in {CHECK_DELAYS[0]} s" if work is not None else "No check could be scheduled"
         return (f"Attempt {ref}: the device {took}, but that isn't the result. {when} to read a fresh report of "
                 f"{row.observe or 'its state'}; until then nothing more is sent for this, and don't say it worked.")
+
+
+def _late_answer(db, row: FollowThroughAttempt, status: str, text: str, now: datetime) -> str:
+    """The device's answer after the sweep already moved the attempt on (``_interrupted``): recorded; it settles
+    the attempt only when it's conclusive on its own (the device didn't do it, or did it with nothing to read it
+    on). Never a second chain of checks."""
+    from app.services import coordinator
+
+    ref = f"[{_short(row.id)}]"
+    row.result = (text or "")[:500]
+    if row.status in ("pending", "unresolved") and (status not in ("done", "unconfirmed")
+                                                     or (status == "done" and row.observe is None)):
+        row.status, row.settled_at = ("failed", now) if status != "done" else ("achieved", now)
+        row.settled_reason = (f"the device didn't do it (answered late): {row.result}" if status != "done"
+                              else "the device's own answer confirms it (answered late)")
+        for check in db.scalars(select(CoordinatorWork).where(
+                CoordinatorWork.user_id == row.user_id, CoordinatorWork.kind == "wake",
+                CoordinatorWork.status.in_(coordinator.ACTIVE),
+                CoordinatorWork.input["follow_check"].astext == str(row.id)).with_for_update()):
+            check.status, check.error_code = "cancelled", "settled"
+            check.cancellation_generation += 1
+    db.commit()
+    return f"Attempt {ref} ({row.status}): the device answered late: {row.result or 'no details'}."
 
 
 def _tried(db, row: FollowThroughAttempt) -> int:

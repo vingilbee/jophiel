@@ -374,7 +374,8 @@ def _start_quick(mind: ActivityMind, source: Source, scope: Scope, level: str, m
     cause = {"third_party": bool(data.get("third_party")), "arrived": list(data.get("arrived") or []),
              "reply_targets": list(data.get("reply_targets") or []),
              # What was observed, as a stable key: two observations of one change share it (follow_through).
-             "transition": str(data.get("transition") or f"{scope.activity}:{int(at)}")}
+             # None: the source has none (only her phone's moments show what she's waiting for), so nothing is acted on.
+             "transition": str(data["transition"]) if data.get("transition") else None}
     _pool.submit(_think_quick, source, scope, level, moment.text, at, thinker, cause)
 
 
@@ -404,7 +405,7 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             thought = thinker.think(level, text, user=(user.name if user and user.name else "the user"),
                                     situation=source.situation())
             thought_at = time.time()
-            if not thought.text:
+            if not thought.text and not (thought.act and thought.item):
                 _log({"ts": time.time(), "session": str(scope.activity), "quick": level,
                       "error": thought.error, "skipped": None if thought.error else "nothing new to think",
                       "ms": thought.latency_ms})
@@ -419,18 +420,18 @@ def _think_quick(source: Source, scope: Scope, level: str, text: str, at: float,
             said = None
             outcome = None
             saved = save_thought(db, user_id=scope.user_id, session_id=source.thought_session(scope), level=level,
-                                 text=thought.text, status=status, kind=thought.kind, source=scope.source,
+                                 text=thought.text or f"Due now: {thought.act}", status=status, kind=thought.kind, source=scope.source,
                                  activity_id=scope.activity)
             act_outcome = None
-            if thought.act and status == "done" and not cause.get("third_party"):
+            if thought.act and status == "done" and not cause.get("third_party") and cause.get("transition"):
                 # Something she promised or meant to do is due (or an attempt of hers shows its result): her mind is
                 # woken with her tools to do it, whether or not there's anything to say. Someone else's words never
                 # make a moment that shows her promises, so never lead here.
                 from app.services import follow_through
                 act_outcome = follow_through.request(
                     db, user_id=scope.user_id, source=scope.source, activity_id=scope.activity, item=thought.item,
-                    act=thought.act, transition=cause.get("transition") or f"{scope.activity}:{int(at)}",
-                    reasons=[f"{level}: {thought.text}"], speaking=source.speaking(db, scope), say=thought.say,
+                    act=thought.act, transition=cause["transition"],
+                    reasons=[f"{level}: {thought.text or thought.act}"], speaking=source.speaking(db, scope), say=thought.say,
                     ttl=source.say_ttl() if hasattr(source, "say_ttl") else STALE_AFTER[level])
             if thought.say and status == "done" and not (act_outcome or "").startswith(("Proposed", "Already")):
                 # (A follow-through wake already carries this moment: she can say it there.)

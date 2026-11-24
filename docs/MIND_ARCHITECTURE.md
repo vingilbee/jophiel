@@ -214,8 +214,13 @@ woke her mind. Now acting is separate from speaking, in shared Mind behaviour fo
 - **Attempts** (`follow_through_attempts`): every device action on such a wake is recorded before it's sent and
   fenced (execution facts): the item still open; nothing else for it waiting for its result; `MAX_PER_CHANGE` (2) per
   unmet stretch, `MAX_PER_HOUR` (8) per item; a check after which they wrote sends nothing (their latest message
-  decides). A stretch (`_episode`, kept in `transition`) ends only when an attempt is achieved or the observed field
-  itself changes after the last attempt was settled: the app opening or the screen turning on never buys more tries.
+  decides). A stretch (`_episode`, kept in `transition`) ends only when an attempt is achieved, they write, or the
+  observed field itself changes after the last attempt was settled: the app opening or the screen turning on never
+  buys more tries, and an action the phone reports nothing back on (an alarm, a timer) has only the first two. A
+  thought may name the promise or an attempt of hers for it; one with an act and no text still wakes her. Only a
+  source whose moments carry a `transition` (her phone) leads to a follow-through. A check never handed to her mind
+  within `CONCLUDE_GRACE` (60 s) of coming due counts as dropped; a device answer arriving after the sweep moved its
+  attempt on is recorded and settles it only when conclusive, never a second chain of checks.
 - **Accepted is not achieved**: an action whose own answer proves it (an alarm set) is achieved; otherwise the attempt
   is `pending` and a check wake (`CHECK_DELAYS` 20 s, 60 s) shows her whether the phone reported the observed field
   (`media`, `ringer`, `dnd`) after the attempt. `settle_attempt`: achieved / not achieved only on such a fresh report,

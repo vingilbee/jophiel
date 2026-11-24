@@ -277,7 +277,8 @@ _REASON_WORDS = {"user_message": "their message", "work_result": "thinking you s
                  "thought": "a thought from your background thinking", "proposal": "a proposal from another part of you",
                  "conflict": "memory noticing a disagreement", "finding": "a security finding",
                  "question": "an open question of yours you hadn't asked",
-                 "due": "something you scheduled coming due"}
+                 "due": "something you scheduled coming due",
+                 "follow_through": "something you promised or meant to do coming due"}
 _DID_WORDS = {"said": "you spoke", "partial": "you spoke, but were stopped part way",
               "silent": "you chose silence; no words were delivered",
               "no_words": "you wrote nothing; no words were delivered",
