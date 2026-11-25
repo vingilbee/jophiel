@@ -52,6 +52,7 @@ from .link import (
     HEARTBEAT_TIMEOUT_SECONDS,
     Cancel,
     CaptureConfig,
+    CommandDone,
     ControlGrant,
     ControllerStatus,
     DecisionCommand,
@@ -611,7 +612,7 @@ async def run_once(
                             seq=0, captured_ms=int(time.monotonic() * 1000), width=width, height=height,
                             gate_epoch=state.config.epoch, kind="screenshot", action_id=message.action_id,
                         ), jpeg))
-                await send(result.model_dump_json())
+                await send(result.wire())
 
         async def _desktop_run(message: DesktopAction) -> tuple[DesktopResult, bytes | None]:
             kind = message.action.get("kind") if isinstance(message.action, dict) else None
@@ -638,6 +639,32 @@ async def run_once(
             result = await asyncio.to_thread(work)
             desktop_threads.discard(entry)  # only once it ended: a cancelled wait leaves it for the drain
             return result
+
+        # Background commands (0.14.0+): their ends, sent to a relay that takes them (Welcome.features).
+        jobs_reported = desktop is not None and desktop.commands is not None and "command_jobs" in (
+            welcome.features or [])
+        if desktop is not None:
+            desktop.jobs_reported = jobs_reported
+        jobs_ended = asyncio.Event()
+
+        async def job_reports() -> None:
+            if not jobs_reported:
+                await asyncio.Future()
+            loop = asyncio.get_running_loop()
+            desktop.commands.on_finished = lambda _job: loop.call_soon_threadsafe(jobs_ended.set)
+            try:
+                while True:
+                    jobs_ended.clear()  # before reading: a job ending meanwhile sets it again
+                    for job in desktop.commands.unreported():  # also those that ended while no relay was connected
+                        output, cut = job.output()
+                        await send(CommandDone(
+                            job=job.id, command=job.command[:400], exit_code=job.exit_code, why=job.why,
+                            output=output, output_cut=cut, ran_s=int((job.ended or job.started) - job.started),
+                        ).model_dump_json())
+                        job.reported = True
+                    await jobs_ended.wait()
+            finally:
+                desktop.commands.on_finished = None
 
         async def reader() -> None:
             while True:
@@ -743,6 +770,7 @@ async def run_once(
                 group.create_task(heartbeat())
                 group.create_task(capturer())
                 group.create_task(security_watch())
+                group.create_task(job_reports())
         except BaseExceptionGroup as group_error:
             # Report the relay's reason if there is one, else the first error.
             failures = [e for e in group_error.exceptions if isinstance(e, LinkFailure)]
@@ -753,6 +781,8 @@ async def run_once(
             for task in desktop_tasks:
                 task.cancel()  # no result can be sent any more
             play.close()  # no connection, no control: release everything now
+            if desktop is not None:
+                desktop.jobs_reported = False
             # No reconnect while an action's thread is still touching the desktop.
             await _drain_desktop(desktop_threads)
 

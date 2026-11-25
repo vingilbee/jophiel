@@ -28,6 +28,17 @@ Follow-through (2026-11-23): migration `a3f8c1e6d9b4` (`follow_through_attempts`
 or intention of hers due now (`act`) wakes her mind with her tools even with nothing to say, once per item and observed
 change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
 report (check wakes, bounded); `services/follow_through.py`.
+Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): her hands on the phone's screen, reply turns
+only (`ai/tools/phone_control.py`: read_phone_screen names the task, bound to the user's message once; act by number,
+by point as a fallback; 80 actions a turn; `taken_over` stops her for the turn; one chat line per turn). Screens travel
+sealed to the waiting worker and are never stored (`services/phone_control.py`: turn supersession, render, the
+short-term memory of 10 text-only screens for 30 min in process memory, wiped when the phone reports `control_on`
+false). No migration.
+Waiting on her devices (2026-11-24): `run_command(background=true)` (controller 0.14.0, relay feature `command_jobs`)
+keeps a long command running as `cmd:…` (`check_command` / `stop_command`); its end comes back as `CommandDone`
+and goes on her hands' trail (`desktop_control.command_finished`), so her background mind can wake her to follow up.
+`come_back_to(..., on="desktop"|"phone")`: if she uses that device again before it's due, it moves to the same
+delay after her last use (`coordinator._reset`). No migration; update the VM's controller to use background commands.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -164,7 +175,9 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with her Minecraft pack
         /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
                         #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
-        /desktop_control # her own Windows desktop: screenshot, move_mouse,
+        phone_control.py # her hands on the user's phone screen (phase 9): read_phone_screen, phone_tap/... — NOT MCP;
+                        #   on the orchestrator on the user's reply turns when they have a phone; pictures via screenshot_hook
+      /desktop_control # her own Windows desktop: screenshot, move_mouse,
                         #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
                         #   screenshot_hook shows her the pictures (pre-model hook)
         /gmail          # gmail_api.py (REST) + server.py (MCP) + client.py (adapter)

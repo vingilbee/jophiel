@@ -63,6 +63,7 @@ from desktop_controller.link import (
     PROTOCOL,
     Cancel,
     CaptureConfig,
+    CommandDone,
     ControlGrant,
     DecisionCommand,
     DecisionReport,
@@ -100,6 +101,8 @@ UNPAIRED_LIMIT = 16
 UNPAIRED_PER_HOST = 4
 # Controllers that report their machine's status (older ones forbid Welcome.features).
 STATUS_SINCE = (0, 12, 0)
+# Controllers that keep background commands and say when they end (CommandDone).
+COMMAND_JOBS_SINCE = (0, 14, 0)
 
 SessionFactory = Callable[[], Session]
 
@@ -172,8 +175,10 @@ def create_relay_app(session_factory: SessionFactory, fingerprint: str) -> FastA
             said_who()
             log.info("desktop relay: environment %s online (generation %s)", environment_id, generation)
             reports_status = _version(first.controller_version) >= STATUS_SINCE
+            features = (["status"] if reports_status else []) + (
+                ["command_jobs"] if _version(first.controller_version) >= COMMAND_JOBS_SINCE else [])
             await ws.send_text(Welcome(
-                controller_generation=generation, features=["status"] if reports_status else None,
+                controller_generation=generation, features=features or None,
             ).model_dump_json(exclude_none=True))
             link = _SessionLink(ws, environment_id, db_call, controller_version=first.controller_version,
                                 generation=generation)
@@ -388,6 +393,14 @@ class _SessionLink:
     async def handle(self, message) -> None:
         if isinstance(message, DesktopResult):
             await self.desktop_result(message)
+            return
+        if isinstance(message, CommandDone):
+            # A background command of hers ended: onto her hands' trail, which her background mind watches.
+            try:
+                await self.db_call(desktop_control.command_finished, self.environment_id,
+                                   message.model_dump(mode="json", exclude={"type"}))
+            except Exception:  # noqa: BLE001 - her mind doesn't hear of it; she can still check_command
+                log.exception("desktop relay: command %s end for %s not recorded", message.job, self.environment_id)
             return
         if isinstance(message, SecurityBatch):
             # Stored off the read loop, so heartbeats keep flowing while a big batch is written.

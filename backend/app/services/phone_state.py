@@ -30,7 +30,7 @@ from app.services import presence
 log = logging.getLogger(__name__)
 
 FIELDS = ("screen", "locked", "battery", "charging", "headphones", "network", "wifi_name", "dnd", "ringer",
-          "motion", "place", "media", "navigation", "messages_on")
+          "motion", "place", "media", "navigation", "messages_on", "control_on")
 USERS_KEY = "phone_state:users"
 MIND_WAKEUPS = "macrovision:mind:wakeups"  # the mind worker's queue (workers/runner.py): a change ticks at once
 WRITE_TRIES = 5  # a report's compare-and-write, retried when another report changed the hash under it
@@ -192,6 +192,10 @@ def report(user_id: uuid.UUID | str, fields: dict, *, conversation_id: uuid.UUID
     try:
         changed = _write(client, _key(user_id), fields, at, extra, confirm, now)
         client.hset(USERS_KEY, str(user_id), json.dumps(now))
+        if "control_on" in changed and fields.get("control_on") is False:
+            # Phase 9: the master switch or Phone control went off: her short-term screen memory goes at once.
+            from app.services import phone_control
+            phone_control.wipe(user_id, client=client)
         if changed:
             client.rpush(MIND_WAKEUPS, "phone")
             client.ltrim(MIND_WAKEUPS, -100, -1)
@@ -372,6 +376,8 @@ def lines(state: PhoneState, now: float) -> list[str]:
         line(f"- Maps trip under way{held('navigation')}: {trip(navigation)}", "navigation")
     if state.get("messages_on") is False:
         line("- Their Messages switch is off: your replies and drafts to other people are paused", "messages_on")
+    if state.get("control_on") is False:
+        line("- Phone control is switched off: you can't use their phone's screen", "control_on")
     return out
 
 

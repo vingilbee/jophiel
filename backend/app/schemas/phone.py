@@ -78,6 +78,9 @@ class PhoneStateReport(BaseModel):
     navigation: NavigationState | None = None
     # The phone's Messages switch (replies and drafts): false = her replies to other people are paused.
     messages_on: bool | None = None
+    # Phase 9: the master switch and Phone control together (false = she can't use the screen; her short-term
+    # screen memory is wiped at once, services/phone_control.py).
+    control_on: bool | None = None
     observed_at: datetime | None = None
 
     def fields(self) -> dict:
@@ -114,12 +117,69 @@ class PhoneActionDraft(BaseModel):
     target: Literal["contact", "picker"]
 
 
+# Phase 9 (frontend-phone/PLAN_PHASE_9.md, "The contract"): the screen after a control action settled. Never stored
+# in the database: it reaches the waiting worker encrypted (services/phone_actions.py), her turn as a picture and
+# text, and her short-term screen memory as text only (services/phone_control.py).
+SCREEN_ROLES = ("button", "text_field", "checkbox", "switch", "radio", "tab", "image", "list", "link", "text", "item")
+SCREEN_MAX_ITEMS = 250
+SCREEN_IMAGE_CHARS = 1_400_000  # ~1 MB of JPEG as base64 (720 px wide, quality 70 is usually 100-200 KB)
+
+
+class ScreenItem(BaseModel):
+    """One item on the screen, in reading order. ``n``: it can be acted on (by that number, on that screen only).
+    ``box``: [x, y, w, h] in screenshot pixels. Unknown fields a newer phone adds are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    n: int | None = Field(default=None, ge=1, le=10_000)
+    role: str = Field(default="item", max_length=40)
+    text: str | None = Field(default=None, max_length=4000)
+    label: str | None = Field(default=None, max_length=1000)
+    hint: str | None = Field(default=None, max_length=1000)
+    focused: bool | None = None
+    checked: bool | None = None
+    selected: bool | None = None
+    disabled: bool | None = None
+    password: bool | None = None
+    box: list[int] | None = Field(default=None, min_length=4, max_length=4)
+
+
+class ScreenImage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    jpeg_base64: str = Field(min_length=1, max_length=SCREEN_IMAGE_CHARS, repr=False)
+    width: int = Field(ge=1, le=10_000)
+    height: int = Field(ge=1, le=20_000)
+
+
+class PhoneScreen(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=40)
+    app: str | None = Field(default=None, max_length=120)
+    package: str | None = Field(default=None, max_length=200)
+    keyboard: bool = False
+    image: ScreenImage | None = Field(default=None, repr=False)
+    image_missing: Literal["secure", "not_supported", "failed"] | None = None
+    items: list[ScreenItem] = Field(default_factory=list, max_length=SCREEN_MAX_ITEMS, repr=False)
+    truncated: bool = False
+
+
+class PhoneActionScreen(BaseModel):
+    """A control action's ``done`` (every one but ``end_control``): the screen after it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    screen: PhoneScreen = Field(repr=False)
+
+
 class PhoneActionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["done", "notified", "refused", "expired", "failed"]
     reason: str | None = Field(default=None, max_length=80, repr=False)
-    data: PhoneActionData | PhoneActionOpened | PhoneActionDraft | None = Field(default=None, repr=False)
+    data: PhoneActionData | PhoneActionOpened | PhoneActionDraft | PhoneActionScreen | None = Field(
+        default=None, repr=False)
 
 
 class PhoneActionResultFrame(PhoneActionResult):

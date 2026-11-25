@@ -215,6 +215,29 @@ class DesktopResult(_Msg):
     exit_code: int | None = None
     output: str | None = Field(default=None, max_length=COMMAND_OUTPUT_CHARS + 200)
     output_cut: bool = False
+    # A background command (0.14.0+, only to a relay with the ``command_jobs`` feature; left out otherwise, since an
+    # older relay forbids them): its job id, and whether it's still running (then ``output`` is what it printed so
+    # far and ``exit_code`` is None).
+    job: str | None = Field(default=None, min_length=1, max_length=16)
+    running: bool | None = None
+
+    def wire(self) -> str:
+        """As sent: without the background fields when they're unset (an older relay forbids them)."""
+        return self.model_dump_json(exclude={k for k in ("job", "running") if getattr(self, k) is None})
+
+
+class CommandDone(_Msg):
+    """A background command ended (0.14.0+, only to a relay with ``command_jobs``): sent once it ended, or at the
+    next connection when no relay was connected then. ``exit_code`` None: it was stopped (``why``)."""
+
+    type: Literal["command_done"] = "command_done"
+    job: str = Field(min_length=1, max_length=16)
+    command: str = Field(default="", max_length=400)
+    exit_code: int | None = None
+    why: str | None = Field(default=None, max_length=300)
+    output: str | None = Field(default=None, max_length=COMMAND_OUTPUT_CHARS + 200)
+    output_cut: bool = False
+    ran_s: int = Field(default=0, ge=0)
 
 
 # --- Security activity (docs/DESKTOP_NETWORK_AWARENESS_PLAN.md): the VM's event logs, read only ---------
@@ -340,7 +363,7 @@ class Paired(_Msg):
     proof: _Hex64
 
 
-RelayFeature = Literal["status"]
+RelayFeature = Literal["status", "command_jobs"]
 
 
 class Welcome(_Msg):
@@ -473,7 +496,7 @@ class LinkError(_Msg):
 
 ControllerMessage = Annotated[
     Union[Pair, Hello, Heartbeat, SessionReady, SessionProblem, DecisionReport, PauseRequest, DesktopResult,
-          SecurityBatch],
+          SecurityBatch, CommandDone],
     Field(discriminator="type"),
 ]
 RelayMessage = Annotated[

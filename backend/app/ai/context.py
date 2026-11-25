@@ -173,6 +173,9 @@ class AgentRuntimeContext:
     # Their phone's senses as one line (services/phone_notifications.prompt_line): None when they have no phone.
     phone: str | None = None
     zone: str | None = None
+    # Phase 9: this reply turn's use of the phone screen (app/ai/tools/phone_control.PhoneControl), set when her
+    # phone-control tools are built; finished when the turn ends.
+    phone_control: Any = None
 
     # --- Speaking first ---
     # Set when this turn is an *unprompted* message the agent is initiating,
