@@ -473,9 +473,9 @@ def build_desktop_tools(
         out of your skills, run it, check what it did and fix it, up to a few tries, while your hands
         wait. Use it when a step needs a move none of your hands' skills does (your hands said "no
         skill for: ..."), when the user asks you to learn something ("learn how to make a furnace"),
-        or says yes to an offer. You don't need to ask first: say what you're trying. Only for a move
-        none of your hands' skills does: if you can name the skill that does it, with its parameters, put that in the plan instead, unless the user
-        still wants you to learn it. Moves you taught yourself (learned_..., in your game summary) are
+        or says yes to an offer. If you can name the skill that does it, with its parameters, put
+        that in the plan instead, unless the user still wants you to learn it. Moves you taught
+        yourself (learned_..., in your game summary) are
         skills you have: use them; learning one again (only when the user asks) replaces it with the
         new program if that works. When the user tells you to do a move you don't have ("place blocks
         to climb up"), don't just say you can't: say you haven't learned it yet and that you'll try,
@@ -489,8 +489,7 @@ def build_desktop_tools(
         user says is unclear, asks for something big, or needs a plan you can't work out in one
         breath ("this session is for harder skills", "explore the mindset"). Not for clear, simple
         requests: just do those. Your conclusion shows up on your mind in a little while, and you
-        may ask them a question from it then. Answer them now anyway, briefly ("Let me think about
-        how to do that"). what: what to think over, in a few words."""
+        may ask them a question from it then. what: what to think over, in a few words."""
         return await act(mind_hard.hand_off, what=what)
 
     @tool
