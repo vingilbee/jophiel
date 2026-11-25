@@ -292,6 +292,11 @@ def _apps(apps: list[str]) -> str:
     return ", ".join(apps[:2]) + f" and {len(apps) - 2} more"
 
 
+def turn_line_id(turn: uuid.UUID | str) -> uuid.UUID:
+    """The id of a turn's one chat line: the same for the turn however it ended, so her history can find it."""
+    return uuid.uuid5(uuid.UUID(str(turn)), "phone-control")
+
+
 def turn_line(*, apps: list[str], steps: int, acted: bool, taken_over: bool = False,
               at_limit: bool = False) -> str:
     """What the chat shows for a turn of hers on the phone: where and how many steps, never what she saw."""

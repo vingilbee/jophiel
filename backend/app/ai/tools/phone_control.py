@@ -104,13 +104,15 @@ class PhoneControl:
 
     def _finish(self) -> None:
         try:
-            if not self.ended and not self.taken_over:
-                if not phone_control.superseded(self.user_id, self.turn):
-                    phone_actions.act(self.user_id, self.conversation_id, "end_control", {"turn": self.turn})
+            # The line first: a turn that was cut off is read back from it by the next one (services/chat.py),
+            # which can start before the phone answers end_control.
             text = phone_control.turn_line(apps=self.apps, steps=self.steps, acted=self.acted,
                                            taken_over=self.taken_over, at_limit=self.at_limit)
             phone_actions.record_line(self.user_id, self.conversation_id,
-                                      uuid.uuid5(uuid.UUID(self.turn), "phone-control"), text)
+                                      phone_control.turn_line_id(self.turn), text)
+            if not self.ended and not self.taken_over:
+                if not phone_control.superseded(self.user_id, self.turn):
+                    phone_actions.act(self.user_id, self.conversation_id, "end_control", {"turn": self.turn})
         except Exception:  # noqa: BLE001 - the phone ends control itself 20 s after her last action
             log.exception("phone_control: finishing the turn's control")
 
