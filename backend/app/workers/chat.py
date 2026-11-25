@@ -196,50 +196,43 @@ async def _generate(job: ChatJob) -> None:
         drive_token = gmail_token if DRIVE in granted else None
         if GMAIL_MODIFY not in granted:
             gmail_token = None
+    mark("history_ready", messages=len(history))
 
-    assistant_id = uuid.uuid5(job.turn_id, "assistant")
-    # One evaluation of her mind per job (services/mind_turn.py): a user's message, or a wake without one
-    # (thinking that finished, a thought or proposal of hers, something she chose to come back to).
-    follow_up = payload.get("phase") == "follow_up"
-    wake_text = None
-    if follow_up:
-        # Checked again right before she is woken: a newer user message or a superseded item means the
-        # thought stays private. Execution facts only; what to do with it is hers.
-        request_id = uuid.UUID(payload["request_id"])
-        valid, info = await asyncio.to_thread(coordinator.follow_up_still_valid, uuid.UUID(payload["work_id"]))
-        if not valid:
-            with SessionLocal() as db:
-                chat_service.finish_job(db, job.id, "cancelled", claim_token=claim_token)
-            coordinator.follow_up_outcome(request_id, status="cancelled", assistant_message_id=None)
-            await asyncio.to_thread(_wake_ended, None, info, job, decided=False, why="it went stale before she was woken")
-            return
-        wake_text = coordinator.render_wake(info)
-        mind = await asyncio.to_thread(mind_turn.prepare_wake, job=job, info=info,
-                                       user_name=user.name if user else None)
-    else:
-        mind = await asyncio.to_thread(
-            mind_turn.prepare_message, user_id=job.user_id, conversation_id=job.conversation_id,
-            user_message_id=job.user_message_id, message=payload["content"],
-            zone=payload.get("zone"), turn_id=job.turn_id,
-            channel=payload.get("channel", "web"), voice=bool(payload.get("voice", False)), job=job,
-            user_name=user.name if user else None, channel_identity_id=payload.get("channel_identity_id"))
-    recall_turn = mind.recall_turn
+    # Reads that don't depend on her memory check (each its own DB session): started now, alongside it.
     spoke_at = payload.get("spoke_at")
-    # Independent reads (each its own DB session): together, not one after another.
-    (game, (desktop, desktop_usable, desktop_commands), security, files, working_memory, picture, now, personality_page,
-     mind_state, phone) = await asyncio.gather(
+    early_reads = asyncio.ensure_future(asyncio.gather(
         asyncio.to_thread(lambda: desktop_game.summary_for(job.user_id, for_reply=True)),
         asyncio.to_thread(desktop_control.for_turn, job.user_id),
         asyncio.to_thread(security_activity.line_for, job.user_id, zone=payload.get("zone")),
         asyncio.to_thread(_readable_files, job.user_id, payload.get("asset_ids") or []),
-        asyncio.to_thread(memory_manager.view_for, job.user_id, user_name=user.name if user else None),
         # None by itself when no game session is live.
         asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at) if spoke_at else _none(),
-        asyncio.to_thread(mind.situation),
         asyncio.to_thread(_personality),
-        asyncio.to_thread(mind.state),
         asyncio.to_thread(_phone_line, job.user_id),
-    )
+    ))
+    try:
+        mind, wake_text, info = await _prepare_mind(job, payload, user, claim_token)
+    except BaseException:
+        await _drop(early_reads)
+        raise
+    if mind is None:  # a wake that went stale before she was woken (already closed)
+        await _drop(early_reads)
+        return
+    mark("mind_ready")
+    follow_up = payload.get("phase") == "follow_up"
+    request_id = uuid.UUID(payload["request_id"]) if follow_up else None
+    recall_turn = mind.recall_turn
+    # After her memory check (a new message closes thinking for earlier ones), so these read what it left.
+    (game, (desktop, desktop_usable, desktop_commands), security, files, picture, personality_page, phone), \
+        (working_memory, now, mind_state) = await asyncio.gather(
+            early_reads,
+            asyncio.gather(
+                asyncio.to_thread(memory_manager.view_for, job.user_id, user_name=user.name if user else None),
+                asyncio.to_thread(mind.situation),
+                asyncio.to_thread(mind.state),
+            ),
+        )
+    assistant_id = uuid.uuid5(job.turn_id, "assistant")
     if game is None or game.idle:
         picture = None
     if mind.phone_scope is not None:
@@ -422,7 +415,7 @@ async def _generate(job: ChatJob) -> None:
     messages = [*history, {"role": "user", "content": prompts.WAKE_TRIGGER}] if follow_up else history
     # Stopped while her context was put together (a barge-in during it): no model run, and none of its tools.
     events = (_no_events() if _cancelled(turn_id)
-              else stream_chat(messages=messages, context=context, on_stage=lambda stage: mark(stage)))
+              else stream_chat(messages=messages, context=context, on_stage=mark))
     try:
         while True:
             # Wait for the model only while the turn isn't stopped: a tool call
@@ -657,6 +650,40 @@ def _phone_line(user_id: uuid.UUID) -> str | None:
     except Exception:  # noqa: BLE001
         logger.exception("Reading the phone's senses failed")
         return None
+
+
+async def _prepare_mind(job: ChatJob, payload: dict, user, claim_token):
+    """``(mind, wake_text, info)`` for this job: one evaluation of her mind (services/mind_turn.py), for a user's
+    message or a wake without one (thinking that finished, a thought or proposal of hers, something she chose to
+    come back to). ``mind`` is None when a wake went stale before she was woken (its job is closed here)."""
+    if payload.get("phase") != "follow_up":
+        mind = await asyncio.to_thread(
+            mind_turn.prepare_message, user_id=job.user_id, conversation_id=job.conversation_id,
+            user_message_id=job.user_message_id, message=payload["content"],
+            zone=payload.get("zone"), turn_id=job.turn_id,
+            channel=payload.get("channel", "web"), voice=bool(payload.get("voice", False)), job=job,
+            user_name=user.name if user else None, channel_identity_id=payload.get("channel_identity_id"))
+        return mind, None, None
+    # Checked again right before she is woken: a newer user message or a superseded item means the
+    # thought stays private. Execution facts only; what to do with it is hers.
+    request_id = uuid.UUID(payload["request_id"])
+    valid, info = await asyncio.to_thread(coordinator.follow_up_still_valid, uuid.UUID(payload["work_id"]))
+    if not valid:
+        with SessionLocal() as db:
+            chat_service.finish_job(db, job.id, "cancelled", claim_token=claim_token)
+        coordinator.follow_up_outcome(request_id, status="cancelled", assistant_message_id=None)
+        await asyncio.to_thread(_wake_ended, None, info, job, decided=False, why="it went stale before she was woken")
+        return None, None, info
+    wake_text = coordinator.render_wake(info)
+    mind = await asyncio.to_thread(mind_turn.prepare_wake, job=job, info=info, user_name=user.name if user else None)
+    return mind, wake_text, info
+
+
+async def _drop(reads: asyncio.Future) -> None:
+    """Reads started for a turn that won't run: cancelled, and any error they hit isn't left unretrieved."""
+    reads.cancel()
+    with contextlib.suppress(BaseException):
+        await reads
 
 
 async def _none() -> None:

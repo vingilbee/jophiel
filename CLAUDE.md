@@ -54,6 +54,12 @@ its own job, which waits (one job per conversation at a time), and comes back to
 read there is closed as answered in that turn, one she didn't runs next. The turn's stream carries `hands` frames
 (open / closed); the phone app then never commits a long utterance as a barge-in (only Stop, the banner or the button
 stop her). Frames: `ack`/`transcript` carry `joins`, the joined turn's `done` carries `joined`. No migration.
+Latency (2026-11-25): her prompt is two system messages, the standing part first (`prompts.build_prompt_parts`)
+and this evaluation's moment (Now, senses, memory, devices, delivery rules) right before the message it answers, so
+OpenAI's prompt cache serves the standing prompt and the history; the history window's start moves every
+`chat.HISTORY_STEP` (12) messages, not every turn. Voice marks now split `model_ttft` into each model call
+(tokens, cached tokens) and tool (`app/ai/loop_timing.py`), and context prep into history / memory check / reads;
+reads that don't depend on her memory check run alongside it. No migration.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.

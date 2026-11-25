@@ -58,6 +58,10 @@ SEGMENTS: tuple[tuple[str, str, str], ...] = (
     ("persist_enqueue", "stt_final", "job_enqueued"),
     ("queue_wait", "job_enqueued", "job_claimed"),
     ("context_prep", "job_claimed", "context_ready"),
+    # Inside context_prep: history and tokens, her memory check (other reads run alongside it), the reads after it.
+    ("prep_history", "job_claimed", "history_ready"),
+    ("prep_mind", "history_ready", "mind_ready"),
+    ("prep_after_mind", "mind_ready", "context_ready"),
     ("tools_setup", "context_ready", "tools_ready"),
     ("model_ttft", "tools_ready", "model_first_token"),
     ("first_clause", "model_first_token", "first_clause_emitted"),
@@ -165,16 +169,27 @@ def read_records(path: Path | None = None) -> list[dict]:
     return records
 
 
+LOOP_PREFIX = "loop_"
+
+# Her agent loop inside model_ttft (app/ai/loop_timing.py), summed per turn.
+LOOP_METRICS = ("loop_first_call_wait", "loop_model_calls", "loop_model_ms", "loop_tools", "loop_tool_ms",
+                "loop_first_input_tokens", "loop_first_cached_tokens")
+
+
 def group_turns(records: Iterable[dict]) -> dict[str, dict]:
     """Fold marks into one dict per turn: stage -> first wall_ms, plus dims.
 
     Keeps the *first* occurrence of each stage, so a retried worker job reports
-    the attempt the user actually waited on.
+    the attempt the user actually waited on. Her loop's marks (``loop_*``) repeat
+    within a turn, so they are kept in order under ``loop`` instead.
     """
     turns: dict[str, dict] = {}
     for record in records:
-        turn = turns.setdefault(record["turn_id"], {"stages": {}, "dims": {}})
+        turn = turns.setdefault(record["turn_id"], {"stages": {}, "dims": {}, "loop": []})
         stage = record["stage"]
+        if stage.startswith(LOOP_PREFIX):
+            turn["loop"].append(record)
+            continue
         if stage not in turn["stages"]:
             turn["stages"][stage] = float(record["wall_ms"])
         for key, value in record.items():
@@ -209,6 +224,70 @@ def segments(stages: dict[str, float]) -> dict[str, float]:
     return out
 
 
+def loop_steps(turn: dict) -> list[dict]:
+    """Her loop on this turn as steps in order: each model call and each tool, with its duration in ms.
+
+    Only the first worker attempt's loop (marks of a retried job's later attempts are dropped)."""
+    loop = sorted(turn.get("loop") or [], key=lambda r: r["wall_ms"])
+    pid = loop[0].get("pid") if loop else None
+    open_calls: dict[object, dict] = {}
+    open_tools: dict[object, list[dict]] = {}
+    steps: list[dict] = []
+    for record in loop:
+        if record.get("pid") != pid:
+            continue
+        stage, at = record["stage"], float(record["wall_ms"])
+        if stage == "loop_model_start":
+            step = {"kind": "model", "call": record.get("call"), "start": at}
+            open_calls[record.get("call")] = step
+            steps.append(step)
+        elif stage == "loop_model_first_chunk":
+            step = open_calls.get(record.get("call"))
+            if step is not None:
+                step["first_chunk_ms"] = at - step["start"]
+        elif stage == "loop_model_end":
+            step = open_calls.pop(record.get("call"), None)
+            if step is not None:
+                step["ms"] = at - step["start"]
+                for key in ("tool_calls", "input_tokens", "cached_tokens", "output_tokens", "failed"):
+                    if key in record:
+                        step[key] = record[key]
+        elif stage == "loop_tool_start":
+            step = {"kind": "tool", "tool": record.get("tool"), "start": at}
+            open_tools.setdefault(record.get("tool"), []).append(step)
+            steps.append(step)
+        elif stage == "loop_tool_end":
+            pending = open_tools.get(record.get("tool")) or []
+            if pending:
+                step = pending.pop(0)
+                step["ms"] = at - step["start"]
+                step["ok"] = record.get("ok")
+    return steps
+
+
+def loop_metrics(turn: dict) -> dict[str, float]:
+    """Her loop summed for one turn (LOOP_METRICS); empty when the turn has no loop marks."""
+    steps = loop_steps(turn)
+    models = [s for s in steps if s["kind"] == "model"]
+    tools = [s for s in steps if s["kind"] == "tool"]
+    if not models:
+        return {}
+    out: dict[str, float] = {
+        "loop_model_calls": len(models),
+        "loop_model_ms": sum(s.get("ms", 0) for s in models),
+        "loop_tools": len(tools),
+        "loop_tool_ms": sum(s.get("ms", 0) for s in tools),
+    }
+    first = models[0]
+    ready = turn["stages"].get("tools_ready")
+    if ready is not None and "first_chunk_ms" in first:
+        out["loop_first_call_wait"] = first["start"] + first["first_chunk_ms"] - ready
+    if first.get("input_tokens") is not None:
+        out["loop_first_input_tokens"] = first["input_tokens"]
+        out["loop_first_cached_tokens"] = first.get("cached_tokens") or 0
+    return out
+
+
 def percentile(values: list[float], pct: float) -> float:
     """Nearest-rank percentile; fine for the tens of turns this is used on."""
     ordered = sorted(values)
@@ -224,7 +303,9 @@ def summarize(turns: dict[str, dict]) -> dict[str, dict[str, float]]:
     for turn in turns.values():
         for name, value in segments(turn["stages"]).items():
             by_segment.setdefault(name, []).append(value)
-    order = [name for name, _, _ in SEGMENTS] + ["TOTAL_first_audio"]
+        for name, value in loop_metrics(turn).items():
+            by_segment.setdefault(name, []).append(value)
+    order = [name for name, _, _ in SEGMENTS] + list(LOOP_METRICS) + ["TOTAL_first_audio"]
     return {
         name: {
             "n": len(by_segment[name]),

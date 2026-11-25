@@ -843,24 +843,51 @@ def _with_activity(awareness: str | None, activity: str) -> str:
     return "\n".join([first, *lines])
 
 
+_MOMENT_HEADER = """\
+## This evaluation
+Read fresh for this evaluation, after the conversation so far and right before what it answers. The rest of \
+your prompt is above the conversation."""
+
+
 def build_system_prompt(
     context: AgentRuntimeContext, specs: list[SubAgentSpec] | None = None
 ) -> str:
-    """Compose the system prompt for one turn.
+    """The whole prompt for one turn as one text (the standing part, then this turn's moment)."""
+    standing, moment = build_prompt_parts(context, specs)
+    return f"{standing}\n{moment}"
+
+
+def build_prompt_parts(
+    context: AgentRuntimeContext, specs: list[SubAgentSpec] | None = None
+) -> tuple[str, str]:
+    """Compose one turn's prompt as ``(standing, moment)``.
+
+    ``standing`` changes only when who she is or what she can use changes; it goes first, ahead of the
+    conversation, so OpenAI's prompt cache can reuse it and the history after it from one turn to the next.
+    ``moment`` is everything read fresh for this evaluation (Now, senses, memory, devices, games, delivery
+    rules); ``app/ai/chat.py`` puts it right before the message it answers.
 
     ``specs`` are the sub-agents actually wired up for this turn — pass the
     same list used to build the tools, so the prompt and the toolset can't
     drift apart.
     """
     specs = specs or []
-    prompt = _BASE_SYSTEM_PROMPT
+    standing = _BASE_SYSTEM_PROMPT
 
     if context.personality:
-        prompt += f"\n{_CHARACTER_PROMPT.format(page=context.personality)}"
+        standing += f"\n{_CHARACTER_PROMPT.format(page=context.personality)}"
     if context.mind is not None:
-        prompt += f"\n{_MIND_PROMPT}"
+        standing += f"\n{_MIND_PROMPT}"
     if context.user_name:
-        prompt += f"\n\nYou are speaking with {context.user_name}."
+        standing += f"\n\nYou are speaking with {context.user_name}."
+    # Only when sharing is actually on — describing a sense the user hasn't
+    # granted would just invite the model to reach for a tool it doesn't have.
+    if context.vision_enabled:
+        standing += f"\n{_VISION_PROMPT}"
+    if specs:
+        standing += f"\n{_delegation_section(specs)}"
+
+    prompt = _MOMENT_HEADER
     if context.now:
         prompt += f"\n{_NOW_PROMPT.format(now=context.now)}"
     # Before capabilities: who and when grounds everything that follows.
@@ -896,10 +923,6 @@ def build_system_prompt(
         prompt += f"\n{_TURN_BOUNDARY_PROMPT.format(boundary=context.turn_boundary)}"
     if context.wake:
         prompt += f"\n{_WAKE_PROMPT.format(wake=context.wake)}"
-    # Only when sharing is actually on — describing a sense the user hasn't
-    # granted would just invite the model to reach for a tool it doesn't have.
-    if context.vision_enabled:
-        prompt += f"\n{_VISION_PROMPT}"
     if context.desktop is not None and context.game_event is None and context.nudge is None:
         if context.desktop_usable:
             prompt += "\n" + _DESKTOP_PROMPT.format(
@@ -925,8 +948,6 @@ def build_system_prompt(
         events = "\n".join(f"- {line}" for line in (event.described or event.reasons))
         template = _GAME_EVENT_PROMPT_MIND if context.game_planner else _GAME_EVENT_PROMPT
         prompt += f"\n{template.format(events=events, after_goal=after_goal)}"
-    if specs:
-        prompt += f"\n{_delegation_section(specs)}"
 
     if context.has_images:
         count = (
@@ -963,4 +984,4 @@ def build_system_prompt(
     # Last, so its brevity rules override anything above them.
     if context.nudge:
         prompt += f"\n{_NUDGE_PROMPT.format(directive=context.nudge)}"
-    return prompt
+    return standing, prompt

@@ -670,6 +670,7 @@ def test_after_one_message_of_silence_the_next_request_is_its_own_current_messag
     assert messages(env)[-1] == ("assistant", "Ready.")
     # The same boundaries after a reload and when the window is cut to the last two messages.
     monkeypatch.setattr(get_settings(), "short_term_memory_messages", 2)
+    monkeypatch.setattr(chat_service, "HISTORY_STEP", 1)  # a window cut exactly (it normally holds its start)
     with env.db() as db:
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
         reloaded = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)

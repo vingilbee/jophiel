@@ -232,7 +232,10 @@ def get_history(
     ``record`` turns. Both are the app's own lines, never the user's text and
     never words she said.
     """
-    limit = max(2, get_settings().short_term_memory_messages)
+    keep = max(2, get_settings().short_term_memory_messages)
+    # At least ``keep`` messages, with the window's start held in place for HISTORY_STEP messages (see
+    # _held_window), so OpenAI's prompt cache can serve the history from one turn to the next.
+    limit = keep + HISTORY_STEP
     # Fetch newest-first so Postgres can apply the limit, then restore natural
     # order for the model. Older rows remain available to the UI and worker.
     job_time = None
@@ -263,7 +266,7 @@ def get_history(
             stmt = stmt.where(ChatMessage.created_at <= boundary.created_at)
     if job_time is None:
         stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit)
-    rows = list(reversed(list(db.scalars(stmt))))
+    rows = _held_window(list(reversed(list(db.scalars(stmt)))), keep)
     # What a stopped reply of hers had already done on their phone (its turn's chat line), so a cut-off turn's
     # taps aren't forgotten: the line is the user's chat, never part of what she said.
     stopped_turns = [m.turn_id for m in rows if m.role == "assistant" and m.status in _STOPPED and m.turn_id]
@@ -303,6 +306,23 @@ def get_history(
     while history and history[0]["role"] != "user":
         history.pop(0)
     return history
+
+
+# The history window's start moves in steps of this many messages, not one exchange at a time.
+HISTORY_STEP = 12
+
+
+def _held_window(rows: list[ChatMessage], keep: int) -> list[ChatMessage]:
+    """The newest ``keep`` to ``keep + HISTORY_STEP - 1`` messages, starting at a sequence boundary that only moves
+    every HISTORY_STEP messages. A window that dropped its oldest message every turn would change the request's
+    opening on every turn, and the prompt cache would never reach past the standing prompt. Falls back to the
+    newest ``keep`` when sequences are missing or have gaps that would leave fewer."""
+    sequences = [m.conversation_sequence for m in rows]
+    if not rows or any(seq is None for seq in sequences):
+        return rows[-keep:]
+    base = ((max(sequences) - keep) // HISTORY_STEP) * HISTORY_STEP
+    held = [m for m in rows if m.conversation_sequence > base]
+    return held if len(held) >= min(keep, len(rows)) else rows[-keep:]
 
 
 _RECORD = "[App record, not part of any message]"
