@@ -32,7 +32,7 @@ from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
 from app.services import coordinator, mind_turn, personality, promise_check
-from app.services import agent_say, phone_notifications, push
+from app.services import agent_say, phone_look, phone_notifications, push
 from app.ai import prompts
 from app.services import stickers
 from app.services import tts as tts_service
@@ -282,6 +282,8 @@ async def _generate(job: ChatJob) -> None:
         mind=mind,
         wake=wake_text,
         third_party=mind.third_party,
+        phone_look=(phone_look.asked_of(info.get("input")) if follow_up and info and not mind.third_party
+                    and mind.phone_scope is None else None),
         memory_tools=mind.phone_scope is None,
         source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),

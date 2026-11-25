@@ -2,9 +2,9 @@
 the service calls.
 
 Which actions a turn gets (frontend-phone/PLAN_PHASE_8.md, "Actions"; app/ai/chat.py decides the turn):
-- a reply to the user (they wrote this turn): every action, each bound to what their message asked for before the
-  first lookup or device call (services/phone_authority.py: a position read, a saved place, a send, a draft, any
-  device action); a message to someone else also passes the outgoing check (services/phone_reply_check.py);
+- a reply to the user (they wrote this turn): every action, her own judgement of what they asked (no operation
+  check: the user's decision, 2026-11-24); a message to someone else still passes the outgoing check
+  (services/phone_reply_check.py), read with the user's own message;
 - her own turns (a wake: thinking she started, a thought of hers, something she came back to): the quiet ones
   (``OWN_TURN_ACTIONS``), never anything that opens over their screen, and never a reply to someone else (an own
   turn alone doesn't say which exchange she'd be answering);
@@ -181,23 +181,6 @@ def _device_args(action: str, given: dict) -> tuple[dict | str, dict]:
     return f"Unknown action {action}.", {}
 
 
-def _operation(action: str, given: dict, who: str | None = None) -> str:
-    """One phone operation in plain words, for the owner-turn authority check (services/phone_authority.py)."""
-    shown = {k: v for k, v in given.items() if v not in (None, "", False, [])}
-    if action == "reply_notification":
-        return f'send a message to {who or "the conversation behind that notification"} on their phone: "{shown.get("text", "")}"'
-    if action == "whatsapp_draft":
-        return f'open a WhatsApp draft to {shown.get("to") or "a contact they pick"} with the text: "{shown.get("text", "")}"'
-    if action == "dismiss_notification":
-        return f"dismiss the notification from {who or 'someone'} on their phone"
-    if action == "navigate_to":
-        where = shown.get("destination") or shown.get("destination_place_id") or "a destination"
-        saved = " (one of their saved places, which reads its location)" if shown.get("saved_place") else ""
-        return f"start Google Maps navigation on their phone to {where}{saved}, by {shown.get('mode', 'drive')}"
-    args = ", ".join(f"{k}={v}" for k, v in shown.items() if k not in ("mode",))
-    return f"{action.replace('_', ' ')} on their phone" + (f" ({args})" if args else "")
-
-
 def _record_interrupted(evaluation, attempt) -> None:
     import threading
 
@@ -211,25 +194,32 @@ def _record_interrupted(evaluation, attempt) -> None:
 
 
 def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_turn: bool = False,
-                      message_id: uuid.UUID | None = None, authority=None, evaluation=None) -> list[BaseTool]:
+                      message_id: uuid.UUID | None = None, request: str | None = None,
+                      evaluation=None) -> list[BaseTool]:
     """Her phone tools for one turn. ``own_turn``: she wasn't written to (a wake): quiet actions only. On the user's
-    reply turns every operation that reads something sensitive or acts on the phone is first bound to their
-    message ``message_id`` (services/phone_authority.py: ``authority`` overrides, for tests), before the first
-    lookup or device call; messages to other people also pass the outgoing check (services/phone_reply_check.py).
+    reply turns, messages to other people pass the outgoing check (services/phone_reply_check.py) with the user's
+    own message ``message_id`` as what they asked (``request`` overrides it, for tests).
     ``evaluation``: her mind's evaluation; when it follows a promise through (services/follow_through.py), each
     device action is an attempt for it, recorded and fenced before it's sent, its result said back with it."""
-    from app.services import follow_through, phone_authority, phone_reply_check
+    from app.services import follow_through, phone_reply_check
 
     following = follow_through.of(evaluation) if own_turn and evaluation is not None else None
 
     found: dict[str, google_maps.Place] = {}
-    owner = None if own_turn else (authority or phone_authority.Authority(user_id, message_id))
+    asked: list[str | None] = [request]
 
-    async def refused(operation: str) -> str | None:
-        """On the user's turn: None when their message asked for it, else what she's told (nothing done)."""
-        if owner is None:
-            return None
-        return await asyncio.to_thread(owner.refusal, operation)
+    def owner_request() -> str | None:
+        """The user's own message this turn, from the app's record (what the outgoing check reads as their ask)."""
+        if asked[0] is None and message_id is not None:
+            from app.db.session import SessionLocal
+            from app.services import phone_authority
+            try:
+                with SessionLocal() as db:
+                    words = phone_authority.owner_words(db, user_id, message_id)
+                asked[0] = None if isinstance(words, str) else words.text
+            except Exception:  # noqa: BLE001 - the outgoing check then reads no request (it holds what it can't place)
+                logging.getLogger(__name__).exception("phone: the user's message couldn't be read")
+        return asked[0]
 
     async def ask(action: str, args: dict, target: tuple[str, str | None] | None = None,
                   view: dict | None = None) -> phone_actions.Outcome:
@@ -257,9 +247,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         place_id = destination_place_id.strip() if destination_place_id is not None else None
         if not (value or place_id) or (destination_place_id is not None and (not place_id or saved_place)):
             return "Choose a navigation destination by name, address, saved name, or Google Maps place ID."
-        if why := await refused(_operation("navigate_to", {"destination": value, "destination_place_id": place_id,
-                                                           "saved_place": saved_place, "mode": mode})):
-            return why
         target = await asyncio.to_thread(phone_actions.target_for, user_id) if saved_place else None
         place = None
         point = None
@@ -320,10 +307,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
                 return (f"There's no notification {handle} on their phone now (it may have been dealt with "
                         "there). Nothing was sent.")
         who = phone_notifications.who(found_one) if found_one is not None else None
-        # The user's say-so first, before anything is looked up or done (nothing but their words counts).
-        if why := await refused(_operation(action, {**given, **({"text": args.get("text")} if "text" in args
-                                                               else {})}, who)):
-            return why
         if found_one is not None:
             if action == "dismiss_notification":
                 args, view = {"key": found_one.key}, {"who": who}
@@ -333,9 +316,10 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
                 state = await asyncio.to_thread(phone_state.read, user_id)
                 if state is not None and state.get("messages_on") is False:
                     return "Their Messages switch is off: replies to other people are paused. Nothing was sent."
-                if owner is not None:  # the same outgoing check as her own replies, with what the user asked
+                if not own_turn:  # the same outgoing check as her own replies, with what the user asked
+                    request_text = await asyncio.to_thread(owner_request)
                     check = await asyncio.to_thread(phone_reply_check.check_reply, user_id, found_one.ref,
-                                                    args["text"], owner_request=owner.request_text(), kind="owner")
+                                                    args["text"], owner_request=request_text, kind="owner")
                     if not check.send:
                         return _held_by_check(check)
                 args = {"key": found_one.key, "conversation_id": found_one.conversation_id,
@@ -345,9 +329,10 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
             state = await asyncio.to_thread(phone_state.read, user_id)
             if state is not None and state.get("messages_on") is False:
                 return "Their Messages switch is off: drafts are paused. Nothing was opened."
-            if owner is not None:
+            if not own_turn:
+                request_text = await asyncio.to_thread(owner_request)
                 check = await asyncio.to_thread(phone_reply_check.check_draft, user_id, args.get("to"),
-                                                args["text"], owner_request=owner.request_text())
+                                                args["text"], owner_request=request_text)
                 if not check.send:
                     return _held_by_check(check).replace("Nothing was sent", "Nothing was opened")
         attempt = None
@@ -419,12 +404,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
                 or (origin_place_id is not None and (not start_id or origin_saved_place))
                 or (destination_place_id is not None and (not end_id or destination_saved_place))):
             return "A valid route destination and starting point are needed."
-        reads = [*(["the phone's current position"] if start is None and start_id is None else []),
-                 *(["a saved place's location"] if origin_saved_place or destination_saved_place else [])]
-        if why := await refused(f"estimate travel time to {value or end_id} from "
-                                f"{start or start_id or 'where the phone is now'} by {mode}"
-                                + (f" (reads {' and '.join(reads)})" if reads else "")):
-            return why
         target = None
         if origin_saved_place or destination_saved_place:
             target = await asyncio.to_thread(phone_actions.target_for, user_id)
@@ -466,9 +445,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
             return "A place search query is needed."
         point = None
         if nearby:
-            if why := await refused(f'search for places matching "{query}" near the phone\'s current position '
-                                    "(reads the phone's current position)"):
-                return why
             result = await position()
             if result.point is None:
                 return result.text
@@ -496,8 +472,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         """Use the phone's position once to name the user's current street or area when they ask where they are."""
         if not get_settings().google_maps_api_key:
             return MAPS_UNAVAILABLE
-        if why := await refused("read the phone's current position to name the street or area they're in"):
-            return why
         result = await position()
         if result.point is None:
             return result.text
@@ -520,9 +494,6 @@ def build_phone_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, own_tur
         name = " ".join((app or "").split())[:80]
         if not name:
             return "Say which app."
-        if why := await refused(f'read the notifications from "{name}" still on their phone (read only: nothing '
-                                "is replied to, dismissed or sent)"):
-            return why
         return await asyncio.to_thread(phone_notifications.app_report, user_id, name)
 
     # One app's notifications: the user's own turns only (her own turns see who and where, never anyone's words).

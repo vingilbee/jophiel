@@ -10,6 +10,12 @@ became of it:
 - **Never interactive.** Input is closed (a command waiting for a password or a confirmation gets end-of-file and
   stops rather than hanging), and colours and pagers are turned off, so the text is the text.
 - **Its own process group**, so stopping it stops what it started too.
+- **Or kept running** (``run_background``, 0.14.0+): a command still running when its wait ends isn't stopped. It
+  becomes a job (``Job``, a short id) that keeps going, at most ``MAX_JOBS`` at once and ``MAX_BACKGROUND_S`` each
+  (then it's stopped), and survives the connection closing. When it ends, ``on_finished`` is called (the connection
+  sends a ``CommandDone``; one that ends while no relay is connected is sent at the next connection). Its output is
+  read the same way, so ``status`` gives what it has printed so far, or all of it once it ended. Finished jobs are
+  kept ``KEEP_FINISHED_S``.
 
 ``CommandRunner.run`` never raises: a command that can't start is ``Failed``.
 """
@@ -22,6 +28,9 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Callable
 
 from .link import COMMAND_OUTPUT_CHARS
 
@@ -30,6 +39,9 @@ MAX_TIMEOUT_S = 600
 HEAD_CHARS = 3000  # of a long output, its start (the command's header, early errors) and the rest from its end
 READ_CHUNK = 4096
 POLL_S = 0.2
+MAX_JOBS = 4
+MAX_BACKGROUND_S = 4 * 3600
+KEEP_FINISHED_S = 3600
 # Escape sequences (colours, cursor moves) and control characters other than tab and newline.
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[@-_]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -90,16 +102,42 @@ class _Collected:
         return keep(joined)[0], True
 
 
+@dataclass
+class Job:
+    """A command kept running past its wait (``run_background``)."""
+
+    id: str
+    command: str
+    process: subprocess.Popen = field(repr=False)
+    collected: _Collected = field(repr=False)
+    windows: bool
+    started: float = field(default_factory=time.time)
+    ended: float | None = None
+    exit_code: int | None = None
+    why: str | None = None  # why it didn't finish by itself (stopped: the time limit, or asked to)
+    reported: bool = False
+    stop_asked: bool = False
+
+    @property
+    def running(self) -> bool:
+        return self.ended is None
+
+    def output(self) -> tuple[str, bool]:
+        return self.collected.text()
+
+
 class CommandRunner:
-    """Runs one command in ``shell`` (the program and flags; the command goes last, as one argument)."""
+    """Runs one command in ``shell`` (the program and flags; the command goes last, as one argument).
+    ``on_finished``: called (on the job's own thread) when a background job ends."""
 
-    def __init__(self, shell: list[str] | None) -> None:
+    def __init__(self, shell: list[str] | None, *, max_background_s: float = MAX_BACKGROUND_S) -> None:
         self.shell = shell
+        self.max_background_s = max_background_s
+        self.jobs: dict[str, Job] = {}
+        self.on_finished: Callable[[Job], None] | None = None
+        self._lock = threading.Lock()
 
-    def run(self, command: str, timeout_s: float, stop: threading.Event) -> tuple[int | None, str, bool, str | None]:
-        """``(exit_code, output, output_cut, why_not_finished)``. ``exit_code`` None: it was stopped (the time
-        limit, or the connection closed) and ``why_not_finished`` says which. Raises CommandFailed when it
-        couldn't start."""
+    def _spawn(self, command: str) -> tuple[subprocess.Popen, _Collected, bool]:
         if not self.shell:
             raise CommandFailed("this machine has no shell to run commands in")
         env = {**os.environ, "TERM": "dumb", "NO_COLOR": "1", "PAGER": "cat", "GIT_PAGER": "cat",
@@ -112,22 +150,95 @@ class CommandRunner:
                 **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if windows else {"start_new_session": True}))
         except OSError as exc:
             raise CommandFailed(f"couldn't start it: {exc}") from None
-        collected = _Collected(process.stdout)
+        return process, _Collected(process.stdout), windows
+
+    @staticmethod
+    def _wait(process: subprocess.Popen, timeout_s: float, stop: threading.Event) -> str | None:
+        """None once it exited; else ``"stop"`` (the connection closed) or ``"time"`` (its wait ran out)."""
         deadline = time.monotonic() + timeout_s
-        why = None
         while process.poll() is None:
             if stop.is_set():
-                why = "the connection closed part way; it was stopped"
-                break
+                return "stop"
             if time.monotonic() >= deadline:
-                why = f"it was still running after {int(timeout_s)} s, so it was stopped"
-                break
+                return "time"
             stop.wait(POLL_S)
+        return None
+
+    def run(self, command: str, timeout_s: float, stop: threading.Event) -> tuple[int | None, str, bool, str | None]:
+        """``(exit_code, output, output_cut, why_not_finished)``. ``exit_code`` None: it was stopped (the time
+        limit, or the connection closed) and ``why_not_finished`` says which. Raises CommandFailed when it
+        couldn't start."""
+        process, collected, windows = self._spawn(command)
+        ended = self._wait(process, timeout_s, stop)
+        why = {"stop": "the connection closed part way; it was stopped",
+               "time": f"it was still running after {int(timeout_s)} s, so it was stopped"}.get(ended or "")
         if why is not None:
             _stop_group(process, windows)
         collected.thread.join(timeout=2)
         output, cut = collected.text()
         return (process.returncode if why is None else None), output, cut, why
+
+    def run_background(self, command: str, wait_s: float, stop: threading.Event
+                       ) -> tuple[str | None, int | None, str, bool]:
+        """``(job, exit_code, output, output_cut)``: like ``run``, but a command still running when ``wait_s`` ends
+        (or when the connection closes) keeps running as a job (``job`` its id; the output is what it printed so
+        far). Raises CommandFailed when it couldn't start, or when ``MAX_JOBS`` are already running."""
+        self._forget_old()
+        with self._lock:
+            if sum(1 for job in self.jobs.values() if job.running) >= MAX_JOBS:
+                raise CommandFailed(f"{MAX_JOBS} background commands are already running; stop or wait for one")
+        process, collected, windows = self._spawn(command)
+        if self._wait(process, wait_s, stop) is None:
+            collected.thread.join(timeout=2)
+            output, cut = collected.text()
+            return None, process.returncode, output, cut
+        job = Job(uuid.uuid4().hex[:8], command, process, collected, windows)
+        with self._lock:
+            self.jobs[job.id] = job
+        threading.Thread(target=self._watch, args=(job,), name=f"command-job-{job.id}", daemon=True).start()
+        output, cut = collected.text()
+        return job.id, None, output, cut
+
+    def _watch(self, job: Job) -> None:
+        try:
+            job.process.wait(timeout=max(0.0, self.max_background_s - (time.time() - job.started)))
+        except subprocess.TimeoutExpired:
+            job.why = f"it was still running after {int(self.max_background_s // 60)} min, so it was stopped"
+            _stop_group(job.process, job.windows)
+        job.collected.thread.join(timeout=2)
+        job.exit_code = None if job.why is not None else job.process.returncode
+        job.ended = time.time()
+        callback = self.on_finished
+        if callback is not None:
+            try:
+                callback(job)
+            except Exception:  # noqa: BLE001 - reported at the next connection instead
+                pass
+
+    def status(self, job_id: str) -> Job | None:
+        self._forget_old()
+        with self._lock:
+            return self.jobs.get(job_id)
+
+    def stop_job(self, job_id: str) -> Job | None:
+        """Stop a running job (and what it started); its end is reported like any other."""
+        job = self.status(job_id)
+        if job is not None and job.running:
+            job.stop_asked = True
+            job.why = "you stopped it"
+            _stop_group(job.process, job.windows)
+        return job
+
+    def unreported(self) -> list[Job]:
+        """Finished jobs whose end no relay has been sent yet."""
+        with self._lock:
+            return [job for job in self.jobs.values() if not job.running and not job.reported]
+
+    def _forget_old(self) -> None:
+        now = time.time()
+        with self._lock:
+            for job_id in [j.id for j in self.jobs.values() if j.ended is not None and now - j.ended > KEEP_FINISHED_S]:
+                self.jobs.pop(job_id, None)
 
 
 def _stop_group(process: subprocess.Popen, windows: bool) -> None:

@@ -58,6 +58,10 @@ WAKES = ("mind", "wake")
 WAKE_GRACE = timedelta(days=30)
 WAKE_MAX_AHEAD = timedelta(days=60)
 FOLLOW_KEYS = ("follow_item", "follow_check", "follow_transition")  # a follow-through check's identity
+# A wake that's about looking at her desktop or the phone (``on``) moves instead of firing when she has used it
+# since: to the same delay after her last use, at most this many times (then it fires).
+ON_BODIES = ("desktop", "phone")
+MAX_RESETS = 20
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,8 @@ def _claim(db, token: str, kinds: tuple[str, ...] = ("recall", "mind", "wake"), 
             CoordinatorWork.lease_expires_at > now).limit(1))
         if conflict:
             continue
+        if work.kind == "wake" and work.status == "queued" and _reset(work, now):
+            continue  # she used that desktop or phone since: it waits on, from her last use
         if work.deadline_at <= now:
             work.status, work.error_code, work.lease_owner = "expired", "deadline", None
             return work, "expired"
@@ -220,6 +226,44 @@ def _claim(db, token: str, kinds: tuple[str, ...] = ("recall", "mind", "wake"), 
         work.lease_owner, work.lease_expires_at = token, min(work.deadline_at, now + timedelta(seconds=LEASE_SECONDS))
         return work, None
     return None, None
+
+
+def _last_use(user_id: uuid.UUID, body: str) -> float | None:
+    try:
+        if body == "desktop":
+            from app.services import desktop_control
+            return desktop_control.last_used(user_id)
+        from app.services import phone_control
+        return phone_control.last_used(user_id)
+    except Exception:  # noqa: BLE001 - unknown: it fires as set
+        logger.exception("coordinator: last use of %s unreadable", body)
+        return None
+
+
+def _reset(work: CoordinatorWork, now: datetime) -> bool:
+    """A due wake about looking at her desktop or the phone (``on``): when she has used it since it was set (or last
+    moved), it moves to the same delay after that last use instead of firing. The timer resets while she's at it;
+    it fires once she's left it alone that long. Execution facts only; what to do when it fires is hers."""
+    inp = dict(work.input or {})
+    body = inp.get("on")
+    if body not in ON_BODIES or int(inp.get("resets") or 0) >= MAX_RESETS:
+        return False
+    last = _last_use(work.user_id, body)
+    try:
+        since = datetime.fromisoformat(inp["since"]).timestamp()
+        delay = float(inp["delay_s"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if last is None or last <= since:
+        return False
+    later = datetime.fromtimestamp(last + delay, timezone.utc)
+    if later <= now:
+        return False
+    work.next_attempt_at, work.deadline_at = later, later + WAKE_GRACE
+    work.input = {**inp, "due_at": later.isoformat(), "since": datetime.fromtimestamp(last, timezone.utc).isoformat(),
+                  "resets": int(inp.get("resets") or 0) + 1}
+    _log({"op": "wake_reset", "work": str(work.id), "on": body, "due": later.isoformat()})
+    return True
 
 
 def expire_due() -> int:
@@ -538,7 +582,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                   asked_by: str = "mind", origin_message: uuid.UUID | None = None,
                   their_urgency: str | None = None, moves: CoordinatorWork | None = None,
                   reason: str | None = None, third_party: bool = False,
-                  phone_follow_up: dict | None = None, extra: dict | None = None) -> CoordinatorWork:
+                  phone_follow_up: dict | None = None, extra: dict | None = None,
+                  on: str | None = None) -> CoordinatorWork:
     """Keep the mind's choice to come back to something at ``due_at`` (UTC), in the conversation it chose it in.
     The caller commits.
 
@@ -554,7 +599,8 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
     ``phone_follow_up`` (affinity B3, services/phone_replies.py ``follow_up_for``): who and where on the phone it's a
     follow-up with, by stable ids (never a draft): kept through revisions, and it makes the wake ``third_party``.
     ``extra``: what its producer reads back when it comes due (services/follow_through.py: the attempt a check is
-    about), kept on its input as is."""
+    about), kept on its input as is. ``on``: ``desktop`` / ``phone`` when she's coming back to look at something
+    there: her using it again before it's due moves it (``_reset``), kept through revisions."""
     now = _now()
     if due_at.tzinfo is None:
         raise ValueError("a due time needs its time zone")
@@ -584,7 +630,7 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
         chain = old.get("chain") or str(moves.id)
         inherited = {k: old.get(k) for k in ("purpose", "asked_by", "origin_message", "origin", "their_urgency",
                                              "first_scheduled_at", "item", "channel_identity_id", "third_party",
-                                             "phone_follow_up", *FOLLOW_KEYS)}
+                                             "phone_follow_up", "on", *FOLLOW_KEYS)}
         revisions = list(old.get("revisions") or [])
         # A follow-up with someone on the phone keeps its recipient through every revision: the same intention never
         # moves to another person or conversation (a new one is a new come_back_to).
@@ -626,6 +672,9 @@ def schedule_wake(db, *, user_id: uuid.UUID, conversation_id: uuid.UUID, about: 
                or inherited.get("channel_identity_id"),
                "moved": moved, "revisions": revisions[-12:],
                **({"phone_follow_up": phone_follow_up} if phone_follow_up else {}),
+               **({"on": on or inherited.get("on"), "delay_s": max(0.0, (due_at - now).total_seconds()),
+                   "since": now.isoformat(), "resets": 0}
+                  if (on or inherited.get("on")) in ON_BODIES else {}),
                # A check on a follow-through attempt stays that check through every move (services/follow_through.py).
                **{k: v for k, v in {**{k: inherited.get(k) for k in FOLLOW_KEYS}, **(extra or {})}.items()
                   if k in FOLLOW_KEYS and v},
@@ -798,6 +847,9 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
             from app.services import autonomous_speech
             if not autonomous_speech.valid(db, work):
                 return False, None
+        from app.services import phone_look
+        if phone_look.is_look(work.input) and not phone_look.valid(db, work):
+            return False, None  # their window closed or they wrote since: their new turn holds the phone
         trigger = _trigger(db, work)
         promised = awaiting(db, work)
         if work.kind != "wake" and trigger is not None and trigger.conversation_sequence is not None \
@@ -842,6 +894,9 @@ def render_wake(info: dict) -> str:
     follow = follow_through.of(info)
     if follow is not None:
         return "\n".join(follow_through.render(follow, info.get("follow_through") or []))
+    from app.services import phone_look
+    if phone_look.is_look(inp):
+        return phone_look.render(info)
     if reason == "due":
         # Who asked for it, its deadline against now, what was promised and what changed are in "Now" (read from
         # records when she runs): this only names it.

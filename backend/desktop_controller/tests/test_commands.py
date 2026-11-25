@@ -73,3 +73,78 @@ def test_a_command_is_checked_like_any_action():
         parse_action({"kind": "run_command", "command": ""})
     with pytest.raises(Refused):
         parse_action({"kind": "run_command", "command": "ls", "timeout_s": 10_000})
+
+
+# --- Background commands (0.14.0+) -------------------------------------------------------------------------------
+
+
+def background_hands(**kwargs):
+    h = DesktopHands(None, None, commands=CommandRunner(command_shell(), **kwargs))
+    h.jobs_reported = True
+    return h
+
+
+@posix
+def test_a_background_command_keeps_running_and_says_when_it_ends():
+    h = background_hands()
+    ended = threading.Event()
+    h.commands.on_finished = lambda job: ended.set()
+    result, _ = h.run("b1", {"kind": "run_command", "command": "echo begun; sleep 1.5; echo finished; exit 4",
+                             "timeout_s": 1, "background": True})
+    assert result.status == "done" and result.running is True and result.exit_code is None
+    assert "begun" in result.output and result.job
+    looked, _ = h.run("b2", {"kind": "command_status", "job": result.job})
+    assert looked.running is True
+    assert ended.wait(10)
+    [job] = h.commands.unreported()
+    assert job.exit_code == 4 and "finished" in job.output()[0]
+    done, _ = h.run("b3", {"kind": "command_status", "job": result.job})
+    assert done.status == "done" and done.running is False and done.exit_code == 4
+    # On the wire, a result without a job leaves the new fields out (an older relay forbids them).
+    plain, _ = h.run("b4", {"kind": "run_command", "command": "echo quick", "timeout_s": 5, "background": True})
+    assert plain.job is None and plain.exit_code == 0
+    assert "job" not in plain.wire() and "running" not in plain.wire()
+    assert '"job"' in done.wire()
+
+
+@posix
+def test_a_background_command_can_be_stopped_and_is_bounded():
+    h = background_hands(max_background_s=1)
+    result, _ = h.run("b5", {"kind": "run_command", "command": "sleep 30", "timeout_s": 1, "background": True})
+    capped = h.commands.status(result.job)
+    deadline = time.time() + 10
+    while capped.running and time.time() < deadline:
+        time.sleep(0.1)
+    assert not capped.running and capped.exit_code is None and "still running after" in capped.why
+
+    h = background_hands()
+    result, _ = h.run("b6", {"kind": "run_command", "command": "sleep 30", "timeout_s": 1, "background": True})
+    stopped, _ = h.run("b7", {"kind": "stop_command", "job": result.job})
+    assert stopped.status == "done"
+    job = h.commands.status(result.job)
+    deadline = time.time() + 10
+    while job.running and time.time() < deadline:
+        time.sleep(0.1)
+    assert job.why == "you stopped it" and job.exit_code is None
+    missing, _ = h.run("b8", {"kind": "command_status", "job": "nope1234"})
+    assert missing.status == "refused" and "no background command" in missing.reason
+
+
+@posix
+def test_background_needs_a_relay_that_hears_the_end():
+    h = DesktopHands(None, None, commands=CommandRunner(command_shell()))
+    result, _ = h.run("b9", {"kind": "run_command", "command": "echo x", "background": True})
+    assert result.status == "refused" and "relay is too old" in result.reason
+
+
+@posix
+def test_at_most_four_background_commands_at_once():
+    h = background_hands()
+    for i in range(4):
+        result, _ = h.run(f"c{i}", {"kind": "run_command", "command": "sleep 20", "timeout_s": 1,
+                                    "background": True})
+        assert result.running
+    fifth, _ = h.run("c5", {"kind": "run_command", "command": "sleep 20", "timeout_s": 1, "background": True})
+    assert fifth.status == "failed" and "already running" in fifth.reason
+    for job in list(h.commands.jobs):
+        h.commands.stop_job(job)

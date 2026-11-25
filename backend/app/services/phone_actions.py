@@ -30,8 +30,10 @@ from app.core.config import get_settings
 from app.db.models import Conversation, PhoneActivity
 from app.db.session import SessionLocal
 from app.schemas.chat import ChatMessageOut
-from app.schemas.phone import PhoneActionData, PhoneActionDraft, PhoneActionOpened, PhoneActionResult
-from app.services import agent_say, fcm, phone_devices, phone_people, presence
+from app.schemas.phone import (
+    PhoneActionData, PhoneActionDraft, PhoneActionOpened, PhoneActionResult, PhoneActionScreen,
+)
+from app.services import agent_say, fcm, phone_control, phone_devices, phone_people, presence
 
 log = logging.getLogger(__name__)
 
@@ -41,11 +43,20 @@ ACTION_TTL = EXPIRES_SECONDS + RESULT_GRACE_SECONDS
 ACTIVITY_RETRIES = "phone:action:activity-retries"
 ACTIVITY_RETRY_SECONDS = 5
 ACTIVITY_RETRY_BATCH = 25
-WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10}
+# Phase 9: a control action settles for up to 2 s and takes a screenshot; read_screen may first wait up to 5 s.
+WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10, "read_screen": 15}
 DEFAULT_WAIT_SECONDS = 10
 # A push has to wake the app before it can answer: wait this long at least once the action went by FCM.
 PUSH_WAIT_SECONDS = 20
 COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
+# Phase 9 (frontend-phone/PLAN_PHASE_9.md): her using the phone's screen. Each answers ``done`` with the screen after
+# it (``SCREEN_ACTIONS``), encrypted to the waiter like a coordinate, never kept in Redis or Postgres; no chat line
+# per action (the turn writes one, app/ai/tools/phone_control.py). ``args["turn"]``: the reply turn; a newer turn
+# holding the phone answers ``taken_over`` (services/phone_control.py).
+SCREEN_ACTIONS = {"read_screen", "tap", "long_press", "type_text", "scroll", "tap_point", "swipe", "gesture",
+                  "press"}
+CONTROL_ACTIONS = SCREEN_ACTIONS | {"end_control"}
+SEALED_ACTIONS = COORDINATE_ACTIONS | SCREEN_ACTIONS
 # What each action is called in "unavailable / sent, no answer yet" lines.
 LABELS = {
     "navigate_to": "Maps action", "get_position": "Phone location request", "resolve_saved_place": "Saved place request",
@@ -53,6 +64,7 @@ LABELS = {
     "dismiss_notification": "Dismissing the notification", "set_ringer": "Ringer change",
     "set_dnd": "Do Not Disturb change", "reply_notification": "Reply", "open_app": "Opening the app",
     "open_link": "Opening the link", "play_music": "Spotify request", "whatsapp_draft": "WhatsApp draft",
+    **{name: "Phone control" for name in CONTROL_ACTIONS},
 }
 # Actions that put something on the screen: from the background the phone may post a notification instead.
 OPENING_ACTIONS = {"navigate_to", "open_app", "open_link", "play_music", "whatsapp_draft"}
@@ -87,6 +99,10 @@ class Outcome:
     action_id: uuid.UUID
     text: str
     point: tuple[float, float] | None = field(default=None, repr=False)
+    # The phone's reason code (``taken_over``, ``stale_screen``...) and, for a control action that's done, the screen
+    # after it (``data.screen`` as the phone sent it: in this process only, never stored).
+    reason: str | None = None
+    screen: dict | None = field(default=None, repr=False)
 
 
 class InvalidResult(ValueError):
@@ -244,6 +260,11 @@ def retry_activities() -> None:
         log.warning("Phone activity retries unavailable")
 
 
+def record_line(user_id: uuid.UUID, conversation_id: uuid.UUID, line_id: uuid.UUID, text: str) -> None:
+    """One chat line of hers about the phone, once per id (phase 9: a turn's use of the phone screen)."""
+    _try_record(_client(), user_id, conversation_id, line_id, text)
+
+
 def record_position_use(user_id: uuid.UUID, conversation_id: uuid.UUID, outcome: Outcome) -> None:
     _try_record(_client(), user_id, conversation_id, outcome.action_id, "Used your location once")
 
@@ -310,6 +331,9 @@ def _failed_text(action: str) -> str:
 
 def _result_text(action: str, status: str, reason: str | None, view: dict, data: dict | None = None) -> str:
     why = _why(action, reason)
+    if action in CONTROL_ACTIONS:
+        # Read by her tools, never a chat line of its own; the reason code travels beside it.
+        return {"done": "Done", "expired": "Expired"}.get(status, f"Not done ({reason or status})")
     if status == "expired":
         return f"{LABELS[action]} expired"
     if action == "get_position":
@@ -356,6 +380,8 @@ def dispatch_line_id(action_id: uuid.UUID) -> uuid.UUID:
 
 def _record_late(client: redis.Redis, user_id: uuid.UUID, conversation_id: uuid.UUID, action_id: uuid.UUID,
                  action: str, reply: dict) -> None:
+    if action in CONTROL_ACTIONS:
+        return  # no line per control action (the turn writes one); a late screen is simply dropped
     text = reply["text"]
     if action == "reply_notification":
         phone_people.settle_outbound(action_id, reply["status"])
@@ -391,6 +417,10 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
     recorded = claimed and action == "reply_notification"
     client = _client()
     target_label = LABELS[action]
+    control = action in CONTROL_ACTIONS
+    turn = str(args.get("turn")) if control and args.get("turn") else None
+    if control:
+        view = {}  # nothing of what she types or where she taps is kept beside the action
     if view is None:
         # Never a coordinate in the stored action: Maps and location lines need only the name.
         view = {"name": args.get("name")} if action in COORDINATE_ACTIONS | {"navigate_to"} else args
@@ -401,21 +431,26 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
         receipt_id = dispatch_line_id(action_id) if status == "unconfirmed" else action_id
         if recorded:
             phone_people.settle_outbound(action_id, status)
-        _try_record(client, user_id, conversation_id, receipt_id, text)
+        if not control:
+            _try_record(client, user_id, conversation_id, receipt_id, text)
         return Outcome(status, action_id, text)
 
     if client is None:
         return failed("failed", f"{target_label} unavailable")
+    if turn is not None and phone_control.superseded(user_id, turn, client=client):
+        # The user's newer words took the phone: nothing of this turn's is sent any more.
+        return Outcome("refused", action_id, "Not done (taken_over)", reason="taken_over")
     delivery = None
     try:
         target = target or target_for(user_id)
         if target is None:
             return failed("failed", f"{target_label} unavailable: no signed-in phone")
         session_hash, socket_id = target
-        private = X25519PrivateKey.generate() if action in COORDINATE_ACTIONS else None
+        private = X25519PrivateKey.generate() if action in SEALED_ACTIONS else None
         channel = _reply_channel(action_id)
+        turns = phone_control.turns_channel(user_id) if turn is not None else None
         with client.pubsub() as replies:
-            replies.subscribe(channel)
+            replies.subscribe(*([channel, turns] if turns else [channel]))
             if replies.get_message(timeout=2) is None:
                 return failed("failed", f"{target_label} unavailable")
             started = time.time()
@@ -454,20 +489,36 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
                 message = replies.get_message(ignore_subscribe_messages=True, timeout=remaining)
                 if not message:
                     continue
+                if turns is not None and _name(message.get("channel")) == turns:
+                    if _name(message["data"]) != turn:
+                        # A newer turn took the phone while this one waited: stop waiting (the phone refuses
+                        # this turn's actions from now on too; any late answer is dropped).
+                        delivery = "superseded"
+                        break
+                    continue
                 result = json.loads(message["data"])
-                point = None
+                point = screen = None
                 if private is not None and "point" in result:
                     point = tuple(json.loads(_cipher(private, result["key"], action_id)
                                              .decrypt(result["point"].encode())))
+                if private is not None and "screen" in result:
+                    screen = json.loads(_cipher(private, result["key"], action_id).decrypt(result["screen"].encode()))
                 if recorded:
                     phone_people.settle_outbound(action_id, result["status"])
-                if action != "get_position" or result["status"] != "done":
+                if not control and (action != "get_position" or result["status"] != "done"):
                     _try_record(client, user_id, conversation_id, action_id, result["text"])
-                return Outcome(result["status"], action_id, result["text"], point)
+                return Outcome(result["status"], action_id, result["text"], point, reason=result.get("reason"),
+                               screen=screen)
     except (redis.RedisError, SQLAlchemyError, InvalidToken):
         log.warning("Phone action transport interrupted")
     if delivery is None:
         return failed("failed", f"{target_label} unavailable")
+    if delivery == "superseded":
+        try:
+            _close_waiter(client, user_id, conversation_id, action_id, action)
+        except (redis.RedisError, SQLAlchemyError):
+            log.warning("Phone action waiter closure could not be recorded")
+        return Outcome("refused", action_id, "Not done (taken_over)", reason="taken_over")
     if delivery == "failed":
         return failed("failed", f"Couldn't send the {target_label.lower()} to the phone")
     state = "sent" if delivery in ("socket", "push") else "delivery unconfirmed"
@@ -479,15 +530,22 @@ def act(user_id: uuid.UUID, conversation_id: uuid.UUID, action: str, args: dict,
     return outcome
 
 
+def _name(value) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
 def _valid_result(action: str, result: PhoneActionResult) -> bool:
     """The answer fits the action: coordinates only (and always) from a coordinate action that's done, an app's
-    label only from ``open_app``, a draft's target only from ``whatsapp_draft``; "notified" only from an action
-    that opens something on the screen."""
+    label only from ``open_app``, a draft's target only from ``whatsapp_draft``, a screen only (and always) from a
+    control action that's done (``end_control`` has none); "notified" only from an action that opens something on
+    the screen."""
     if result.status == "notified" and action not in OPENING_ACTIONS:
         return False
     data = result.data
     if action in COORDINATE_ACTIONS and result.status == "done":
         return isinstance(data, PhoneActionData)
+    if action in SCREEN_ACTIONS and result.status == "done":
+        return isinstance(data, PhoneActionScreen)
     if data is None:
         return True
     if result.status != "done":
@@ -516,15 +574,19 @@ def accept_result(
         if not _valid_result(action, result):
             raise InvalidResult
         needs_point = action in COORDINATE_ACTIONS and result.status == "done"
+        needs_screen = action in SCREEN_ACTIONS and result.status == "done"
         with client.lock(f"{key}:lock", timeout=10, blocking_timeout=2):
             if raw := client.get(f"{key}:answered"):
                 if raw != b"1" and client.exists(f"{key}:closed"):
                     _record_late(client, user_id, conversation_id, action_id, action, json.loads(raw))
                 return True
             view = pending.get("view") or {"name": pending["name"]}
-            data = result.data.model_dump() if result.data is not None and not needs_point else None
+            data = (result.data.model_dump() if result.data is not None and not (needs_point or needs_screen)
+                    else None)
             text = _result_text(action, result.status, result.reason, view, data)
             reply = {"status": result.status, "text": text}
+            if action in CONTROL_ACTIONS and result.reason:
+                reply["reason"] = result.reason
             summary = json.dumps(reply)
             if time.time() >= pending["deadline"] or client.exists(f"{key}:closed"):
                 with client.pipeline() as transaction:
@@ -534,13 +596,21 @@ def accept_result(
                 _record_late(client, user_id, conversation_id, action_id, action, reply)
                 return True
             # An action already in flight during rollout may still have an older reply worker.
-            if not pending.get("waiter_records_activity") and (action != "get_position" or not needs_point):
+            if (not pending.get("waiter_records_activity") and action not in CONTROL_ACTIONS
+                    and (action != "get_position" or not needs_point)):
                 _record_activity(client, user_id, conversation_id, action_id, text)
             if needs_point:
                 private = X25519PrivateKey.generate()
                 reply["key"] = _public_key(private)
                 reply["point"] = _cipher(private, pending["public_key"], action_id).encrypt(
                     json.dumps([result.data.lat, result.data.lng]).encode()
+                ).decode()
+            if needs_screen:
+                # The screen goes to the waiting worker only, sealed: never in a stored key, never readable on the bus.
+                private = X25519PrivateKey.generate()
+                reply["key"] = _public_key(private)
+                reply["screen"] = _cipher(private, pending["public_key"], action_id).encrypt(
+                    result.data.screen.model_dump_json(exclude_none=True).encode()
                 ).decode()
             with client.pipeline() as transaction:
                 transaction.set(f"{key}:answered", summary, ex=ACTION_TTL)

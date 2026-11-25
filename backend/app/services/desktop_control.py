@@ -57,7 +57,8 @@ def _last_seen_key(user_id: uuid.UUID) -> str:
 
 # Her hands' recent actions, for her background mind (services/mind_desktop.py): per user, newest first, short-lived.
 TRAIL_KEY = "desktop:trail:{user_id}"
-TRAIL_USERS_KEY = "desktop:trail:users"  # sorted set: user id -> when their hands last acted
+TRAIL_USERS_KEY = "desktop:trail:users"  # sorted set: user id -> when their hands last acted (or a command ended)
+LAST_USED_KEY = "desktop:hands:last:{user_id}"  # when her hands last acted (services/coordinator: a wake's reset)
 TRAIL_KEPT = 40
 TRAIL_TTL_SECONDS = 3600
 TYPED_SHOWN = 160
@@ -79,6 +80,7 @@ class DesktopAccess:
     busy: bool  # a game session on the VM holds the keyboard and mouse
     os_name: str | None = None  # what the controller says it runs on ("Linux 7.1.5+kali-arm64"), if it said
     commands: bool = False  # its controller can run commands (0.13.0+, and a shell found there)
+    jobs: bool = False  # its controller keeps background commands and says when they end (0.14.0+)
 
     @property
     def usable(self) -> bool:
@@ -124,7 +126,18 @@ def access_for(db: Session, user_id: uuid.UUID) -> DesktopAccess | None:
     commands = reported.get("commands") if isinstance(reported.get("commands"), dict) else {}
     return DesktopAccess(env.id, env.display_name, env.status == "online", env.capture_gate, busy,
                          os_name=(str(reported.get("os") or "").strip() or None) and str(reported["os"])[:80],
-                         commands=commands.get("available") is True)
+                         commands=commands.get("available") is True,
+                         jobs=_version(env.controller_version) >= JOBS_SINCE)
+
+
+JOBS_SINCE = (0, 14, 0)
+
+
+def _version(value: str | None) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in str(value or "").split("+")[0].split(".")[:3])
+    except ValueError:
+        return ()
 
 
 # --------------------------------------------------------------------------- #
@@ -147,6 +160,10 @@ class Outcome:
     exit_code: int | None = None  # a command's (None: it didn't finish, or not a command)
     output: str | None = None  # a command's output, as text
     output_cut: bool = False
+    # A background command (0.14.0+): its job id, and whether it's still running (``output``: what it printed so far).
+    job: str | None = None
+    running: bool | None = None
+    environment_id: uuid.UUID | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ended_at: datetime | None = None
 
@@ -168,6 +185,9 @@ def wait_seconds(action: dict) -> float:
     return 8.0 + extra
 
 
+JOB_KINDS = ("command_status", "stop_command")
+
+
 def act(db: Session, user_id: uuid.UUID, action: dict) -> Outcome:
     """Send one action to the user's desktop and wait for what became of it. Never raises."""
     action_id = uuid.uuid4().hex
@@ -178,10 +198,13 @@ def act(db: Session, user_id: uuid.UUID, action: dict) -> Outcome:
     why = access.why_not()
     if why is not None:
         return Outcome(action_id, "refused", why)
+    if (action.get("background") or action.get("kind") in JOB_KINDS) and not access.jobs:
+        return Outcome(action_id, "refused", "your desktop's controller is too old for background commands "
+                                             "(it needs 0.14.0): run it without background")
     client = desktop_preview.redis_client()
     if client is None:
         return Outcome(action_id, "refused", "the desktop link isn't set up here (no Redis)")
-    outcome = Outcome(action_id, "unconfirmed")
+    outcome = Outcome(action_id, "unconfirmed", environment_id=access.environment_id)
     try:
         client.xadd(desktop_commands.stream_key(access.environment_id), {
             "kind": "desktop_action", "action_id": action_id, "action": json.dumps(action),
@@ -207,6 +230,8 @@ def act(db: Session, user_id: uuid.UUID, action: dict) -> Outcome:
     outcome.exit_code = data.get("exit_code") if isinstance(data.get("exit_code"), int) else None
     outcome.output = data.get("output") if isinstance(data.get("output"), str) else None
     outcome.output_cut = bool(data.get("output_cut"))
+    outcome.job = str(data["job"])[:16] if data.get("job") else None
+    outcome.running = data.get("running") if isinstance(data.get("running"), bool) else None
     if outcome.status == "done" and action.get("kind") == "screenshot":
         try:
             outcome.jpeg = client.get(shot_key(action_id))
@@ -278,9 +303,12 @@ def remember(db: Session, user_id: uuid.UUID, *, tool: str, intended: dict, outc
                 "foreground": {"process": outcome.foreground_process, "title": outcome.foreground_title}}
     if outcome.screen:
         executed["screen"] = outcome.screen
-    if tool == "run_command":
+    if tool in ("run_command", "check_command", "stop_command"):
         executed.update(exit_code=outcome.exit_code, output_cut=outcome.output_cut,
-                        output=(outcome.output or "")[-CAPTURE_OUTPUT_CHARS:] or None)
+                        output=(outcome.output or "")[-CAPTURE_OUTPUT_CHARS:] or None,
+                        job=outcome.job, running=outcome.running)
+    if tool == "run_command" and outcome.job and outcome.running:
+        _keep_job(user_id, outcome, intended, turn)
     try:
         learning_capture.execution(
             user_id=user_id, kind="desktop_action", executor="hands:desktop",
@@ -328,8 +356,9 @@ def _add_to_trail(user_id: uuid.UUID, *, tool: str, intended: dict, outcome: Out
              "status": outcome.status, "reason": (outcome.reason or None) and outcome.reason[:200],
              "process": (outcome.foreground_process or None) and outcome.foreground_process[:64],
              "title": (outcome.foreground_title or None) and outcome.foreground_title[:120], "step": step,
-             "exit_code": outcome.exit_code,
-             "output": (outcome.output or "").strip()[-OUTPUT_SHOWN:] or None if tool == "run_command" else None,
+             "exit_code": outcome.exit_code, "job": outcome.job, "running": outcome.running,
+             "output": ((outcome.output or "").strip()[-OUTPUT_SHOWN:] or None
+                        if tool in ("run_command", "check_command", "stop_command") else None),
              "turn": str(turn.turn_id) if turn.turn_id else None,
              "conversation": str(turn.conversation_id) if turn.conversation_id else None,
              "message": str(turn.message_id) if turn.message_id else None}
@@ -341,9 +370,103 @@ def _add_to_trail(user_id: uuid.UUID, *, tool: str, intended: dict, outcome: Out
             pipe.expire(key, TRAIL_TTL_SECONDS)
             pipe.zadd(TRAIL_USERS_KEY, {str(user_id): at})
             pipe.zremrangebyscore(TRAIL_USERS_KEY, "-inf", at - TRAIL_TTL_SECONDS)
+            pipe.set(LAST_USED_KEY.format(user_id=user_id), json.dumps(at), ex=TRAIL_TTL_SECONDS * 24)
             pipe.execute()
     except Exception:  # noqa: BLE001 - her hands don't fail because her mind can't watch
         log.warning("desktop control: trail of action %s not kept", outcome.action_id)
+
+
+def last_used(user_id: uuid.UUID) -> float | None:
+    """When her hands last acted on this user's desktop (an epoch), or None (never, or unreadable). A background
+    command ending isn't her using it."""
+    client = desktop_preview.redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.get(LAST_USED_KEY.format(user_id=user_id))
+        return float(json.loads(raw)) if raw else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# Background commands (0.14.0+): which turn started each, and its end onto the trail
+# --------------------------------------------------------------------------- #
+
+JOB_KEY = "desktop:job:{environment_id}:{job}"
+JOB_TTL_SECONDS = 6 * 3600  # longer than a job may run (the controller stops it at 4 h)
+
+
+def job_handle(job: str | None) -> str:
+    return f"cmd:{job}"
+
+
+def _keep_job(user_id: uuid.UUID, outcome: Outcome, intended: dict, turn: TurnRef) -> None:
+    client = desktop_preview.redis_client()
+    if client is None or outcome.environment_id is None:
+        return
+    record = {"user": str(user_id), "command": str(intended.get("command") or "")[:TYPED_SHOWN],
+              "turn": str(turn.turn_id) if turn.turn_id else None,
+              "conversation": str(turn.conversation_id) if turn.conversation_id else None,
+              "message": str(turn.message_id) if turn.message_id else None,
+              "started": (outcome.started_at).timestamp()}
+    try:
+        client.set(JOB_KEY.format(environment_id=outcome.environment_id, job=outcome.job), json.dumps(record),
+                   ex=JOB_TTL_SECONDS)
+    except Exception:  # noqa: BLE001 - its end then reaches her mind without the turn it belongs to
+        log.warning("desktop control: background command %s not kept", outcome.job)
+
+
+def command_finished(db: Session, environment_id: uuid.UUID, done: dict) -> bool:
+    """The relay's side: a background command ended on this desktop (``CommandDone``). Its end goes onto her hands'
+    trail, as part of the turn that started it, so her background mind sees it (services/mind_desktop.py) and can
+    wake her to follow up. Once per job. Returns whether it was recorded."""
+    client = desktop_preview.redis_client()
+    job = str(done.get("job") or "")[:16]
+    if client is None or not job:
+        return False
+    key = JOB_KEY.format(environment_id=environment_id, job=job)
+    raw = client.get(key)
+    record = json.loads(raw) if raw else {}
+    user_id = _uuid_or_none(record.get("user"))
+    if user_id is None:
+        env = db.get(DesktopEnvironment, environment_id)
+        user_id = env.owner_user_id if env is not None else None
+    if user_id is None:
+        return False
+    if not client.set(f"{key}:ended", "1", nx=True, ex=JOB_TTL_SECONDS):
+        return True  # already recorded (a resend after a reconnect)
+    code = done.get("exit_code") if isinstance(done.get("exit_code"), int) else None
+    ran = int(done.get("ran_s") or 0)
+    command = record.get("command") or " ".join(str(done.get("command") or "").split())[:TYPED_SHOWN]
+    at = time.time()
+    entry = {"id": f"ended:{job}", "at": at, "tool": "command_ended",
+             "what": f"background command [{job_handle(job)}] `{command}` ended after {_minutes(ran)}",
+             "status": "done" if code is not None else "stopped",
+             "reason": (done.get("why") or None) and str(done["why"])[:200], "exit_code": code, "job": job,
+             "running": False, "output": (str(done.get("output") or "")).strip()[-OUTPUT_SHOWN:] or None,
+             "turn": record.get("turn"), "conversation": record.get("conversation"), "message": record.get("message")}
+    trail_key = TRAIL_KEY.format(user_id=user_id)
+    with client.pipeline() as pipe:
+        pipe.lpush(trail_key, json.dumps(entry))
+        pipe.ltrim(trail_key, 0, TRAIL_KEPT - 1)
+        pipe.expire(trail_key, TRAIL_TTL_SECONDS)
+        pipe.zadd(TRAIL_USERS_KEY, {str(user_id): at})
+        pipe.execute()
+    from app.services import system_signals
+    system_signals.emit(user_id, "hands", "mind", "command_ended")
+    return True
+
+
+def _minutes(seconds: int) -> str:
+    return f"{seconds} s" if seconds < 90 else f"{seconds // 60} min"
+
+
+def _uuid_or_none(value) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None
 
 
 def trail_users(since: float) -> list[uuid.UUID]:
@@ -398,7 +521,10 @@ def _intended_words(tool: str, intended: dict) -> str:
     if tool == "screenshot":
         return "looked at part of the screen" if intended.get("crop") else "looked at the screen"
     if tool == "run_command":
-        return "ran a command"
+        return "ran a command" + (" in the background" if intended.get("background") else "")
+    if tool in ("check_command", "stop_command"):
+        verb = "checked on" if tool == "check_command" else "stopped"
+        return f"{verb} background command [cmd:{intended.get('job')}]"
     if tool == "keyboard":
         if intended.get("text") is not None:
             return f"typed {len(intended['text'])} characters"

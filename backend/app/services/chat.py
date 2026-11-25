@@ -264,12 +264,20 @@ def get_history(
     if job_time is None:
         stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit)
     rows = list(reversed(list(db.scalars(stmt))))
+    # What a stopped reply of hers had already done on their phone (its turn's chat line), so a cut-off turn's
+    # taps aren't forgotten: the line is the user's chat, never part of what she said.
+    phone_done = _phone_lines(db, conversation.id, [
+        m.turn_id for m in rows if m.role == "assistant" and m.status in _STOPPED and m.turn_id]) if records else {}
     history: list[ChatTurn] = []
     kept: list[tuple[datetime, ChatTurn]] = []
     now = datetime.now(timezone.utc)
     for message in rows:
         # Durable cancellation metadata is not useful model context.
         if message.role == "assistant" and message.status == "cancelled" and not message.content:
+            if records:  # her mind still knows she was stopped, and what she had done on their phone by then
+                turn = {"role": "record", "content": _stopped_record(message, zone, now, phone_done.get(message.turn_id))}
+                history.append(turn)
+                kept.append((_aware(message.created_at), turn, message.id))
             continue
         content = message.content
         if message.role == "assistant" and message.heard_chars is not None:
@@ -282,7 +290,8 @@ def get_history(
             content = f"{content}\n\n[Attached files: {_file_labels(conversation.user_id, message.asset_ids)}]"
         turn: ChatTurn = {"role": message.role, "content": content}
         if records:
-            turn["marker"] = _marker(message, zone, now, current=message.id == current_message_id)
+            turn["marker"] = _marker(message, zone, now, current=message.id == current_message_id,
+                                     phone=phone_done.get(message.turn_id))
         history.append(turn)
         kept.append((_aware(message.created_at), turn, message.id))
 
@@ -319,7 +328,34 @@ def _clock(value: datetime, zone: str | None, now: datetime) -> str:
     return W.describe(value, zone, date=not same_day)
 
 
-def _marker(message: ChatMessage, zone: str | None, now: datetime, *, current: bool) -> str:
+_STOPPED = ("partial", "failed", "cancelled")
+
+
+def _phone_lines(db: Session, conversation_id: uuid.UUID, turn_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Each turn's line about her hands on their phone ("Used your phone in WhatsApp, 4 steps"), where it has one."""
+    if not turn_ids:
+        return {}
+    from app.db.models import PhoneActivity
+    from app.services.phone_control import turn_line_id
+
+    by_line = {turn_line_id(turn): turn for turn in turn_ids}
+    return {by_line[row.id]: row.content for row in db.scalars(select(PhoneActivity).where(
+        PhoneActivity.conversation_id == conversation_id, PhoneActivity.id.in_(list(by_line))))}
+
+
+def _stopped_record(message: ChatMessage, zone: str | None, now: datetime, phone: str | None) -> str:
+    turn = f" (turn {str(message.turn_id)[:8]})" if message.turn_id else ""
+    done = f"; on their phone you had already done this: {phone}" if phone else ""
+    return (f"{_RECORD} {_clock(_aware(message.created_at), zone, now)}: your reply was stopped before any words "
+            f"were delivered{done}{turn}.")
+
+
+def _phone_note(line: str | None) -> str:
+    return f"; before it stopped, on their phone you had already done this: {line}" if line else ""
+
+
+def _marker(message: ChatMessage, zone: str | None, now: datetime, *, current: bool,
+            phone: str | None = None) -> str:
     at = _clock(_aware(message.created_at), zone, now)
     turn = f" (turn {str(message.turn_id)[:8]})" if message.turn_id else ""
     if message.role == "user":
@@ -330,6 +366,7 @@ def _marker(message: ChatMessage, zone: str | None, now: datetime, *, current: b
                 "cancelled": "your reply, stopped"}.get(message.status, "your reply")
         if message.heard_chars is not None:
             what += "; they heard only up to where it was cut off"
+        what += _phone_note(phone)
     return f"{_RECORD} {at}: {what}{turn}."
 
 
@@ -375,18 +412,21 @@ def _with_outcomes(db: Session, conversation_id: uuid.UUID, kept: list[tuple[dat
             while at + 1 < len(kept) and kept[at + 1][0] <= finished:
                 at += 1
         after.setdefault(at, []).append(row)
-    out: list[ChatTurn] = [_record(r, zone, now) for r in after.get(-1, [])]
+    phone = _phone_lines(db, conversation_id, [r.turn_id for r in rows])
+    out: list[ChatTurn] = [_record(r, zone, now, phone) for r in after.get(-1, [])]
     for i, (_, turn, _) in enumerate(kept):
         out.append(turn)
-        out.extend(_record(r, zone, now) for r in after.get(i, []))
+        out.extend(_record(r, zone, now, phone) for r in after.get(i, []))
     return out
 
 
-def _record(row, zone: str | None, now: datetime) -> ChatTurn:
+def _record(row, zone: str | None, now: datetime, phone: dict[uuid.UUID, str] | None = None) -> ChatTurn:
     woke = _WOKEN_BY.get(row.reason, row.reason)
     note = f' ("{row.silence_reason}")' if row.outcome == "silent" and row.silence_reason else ""
+    line = (phone or {}).get(row.turn_id)
+    done = f"; on their phone you had already done this: {line}" if line else ""
     return {"role": "record", "content": f"{_RECORD} {_clock(_aware(row.finished_at), zone, now)}: "
-                                         f"your evaluation of {woke}: {_OUTCOME_WORDS[row.outcome]}{note}."}
+                                         f"your evaluation of {woke}: {_OUTCOME_WORDS[row.outcome]}{note}{done}."}
 
 
 def delete_conversation(

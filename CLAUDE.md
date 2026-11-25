@@ -28,6 +28,22 @@ Follow-through (2026-11-23): migration `a3f8c1e6d9b4` (`follow_through_attempts`
 or intention of hers due now (`act`) wakes her mind with her tools even with nothing to say, once per item and observed
 change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
 report (check wakes, bounded); `services/follow_through.py`.
+Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): her hands on the phone's screen, reply turns
+only (`ai/tools/phone_control.py`: read_phone_screen first; act by number, by point as a fallback, several fingers with
+phone_pinch / phone_gesture; 80 actions a turn; `taken_over` stops her for the turn, `taken_over_after` when the action
+itself happened first; one chat line per turn). Screens travel
+sealed to the waiting worker and are never stored (`services/phone_control.py`: turn supersession, render, the
+short-term memory of 10 text-only screens for 30 min in process memory, wiped when the phone reports `control_on`
+false). No migration.
+Waiting on her devices (2026-11-24): `run_command(background=true)` (controller 0.14.0, relay feature `command_jobs`)
+keeps a long command running as `cmd:…` (`check_command` / `stop_command`); its end comes back as `CommandDone`
+and goes on her hands' trail (`desktop_control.command_finished`), so her background mind can wake her to follow up.
+`come_back_to(..., on="desktop"|"phone")`: if she uses that device again before it's due, it moves to the same
+delay after her last use (`coordinator._reset`). No migration; update the VM's controller to use background commands.
+Looking again (2026-11-25): a reply turn whose hands acted on the phone screen (not taken over) schedules a wake
+10 s after it ends (`services/phone_look.py`, origin `phone_look:<turn>`); that wake has the screen tools for what the
+user's message asked, within 10 min of it, dropped by any newer message of theirs; a look that acts schedules the next.
+The one exception to phase 9's "reply turns only". No migration.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -164,7 +180,9 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with her Minecraft pack
         /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
                         #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
-        /desktop_control # her own Windows desktop: screenshot, move_mouse,
+        phone_control.py # her hands on the user's phone screen (phase 9): read_phone_screen, phone_tap/... — NOT MCP;
+                        #   on the orchestrator on the user's reply turns when they have a phone; pictures via screenshot_hook
+      /desktop_control # her own Windows desktop: screenshot, move_mouse,
                         #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
                         #   screenshot_hook shows her the pictures (pre-model hook)
         /gmail          # gmail_api.py (REST) + server.py (MCP) + client.py (adapter)
@@ -410,7 +428,9 @@ Each line is the rule you need while coding. The detail lives in the module docs
 - **Image store:** a per-user directory (`<root>/<user_id>/<image_id>`), referred to by opaque `image_id`. Screen frames are `kind="screen"`, with short retention.
 - **Chat:** history lives in Postgres. The client sends only the new message. A WebSocket hands each turn to the external chat worker through Redis Streams. Postgres is the source of truth.
 - **Message order is a database fact:** a trigger allocates `chat_messages.conversation_sequence`. Never set it in code, and never order a conversation by timestamp alone.
-- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` never merges turns; with `records=True` (her mind) each turn carries an app-record marker and silent evaluations appear as `record` turns, rendered as system messages (`ai/messages.py`).
+- **History-replay traps:** a history ending with an assistant turn is treated as prefill, so nudge runs append `prompts.NUDGE_TRIGGER`. `get_history` never merges turns; with `records=True` (her mind) each turn carries an app-record marker and silent evaluations appear as `record` turns, rendered as system messages (`ai/messages.py`). A reply stopped
+  by the user's next message (before any words, or part way) keeps its turn's phone-control line there ("Used your
+  phone in WhatsApp, 4 steps"), so taps a cut-off turn made aren't forgotten.
 - **Awareness (`services/awareness.py`):** facts we own (clock, recent activity) plus senses the client reports (`SenseReport`, change-driven, flags only: no pixels or audio). No LLM; rendered to a short string on `AgentRuntimeContext.awareness`. Client-reported senses are descriptive only and never authorize anything. "Today" is the user's zone, not the server's.
 - **The eye:** client-side capture + diff (`senses/screen.ts`, worker; only changed frames are encoded), upload as `kind="screen"` (retention by count and TTL: a sense, not a recording), a cached one-line caption at turn start (`ai/vision.py`), pixels on demand via `look_at_screen` (on the orchestrator directly, built per turn, only when the eye is on).
 - **Chat transport:** WebSocket `/api/chat/ws` (cookie or bearer auth). The socket persists the user message and a durable `ChatJob`; the external worker (`python -m app.workers.chat`) generates and streams events through Redis Streams (replayed on reconnect); `stop` sets a Redis cancel flag. Outside turns the socket carries awareness (`sense` in, `state` out, 30 s heartbeat).
@@ -456,8 +476,8 @@ Each line is the rule you need while coding. The detail lives in the module docs
   content rule in code.
 - **Phone privacy (2026-11-23):** someone who can put words on the user's
   screen never gains control of their phone. A grant stands only on the user's own recorded message (verified, and
-  its source checked on every read); on owner turns every phone read or action is bound to their message by a check
-  model before the first call; a wake that can write to someone (and the phone moment before it) holds one
+  its source checked on every read); on owner turns there is no operation check (removed 2026-11-24, the user's
+  decision: her judgement of what they asked; messages to other people still pass the outgoing check); a wake that can write to someone (and the phone moment before it) holds one
   conversation and nothing of the user's; a request for space stops her follow-ups; tools' model runs never stream
   (`agent.invoke_private`, `chat._her_words`). Checks log to `var/phone_checks.jsonl`.
 - **Her own replies on the phone (B3, 2026-11-22):** no backend flag; the phone's Messages switch must be reported

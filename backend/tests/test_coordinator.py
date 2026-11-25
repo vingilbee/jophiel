@@ -726,3 +726,41 @@ def test_every_evaluation_reads_a_fresh_clock_never_a_queued_snapshot(env):
 
     env.scripts.append(wake)
     run_job(env)
+
+
+def test_a_stopped_reply_keeps_what_she_had_done_on_their_phone(env):
+    """A reply cut off by the user's next message (before any words, or part way) is still in her history as the
+    app's record, with its turn's line about her hands on their phone: the taps happened even though she said
+    nothing about them. A plain cancelled reply with no phone use is a record too; the user's view is unchanged."""
+    from app.db.models import PhoneActivity
+    from app.services.phone_control import turn_line_id
+
+    said(env, "Go to the U.")
+    cancelled, partial, quiet = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    with env.db() as db:
+        conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
+        chat_service.add_message(db, conversation=conversation, role="assistant", content="", turn_id=cancelled,
+                                 status="cancelled")
+        chat_service.add_message(db, conversation=conversation, role="user", content="No, go back.")
+        chat_service.add_message(db, conversation=conversation, role="assistant", content="I see what",
+                                 turn_id=partial, status="partial")
+        chat_service.add_message(db, conversation=conversation, role="user", content="The list.")
+        chat_service.add_message(db, conversation=conversation, role="assistant", content="", turn_id=quiet,
+                                 status="cancelled")
+        chat_service.add_message(db, conversation=conversation, role="user", content="Okay.")
+        db.add(PhoneActivity(id=turn_line_id(cancelled), conversation_id=env.conversation.id,
+                             content="Used your phone in WhatsApp, 4 steps"))
+        db.add(PhoneActivity(id=turn_line_id(partial), conversation_id=env.conversation.id,
+                             content="Used your phone in WhatsApp, 2 steps (you took over)"))
+        db.add(PhoneActivity(id=uuid.uuid4(), conversation_id=env.conversation.id, content="Opened WhatsApp"))
+        db.commit()
+        history = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
+        plain = chat_service.get_history(db, conversation=conversation)
+    assert [t["role"] for t in history] == ["user", "record", "user", "assistant", "user", "record", "user"]
+    assert "stopped before any words" in history[1]["content"]
+    assert "Used your phone in WhatsApp, 4 steps" in history[1]["content"]
+    assert history[3]["content"] == "I see what"  # her words untouched; the note is the app's marker
+    assert "stopped part way" in history[3]["marker"] and "2 steps (you took over)" in history[3]["marker"]
+    assert "stopped before any words" in history[5]["content"] and "on their phone" not in history[5]["content"]
+    assert not any("Opened WhatsApp" in t.get("content", "") + t.get("marker", "") for t in history)
+    assert [t["role"] for t in plain] == ["user", "user", "assistant", "user", "user"]

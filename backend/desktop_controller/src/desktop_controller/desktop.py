@@ -153,9 +153,26 @@ class RunCommand(_Action):
     kind: Literal["run_command"]
     command: Annotated[str, Field(min_length=1, max_length=MAX_COMMAND)]
     timeout_s: Annotated[int, Field(ge=1, le=MAX_TIMEOUT_S)] = 60
+    # 0.14.0+: still running when timeout_s ends, it isn't stopped but kept as a job (``commands.Job``).
+    background: bool = False
 
 
-Action = Annotated[Union[Screenshot, Move, Click, Drag, Scroll, Keyboard, RunCommand], Field(discriminator="kind")]
+class CommandStatus(_Action):
+    """A background command: still running (what it printed so far) or how it ended (0.14.0+)."""
+
+    kind: Literal["command_status"]
+    job: Annotated[str, Field(min_length=1, max_length=16)]
+
+
+class StopCommand(_Action):
+    """Stop a background command and what it started (0.14.0+)."""
+
+    kind: Literal["stop_command"]
+    job: Annotated[str, Field(min_length=1, max_length=16)]
+
+
+Action = Annotated[Union[Screenshot, Move, Click, Drag, Scroll, Keyboard, RunCommand, CommandStatus, StopCommand],
+                   Field(discriminator="kind")]
 action_adapter = TypeAdapter(Action)
 INPUT_KINDS = frozenset({"move", "click", "drag", "scroll", "keyboard"})
 
@@ -233,6 +250,8 @@ class DesktopHands:
         self.screen = screen
         self.sleep = sleep
         self.commands = commands
+        # Whether the connected relay takes background commands' ends (``Welcome.features``: command_jobs).
+        self.jobs_reported = False
         self._stop = threading.Event()  # the running action's stop (``run`` sets it per action)
 
     def run(self, action_id: str, raw: object, stop: threading.Event | None = None) -> tuple[DesktopResult, bytes | None]:
@@ -243,18 +262,39 @@ class DesktopHands:
         jpeg: bytes | None = None
         screen: ScreenInfo | None = None
         ran: dict = {}
+        note: str | None = None  # a done command job's end: why it was stopped
         try:
             action = parse_action(raw)
             if isinstance(action, RunCommand):
                 if self.commands is None:
                     raise Refused("this machine can't run commands")
+                if action.background and not self.jobs_reported:
+                    raise Refused("the relay is too old to hear when a background command ends (update it)")
                 try:
-                    code, output, cut, why = self.commands.run(action.command, action.timeout_s, self._stop)
+                    if action.background:
+                        job, code, output, cut = self.commands.run_background(action.command, action.timeout_s,
+                                                                              self._stop)
+                        ran = {"exit_code": code, "output": output, "output_cut": cut}
+                        if job is not None:
+                            ran.update(job=job, running=True)
+                    else:
+                        code, output, cut, why = self.commands.run(action.command, action.timeout_s, self._stop)
+                        ran = {"exit_code": code, "output": output, "output_cut": cut}
+                        if why is not None:
+                            raise Failed(why)
                 except CommandFailed as exc:
                     raise Failed(str(exc)) from None
-                ran = {"exit_code": code, "output": output, "output_cut": cut}
-                if why is not None:
-                    raise Failed(why)
+            elif isinstance(action, (CommandStatus, StopCommand)):
+                if self.commands is None:
+                    raise Refused("this machine can't run commands")
+                found = (self.commands.stop_job(action.job) if isinstance(action, StopCommand)
+                         else self.commands.status(action.job))
+                if found is None:
+                    raise Refused(f"there's no background command {action.job} (finished ones are kept an hour)")
+                output, cut = found.output()
+                ran = {"job": found.id, "running": found.running, "exit_code": found.exit_code, "output": output,
+                       "output_cut": cut}
+                note = found.why if not found.running else None
             elif isinstance(action, Screenshot):
                 if self.screen is None:
                     raise Refused("this machine can't take screenshots")
@@ -262,7 +302,7 @@ class DesktopHands:
                 jpeg, screen = shot.jpeg, shot.info
             else:
                 self._input(action)
-            status, reason = "done", None
+            status, reason = "done", note
         except Refused as exc:
             status, reason = "refused", str(exc)
         except (Failed, Stopped) as exc:

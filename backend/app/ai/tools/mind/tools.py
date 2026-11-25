@@ -95,7 +95,7 @@ def build_mind_tools(ev) -> list[BaseTool]:
     async def come_back_to(what: str, asked_by: Literal["user", "me"], in_seconds: int | None = None,
                            at: str | None = None, item: str | None = None, moves: str | None = None,
                            reason: str | None = None, their_urgency: str | None = None,
-                           phone: str | None = None) -> str:
+                           phone: str | None = None, on: Literal["desktop", "phone"] | None = None) -> str:
         """Choose to come back to something later without waiting for them to write: you'll be woken then, with
         the situation as it is by then, and decide what it calls for (say something, act, put it off again, or
         let it go). Use it for whatever you'd otherwise lose: a check-in they asked for, keeping a promise at a
@@ -119,6 +119,9 @@ def build_mind_tools(ev) -> list[BaseTool]:
         that conversation's notification handle ("notif:1a2b3c4d"): who and where are kept, and when it comes due you
         reread it and can write to them there afresh if a reply button is still there. Never a draft: you decide
         then. Leave it out when it's about the user.
+        on: "desktop" or "phone" when you're coming back to look at something there (an install finishing, a
+        download): if you've used it again meanwhile (you already looked), the wake moves to that much time after
+        your last use instead of waking you for nothing.
         """
         from app.ai.mind import when as W
 
@@ -180,7 +183,7 @@ def build_mind_tools(ev) -> list[BaseTool]:
                 channel=ev.channel, channel_identity_id=ev.channel_identity_id, asked_by="user" if asked_by == "user" else "mind",
                 origin_message=ev.trigger_message_id if not ev.is_wake else None,
                 their_urgency=their_urgency, moves=moving, reason=reason, third_party=ev.third_party,
-                phone_follow_up=follow_up)
+                phone_follow_up=follow_up, on=on)
             ev.scheduled.append(str(row.id))
             if moving is not None:
                 ev.deferred.append({"from": str(moving.id), "to": str(row.id), "reason": reason})
@@ -189,8 +192,10 @@ def build_mind_tools(ev) -> list[BaseTool]:
                      " It replaces the time you had set for that item." if row.input.get("moved") else "")
             hint = ("" if moving is not None or not waking else
                     " This is a new, separate wake: to postpone the one that woke you instead, use moves.")
+            later = (f" If you use your {on} again before then, it moves to {W.span((due - now).total_seconds())} "
+                     "after your last use." if on else "")
             return (f"Scheduled [wake:{str(row.id)[:8]}] for {W.describe(due, ev.zone)} "
-                    f"({W.span((due - now).total_seconds())} from now).{moved}{kept}{hint}")
+                    f"({W.span((due - now).total_seconds())} from now).{moved}{kept}{hint}{later}")
         try:
             result = await _run(do)
         except memory_manager.MemoryError as exc:

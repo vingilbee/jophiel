@@ -16,6 +16,9 @@ did, with what she typed, what became of it, the turn it belongs to), and this s
   was in, behind that turn (autonomous_speech): e.g. a turn that ended without a word to the user.
 - It reads no pixels: what it knows is what the hands did and what the desktop answered, and for a command the
   end of what it printed (``run_command``).
+- A background command ending (``desktop_control.command_finished``, from the controller through the relay) is a
+  line on the trail too, in the turn that started it: the turn has ended by then, so a thought here can wake her
+  with her tools to look at what came of it.
 
 Whether any of it matters (going round in circles, a failure, work left unreported) is her mind's to judge; code
 only reports what happened.
@@ -51,7 +54,8 @@ DESKTOP = Situation(
         "none": "another step of the work going as expected: a look at the screen, a command typed, a key pressed",
         "react": "your hands are doing something that can't be undone and wasn't asked for",
         "light": "your hands keep doing the same thing over and over without getting anywhere, an action failed or "
-                 "was refused, the work just ended and they haven't been told what came of it, the turn was cut off",
+                 "was refused, the work just ended and they haven't been told what came of it, the turn was cut off, "
+                 "a background command of yours ended (you're waiting on it: look at what came of it and tell them)",
         "hard": "what your hands are doing doesn't fit what they asked for",
     },
     voice=("\nActing here also covers your hands' work. If the turn using them has ended and something is left "

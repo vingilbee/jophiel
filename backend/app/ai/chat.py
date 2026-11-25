@@ -53,8 +53,11 @@ from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
 from app.ai.tools.mind import build_mind_tools
 from app.ai.tools.phone import build_exchange_tools, build_people_tools, build_phone_tools, build_reply_tools
+from app.ai.tools.phone_control import SCREEN_TOOLS as PHONE_SCREEN_TOOLS
+from app.ai.tools.phone_control import build_phone_control_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
+from app.services.phone_control import record_line as phone_control_record_line
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +217,18 @@ def _build_inputs(
 
 @asynccontextmanager
 async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue | None = None):
+    """Yield ``(agent, specs)`` for this user's turn (``_assemble``); when the turn ends, however it ends, her use of
+    the phone screen this turn is finished (control off, its one chat line: app/ai/tools/phone_control.py)."""
+    try:
+        async with _assemble(context, queue) as built:
+            yield built
+    finally:
+        if context.phone_control is not None:
+            context.phone_control.finish()
+
+
+@asynccontextmanager
+async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = None):
     """Yield ``(agent, specs)`` for this user's turn.
 
     The specs come back too so the prompt can describe exactly the specialists
@@ -291,6 +306,17 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         # Who she knows on the phone (read only): the user's own reply turns, never a wake.
         if phone_reply:
             direct_tools.extend(build_people_tools(context.user_id, context.source_message_id))
+        # Phase 9: her hands on their phone's screen (frontend-phone/PLAN_PHASE_9.md): the user's reply turns (typed
+        # or spoken), and a wake to look again after one of them used the screen, for what the user's message asked
+        # (services/phone_look.py; never a wake someone else's words caused: excluded above). Building them takes
+        # the phone's control for this turn: an older turn still acting there is answered taken_over. Its
+        # screenshots reach her through the picture hook. A turn whose hands acted schedules her next look.
+        asked = context.source_message_id if phone_reply else context.phone_look
+        if asked is not None and context.phone is not None and context.turn_id is not None:
+            control_tools, context.phone_control = build_phone_control_tools(
+                context.user_id, context.conversation_id, turn_id=context.turn_id, asked=asked, zone=context.zone)
+            direct_tools.extend(control_tools)
+            hook = hook or screenshot_hook
     # Her reading of what people on the phone said (affinity B2: shadow records, requests for space): only on her
     # mind's turns someone else's words there caused. Nothing in them sends or acts.
     if (settings.redis_url and context.mind is not None and context.wake is not None and context.third_party
@@ -353,8 +379,11 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook, reasoning=reasoning), specs
 
 def _run_config(context: AgentRuntimeContext) -> dict | None:
-    """A desktop turn alternates looking and acting many times: more graph steps than a chat turn."""
-    return {"recursion_limit": DESKTOP_RECURSION_LIMIT} if context.desktop is not None else None
+    """A desktop or phone-control turn alternates looking and acting many times: more graph steps than a chat turn
+    (both budgets are 80 actions)."""
+    if context.desktop is not None or context.phone_control is not None:
+        return {"recursion_limit": DESKTOP_RECURSION_LIMIT}
+    return None
 
 
 REPLY_NODE = "agent"  # create_react_agent's model node: the only model whose words are her reply
@@ -402,8 +431,12 @@ async def stream_chat(
                         continue  # belongs to a subagent; it already pushed itself
                     if isinstance(chunk, ToolMessage) and context.mind is not None:
                         # What each of her tools returned, in order: the evaluation's record of what she did.
+                        result = extract_text(chunk.content)
+                        if chunk.name in PHONE_SCREEN_TOOLS:
+                            # A phone screen is never stored: the record keeps which screen and app, not what's on it.
+                            result = phone_control_record_line(result)
                         context.mind.actions.append({"tool": chunk.name, "status": getattr(chunk, "status", None),
-                                                     "result": extract_text(chunk.content)[:300]})
+                                                     "result": result[:300]})
                         continue
                     if not isinstance(chunk, AIMessageChunk) or chunk.tool_call_chunks:
                         continue

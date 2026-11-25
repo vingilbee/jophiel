@@ -6,6 +6,7 @@ import asyncio
 import io
 import threading
 import time
+import uuid
 
 import pytest
 from PIL import Image
@@ -148,3 +149,30 @@ def test_a_command_goes_there_and_its_output_comes_back(desktop, database, alice
     _allow(database, alice, desktop.env, gate="blocked")
     off = _act(database, alice, {"kind": "run_command", "command": "echo nope"})
     assert off.status == "refused" and "switched off" in off.reason
+
+
+@pytest.mark.skipif(command_shell() is None or __import__("sys").platform == "win32", reason="a POSIX shell")
+def test_a_background_command_ends_onto_her_hands_trail(desktop, database, alice):
+    """Kept running past its wait, it ends later: the controller says so, the relay puts it on her hands' trail in
+    the turn that started it (her background mind's desktop source), once."""
+    from app.services.desktop_control import TurnRef
+
+    with database() as db:
+        assert _wait_for(lambda: (db.expire_all() or desktop_control.access_for(db, alice.id).jobs))
+    _allow(database, alice, desktop.env)
+    turn = TurnRef(turn_id=uuid.uuid4(), conversation_id=None, message_id=None)
+    with database() as db:
+        started = desktop_control.act(db, alice.id, {"kind": "run_command", "timeout_s": 1, "background": True,
+                                                     "command": "echo begun; sleep 2; echo all done; exit 4"})
+        assert started.status == "done" and started.running and started.job, started.reason
+        desktop_control.remember(db, alice.id, tool="run_command", intended={"command": "make it", "background": True},
+                                 outcome=started, turn=turn, step=1)
+    assert _wait_for(lambda: any(e.get("id") == f"ended:{started.job}" for e in desktop_control.trail(alice.id)),
+                     timeout=15)
+    [ended] = [e for e in desktop_control.trail(alice.id) if e.get("id") == f"ended:{started.job}"]
+    assert ended["exit_code"] == 4 and "all done" in ended["output"] and ended["turn"] == str(turn.turn_id)
+    assert ended["what"].startswith(f"background command [cmd:{started.job}] `make it` ended")
+    # Her using the desktop is what counts for a wake's reset, not the command ending.
+    assert desktop_control.last_used(alice.id) <= ended["at"]
+    looked = _act(database, alice, {"kind": "command_status", "job": started.job})
+    assert looked.running is False and looked.exit_code == 4
