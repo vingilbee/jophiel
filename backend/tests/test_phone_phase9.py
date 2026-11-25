@@ -258,6 +258,88 @@ def test_pinch_and_gesture_send_several_fingers_on_the_picture(monkeypatch):
     assert len(sent) == count
 
 
+def test_several_taps_go_in_one_step_and_bad_points_send_nothing(monkeypatch):
+    sent = []
+
+    def act(user_id, conversation_id, action, args, **kwargs):
+        sent.append((action, args))
+        return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=screen("s2", "Clash of Clans"))
+
+    monkeypatch.setattr(phone_actions, "act", act)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
+    named = tools_by_name(tools)
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    said = asyncio.run(named["phone_tap_points"].ainvoke({"points": [[100, 900], [120, 950], [140, 1000]],
+                                                          "gap_ms": 5000}))
+    assert said.startswith("Phone screen s2: Clash of Clans")
+    assert sent[-1] == ("tap_points", {"screen": "s2", "points": [[100, 900], [120, 950], [140, 1000]],
+                                       "gap_ms": 1000, "turn": sent[-1][1]["turn"]})
+    assert control.steps == 2  # one step for all three taps
+    count = len(sent)
+    assert asyncio.run(named["phone_tap_points"].ainvoke({"points": []})).startswith("Not done: give 1 to 20")
+    assert asyncio.run(named["phone_tap_points"].ainvoke({"points": [[1, 2, 3]]})).startswith("Not done")
+    assert asyncio.run(named["phone_tap_points"].ainvoke({"points": [[1, 1]] * 21})).startswith("Not done")
+    assert len(sent) == count
+    assert "tap_points" in phone_actions.SCREEN_ACTIONS
+
+
+def test_each_step_is_kept_as_what_she_did_never_what_was_on_the_screen(monkeypatch):
+    user, turn = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: None)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    monkeypatch.setattr(phone_control, "_client", lambda: None)
+    seen_before_sent = []
+
+    def act(user_id, conversation_id, action, args, **kwargs):
+        seen_before_sent.append(phone_control.steps(user, turn)[-1])
+        if action == "press":
+            return phone_actions.Outcome("refused", uuid.uuid4(), "x", reason="taken_over_after")
+        return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=screen("s7"))
+
+    monkeypatch.setattr(phone_actions, "act", act)
+    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=turn)
+    named = tools_by_name(tools)
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    asyncio.run(named["phone_type"].ainvoke({"n": 1, "text": "my secret words", "enter": True}))
+    asyncio.run(named["phone_tap_points"].ainvoke({"points": [[10, 20], [30, 40]]}))
+    asyncio.run(named["phone_press"].ainvoke({"key": "back"}))
+    lines = phone_control.steps(user, turn)
+    assert lines[:3] == ["read the screen → Phone screen s7: Settings (com.android.settings) in front",
+                         "typed 15 characters into [1] and pressed enter → Phone screen s7: Settings "
+                         "(com.android.settings) in front",
+                         "tapped 2 points (10, 20), (30, 40) → Phone screen s7: Settings (com.android.settings) in front"]
+    assert lines[3].startswith("pressed back → Done: that action did happen on the phone")
+    text = " ".join(lines)
+    assert "secret" not in text.lower() and "Hotspot" not in text and "Search settings" not in text
+    # Noted before the phone answers: a turn stopped mid-action still knows the step went out.
+    assert all("no answer seen" in line for line in seen_before_sent)
+    assert phone_control.steps_text(lines).startswith("step by step: 1. read the screen")
+    phone_control.wipe(user)
+    assert phone_control.steps(user, turn) == []
+
+
+def test_steps_are_bounded_and_gone_when_control_is_switched_off(monkeypatch):
+    user = uuid.uuid4()
+    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
+    state = {"control_on": True}
+    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: state)
+    now = time.time()
+    for i in range(phone_control.STEP_TURNS + 2):
+        phone_control.note_step(user, f"t{i}", 0, "tapped [1] → Phone screen s1: Settings in front", now=now + i)
+    assert phone_control.steps(user, "t0") == [] and phone_control.steps(user, "t1") == []
+    assert phone_control.steps(user, "t2", now=now) == ["tapped [1] → Phone screen s1: Settings in front"]
+    assert phone_control.steps(user, "t2", now=now + phone_control.MEMORY_SECONDS + 5) == []
+    many = [f"step {i}" for i in range(40)]
+    text = phone_control.steps_text(many)
+    assert text.startswith("step by step (the first 10 not shown): 11. step 10;") and text.endswith("40. step 39")
+    state["control_on"] = False
+    assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
+    state["control_on"] = True
+    assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
+
+
 @pytest.fixture
 def state_user(channel, monkeypatch):
     """A user whose phone reports state, removed from the shared test Redis afterwards (other tests poll every

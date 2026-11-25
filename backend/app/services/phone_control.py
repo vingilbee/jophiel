@@ -18,6 +18,11 @@ the tools are ``app/ai/tools/phone_control.py`` and every action travels the pha
   in Redis, since the report reaches the API process and the memory lives in the chat worker). Remembered screens
   are for recall only: their numbers can't be acted on.
 - **The turn's chat line** (``turn_line``): one per turn ("Used your phone in Spotify, 9 steps"), never one per tap.
+- **A turn's steps** (``note_step`` / ``steps``): what her hands did, one line per action ("tapped [4] → Phone screen
+  s12: Spotify in front"): the action, its numbers or points, and the screen's first line only, never what's on it
+  (``record_line``). Kept in this process's memory like her screens (``STEP_TURNS`` turns, ``MEMORY_SECONDS``,
+  wiped with them), so a turn the user's new words cut off is read back step by step by the next one
+  (services/chat.py), not as "16 steps".
 """
 from __future__ import annotations
 
@@ -166,7 +171,7 @@ def render(screen: dict, *, picture: bool) -> str:
         width, height = image.get("width"), image.get("height")
         held = "landscape" if width and height and width > height else "portrait"
         notes.append(f"the phone is in {held}; its picture ({width}x{height}, numbered boxes drawn on) follows; "
-                     "tap_point and swipe take that picture's pixels")
+                     "tap_point, tap_points and swipe take that picture's pixels")
     elif missing == "secure":
         notes.append("no picture: this app forbids screenshots (text only)")
     elif missing == "not_supported":
@@ -216,6 +221,8 @@ class Remembered:
 
 _memory: dict[str, deque[Remembered]] = {}
 _lock = threading.Lock()
+# user id -> turn id -> (when it started, the epoch, its step lines); oldest turns dropped past STEP_TURNS.
+_steps: dict[str, dict[str, tuple[float, int, list[str]]]] = {}
 
 
 def _epoch(user_id: uuid.UUID | str, client: redis.Redis | None = None) -> int | None:
@@ -234,6 +241,7 @@ def wipe(user_id: uuid.UUID | str, *, client: redis.Redis | None = None) -> None
     """Forget every screen she saw on this user's phone, in every process (the epoch) and in this one now."""
     with _lock:
         _memory.pop(str(user_id), None)
+        _steps.pop(str(user_id), None)
     client = client or _client()
     if client is None:
         return
@@ -254,23 +262,29 @@ def remember(user_id: uuid.UUID | str, screen: dict, text: str, *, now: float | 
         kept.append(entry)
 
 
+def _control_off(user_id: uuid.UUID | str) -> bool:
+    """The phone reports the master switch or Phone control off (then nothing of its screen is kept)."""
+    try:
+        from app.services import phone_state
+        state = phone_state.read(user_id)
+        return state is not None and state.get("control_on") is False
+    except Exception:  # noqa: BLE001 - an unreadable state hides nothing it didn't already
+        return False
+
+
 def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Remembered]:
     """Her remembered screens, oldest first: none past ``MEMORY_SECONDS``, none from before a wipe, none while the
     phone reports control off."""
     now = time.time() if now is None else now
     epoch = _epoch(user_id)
-    try:
-        from app.services import phone_state
-        state = phone_state.read(user_id)
-        off = state is not None and state.get("control_on") is False
-    except Exception:  # noqa: BLE001 - an unreadable state hides nothing it didn't already
-        off = False
+    off = _control_off(user_id)
     with _lock:
         kept = _memory.get(str(user_id))
         if kept is None:
             return []
         if off:
             _memory.pop(str(user_id), None)
+            _steps.pop(str(user_id), None)
             return []
         if epoch is None:  # whether a wipe happened can't be read: show nothing, keep nothing new either
             return []
@@ -279,6 +293,91 @@ def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Rememb
             kept.clear()
             kept.extend(fresh)
         return fresh
+
+
+# --------------------------------------------------------------------------- #
+# A turn's steps (this process only)
+# --------------------------------------------------------------------------- #
+
+STEP_TURNS = 20
+STEPS_SHOWN = 30
+_POINTS_SHOWN = 6
+
+
+def _xy(x, y) -> str:
+    return f"({x}, {y})"
+
+
+def step_action(action: str, args: dict) -> str:
+    """One action of hers as a step: what she did and where, never text she typed or anything on the screen."""
+    n = f"[{args['n']}]" if args.get("n") is not None else ""
+    if action == "read_screen":
+        wait = int(args.get("wait_ms") or 0)
+        return f"read the screen{f' after {wait} ms' if wait else ''}"
+    if action in ("tap", "long_press"):
+        return f"{'tapped' if action == 'tap' else 'long-pressed'} {n}"
+    if action == "type_text":
+        chars = len(str(args.get("text") or ""))
+        return f"typed {chars} character{'s' if chars != 1 else ''} into {n}{' and pressed enter' if args.get('enter') else ''}"
+    if action == "scroll":
+        return f"scrolled {args.get('direction')}{f' in {n}' if n else ''}"
+    if action == "tap_point":
+        return f"tapped point {_xy(args.get('x'), args.get('y'))}"
+    if action == "tap_points":
+        points = list(args.get("points") or [])
+        shown = ", ".join(_xy(*p) for p in points[:_POINTS_SHOWN]) + (", …" if len(points) > _POINTS_SHOWN else "")
+        return f"tapped {len(points)} points {shown}"
+    if action == "swipe":
+        return f"swiped {_xy(args.get('x1'), args.get('y1'))} → {_xy(args.get('x2'), args.get('y2'))}"
+    if action == "gesture":
+        return f"{len(args.get('fingers') or [])}-finger gesture"
+    if action == "press":
+        return f"pressed {args.get('key')}"
+    return action
+
+
+def note_step(user_id: uuid.UUID | str, turn: str, index: int, line: str, *, now: float | None = None) -> None:
+    """Step ``index`` (0-based) of a turn: added, or replaced once its answer is known."""
+    epoch = _epoch(user_id)
+    if epoch is None:
+        return
+    now = time.time() if now is None else now
+    with _lock:
+        turns = _steps.setdefault(str(user_id), {})
+        started, kept_epoch, lines = turns.get(turn) or (now, epoch, [])
+        if kept_epoch != epoch:
+            started, lines = now, []
+        if index < len(lines):
+            lines[index] = line
+        else:
+            lines.append(line)
+        turns[turn] = (started, epoch, lines)
+        while len(turns) > STEP_TURNS:
+            turns.pop(min(turns, key=lambda t: turns[t][0]))
+
+
+def steps(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None = None) -> list[str]:
+    """A turn's steps, oldest first (none past ``MEMORY_SECONDS``, none from before a wipe)."""
+    now = time.time() if now is None else now
+    epoch = _epoch(user_id)
+    off = _control_off(user_id)
+    with _lock:
+        if off:
+            _steps.pop(str(user_id), None)
+            return []
+        kept = (_steps.get(str(user_id)) or {}).get(str(turn))
+        if kept is None or epoch is None or kept[1] != epoch or now - kept[0] >= MEMORY_SECONDS:
+            return []
+        return list(kept[2])
+
+
+def steps_text(lines: list[str]) -> str:
+    """The steps as one clause for her history: the last ``STEPS_SHOWN`` of them, numbered."""
+    if not lines:
+        return ""
+    start = max(0, len(lines) - STEPS_SHOWN)
+    shown = "; ".join(f"{i + 1}. {line}" for i, line in enumerate(lines[start:], start))
+    return f"step by step{f' (the first {start} not shown)' if start else ''}: {shown}"
 
 
 # --------------------------------------------------------------------------- #

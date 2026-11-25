@@ -755,6 +755,15 @@ def test_a_stopped_reply_keeps_what_she_had_done_on_their_phone(env):
         db.add(PhoneActivity(id=uuid.uuid4(), conversation_id=env.conversation.id, content="Opened WhatsApp"))
         db.commit()
         history = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
+        # While this worker remembers the cut-off turn's steps, they come with its line, one by one.
+        steps = {str(cancelled): ["tapped [3] → Phone screen s4: WhatsApp in front", "pressed back → no answer seen"]}
+        import app.services.phone_control as phone_control_service
+        original = phone_control_service.steps
+        phone_control_service.steps = lambda user, turn, **kw: steps.get(str(turn), [])
+        try:
+            stepped = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
+        finally:
+            phone_control_service.steps = original
         plain = chat_service.get_history(db, conversation=conversation)
     assert [t["role"] for t in history] == ["user", "record", "user", "assistant", "user", "record", "user"]
     assert "stopped before any words" in history[1]["content"]
@@ -764,3 +773,6 @@ def test_a_stopped_reply_keeps_what_she_had_done_on_their_phone(env):
     assert "stopped before any words" in history[5]["content"] and "on their phone" not in history[5]["content"]
     assert not any("Opened WhatsApp" in t.get("content", "") + t.get("marker", "") for t in history)
     assert [t["role"] for t in plain] == ["user", "user", "assistant", "user", "user"]
+    assert ("Used your phone in WhatsApp, 4 steps; step by step: 1. tapped [3] → Phone screen s4: WhatsApp in front; "
+            "2. pressed back → no answer seen") in stepped[1]["content"]
+    assert "step by step" not in stepped[3]["marker"]

@@ -18,7 +18,9 @@ the orchestrator itself: she looks, acts and looks again in one loop.
   (``taken_over``, or ``taken_over_after`` when the action itself happened first), and she's told to stop.
 - **Afterwards** (``PhoneControl.finish``, when the turn ends however it ends): ``end_control`` when control is
   still on, one chat line for the turn ("Used your phone in Spotify, 9 steps"), and, when her hands acted and nobody
-  took over, a look again shortly after (``phone_look.schedule``). Screens are never stored; her
+  took over, a look again shortly after (``phone_look.schedule``) when the turn ended with her answer (not when it
+  was stopped). Each step is kept as one line for the next turn (``phone_control.note_step``): what she did and the
+  screen's first line, so a turn cut off by the user's new words is read back step by step. Screens are never stored; her
   last few stay as text in this process's memory for a while (``recent_phone_screens``).
 """
 from __future__ import annotations
@@ -40,9 +42,11 @@ log = logging.getLogger(__name__)
 MAX_ACTIONS_PER_TURN = 80
 TEXT_CHARS = 4000  # the phone's own cap on typed text
 TOOL_NAMES = ("read_phone_screen", "phone_tap", "phone_long_press", "phone_type", "phone_scroll", "phone_tap_point",
-              "phone_swipe", "phone_pinch", "phone_gesture", "phone_press", "end_phone_control",
+              "phone_tap_points", "phone_swipe", "phone_pinch", "phone_gesture", "phone_press", "end_phone_control",
               "recent_phone_screens")
 MAX_FINGERS = 5  # the phone's own cap on fingers in one gesture
+MAX_POINTS = 20  # the phone's own cap on taps in one phone_tap_points
+TAP_GAP_MAX_MS = 1000
 # The tools whose answers carry a screen: any record of her turn keeps only their first line
 # (services/phone_control.record_line).
 SCREEN_TOOLS = frozenset(TOOL_NAMES) - {"end_phone_control"}
@@ -91,6 +95,7 @@ class PhoneControl:
     size: tuple[int, int] | None = None  # the latest screen's picture, in its pixels (width, height)
     asked: uuid.UUID | None = None  # the user's message this turn (or the look it's on) answers
     zone: str | None = None
+    answered: bool = False  # the turn ended with her own answer (said something, or chose silence): not stopped
     _finished: bool = False
 
     def note_app(self, screen: dict) -> None:
@@ -122,7 +127,9 @@ class PhoneControl:
             return
         # What's on the screen keeps going after she answers: her hands acted and nobody took over, so she looks
         # again shortly (services/phone_look.py; whether anything is left is hers to judge then).
-        if self.acted and not self.taken_over and not superseded and self.asked is not None:
+        # Only a turn she finished herself: one the user's new words stopped is theirs again, even before those
+        # words arrive as a message (a voice barge-in stops it seconds before the transcript exists).
+        if self.acted and self.answered and not self.taken_over and not superseded and self.asked is not None:
             try:
                 phone_look.schedule(user_id=self.user_id, conversation_id=self.conversation_id, turn=self.turn,
                                     asked=self.asked, zone=self.zone)
@@ -158,13 +165,21 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
             return why, None
         if not control.allowed:
             return "Not done: start with read_phone_screen. Nothing was done.", None
+        index = control.steps
         control.steps += 1
         control.acted = control.acted or acting
         control.ended = False
+        did = phone_control.step_action(action, args)
+        # Noted before it's sent: a turn stopped while the phone acts still knows this step went out.
+        await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
+                                f"{did} → no answer seen (the turn stopped while the phone acted)")
         await asyncio.to_thread(phone_control.touch, user_id)
         outcome = await asyncio.to_thread(phone_actions.act, user_id, conversation_id, action,
                                           {**args, "turn": turn})
-        return answer(outcome)
+        text, artifact = answer(outcome)
+        await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
+                                f"{did} → {phone_control.record_line(text).rstrip('.')}")
+        return text, artifact
 
     def answer(outcome: phone_actions.Outcome) -> tuple[str, dict | None]:
         if outcome.status == "refused" and outcome.reason == "taken_over_after":
@@ -263,6 +278,19 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         return await send("tap_point", {"screen": screen_from(screen), "x": x, "y": y})
 
     @tool(response_format="content_and_artifact")
+    async def phone_tap_points(points: list[list[int]], gap_ms: int = 150,
+                               screen: str | None = None) -> tuple[str, dict | None]:
+        """Tap several points of the phone screen's picture (its pixels) one after another, gap_ms apart (0 to 1000),
+        in one step: the phone doesn't wait or look between them, only after the last. For a game where several
+        quick taps go together (troops along an edge, a spell then where it lands). points: [x, y] each, 1 to 20,
+        tapped in order. Any point off the picture and none is tapped. screen: whose picture (default the latest).
+        Answers with the screen after the last tap."""
+        if not 1 <= len(points or []) <= MAX_POINTS or any(len(p) != 2 for p in points):
+            return f"Not done: give 1 to {MAX_POINTS} points, each as [x, y].", None
+        return await send("tap_points", {"screen": screen_from(screen), "points": [[int(v) for v in p] for p in points],
+                                         "gap_ms": max(0, min(int(gap_ms or 0), TAP_GAP_MAX_MS))})
+
+    @tool(response_format="content_and_artifact")
     async def phone_swipe(x1: int, y1: int, x2: int, y2: int, ms: int = 300,
                           screen: str | None = None) -> tuple[str, dict | None]:
         """Swipe on the phone screen from x1,y1 to x2,y2 (pixels of the picture), taking ms (100 to 2000): for what
@@ -340,6 +368,6 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         return "Phone screens you saw recently (newest first; recall only, not actionable):\n" + "\n".join(rows)
 
     tools: list[BaseTool] = [read_phone_screen, phone_tap, phone_long_press, phone_type, phone_scroll,
-                             phone_tap_point, phone_swipe, phone_pinch, phone_gesture, phone_press, end_phone_control,
+                             phone_tap_point, phone_tap_points, phone_swipe, phone_pinch, phone_gesture, phone_press, end_phone_control,
                              recent_phone_screens]
     return tools, control

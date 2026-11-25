@@ -222,6 +222,9 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
     try:
         async with _assemble(context, queue) as built:
             yield built
+        if context.phone_control is not None:
+            # Her run ended by itself (not stopped, not failed): only such a turn looks at the phone again.
+            context.phone_control.answered = True
     finally:
         if context.phone_control is not None:
             context.phone_control.finish()
