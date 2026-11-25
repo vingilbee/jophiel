@@ -847,6 +847,9 @@ def follow_up_still_valid(work_id: uuid.UUID) -> tuple[bool, dict | None]:
             from app.services import autonomous_speech
             if not autonomous_speech.valid(db, work):
                 return False, None
+        from app.services import phone_look
+        if phone_look.is_look(work.input) and not phone_look.valid(db, work):
+            return False, None  # their window closed or they wrote since: their new turn holds the phone
         trigger = _trigger(db, work)
         promised = awaiting(db, work)
         if work.kind != "wake" and trigger is not None and trigger.conversation_sequence is not None \
@@ -891,6 +894,9 @@ def render_wake(info: dict) -> str:
     follow = follow_through.of(info)
     if follow is not None:
         return "\n".join(follow_through.render(follow, info.get("follow_through") or []))
+    from app.services import phone_look
+    if phone_look.is_look(inp):
+        return phone_look.render(info)
     if reason == "due":
         # Who asked for it, its deadline against now, what was promised and what changed are in "Now" (read from
         # records when she runs): this only names it.

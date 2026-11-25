@@ -306,12 +306,15 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
         # Who she knows on the phone (read only): the user's own reply turns, never a wake.
         if phone_reply:
             direct_tools.extend(build_people_tools(context.user_id, context.source_message_id))
-        # Phase 9: her hands on their phone's screen (frontend-phone/PLAN_PHASE_9.md): the user's reply turns only
-        # (typed or spoken), when they have a phone. Building them takes the phone's control for this turn: an older
-        # turn still acting there is answered taken_over. Its screenshots reach her through the picture hook.
-        if phone_reply and context.phone is not None and context.turn_id is not None:
+        # Phase 9: her hands on their phone's screen (frontend-phone/PLAN_PHASE_9.md): the user's reply turns (typed
+        # or spoken), and a wake to look again after one of them used the screen, for what the user's message asked
+        # (services/phone_look.py; never a wake someone else's words caused: excluded above). Building them takes
+        # the phone's control for this turn: an older turn still acting there is answered taken_over. Its
+        # screenshots reach her through the picture hook. A turn whose hands acted schedules her next look.
+        asked = context.source_message_id if phone_reply else context.phone_look
+        if asked is not None and context.phone is not None and context.turn_id is not None:
             control_tools, context.phone_control = build_phone_control_tools(
-                context.user_id, context.conversation_id, turn_id=context.turn_id)
+                context.user_id, context.conversation_id, turn_id=context.turn_id, asked=asked, zone=context.zone)
             direct_tools.extend(control_tools)
             hook = hook or screenshot_hook
     # Her reading of what people on the phone said (affinity B2: shadow records, requests for space): only on her

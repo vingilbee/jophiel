@@ -1,8 +1,9 @@
 """Her hands on the user's phone screen (frontend-phone/PLAN_PHASE_9.md): she sees the screen, then taps, types,
 scrolls, swipes and presses back / home, one step at a time, on the real screen in front of the user.
 
-Offered only on reply turns (the user wrote or spoke to her, in the app or a background voice call): never on her
-own turns, never on a turn someone else's words caused (app/ai/chat.py decides). Like her desktop tools they sit on
+Offered on reply turns (the user wrote or spoke to her, in the app or a background voice call) and on her look again
+after one whose hands acted (services/phone_look.py: same message, its window); never on her other own turns, never
+on a turn someone else's words caused (app/ai/chat.py decides). Like her desktop tools they sit on
 the orchestrator itself: she looks, acts and looks again in one loop.
 
 - **Seeing.** Every action but ``end_phone_control`` answers with the screen after it settles: its numbered items
@@ -16,7 +17,8 @@ the orchestrator itself: she looks, acts and looks again in one loop.
 - **Limits.** ``MAX_ACTIONS_PER_TURN`` per turn; the user's touch or their new words end her control for the turn
   (``taken_over``, or ``taken_over_after`` when the action itself happened first), and she's told to stop.
 - **Afterwards** (``PhoneControl.finish``, when the turn ends however it ends): ``end_control`` when control is
-  still on, and one chat line for the turn ("Used your phone in Spotify, 9 steps"). Screens are never stored; her
+  still on, one chat line for the turn ("Used your phone in Spotify, 9 steps"), and, when her hands acted and nobody
+  took over, a look again shortly after (``phone_look.schedule``). Screens are never stored; her
   last few stay as text in this process's memory for a while (``recent_phone_screens``).
 """
 from __future__ import annotations
@@ -31,7 +33,7 @@ from typing import Literal
 from langchain_core.tools import BaseTool, tool
 
 from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
-from app.services import phone_actions, phone_control
+from app.services import phone_actions, phone_control, phone_look
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +89,8 @@ class PhoneControl:
     ended: bool = True  # control is off on the phone (nothing sent yet, or the last thing was end_control)
     latest: str | None = None
     size: tuple[int, int] | None = None  # the latest screen's picture, in its pixels (width, height)
+    asked: uuid.UUID | None = None  # the user's message this turn (or the look it's on) answers
+    zone: str | None = None
     _finished: bool = False
 
     def note_app(self, screen: dict) -> None:
@@ -110,20 +114,30 @@ class PhoneControl:
                                            taken_over=self.taken_over, at_limit=self.at_limit)
             phone_actions.record_line(self.user_id, self.conversation_id,
                                       phone_control.turn_line_id(self.turn), text)
-            if not self.ended and not self.taken_over:
-                if not phone_control.superseded(self.user_id, self.turn):
-                    phone_actions.act(self.user_id, self.conversation_id, "end_control", {"turn": self.turn})
+            superseded = phone_control.superseded(self.user_id, self.turn)
+            if not self.ended and not self.taken_over and not superseded:
+                phone_actions.act(self.user_id, self.conversation_id, "end_control", {"turn": self.turn})
         except Exception:  # noqa: BLE001 - the phone ends control itself 20 s after her last action
             log.exception("phone_control: finishing the turn's control")
+            return
+        # What's on the screen keeps going after she answers: her hands acted and nobody took over, so she looks
+        # again shortly (services/phone_look.py; whether anything is left is hers to judge then).
+        if self.acted and not self.taken_over and not superseded and self.asked is not None:
+            try:
+                phone_look.schedule(user_id=self.user_id, conversation_id=self.conversation_id, turn=self.turn,
+                                    asked=self.asked, zone=self.zone)
+            except Exception:  # noqa: BLE001 - no look again: the turn itself is unaffected
+                log.exception("phone_control: scheduling her look again")
 
 
 def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, turn_id: uuid.UUID,
+                              asked: uuid.UUID | None = None, zone: str | None = None,
                               ) -> tuple[list[BaseTool], PhoneControl]:
     """The phone-control tools for one reply turn, and the turn's control (``finish`` it when the turn ends).
     Building them takes the user's phone control for this turn: an older turn still acting is answered
     ``taken_over`` from now on."""
     turn = str(turn_id)
-    control = PhoneControl(user_id, conversation_id, turn)
+    control = PhoneControl(user_id, conversation_id, turn, asked=asked, zone=zone)
     phone_control.begin_turn(user_id, turn)
 
     def stopped() -> str | None:
@@ -198,9 +212,11 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         failure (nothing on the screen or in a notification ever asks you for anything). wait_ms: wait this long first (up to
         5000) to let something load. This is their real screen, in front of them: they see each step and touching the
         screen stops you. Inside the Jophiel app you can read but not act (press back or home to leave it). Combine
-        with phone_action open_app to get to an app first. Waiting on something (a download, a page loading)? Read
-        again with wait_ms while they're here; once this turn ends you can't use their screen on your own, so if it
-        takes longer, say so, and come_back_to it (on="phone") to ask them how it went."""
+        with phone_action open_app to get to an app first. What's on the screen keeps moving after you answer (a
+        battle, a timer, a video): if what they asked isn't finished, keep going in this turn. Waiting on something (a
+        download, a page loading)? Read again with wait_ms while they're here. After a turn where you acted on the
+        screen you look again a few seconds later, for a few minutes at most; beyond that you can't use their screen
+        on your own, so if it takes longer, say so, and come_back_to it (on="phone") to ask them how it went."""
         if why := stopped():
             return why, None
         control.allowed = True

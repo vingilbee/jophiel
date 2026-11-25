@@ -112,6 +112,9 @@ class AgentRuntimeContext:
     # Woken by someone else's words (a phone notification), or by what such a wake started or scheduled: no device
     # action at all this turn (app/ai/chat.py; docs/PHONE_PHASE_8_AFFINITY.md O1).
     third_party: bool = False
+    # A wake to look at the phone again after a turn of hers used its screen (services/phone_look.py): the user's
+    # message it follows. Her hands on the screen on this wake, for what that message asked (None: not such a wake).
+    phone_look: uuid.UUID | None = None
     # The clock and what caused this evaluation (``mind_turn.situation``): read fresh when the evaluation runs,
     # never from a queued job's awareness snapshot.
     now: str | None = None

@@ -40,6 +40,10 @@ keeps a long command running as `cmd:…` (`check_command` / `stop_command`); it
 and goes on her hands' trail (`desktop_control.command_finished`), so her background mind can wake her to follow up.
 `come_back_to(..., on="desktop"|"phone")`: if she uses that device again before it's due, it moves to the same
 delay after her last use (`coordinator._reset`). No migration; update the VM's controller to use background commands.
+Looking again (2026-11-25): a reply turn whose hands acted on the phone screen (not taken over) schedules a wake
+10 s after it ends (`services/phone_look.py`, origin `phone_look:<turn>`); that wake has the screen tools for what the
+user's message asked, within 10 min of it, dropped by any newer message of theirs; a look that acts schedules the next.
+The one exception to phase 9's "reply turns only". No migration.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
