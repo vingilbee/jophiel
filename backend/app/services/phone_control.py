@@ -163,7 +163,9 @@ def render(screen: dict, *, picture: bool) -> str:
     image, missing = screen.get("image") or {}, screen.get("image_missing")
     notes = ["keyboard up" if screen.get("keyboard") else "keyboard down"]
     if picture and image:
-        notes.append(f"its picture ({image.get('width')}x{image.get('height')}, numbered boxes drawn on) follows; "
+        width, height = image.get("width"), image.get("height")
+        held = "landscape" if width and height and width > height else "portrait"
+        notes.append(f"the phone is in {held}; its picture ({width}x{height}, numbered boxes drawn on) follows; "
                      "tap_point and swipe take that picture's pixels")
     elif missing == "secure":
         notes.append("no picture: this app forbids screenshots (text only)")
