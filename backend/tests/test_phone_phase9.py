@@ -175,7 +175,7 @@ def test_the_users_touch_stops_her_for_the_turn(monkeypatch):
                                    taken_over=control.taken_over) == "Used your phone in Settings, 2 steps (you took over)"
 
 
-def test_eighty_actions_a_turn_then_she_says_how_far_she_got(monkeypatch):
+def test_eighty_actions_a_turn_then_she_stops(monkeypatch):
     monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: phone_actions.Outcome(
         "done", uuid.uuid4(), "Done", screen=screen(image=False)))
     monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
@@ -187,7 +187,7 @@ def test_eighty_actions_a_turn_then_she_says_how_far_she_got(monkeypatch):
         asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
     assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
     limit = asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
-    assert limit.startswith("Not done: that's 80 phone actions this turn. Stop and tell the user how far")
+    assert limit == "Not done: that's 80 phone actions this turn. You can carry on when they reply."
     assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
 
 

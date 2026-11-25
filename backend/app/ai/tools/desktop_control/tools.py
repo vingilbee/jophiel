@@ -30,7 +30,7 @@ MAX_ACTIONS_PER_TURN = 80
 MAX_SCREENSHOTS_PER_TURN = 40
 # Graph steps for a desktop turn. Each action is three: the picture hook (``screenshot_hook``, a node of its own
 # before every model call), her call, and the tool's answer. At two per action the graph stopped at 59 actions,
-# before the 80-action budget could tell her to report, and the turn ended without a word (2026-11-24).
+# before the 80-action budget could stop her, and the turn ended without a word (2026-11-24).
 STEPS_PER_ACTION = 3
 RECURSION_LIMIT = STEPS_PER_ACTION * MAX_ACTIONS_PER_TURN + 20
 # Captured with the action for learning (raw capture, retention-limited, owner only).
@@ -141,8 +141,7 @@ def command_text(outcome: Outcome, command: str) -> str:
         handle = f"cmd:{outcome.job}"
         return (f"Still running: `{command[:200]}` keeps going in the background as [{handle}].{shown.replace('Output', 'Output so far', 1)}\n"
                 f"When it ends, the end reaches your background mind, which can wake you to look at it (you don't have "
-                f"to keep checking). check_command {handle} to look now, stop_command {handle} to stop it. Tell them "
-                "it's running and that you'll come back to it when it's done.")
+                f"to keep checking). check_command {handle} to look now, stop_command {handle} to stop it.")
     if outcome.status == "done":
         return f"Ran `{command[:200]}`: exit code {outcome.exit_code}.{shown}"
     if outcome.status == "failed":
@@ -240,10 +239,10 @@ def build_desktop_control_tools(user_id: uuid.UUID, *, turn_id: uuid.UUID | None
 
     def over_budget(kind: str = "actions") -> str | None:
         if counts["actions"] >= MAX_ACTIONS_PER_TURN:
-            return (f"Not done: that's {MAX_ACTIONS_PER_TURN} desktop actions this turn. Tell the user where you got "
-                    "to; you can carry on when they reply.")
+            return (f"Not done: that's {MAX_ACTIONS_PER_TURN} desktop actions this turn. "
+                    "You can carry on when they reply.")
         if kind == "screenshots" and counts["screenshots"] >= MAX_SCREENSHOTS_PER_TURN:
-            return f"Not done: that's {MAX_SCREENSHOTS_PER_TURN} screenshots this turn. Tell the user where you got to."
+            return f"Not done: that's {MAX_SCREENSHOTS_PER_TURN} screenshots this turn."
         return None
 
     def point(x: int, y: int, shot: str | None) -> tuple[int, int]:

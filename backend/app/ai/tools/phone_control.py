@@ -143,11 +143,11 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
     def stopped() -> str | None:
         if control.taken_over:
             return ("Not done: the user took over their phone this turn (they touched the screen, or spoke again). "
-                    "Don't act on it any more now; tell them where you got to. They can ask you again.")
+                    "Don't act on it any more now. They can ask you again.")
         if control.steps >= MAX_ACTIONS_PER_TURN:
             control.at_limit = True
-            return (f"Not done: that's {MAX_ACTIONS_PER_TURN} phone actions this turn. Stop and tell the user how far "
-                    "you got; you can carry on when they reply.")
+            return (f"Not done: that's {MAX_ACTIONS_PER_TURN} phone actions this turn. "
+                    "You can carry on when they reply.")
         return None
 
     def screen_from(screen: str | None) -> str | None:
@@ -171,7 +171,7 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
             control.taken_over = True
             control.ended = True
             return ("Done: that action did happen on the phone. Then the user took over (they touched the screen), "
-                    "so you didn't see the screen after it. Don't act on it any more now; tell them what you did. "
+                    "so you didn't see the screen after it. Don't act on it any more now. "
                     "They can ask you again."), None
         if outcome.status == "refused" and outcome.reason == "taken_over":
             control.taken_over = True
