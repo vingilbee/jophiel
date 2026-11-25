@@ -224,9 +224,10 @@ class Settings(BaseSettings):
     # than mask it with filler speech.
     tts_fillers_enabled: bool = False
     # Speech-to-text via the OpenAI audio API; reuses `openai_api_key`.
-    # gpt-4o-mini-transcribe replaced whisper-1, which measured 0.6-3.1s per
-    # utterance. Set STT_MODEL=whisper-1 to roll back.
-    stt_model: str = "gpt-4o-mini-transcribe"
+    # gpt-4o-transcribe (2026-11-25): the mini model misheard short phone-voice
+    # turns over game and music audio ("Go ahead" as "Don't go ahead", "base" as
+    # "bed"). STT_MODEL=gpt-4o-mini-transcribe rolls back to the faster one.
+    stt_model: str = "gpt-4o-transcribe"
     # Voice turns use a faster model than typed chat: opus-4-8's time-to-first
     # -token is fine when you're reading and bad when you're waiting to hear a
     # reply. Set to None to use `chat_model` for voice too.

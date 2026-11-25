@@ -31,7 +31,8 @@ report (check wakes, bounded); `services/follow_through.py`.
 Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): her hands on the phone's screen, reply turns
 only (`ai/tools/phone_control.py`: read_phone_screen first; act by number, by point as a fallback, several fingers with
 phone_pinch / phone_gesture; 80 actions a turn; `taken_over` stops her for the turn, `taken_over_after` when the action
-itself happened first; one chat line per turn). Screens travel
+itself happened first; one chat line per turn; phone_tap_points: up to 20 taps in one step, the phone settles and
+reads only after the last, phone app action `tap_points`). Screens travel
 sealed to the waiting worker and are never stored (`services/phone_control.py`: turn supersession, render, the
 short-term memory of 10 text-only screens for 30 min in process memory, wiped when the phone reports `control_on`
 false). No migration.
@@ -44,6 +45,9 @@ Looking again (2026-11-25): a reply turn whose hands acted on the phone screen (
 10 s after it ends (`services/phone_look.py`, origin `phone_look:<turn>`); that wake has the screen tools for what the
 user's message asked, within 10 min of it, dropped by any newer message of theirs; a look that acts schedules the next.
 The one exception to phase 9's "reply turns only". No migration.
+Cut-off phone turns (2026-11-25): each step of her hands is kept as one line (what she did, the screen's first line;
+`phone_control.note_step`, process memory, wiped with her screens), and a turn stopped by the user's new words is read
+back step by step in her history; a look is scheduled only after a turn she finished herself (`PhoneControl.answered`).
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.

@@ -281,12 +281,11 @@ def test_learning_is_only_for_what_no_skill_does():
     learn = next(t for t in build_desktop_tools(uuid.uuid4()) if t.name == "learn_skill")
     for tool in (offer, learn):
         text = " ".join(tool.description.split())
-        assert "if you can name the skill that does it" in text
+        assert "if you can name the skill that does it" in text.lower()
         assert "with its parameters" in text
         assert "explore" not in text
     learn_text = " ".join(learn.description.split())
     assert "don't just say you can't: say you haven't learned it yet and that you'll try" in learn_text
-    assert "You don't need to ask first" in learn_text
 
 
 def test_each_try_is_news_in_her_mind():

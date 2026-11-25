@@ -266,8 +266,9 @@ def get_history(
     rows = list(reversed(list(db.scalars(stmt))))
     # What a stopped reply of hers had already done on their phone (its turn's chat line), so a cut-off turn's
     # taps aren't forgotten: the line is the user's chat, never part of what she said.
-    phone_done = _phone_lines(db, conversation.id, [
-        m.turn_id for m in rows if m.role == "assistant" and m.status in _STOPPED and m.turn_id]) if records else {}
+    stopped_turns = [m.turn_id for m in rows if m.role == "assistant" and m.status in _STOPPED and m.turn_id]
+    phone_done = (_with_steps(conversation.user_id, _phone_lines(db, conversation.id, stopped_turns), stopped_turns)
+                  if records else {})
     history: list[ChatTurn] = []
     kept: list[tuple[datetime, ChatTurn]] = []
     now = datetime.now(timezone.utc)
@@ -341,6 +342,19 @@ def _phone_lines(db: Session, conversation_id: uuid.UUID, turn_ids: list[uuid.UU
     by_line = {turn_line_id(turn): turn for turn in turn_ids}
     return {by_line[row.id]: row.content for row in db.scalars(select(PhoneActivity).where(
         PhoneActivity.conversation_id == conversation_id, PhoneActivity.id.in_(list(by_line))))}
+
+
+def _with_steps(user_id: uuid.UUID, lines: dict[uuid.UUID, str], turn_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """A stopped turn's line with its steps (services/phone_control.steps: what her hands did, one by one, while
+    this worker remembers them), so the next turn knows what was already done, not only how many steps."""
+    from app.services import phone_control
+
+    out = dict(lines)
+    for turn in turn_ids:
+        steps = phone_control.steps_text(phone_control.steps(user_id, turn))
+        if steps:
+            out[turn] = f"{out[turn]}; {steps}" if turn in out else f"Used your phone; {steps}"
+    return out
 
 
 def _stopped_record(message: ChatMessage, zone: str | None, now: datetime, phone: str | None) -> str:

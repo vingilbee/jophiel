@@ -44,7 +44,8 @@ ACTIVITY_RETRIES = "phone:action:activity-retries"
 ACTIVITY_RETRY_SECONDS = 5
 ACTIVITY_RETRY_BATCH = 25
 # Phase 9: a control action settles for up to 2 s and takes a screenshot; read_screen may first wait up to 5 s.
-WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10, "read_screen": 15}
+# tap_points: up to 20 taps 1 s apart, then the screen settles and is read.
+WAIT_SECONDS = {"navigate_to": 10, "get_position": 15, "resolve_saved_place": 10, "read_screen": 15, "tap_points": 30}
 DEFAULT_WAIT_SECONDS = 10
 # A push has to wake the app before it can answer: wait this long at least once the action went by FCM.
 PUSH_WAIT_SECONDS = 20
@@ -53,7 +54,7 @@ COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
 # it (``SCREEN_ACTIONS``), encrypted to the waiter like a coordinate, never kept in Redis or Postgres; no chat line
 # per action (the turn writes one, app/ai/tools/phone_control.py). ``args["turn"]``: the reply turn; a newer turn
 # holding the phone answers ``taken_over`` (services/phone_control.py).
-SCREEN_ACTIONS = {"read_screen", "tap", "long_press", "type_text", "scroll", "tap_point", "swipe", "gesture",
+SCREEN_ACTIONS = {"read_screen", "tap", "long_press", "type_text", "scroll", "tap_point", "tap_points", "swipe", "gesture",
                   "press"}
 CONTROL_ACTIONS = SCREEN_ACTIONS | {"end_control"}
 SEALED_ACTIONS = COORDINATE_ACTIONS | SCREEN_ACTIONS

@@ -45,16 +45,18 @@ def ended(monkeypatch):
 
 def test_a_turn_whose_hands_acted_schedules_a_look(ended):
     scheduled, _, finish = ended
-    control = finish(acted=True, ended=False)
+    control = finish(acted=True, ended=False, answered=True)
     assert scheduled == [{"user_id": control.user_id, "conversation_id": control.conversation_id,
                           "turn": control.turn, "asked": control.asked, "zone": "America/Vancouver"}]
 
 
-@pytest.mark.parametrize("why", ["only_read", "taken_over", "superseded", "no_message"])
+@pytest.mark.parametrize("why", ["only_read", "taken_over", "superseded", "no_message", "stopped"])
 def test_no_look_after_reading_only_a_takeover_their_next_words_or_no_message(ended, why):
+    """"stopped": their voice stopped the turn before their words were a message (seen live 2026-11-25: the look
+    was booked in the two seconds before the transcript arrived)."""
     scheduled, state, finish = ended
     state["superseded"] = why == "superseded"
-    finish(acted=why != "only_read", taken_over=why == "taken_over", ended=False,
+    finish(acted=why != "only_read", taken_over=why == "taken_over", ended=False, answered=why != "stopped",
            **({"asked": None} if why == "no_message" else {}))
     assert scheduled == []
 
