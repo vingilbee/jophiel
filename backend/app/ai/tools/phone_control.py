@@ -14,8 +14,11 @@ the orchestrator itself: she looks, acts and looks again in one loop.
   Numbers belong to the latest screen only (``stale_screen`` otherwise).
 - **Whose say-so.** Her own judgement of what the user asked on a reply turn (no operation check: the user's
   decision, 2026-11-24). She starts with ``read_phone_screen``. Nothing on the screen ever asks for anything.
-- **Limits.** ``MAX_ACTIONS_PER_TURN`` per turn; the user tapping Stop on the banner or their new words end her control for the turn
-  (``taken_over``, or ``taken_over_after`` when the action itself happened first), and she's told to stop.
+- **Limits.** ``MAX_ACTIONS_PER_TURN`` per turn; the user tapping Stop on the banner (or a newer turn of hers taking
+  the phone) ends her control for the turn (``taken_over``, or ``taken_over_after`` when the action itself happened
+  first), and she's told to stop.
+- **Their words while she works** (services/phone_words.py): from her first step until the turn ends, what they
+  say or type in the conversation doesn't stop the turn; it comes back under the next screen she gets.
 - **Afterwards** (``PhoneControl.finish``, when the turn ends however it ends): ``end_control`` when control is
   still on, one chat line for the turn ("Used your phone in Spotify, 9 steps"), and, when her hands acted and nobody
   took over, a look again shortly after (``phone_look.schedule``) when the turn ended with her answer (not when it
@@ -35,7 +38,7 @@ from typing import Literal
 from langchain_core.tools import BaseTool, tool
 
 from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
-from app.services import phone_actions, phone_control, phone_look
+from app.services import phone_actions, phone_control, phone_look, phone_words
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +115,11 @@ class PhoneControl:
         threading.Thread(target=self._finish, name="phone-control-finish", daemon=True).start()
 
     def _finish(self) -> None:
+        # First: their words take the ordinary path again (any she didn't read are answered next).
+        try:
+            phone_words.hands_off(self.user_id, self.turn)
+        except Exception:  # noqa: BLE001 - the hands key expires by itself
+            log.exception("phone_control: releasing her hands")
         try:
             # The line first: a turn that was cut off is read back from it by the next one (services/chat.py),
             # which can start before the phone answers end_control.
@@ -149,7 +157,7 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
 
     def stopped() -> str | None:
         if control.taken_over:
-            return ("Not done: the user took over their phone this turn (they tapped Stop on the banner, or spoke again). "
+            return ("Not done: the user took over their phone this turn (they tapped Stop on the banner). "
                     "Don't act on it any more now. They can ask you again.")
         if control.steps >= MAX_ACTIONS_PER_TURN:
             control.at_limit = True
@@ -174,11 +182,18 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
                                 f"{did} → no answer seen (the turn stopped while the phone acted)")
         await asyncio.to_thread(phone_control.touch, user_id)
+        # From her first step until the turn ends, their words reach her here instead of stopping her.
+        await asyncio.to_thread(phone_words.hands_on, user_id, conversation_id, turn)
         outcome = await asyncio.to_thread(phone_actions.act, user_id, conversation_id, action,
                                           {**args, "turn": turn})
         text, artifact = answer(outcome)
         await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
                                 f"{did} → {phone_control.record_line(text).rstrip('.')}")
+        if control.taken_over:
+            await asyncio.to_thread(phone_words.hands_off, user_id, turn)
+        else:
+            said = await asyncio.to_thread(phone_words.take, user_id, conversation_id, turn)
+            text += phone_words.render(said)
         return text, artifact
 
     def answer(outcome: phone_actions.Outcome) -> tuple[str, dict | None]:

@@ -173,6 +173,7 @@ from app.services import (
     mind_turn, phone_actions, phone_devices, phone_notifications, phone_state, presence, push, voice_target,
 )
 from app.services import stickers
+from app.services import phone_words
 from app.services import stt as stt_service
 from app.services import tts as tts_service
 from app.services import voice_latency
@@ -1426,10 +1427,18 @@ async def chat_ws(websocket: WebSocket) -> None:
         before any teardown, so the client never waits on a slow provider to
         resume or go quiet.
         """
+        spoke_at = time.time() - len(pcm) / 2 / max(sample_rate, 1)
         try:
             transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
         except stt_service.STTError:
             transcript = ""  # couldn't tell: carrying on beats losing the reply
+        # Her hands are on the phone: anything they said but "stop" joins her turn, which resumes.
+        if transcript and not _is_stop_only(transcript):
+            held = await busy_hands(conversation_id)
+            if held is not None and await join_hands(held, transcript, turn_id, voice=True, spoke_at=spoke_at):
+                voice_latency.mark("barge_hold_resolved", turn_id, source="api", action="joined")
+                await send_json({"type": "barge_resolved", "turn_id": str(turn_id), "action": "resume"})
+                return
         action = _classify_hold(transcript)
         voice_latency.mark("barge_hold_resolved", turn_id, source="api", action=action)
         await send_json({"type": "barge_resolved", "turn_id": str(turn_id), "action": action})
@@ -1517,6 +1526,101 @@ async def chat_ws(websocket: WebSocket) -> None:
             return saved, True
         finally:
             db.close()
+
+    async def busy_hands(conversation_id: uuid.UUID | None) -> phone_words.Hands | None:
+        """Her hands on the phone in a running turn of this conversation (services/phone_words.py), or None."""
+        if not settings.redis_url:
+            return None
+        held = await asyncio.to_thread(phone_words.hands, user_id)
+        if held is None:
+            return None
+        if conversation_id is not None and str(conversation_id) != held.conversation_id:
+            return None
+        return held
+
+    async def join_hands(
+        held: phone_words.Hands, content: str, turn_id: uuid.UUID, *, voice: bool,
+        spoke_at: float | None = None, written_at: datetime | None = None,
+    ) -> bool:
+        """The user's words while her hands are on the phone: saved with their own job, which waits behind the
+        running one (one job per conversation at a time), and queued for that turn, which carries on. False (nothing
+        saved) when the conversation isn't hers to join."""
+        nonlocal voice_conversation_id
+        conversation_id = uuid.UUID(held.conversation_id)
+
+        def save():
+            db = SessionLocal()
+            try:
+                conversation = chat_service.get_conversation(db, user_id=user_id, conversation_id=conversation_id)
+                if conversation is None:
+                    return None
+                user_message = chat_service.add_message(
+                    db, conversation=conversation, role="user", content=content, turn_id=turn_id,
+                    source_channel=message_channel,
+                    written_at=None if voice else chat_service.clamp_written_at(written_at), commit=False,
+                )
+                state = awareness_service.build(db, user_id=user_id, session=session)
+                payload = _text_job_payload(content, [], [], state)
+                if voice:
+                    payload.update(voice=True, spoke_at=spoke_at or time.time())
+                job = chat_service.enqueue_job(
+                    db, user_id=user_id, conversation=conversation, turn_id=turn_id,
+                    user_message_id=user_message.id, payload=payload, commit=False,
+                )
+                db.commit()
+                return job.id, user_message.id
+            finally:
+                db.close()
+
+        try:
+            saved = await asyncio.to_thread(save)
+        except IntegrityError:
+            return False
+        if saved is None:
+            return False
+        job_id, message_id = saved
+        # Woken only so a job left unread at the end of the turn is claimed at once.
+        chat_service.wake_chat_worker(job_id)
+        await asyncio.to_thread(phone_words.offer, held.turn, job_id=job_id, message_id=message_id,
+                                turn_id=turn_id, text=content)
+        if voice:
+            voice_conversation_id = conversation_id
+            await send_json({"type": "transcript", "turn_id": str(turn_id), "content": content,
+                             "joins": held.turn})
+        await send_json({"type": "meta", "conversation_id": held.conversation_id})
+        await send_json({"type": "ack", "turn_id": str(turn_id), "user_message_id": str(message_id),
+                         "conversation_id": held.conversation_id, "joins": held.turn})
+        # Its stream ends with `done` (joined) once she reads it, or carries its own reply if she didn't. Not the
+        # socket's active turn: Stop still reaches the turn she's working in.
+        task = asyncio.create_task(subscribe_turn(turn_id), name=f"chat-turn:{turn_id}")
+        subscription_tasks.append(task)
+        return True
+
+    async def run_voice_after_hands(
+        conversation_id: uuid.UUID | None, pcm: bytes, sample_rate: int, turn_id: uuid.UUID,
+        interruption: bool,
+    ) -> None:
+        """A finished utterance while her hands are on the phone: it joins her turn, or (the turn ended, or it was
+        only "stop") takes the ordinary path."""
+        spoke_at = time.time() - len(pcm) / 2 / max(sample_rate, 1)
+        try:
+            transcript = await transcribe_utterance(pcm, sample_rate, turn_id)
+        except stt_service.STTError:
+            await send_json({"type": "error", "detail": "Couldn't transcribe that."})
+            return
+        if not transcript:
+            await send_json({"type": "done", "turn_id": str(turn_id), "status": "cancelled"})
+            return
+        held = None if _is_stop_only(transcript) else await busy_hands(conversation_id)
+        if held is not None and await join_hands(held, transcript, turn_id, voice=True, spoke_at=spoke_at):
+            return
+        await _stop_active_turn(user_id)
+        next_stop = asyncio.Event()
+        task = asyncio.current_task()
+        assert task is not None
+        register_turn(task, next_stop, conversation_id, turn_id)
+        await run_voice_turn(conversation_id, pcm, sample_rate, next_stop, turn_id,
+                             interruption=interruption, transcript=transcript)
 
     async def reack(turn_id: uuid.UUID) -> bool:
         """A resend of a saved turn gets its original ack (and seen) back. True when it was a resend."""
@@ -1912,6 +2016,10 @@ async def chat_ws(websocket: WebSocket) -> None:
                 # Only the open hold it names; a late commit is a no-op.
                 if (utterance is not None and utterance_tentative
                         and utterance_turn_id == message.turn_id):
+                    # Her hands are on the phone: talking at length doesn't stop her; the hold is decided when
+                    # the utterance ends (it joins her turn).
+                    if await busy_hands(utterance_conversation) is not None:
+                        continue
                     fence_in_background()
                     utterance_tentative = False
                     voice_latency.mark("barge_committed", message.turn_id, source="api")
@@ -1969,6 +2077,16 @@ async def chat_ws(websocket: WebSocket) -> None:
                     background_tasks.add(hold)
                     hold.add_done_callback(background_tasks.discard)
                     continue
+                if await busy_hands(conversation_id) is not None:
+                    # Her hands are on the phone: transcribed first, then it joins her turn (or, if that turn
+                    # ended meanwhile, takes the ordinary path).
+                    joining = asyncio.create_task(
+                        run_voice_after_hands(conversation_id, pcm, rate, turn_id, interruption),
+                        name=f"chat-hands:{turn_id}",
+                    )
+                    background_tasks.add(joining)
+                    joining.add_done_callback(background_tasks.discard)
+                    continue
                 await _stop_active_turn(user_id)
                 voice_latency.mark("prior_turn_stopped", turn_id, source="api")
                 next_stop = asyncio.Event()
@@ -1984,6 +2102,13 @@ async def chat_ws(websocket: WebSocket) -> None:
                 # same message: answer with its original ack, change nothing.
                 if message.turn_id is not None and await reack(message.turn_id):
                     continue
+                # Her hands are on the phone: a plain message joins the turn she's working in.
+                if not message.image_ids and not message.asset_ids and message.content.strip():
+                    held = await busy_hands(message.conversation_id)
+                    if held is not None and await join_hands(
+                            held, message.content, message.turn_id or uuid.uuid4(), voice=False,
+                            written_at=message.written_at):
+                        continue
                 # A message sent while thinking is an interruption followed by
                 # a new turn, never a competing generation against stale history.
                 await _stop_active_turn(user_id)
