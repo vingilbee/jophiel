@@ -71,6 +71,12 @@ def _client() -> OpenAI:
         http_client=http)
 
 
+def memory_reasoning() -> dict:
+    """The reasoning argument for memory's model calls (``MEMORY_REASONING_EFFORT``); none when unset."""
+    effort = get_settings().memory_reasoning_effort
+    return {"reasoning": {"effort": effort}} if effort else {}
+
+
 @lru_cache(maxsize=1)
 def _embedding_client() -> OpenAI:
     """Embeddings sit in front of a reply: a short timeout, so a hung call can't hold her answer for minutes."""
@@ -384,7 +390,7 @@ def _extract(user_text: str, assistant_text: str, earlier: list[str] = (), known
     context += ("KNOWN PLANS:\n" + "\n".join(plans) + "\n\n") if plans else ""
     context += ("EARLIER (context only):\n" + "\n".join(earlier) + "\n\n") if earlier else ""
     response = _client().responses.parse(
-        model=get_settings().memory_model,
+        model=get_settings().memory_model, **memory_reasoning(),
         input=[
             {"role": "system", "content": _prompt()},
             {

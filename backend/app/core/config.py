@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     # turn with two tool calls; luna keeps the thinking-before-answering, faster.
     game_mind_model: str | None = "gpt-6-luna"
     game_mind_reasoning_effort: str | None = "low"
+    # Her wakes (a notification, a promise coming due, a follow-up, her own thinking finishing): nobody is waiting on
+    # them, so her mind thinks before it decides and speaks (2026-11-24, the user's choice). Replies to the user's own
+    # messages stay on chat_reasoning_effort (fast). None: the turn's usual effort. Game and desktop efforts win.
+    wake_mind_reasoning_effort: str | None = "low"
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
     # remains the complete transcript; this is the agent's bounded working
@@ -126,7 +130,10 @@ class Settings(BaseSettings):
     # A small model extracts durable, explicitly stated facts after a turn.
     # gpt-4o-mini ignored the rules on real game turns (it saved "the assistant doesn't have the
     # bread"); gpt-6-luna got 10/10 (2026-10-12). One call per reply, in the memory worker.
-    memory_model: str = "gpt-6-luna"
+    # gpt-6.2-sol with low reasoning (2026-11-24, the user's choice): memory is off the reply path, so a smarter
+    # model costs no speech time. Sol refuses reasoning "none": keep memory_reasoning_effort set while it's the model.
+    memory_model: str = "gpt-6.2-sol"
+    memory_reasoning_effort: str | None = "low"
     memory_embedding_model: str = "text-embedding-3-small"
     memory_retrieval_limit: int = 6
     # Redis is only a wake-up channel. Pending jobs also live in Postgres and
@@ -295,7 +302,7 @@ class Settings(BaseSettings):
     # the most messages one conversation review carries (a transport page, not an experience boundary: the reviewer
     # can look earlier). WINDOW: lines shown before a stretch at first (doubling when it looks further back).
     # MAX_CHARS: the most evidence read at once. None of these bound what can be learned, or how often.
-    learning_assessment_model: str = "gpt-6-luna"
+    learning_assessment_model: str = "gpt-6.2-sol"
     learning_assessment_reasoning_effort: str | None = "low"
     learning_assessment_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     learning_assessment_settle_seconds: float = Field(default=60.0, ge=0)
@@ -314,7 +321,7 @@ class Settings(BaseSettings):
     learning_lessons_enabled: bool = True
     lessons_supply_enabled: bool = True
     lessons_supplied_max: int = Field(default=5, ge=1, le=20)
-    learning_lessons_model: str = "gpt-6-luna"
+    learning_lessons_model: str = "gpt-6.2-sol"
     learning_lessons_reasoning_effort: str | None = "low"
     learning_lessons_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     learning_lessons_max_attempts: int = Field(default=4, ge=1)
@@ -325,7 +332,7 @@ class Settings(BaseSettings):
     # attempts, active seconds including preparation, blocks placed; whichever comes first ends the trial. A
     # proposal may ask for less, never more. WINDOW: how long after execution ends observations still count.
     learning_trials_enabled: bool = True
-    learning_trials_model: str = "gpt-6-luna"
+    learning_trials_model: str = "gpt-6.2-sol"
     learning_trials_reasoning_effort: str | None = "low"
     learning_trials_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     learning_trials_max_attempts: int = Field(default=4, ge=1)
@@ -486,7 +493,7 @@ class Settings(BaseSettings):
     # Hard thinking (docs/COLUMBINA_HARD_THINKING_PLAN.md): slow thinking about a problem that ends
     # in one conclusion. Time isn't short there, so it reasons. Quiet hard thinking: after this long
     # with nothing new, at most once per QUIET_EVERY (0 turns it off).
-    mind_hard_model: str = "gpt-6-luna"
+    mind_hard_model: str = "gpt-6.2-sol"
     mind_hard_reasoning_effort: str | None = Field(default="low", pattern="^(none|low|medium|high)$")
     mind_hard_quiet_seconds: float = Field(default=180.0, ge=0, le=3600)
     mind_hard_quiet_every_seconds: float = Field(default=300.0, ge=0, le=86400)
@@ -542,7 +549,7 @@ class Settings(BaseSettings):
     # thought's conclusion is handed over as an observation; one small call judges keep/skip and whether it
     # repeats or replaces an open memory. None: subagent_model. A suspicion nothing settles is unresolved after
     # memory_hypothesis_days.
-    memory_thought_model: str | None = None
+    memory_thought_model: str | None = "gpt-6-luna"
     memory_hypothesis_days: float = Field(default=14.0, gt=0, le=365)
     # Observation (docs/COLUMBINA_MEMORY_SESSION2_SPEC.md; services/observation*.py): what sources
     # reported, as one immutable stream. Game outcomes are recorded as they happen, the observation

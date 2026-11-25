@@ -3,6 +3,7 @@ never merged, idempotent, a failed write never overwriting; her replies echoed b
 ``read_person``; forgetting a person. Real Redis and PostgreSQL (TEST_REDIS_URL, TEST_DATABASE_URL)."""
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -197,8 +198,9 @@ def outbound(channel, action_id: uuid.UUID) -> PhoneOutbound:
 
 
 def now_line(channel) -> str:
+    """Rina's line in her "Now", without the note of what she just sent there (its own test)."""
     [line] = [line for line in phone_notifications.section(channel.user, with_text=True) if "Rina" in line]
-    return line
+    return re.sub(r' \(you sent ".*" here [^)]*\)$', "", line)
 
 
 def test_her_reply_echoed_back_is_hers_and_the_users_own_words_are_not(channel):
@@ -281,6 +283,27 @@ def test_an_echo_too_late_or_a_failed_send_is_never_hers(channel):
     report(channel, chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"], owner("e_o1", "on my way"),
                                                       owner("e_o2", "running late")], revision=2))
     assert outbound(channel, failed).echo_event_id is None and outbound(channel, late).echo_event_id is None
+
+
+def test_what_she_just_sent_is_beside_the_news_and_the_notification_it_shows_in(channel):
+    """Her own words beside the line, so a message of hers coming back (however the phone labelled it) reads as
+    hers: the latest send into that conversation only, failed ones and old ones left out."""
+    report(channel, RINA_DM)
+    send(channel, "on my way", status="failed")
+    send(channel, "older one")
+    send(channel, "Okay.")
+    # Her "Okay." shown back under a sender the phone didn't mark as the user (2026-11-24: WhatsApp's "You").
+    report(channel, chat("n_rina", "c_rina", "Rina", [*RINA_DM["messages"],
+                                                      message("e_y1", "You", "p_you", "Okay.", identity="name")],
+                         revision=2))
+    news = phone_notifications.pending_news(channel.user)
+    lines = phone_notifications.news_lines(news, sent=phone_notifications.news_sent(channel.user, news))
+    assert re.search(r'"Okay\." \(you sent "Okay\." here \d+ s ago\)$', lines[-1]), lines[-1]
+    assert "on my way" not in lines[-1] and "older one" not in lines[-1]
+    assert any('(you sent "Okay." here' in line for line in phone_notifications.section(channel.user, with_text=True))
+    # Another conversation, and a send long ago: nothing beside them.
+    assert phone_people.recent_sends(channel.user, ["c_other"], at=time.time()) == {}
+    assert phone_people.recent_sends(channel.user, ["c_rina"], at=time.time() + 3600) == {}
 
 
 def test_a_reply_sent_through_the_phone_is_recorded_and_settled(channel, monkeypatch):

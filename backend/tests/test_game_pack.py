@@ -127,6 +127,7 @@ def test_leaving_the_world_disconnects_and_nothing_resumes_by_itself(db, alice, 
     env = game_pack.ensure_environment(db, alice.id)
     session = _session(db, alice.id, env.id)
     assert (env.status, session.state, session.reason_code) == ("offline", "disconnected", "pack_offline")
+    assert desktop_game.describe(db, alice.id, for_reply=True) is None
     pack.spawned = True
     game_pack.sync(db, pack)
     db.refresh(session)
@@ -189,6 +190,8 @@ def test_one_missed_health_check_does_not_disconnect(db, alice, pack):
 
 
 def test_summary_describes_her_own_player_and_what_her_hands_do(db, alice, pack):
+    assert desktop_game.describe(db, alice.id) is None
+    game_pack.sync(db, pack)
     idle = desktop_game.describe(db, alice.id)
     assert idle.idle and "Minecraft as your own player [minecraft_pack]" in idle.summary
     assert "your hands" not in idle.summary  # how to play comes with a session, not on every turn
@@ -280,6 +283,8 @@ def test_look_reads_the_game_instead_of_a_picture(db, alice, pack):
 def test_with_the_pack_minecraft_on_the_vm_is_retired(db, alice, pack):
     vm = _paired_env(db, alice)  # allows minecraft_java
     pack_env = game_pack.ensure_environment(db, alice.id)
+    assert desktop_game.describe(db, alice.id) is None
+    game_pack.sync(db, pack)
     summary = desktop_game.describe(db, alice.id).summary
     # A VM with no game left to play there is only her desktop (general desktop control): not in the game summary.
     assert "Legion VM" not in summary and not desktop_game.describe(db, alice.id).vm

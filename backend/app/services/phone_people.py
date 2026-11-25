@@ -55,6 +55,7 @@ ECHO_WINDOW = timedelta(minutes=10)
 CLOCK_SKEW = timedelta(seconds=60)  # the phone's clock against ours, when an echo is matched
 NEW_SECONDS = 600  # a person first seen this close to a notification is "new" in it
 SHARED_SHOWN = 3
+SENT_CHARS = 200  # her own sent words, as a line beside news shows them
 SENT_SHOWN = 3
 
 # Relationship labels (§5): fixed sets, plain language, labels not steps. Chosen by her mind from B2.
@@ -313,6 +314,39 @@ def echoed(user_id: uuid.UUID | str, events: Iterable[str]) -> set[str]:
     except SQLAlchemyError:
         log.warning("phone_people: echoes could not be read", exc_info=True)
         return set()
+
+
+def recent_sends(user_id: uuid.UUID | str, conversation_ids: Iterable[str | None], *, at: float,
+                 window: timedelta = ECHO_WINDOW) -> dict[str, str]:
+    """What she last sent into each of these conversations within ``window`` of ``at``, as a note for the line
+    that shows it ("you sent "Okay." here 50 s ago"): her own words, so a message of hers coming back is never read
+    as someone else's news. Sends still in flight or unconfirmed count (they may be what's showing); failed ones
+    don't. Nothing for a conversation with none, or when it can't be read (logged)."""
+    wanted = [c for c in dict.fromkeys(conversation_ids) if c]
+    if not wanted:
+        return {}
+    since = _utc(at) - window
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(
+                select(PhoneOutbound.conversation_id, PhoneOutbound.text, PhoneOutbound.created_at,
+                       PhoneOutbound.status)
+                .where(PhoneOutbound.user_id == uuid.UUID(str(user_id)),
+                       PhoneOutbound.conversation_id.in_(wanted),
+                       PhoneOutbound.status.in_(("sending", "sent", "unknown")),
+                       PhoneOutbound.created_at >= since)
+                .order_by(PhoneOutbound.created_at.desc())).all()
+    except SQLAlchemyError:
+        log.warning("phone_people: her recent sends could not be read", exc_info=True)
+        return {}
+    out: dict[str, str] = {}
+    for conversation_id, text, created_at, status in rows:
+        if conversation_id in out:
+            continue  # the latest only
+        ago = phone_state.span(max(0.0, at - created_at.timestamp()))
+        state = "" if status == "sent" else (" (still sending)" if status == "sending" else " (not confirmed)")
+        out[conversation_id] = f'you sent "{_clean(text, SENT_CHARS)}" here {ago} ago{state}'
+    return out
 
 
 # --------------------------------------------------------------------------- #

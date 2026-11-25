@@ -177,11 +177,11 @@ def _describe(fact: SemanticMemory, about: dict) -> dict:
 
 
 def _judge(pairs: list[dict]) -> UpkeepJudgement:
-    from app.services.long_term_memory import _client
+    from app.services.long_term_memory import _client, memory_reasoning
 
     settings = get_settings()
     response = _client().responses.parse(
-        model=settings.memory_model,
+        model=settings.memory_model, **memory_reasoning(),
         input=[{"role": "system", "content": _PROMPT},
                {"role": "user", "content": json.dumps({"pairs": pairs}, ensure_ascii=False)}],
         text_format=UpkeepJudgement)

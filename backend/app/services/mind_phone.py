@@ -374,7 +374,8 @@ class PhoneSource:
         previous = aligned(previous, current)
         fresh = [*(text for _, text in action_news), *news(current, previous, state),
                  *phone_notifications.news_lines(notes, people=phone_notifications.news_people(
-                     scope.user_id, notes, at=at) if notes else None)]
+                     scope.user_id, notes, at=at) if notes else None,
+                     sent=phone_notifications.news_sent(scope.user_id, notes, at=at) if notes else None)]
         talk = mind_ticks.recent_talk(db, scope.user_id, datetime.fromtimestamp(at, timezone.utc)) if db else []
 
         # Someone else's words: a moment kept to their one conversation (``one_conversation``, ``poll``), with
@@ -433,6 +434,7 @@ class PhoneSource:
         """A moment with someone else's words: the time, that conversation's news, and only a count of what the
         user is waiting for (whatever she'd tell them about it goes to them privately, from a turn of their own)."""
         lines = phone_notifications.news_lines(notes, people=phone_notifications.news_people(
+            scope.user_id, notes, at=local.timestamp()), sent=phone_notifications.news_sent(
             scope.user_id, notes, at=local.timestamp()))
         text = [f"TIME\n- {local:%H:%M} on {local:%A %d %B}, {current['part_of_day']}"
                 + ("" if zone else " (UTC: their time zone isn't known)") + ".",

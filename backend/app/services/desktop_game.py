@@ -275,7 +275,11 @@ def describe(db: Session, user_id: uuid.UUID, *, for_reply: bool = False) -> Gam
         return None
     env = _usable_environment(db, user_id)
     pack = game_pack.is_pack(env)
-    vm = any(not game_pack.is_pack(e) for e in envs)
+    # A saved session may outlive the player. Pack status comes from the worker's spawn health check.
+    if pack and env.status != "online":
+        db.commit()
+        return None
+    vm = not pack
     now = time.time()
     session = _recent_session(db, user_id, env, now)
     if session is None:
@@ -324,6 +328,8 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
     retired = set(game_pack.REPLACED_BY) if has_pack else set()
     for each in envs:
         if game_pack.is_pack(each):
+            if each.status != "online":
+                continue
             lines.append(_pack_line(each))
             who = _who_is_who(db, user_id, each)
             if who:
@@ -337,7 +343,7 @@ def _environment_lines(db: Session, user_id: uuid.UUID,
             line, vm_games = _vm_line(each, retired=retired)
             lines.append(line)
             games.extend(vm_games)
-    if has_pack:
+    if any(game_pack.is_pack(e) and e.status == "online" for e in envs):
         lines.extend(_learned_lines(db, user_id, game_experience.game_for_profile(game_pack.PACK_PROFILE_ID)))
     return lines, games
 
@@ -349,9 +355,10 @@ def _idle_lines(envs: list[DesktopEnvironment]) -> list[str]:
     lines = []
     for each in envs:
         if game_pack.is_pack(each):
-            where = "the pack is running" if each.status == "online" else "the pack isn't running right now"
+            if each.status != "online":
+                continue
             lines.append(f"Minecraft as your own player [{game_pack.PACK_PROFILE_ID}], next to the user's own "
-                         f"player: {where}.")
+                         "player: the pack is running.")
         else:
             lines.append(_vm_line(each, retired=retired)[0])
     return lines
