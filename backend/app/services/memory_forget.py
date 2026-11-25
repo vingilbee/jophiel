@@ -333,7 +333,7 @@ def _cuts(items: list[dict], judgement: ForgetJudgement) -> dict[str, dict]:
 
 
 def _judge(request: dict, message: str, shown: list[dict]) -> ForgetJudgement:
-    from app.services.long_term_memory import _client
+    from app.services.long_term_memory import _client, memory_reasoning
 
     settings = get_settings()
     payload = {"user_message": message, "asked_to_forget": request.get("about") or request.get("user_words")}
@@ -342,7 +342,7 @@ def _judge(request: dict, message: str, shown: list[dict]) -> ForgetJudgement:
     else:
         payload["memories"] = [{"id": c["ref"], "kind": c["kind"], "text": c["text"]} for c in shown]
     response = _client().responses.parse(
-        model=settings.memory_correction_model or settings.memory_model,
+        model=settings.memory_correction_model or settings.memory_model, **memory_reasoning(),
         input=[{"role": "system", "content": _PROMPT},
                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         text_format=ForgetJudgement)

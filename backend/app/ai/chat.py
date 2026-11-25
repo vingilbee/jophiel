@@ -265,6 +265,9 @@ async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue |
         if not context.model_override and settings.game_mind_model:
             model = settings.game_mind_model
             reasoning = settings.game_mind_reasoning_effort
+    # A wake (not a reply to the user's message): nobody is waiting, so she thinks before she decides and speaks.
+    if context.wake is not None and reasoning is None and not context.model_override:
+        reasoning = settings.wake_mind_reasoning_effort
     if context.desktop is not None and context.desktop_usable and context.game_event is None and context.nudge is None:
         direct_tools.extend(build_desktop_control_tools(context.user_id, turn_id=context.turn_id,
                                                         conversation_id=context.conversation_id,
