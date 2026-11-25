@@ -29,8 +29,9 @@ or intention of hers due now (`act`) wakes her mind with her tools even with not
 change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
 report (check wakes, bounded); `services/follow_through.py`.
 Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): her hands on the phone's screen, reply turns
-only (`ai/tools/phone_control.py`: read_phone_screen names the task, bound to the user's message once; act by number,
-by point as a fallback; 80 actions a turn; `taken_over` stops her for the turn; one chat line per turn). Screens travel
+only (`ai/tools/phone_control.py`: read_phone_screen first; act by number, by point as a fallback, several fingers with
+phone_pinch / phone_gesture; 80 actions a turn; `taken_over` stops her for the turn, `taken_over_after` when the action
+itself happened first; one chat line per turn). Screens travel
 sealed to the waiting worker and are never stored (`services/phone_control.py`: turn supersession, render, the
 short-term memory of 10 text-only screens for 30 min in process memory, wiped when the phone reports `control_on`
 false). No migration.
@@ -469,8 +470,8 @@ Each line is the rule you need while coding. The detail lives in the module docs
   content rule in code.
 - **Phone privacy (2026-11-23):** someone who can put words on the user's
   screen never gains control of their phone. A grant stands only on the user's own recorded message (verified, and
-  its source checked on every read); on owner turns every phone read or action is bound to their message by a check
-  model before the first call; a wake that can write to someone (and the phone moment before it) holds one
+  its source checked on every read); on owner turns there is no operation check (removed 2026-11-24, the user's
+  decision: her judgement of what they asked; messages to other people still pass the outgoing check); a wake that can write to someone (and the phone moment before it) holds one
   conversation and nothing of the user's; a request for space stops her follow-ups; tools' model runs never stream
   (`agent.invoke_private`, `chat._her_words`). Checks log to `var/phone_checks.jsonl`.
 - **Her own replies on the phone (B3, 2026-11-22):** no backend flag; the phone's Messages switch must be reported

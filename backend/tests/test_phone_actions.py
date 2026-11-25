@@ -62,20 +62,6 @@ def channel(database, monkeypatch):
             auth.delete_session(value)
 
 
-class Allow:
-    """An owner turn's authority that grants every operation (services/phone_authority.py), recording each."""
-
-    def __init__(self, request: str = "please do it", allowed: bool = True):
-        self.request, self.allowed, self.asked = request, allowed, []
-
-    def refusal(self, operation: str) -> str | None:
-        self.asked.append(operation)
-        return None if self.allowed else "Not done: the user's message doesn't ask for this. Nothing was read or done."
-
-    def request_text(self) -> str:
-        return self.request
-
-
 def headers(token):
     return {"Authorization": f"Bearer {token}"}
 
@@ -105,7 +91,7 @@ def test_socket_targets_live_phone_and_unblocks_navigation_tool(channel, monkeyp
         google_maps.Place("Museum", "10 High Street", (49.15, -123.75), "museum-id")
     ])
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
-    navigate, *_ = tools.build_phone_tools(channel.user, channel.conversation, authority=Allow())
+    navigate, *_ = tools.build_phone_tools(channel.user, channel.conversation)
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         assert wait_for_phone(channel.user)[0] == auth.session_key_hash(channel.token)
@@ -309,7 +295,7 @@ def test_position_reply_is_encrypted_and_only_activity_is_persisted(channel, mon
     point = (21.127331, 34.872212)
     room = channel.conversation
     monkeypatch.setattr(google_maps, "address_at", lambda coords: "Main Street" if coords == point else None)
-    _, _, _, where, _ = tools.build_phone_tools(channel.user, room, authority=Allow())
+    _, _, _, where, _ = tools.build_phone_tools(channel.user, room)
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
@@ -359,7 +345,7 @@ def test_settings_search_uses_basic_fields(channel, monkeypatch):
 
 
 def test_saved_destination_is_resolved_on_the_phone_that_opens_maps(channel):
-    navigate, *_ = tools.build_phone_tools(channel.user, channel.conversation, authority=Allow())
+    navigate, *_ = tools.build_phone_tools(channel.user, channel.conversation)
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
@@ -431,7 +417,7 @@ def test_route_and_nearby_return_only_human_readable_location_data(monkeypatch):
     monkeypatch.setattr(phone_actions, "act", act)
     monkeypatch.setattr(phone_actions, "record_position_use", lambda *_: None)
     monkeypatch.setattr(google_maps.httpx, "post", post)
-    _, route, nearby, _, _ = tools.build_phone_tools(uuid.uuid4(), uuid.uuid4(), authority=Allow())
+    _, route, nearby, _, _ = tools.build_phone_tools(uuid.uuid4(), uuid.uuid4())
     estimate = asyncio.run(route.ainvoke({"destination": "Office", "mode": "two_wheeler"}))
     assert estimate == "Two-wheeler routing is unavailable here. Using driving instead. About 25 min by car, 8.2 km with live traffic."
     places = json.loads(asyncio.run(nearby.ainvoke({"query": "pharmacy", "nearby": True})))
@@ -472,9 +458,9 @@ def test_place_ids_resolve_in_a_fresh_turn(monkeypatch):
     monkeypatch.setattr(google_maps.httpx, "get", get)
     monkeypatch.setattr(phone_actions, "act", act)
     user, room = uuid.uuid4(), uuid.uuid4()
-    _, _, search, _, _ = tools.build_phone_tools(user, room, authority=Allow())
+    _, _, search, _, _ = tools.build_phone_tools(user, room)
     [result] = json.loads(asyncio.run(search.ainvoke({"query": "Museum"})))
-    navigate, route, *_ = tools.build_phone_tools(user, room, authority=Allow())
+    navigate, route, *_ = tools.build_phone_tools(user, room)
     destination = {"destination_place_id": result["place_id"]}
     assert "250 m" in asyncio.run(route.ainvoke({**destination, "origin_place_id": "station-id"}))
     assert asyncio.run(navigate.ainvoke({"action": "navigate_to", **destination})) == "Opened Maps → Museum"

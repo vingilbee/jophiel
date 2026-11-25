@@ -23,7 +23,7 @@ from app.schemas.phone import PhoneNotificationsReport
 from app.services import autonomous_speech, coordinator, fcm, mind_phone, mind_turn, phone_actions
 from app.services import phone_notifications, phone_state
 from db_support import database  # noqa: F401
-from test_phone_actions import Allow, channel, headers, receive, result_url, wait_for_phone  # noqa: F401
+from test_phone_actions import channel, headers, receive, result_url, wait_for_phone  # noqa: F401
 
 RINA = {
     "key": "n_rina", "revision": 1, "app": "WhatsApp", "package": "com.whatsapp", "title": "Rina",
@@ -346,7 +346,7 @@ def test_new_actions_round_trip_with_their_lines(channel, monkeypatch):
     checked = []
     monkeypatch.setattr(phone_reply_check, "_judge", lambda system, user: checked.append(user) or {"send": True})
     post(channel, {"posted": [RINA]})
-    action, *_ = tools.build_phone_tools(channel.user, channel.conversation, authority=Allow("tell Rina I'm on my way"))
+    action, *_ = tools.build_phone_tools(channel.user, channel.conversation, request="tell Rina I'm on my way")
     handle = phone_notifications.ref("n_rina")
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
@@ -382,7 +382,7 @@ def test_new_actions_round_trip_with_their_lines(channel, monkeypatch):
 def test_reply_and_dismiss_need_a_live_notification_and_replies_the_messages_switch(channel, monkeypatch):
     sent = []
     monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: sent.append(args) or pytest.fail("sent"))
-    action, *_ = tools.build_phone_tools(channel.user, channel.conversation, authority=Allow())
+    action, *_ = tools.build_phone_tools(channel.user, channel.conversation)
     handle = phone_notifications.ref("n_rina")
     reply = {"action": "reply_notification", "notification": handle, "text": "hi"}
     assert "There's no notification" in asyncio.run(action.ainvoke(reply))

@@ -314,11 +314,10 @@ def test_a_reply_sent_through_the_phone_is_recorded_and_settled(channel, monkeyp
 
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
     from app.services import phone_reply_check
-    from test_phone_actions import Allow
 
     monkeypatch.setattr(phone_reply_check, "_judge", lambda system, user: {"send": True})
     report(channel, RINA_DM)
-    action, *_ = tools.build_phone_tools(channel.user, channel.conversation, authority=Allow("tell Rina hi"))
+    action, *_ = tools.build_phone_tools(channel.user, channel.conversation, request="tell Rina hi")
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)

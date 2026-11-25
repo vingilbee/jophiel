@@ -13,7 +13,7 @@ from app.ai.tools import phone as tools
 from app.schemas.phone import PhoneNotificationsReport
 from app.services import phone_notifications, phone_state
 from db_support import database  # noqa: F401
-from test_phone_actions import Allow, channel  # noqa: F401
+from test_phone_actions import channel  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -50,9 +50,8 @@ def thirty_one(channel) -> float:
     return start
 
 
-def look(channel, app: str, authority=None) -> str:
-    built = tools.build_phone_tools(channel.user, channel.conversation, message_id=None,
-                                    authority=authority or Allow("Any WhatsApp notifications?"))
+def look(channel, app: str) -> str:
+    built = tools.build_phone_tools(channel.user, channel.conversation, message_id=None)
     check = next(t for t in built if t.name == "check_notifications")
     return asyncio.run(check.ainvoke({"app": app}))
 
@@ -130,14 +129,9 @@ def test_sharing_off_or_an_unreadable_store_means_she_cannot_check(channel, monk
     assert down.startswith("Can't check: their phone's notifications couldn't be read") and "none from" not in down
 
 
-def test_the_lookup_is_bound_to_their_message_and_only_reads(channel):
+def test_the_lookup_only_reads(channel):
     thirty_one(channel)
-    asked = Allow("Any WhatsApp notifications?")
-    look(channel, "WhatsApp", authority=asked)
-    assert asked.asked == ['read the notifications from "WhatsApp" still on their phone (read only: nothing is '
-                           "replied to, dismissed or sent)"]
-    refused = look(channel, "WhatsApp", authority=Allow(allowed=False))
-    assert refused.startswith("Not done") and "are you coming tonight?" not in refused
+    look(channel, "WhatsApp")
     assert nothing_sent(channel)
 
 

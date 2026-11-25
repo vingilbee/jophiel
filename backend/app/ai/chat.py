@@ -311,8 +311,7 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
         # turn still acting there is answered taken_over. Its screenshots reach her through the picture hook.
         if phone_reply and context.phone is not None and context.turn_id is not None:
             control_tools, context.phone_control = build_phone_control_tools(
-                context.user_id, context.conversation_id, turn_id=context.turn_id,
-                message_id=context.source_message_id)
+                context.user_id, context.conversation_id, turn_id=context.turn_id)
             direct_tools.extend(control_tools)
             hook = hook or screenshot_hook
     # Her reading of what people on the phone said (affinity B2: shadow records, requests for space): only on her

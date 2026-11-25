@@ -21,7 +21,7 @@ from app.core.config import get_settings
 from app.schemas.phone import PhoneActionResult
 from app.services import fcm, phone_actions, phone_control, phone_state
 from db_support import database  # noqa: F401
-from test_phone_actions import Allow, channel, headers, receive, result_url, wait_for_phone  # noqa: F401
+from test_phone_actions import channel, headers, receive, result_url, wait_for_phone  # noqa: F401
 
 JPEG = base64.b64encode(b"\xff\xd8 a picture of Settings \xff\xd9").decode()
 
@@ -52,9 +52,7 @@ def run_tool(executor, tool, args):
 def test_a_fake_phone_round_trips_screens_and_the_turn_leaves_one_line(channel, monkeypatch):
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
     turn = uuid.uuid4()
-    allow = Allow("turn on my hotspot")
-    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=turn,
-                                                             authority=allow)
+    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=turn)
     named = tools_by_name(tools)
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
@@ -64,11 +62,10 @@ def test_a_fake_phone_round_trips_screens_and_the_turn_leaves_one_line(channel, 
             early = asyncio.run(named["phone_tap"].ainvoke({"n": 1}))
             assert early.startswith("Not done: start with read_phone_screen")
 
-            pending = run_tool(executor, named["read_phone_screen"], {"task": "turn on the hotspot", "wait_ms": 9000})
+            pending = run_tool(executor, named["read_phone_screen"], {"wait_ms": 9000})
             frame = receive(ws, "phone_action")
             assert frame["action"] == "read_screen"
             assert frame["args"] == {"wait_ms": 5000, "turn": str(turn)}
-            assert "hotspot" in allow.asked[0]
             with channel.bus.pubsub() as listener:
                 listener.subscribe(phone_actions._reply_channel(uuid.UUID(frame["action_id"])))
                 assert listener.get_message(timeout=2)["type"] == "subscribe"
@@ -129,14 +126,13 @@ def test_results_must_fit_control_actions(channel):
 def test_new_words_end_the_old_turns_control(channel, monkeypatch):
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
     old, new = uuid.uuid4(), uuid.uuid4()
-    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=old,
-                                                             authority=Allow())
+    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=old)
     named = tools_by_name(tools)
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
         with ThreadPoolExecutor() as executor:
-            pending = run_tool(executor, named["read_phone_screen"], {"task": "find the song"})
+            pending = run_tool(executor, named["read_phone_screen"], {})
             frame = receive(ws, "phone_action")
             ws.send_json({"type": "phone_action_result", "action_id": frame["action_id"], "status": "done",
                           "data": {"screen": screen()}})
@@ -145,8 +141,7 @@ def test_new_words_end_the_old_turns_control(channel, monkeypatch):
             pending = run_tool(executor, named["phone_tap"], {"n": 1})
             receive(ws, "phone_action")
             started = time.monotonic()
-            control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=new,
-                                                    authority=Allow())
+            control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=new)
             message = pending.result(timeout=10)
             assert time.monotonic() - started < 3  # it stopped waiting, it didn't time out
             assert message.content.startswith("Not done: the user took over their phone")
@@ -169,10 +164,9 @@ def test_the_users_touch_stops_her_for_the_turn(monkeypatch):
     monkeypatch.setattr(phone_actions, "act", act)
     monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     monkeypatch.setattr(phone_control, "remember", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4(),
-                                                             authority=Allow())
+    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
     named = tools_by_name(tools)
-    first = asyncio.run(named["read_phone_screen"].ainvoke({"task": "x"}))
+    first = asyncio.run(named["read_phone_screen"].ainvoke({}))
     assert "no picture: this app forbids screenshots" in first
     assert asyncio.run(named["phone_tap"].ainvoke({"n": 2})).startswith("Not done: the user took over")
     assert asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"})).startswith("Not done: the user took")
@@ -186,10 +180,9 @@ def test_eighty_actions_a_turn_then_she_says_how_far_she_got(monkeypatch):
         "done", uuid.uuid4(), "Done", screen=screen(image=False)))
     monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     monkeypatch.setattr(phone_control, "remember", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4(),
-                                                             authority=Allow())
+    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
     named = tools_by_name(tools)
-    asyncio.run(named["read_phone_screen"].ainvoke({"task": "x"}))
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
     for _ in range(control_tools.MAX_ACTIONS_PER_TURN - 1):
         asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
     assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
@@ -198,31 +191,71 @@ def test_eighty_actions_a_turn_then_she_says_how_far_she_got(monkeypatch):
     assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
 
 
-def test_nothing_is_read_without_the_users_own_request(monkeypatch):
-    monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: pytest.fail("Nothing may reach the phone"))
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    refuse = Allow(allowed=False)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4(),
-                                                             authority=refuse)
-    named = tools_by_name(tools)
-    assert asyncio.run(named["read_phone_screen"].ainvoke({"task": "reply to Rina"})).startswith(
-        "Not done: the user's message doesn't ask for this")
-    assert asyncio.run(named["phone_press"].ainvoke({"key": "home"})).startswith("Not done: start with read_phone")
-    control.finish()  # nothing was sent: no line, no end_control
-    assert control.steps == 0
-
-
 def test_phone_reasons_are_said_plainly(monkeypatch):
     reasons = iter(["own_app", "stale_screen", "locked"])
     monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: phone_actions.Outcome(
         "refused" if args[2] != "tap" else "failed", uuid.uuid4(), "x", reason=next(reasons)))
     monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    tools, _ = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4(),
-                                                       authority=Allow())
+    tools, _ = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
     named = tools_by_name(tools)
-    assert "you can read it but not act in it" in asyncio.run(named["read_phone_screen"].ainvoke({"task": "x"}))
+    assert "you can read it but not act in it" in asyncio.run(named["read_phone_screen"].ainvoke({}))
     assert "Call read_phone_screen and act on the new numbers" in asyncio.run(named["phone_tap"].ainvoke({"n": 3}))
     assert "Ask them to unlock it" in asyncio.run(named["phone_press"].ainvoke({"key": "back"}))
+
+
+def test_an_action_that_happened_before_the_takeover_is_said_to_have_happened(monkeypatch):
+    sent = []
+
+    def act(user_id, conversation_id, action, args, **kwargs):
+        sent.append(action)
+        if action == "read_screen":
+            return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=screen("s1"))
+        return phone_actions.Outcome("refused", uuid.uuid4(), "Not done (taken_over_after)", reason="taken_over_after")
+
+    monkeypatch.setattr(phone_actions, "act", act)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
+    named = tools_by_name(tools)
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    said = asyncio.run(named["phone_tap"].ainvoke({"n": 2}))
+    assert said.startswith("Done: that action did happen on the phone. Then the user took over")
+    assert control.taken_over
+    # Nothing more of this turn reaches the phone.
+    assert asyncio.run(named["phone_tap"].ainvoke({"n": 3})).startswith("Not done: the user took over")
+    assert sent == ["read_screen", "tap"]
+
+
+def test_pinch_and_gesture_send_several_fingers_on_the_picture(monkeypatch):
+    sent = []
+
+    def act(user_id, conversation_id, action, args, **kwargs):
+        sent.append((action, args))
+        shown = {**screen("s1"), "image": {"jpeg_base64": "AAAA", "width": 720, "height": 1600}}
+        return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=shown)
+
+    monkeypatch.setattr(phone_actions, "act", act)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    tools, _ = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
+    named = tools_by_name(tools)
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    asyncio.run(named["phone_pinch"].ainvoke({"x": 360, "y": 800, "zoom": "out"}))
+    action, args = sent[-1]
+    assert action == "gesture" and args["screen"] == "s1" and len(args["fingers"]) == 2
+    first, second = args["fingers"]
+    # Zooming out brings the fingers together, each staying on the picture.
+    assert abs(first[2] - second[2]) < abs(first[0] - second[0])
+    assert all(0 <= v[0] < 720 and 0 <= v[1] < 1600 for f in args["fingers"] for v in (f[:2], f[2:]))
+    asyncio.run(named["phone_pinch"].ainvoke({"x": 20, "y": 800, "zoom": "in", "spread": 400}))
+    assert all(v >= 0 for f in sent[-1][1]["fingers"] for v in f)
+
+    asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[100, 900, 100, 500], [300, 900, 300, 500]],
+                                                "ms": 5000}))
+    assert sent[-1] == ("gesture", {"screen": "s1", "fingers": [[100, 900, 100, 500], [300, 900, 300, 500]],
+                                    "ms": 2000, "turn": sent[-1][1]["turn"]})
+    count = len(sent)
+    assert asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[1, 2, 3]]})).startswith("Not done: give 1 to 5")
+    assert asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[1, 1, 1, 1]] * 6})).startswith("Not done")
+    assert len(sent) == count
 
 
 @pytest.fixture
@@ -266,7 +299,7 @@ def test_remembered_screens_are_recall_only(monkeypatch):
     monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: None)
     monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     phone_control.remember(user, screen("s4", "Spotify"), "Phone screen s4: Spotify in front.\n  Song A")
-    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=uuid.uuid4(), authority=Allow())
+    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=uuid.uuid4())
     named = tools_by_name(tools)
     listing = asyncio.run(named["recent_phone_screens"].ainvoke({}))
     assert "- s4: Spotify, 1 min ago" in listing and "not actionable" in listing
