@@ -420,7 +420,8 @@ def test_an_older_controller_gets_a_welcome_it_can_parse(relay, database, alice,
             return json.loads(await ws.recv())
 
     assert "features" not in asyncio.run(welcome_for("0.11.0"))  # 0.11 forbids unknown fields
-    assert asyncio.run(welcome_for(CONTROLLER_VERSION))["features"] == ["status"]
+    assert asyncio.run(welcome_for("0.13.0"))["features"] == ["status"]  # no background commands before 0.14
+    assert asyncio.run(welcome_for(CONTROLLER_VERSION))["features"] == ["status", "command_jobs"]
 
 
 def test_connections_that_never_say_who_they_are_are_limited_per_address(relay):
