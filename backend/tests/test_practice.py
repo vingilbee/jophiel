@@ -129,6 +129,39 @@ def test_check_keeps_what_the_stretch_carries_and_says_why_the_rest_went():
     assert any("the user's note" in d for d in dropped) and any("isn't in this stretch" in d for d in dropped)
 
 
+def test_a_new_note_about_the_place_starts_as_something_to_try():
+    review = P.Review(summary="s", changes=[
+        P.NoteChange(action="create", place="Clash of Clans", status="known", text="The purple tower hits hardest."),
+        P.NoteChange(action="create", place="Clash of Clans", tool="phone_tap_on", status="known",
+                     text="By look works."),
+        P.NoteChange(action="rewrite", note="n1", place="Clash of Clans", status="known", text="Seen again: it does."),
+    ])
+    kept, _ = P.check(review, _stretch(), tools={"phone_tap_on"})
+    assert [c.status for c in kept] == ["to_try", "known", "known"]  # a later stretch agreeing makes it known
+
+
+def test_a_place_holds_at_most_its_share_of_her_notes():
+    full = [P.Note(id=f"n{i}", place="Clash of Clans", tool=None, status="known", text=f"note {i}")
+            for i in range(P.NOTES_PER_PLACE)]
+    new = P.NoteChange(action="create", place="Clash of Clans", tool="phone_tap_on", text="One more.")
+    kept, dropped = P.check(P.Review(summary="s", changes=[new]), _stretch(notes=full), tools={"phone_tap_on"})
+    assert not kept and "rewrite or merge" in dropped[0]
+    merged = P.Review(summary="s", changes=[P.NoteChange(action="remove", note="n0", place="Clash of Clans"), new])
+    kept, _ = P.check(merged, _stretch(notes=full), tools={"phone_tap_on"})
+    assert [c.action for c in kept] == ["remove", "create"]  # a remove in the same review makes room
+
+
+def test_step_numbers_stay_out_of_the_note():
+    review = P.Review(summary="s", changes=[
+        P.NoteChange(action="create", place="Clash of Clans", tool="phone_tap_on",
+                     text="Taps at x=270 were refused (steps 32, 77). Tap the far edge (step 4) instead.",
+                     evidence="steps 32, 77"),
+    ])
+    kept, _ = P.check(review, _stretch(), tools={"phone_tap_on"})
+    assert kept[0].text == "Taps at x=270 were refused. Tap the far edge instead."
+    assert kept[0].evidence == "steps 32, 77"
+
+
 def test_the_stretch_reads_as_steps_with_her_words_and_her_notes():
     text = P.render_stretch(_stretch(pictures=["where step 1 aimed"]))
     assert 'you said "the Grand Warden"' in text

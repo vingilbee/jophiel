@@ -45,7 +45,7 @@ MARK = (230, 30, 30)
 TRACE_PATH = "var/practice_reviews.jsonl"
 TALK_MESSAGES = 60  # from the first message her hands answered
 TALK_FALLBACK = 12
-USER_NOTE_CHARS = 800  # the user's own notes (and hers on their word)
+USER_NOTE_CHARS = 600  # the user's own notes (and hers on their word)
 _DUE = "practice:due"
 KINDS = ("meta", "convs", "asked", "steps", "pics", "shown")
 
@@ -234,15 +234,34 @@ def list_notes(db: Session, user_id: uuid.UUID, *, surface: str | None = None) -
     return list(db.scalars(query.order_by(PracticeNote.surface, PracticeNote.place, PracticeNote.updated_at.desc())))
 
 
+def user_notes(db: Session, user_id: uuid.UUID, place: str, *, surface: str = "phone") -> list[PracticeNote]:
+    """The user's own notes for a place, newest first."""
+    return [r for r in _rows(db, user_id, surface, [" ".join((place or "").split())[: P.PLACE_CHARS]])
+            if r.source == "user"]
+
+
 def keep_user_note(db: Session, user_id: uuid.UUID, *, place: str, text: str, tool: str | None = None,
-                   surface: str = "phone") -> PracticeNote:
-    """The user's own note for a place (their words, or hers on their word). A review never changes it."""
+                   surface: str = "phone", replaces: list[str] | None = None) -> PracticeNote:
+    """The user's own note for a place (their words, or hers on their word). A review never changes it.
+    ``replaces``: ids of the user's notes for this place that this one takes the place of (they're removed in the
+    same transaction). At most ``P.USER_NOTES_PER_PLACE`` of theirs per place: past it, one has to be replaced."""
     text = " ".join((text or "").split())
     place = " ".join((place or "").split())[: P.PLACE_CHARS]
     if not text or not place:
         raise ValueError("a note needs a place and text")
     if len(text) > USER_NOTE_CHARS:
         raise ValueError(f"a note is at most {USER_NOTE_CHARS} characters")
+    theirs = {str(r.id): r for r in user_notes(db, user_id, place, surface=surface)}
+    gone = []
+    for note_id in replaces or []:
+        row = theirs.get(str(note_id).strip())
+        if row is None:
+            raise ValueError(f"{note_id} isn't one of the user's notes for {place}")
+        gone.append(row)
+    if len(theirs) - len(gone) >= P.USER_NOTES_PER_PLACE:
+        raise ValueError(f"{place} already has {P.USER_NOTES_PER_PLACE} of the user's notes: replace one")
+    for row in gone:
+        db.delete(row)
     row = PracticeNote(user_id=user_id, surface=surface, place=place, tool=tool, status="known", source="user",
                        text=text)
     db.add(row)
@@ -435,7 +454,8 @@ def review(user_id: uuid.UUID, surface: str, taken: dict, *, judge=_judge) -> di
             changed.append({"action": c.action, "note": c.note, "place": c.place, "tool": c.tool,
                             "status": c.status, "text": c.text, "evidence": c.evidence})
         db.commit()
-    trace.update(outcome="reviewed", summary=result.summary, changes=changed, dropped=dropped)
+    trace.update(outcome="reviewed", summary=result.summary, user_notes=result.user_notes,
+                 tallies=[t.model_dump() for t in result.tallies], changes=changed, dropped=dropped)
     return trace
 
 

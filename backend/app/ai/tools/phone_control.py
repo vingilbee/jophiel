@@ -536,21 +536,31 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
                                            "label": f"Zoom of phone screen {control.latest}"}}
 
     @tool
-    async def keep_phone_note(app: str, note: str) -> str:
+    async def keep_phone_note(app: str, note: str, replaces: list[str] | None = None) -> str:
         """Keep a note the user gave you about using an app or game on their phone ("in Clash of Clans, drop the
         Warden last"), in their words: you'll read it with the screen whenever that app is in front, beside the
         notes you keep from your own practice there (those are kept for you after you use the phone). app: as the
-        screen names it. One concrete thing per note."""
+        screen names it. One concrete thing per note; about the app or game, never about the conversation.
+        replaces: when the user already has notes for this app, the ids of the ones this note replaces (a note
+        that changes or repeats one of theirs replaces it), or [] when it's a separate thing. Leave it out the
+        first time: if they have notes there, you're shown them with their ids to decide."""
         def keep() -> str:
             from app.db.session import SessionLocal
             with SessionLocal() as db:
+                theirs = practice.user_notes(db, user_id, app)
+                if theirs and replaces is None:
+                    listed = "\n".join(f"- {r.id}: {r.text}" for r in theirs)
+                    return (f"Not kept yet: the user already has {len(theirs)} note(s) for {app}:\n{listed}\n"
+                            "Call keep_phone_note again with replaces: the ids of the ones this note replaces "
+                            "(it changes or repeats them), or [] if it's a separate thing.")
                 try:
-                    practice.keep_user_note(db, user_id, place=app, text=note)
+                    practice.keep_user_note(db, user_id, place=app, text=note, replaces=replaces)
                 except ValueError as exc:
                     return f"Not kept: {exc}."
                 db.commit()
             control.noted.pop(" ".join(app.split())[:80], None)
-            return f"Kept: you'll read it whenever {app} is in front."
+            gone = f" (replacing {len(replaces)})" if replaces else ""
+            return f"Kept{gone}: you'll read it whenever {app} is in front."
         return await asyncio.to_thread(keep)
 
     tools: list[BaseTool] = [read_phone_screen, phone_tap, phone_long_press, phone_type, phone_scroll,
