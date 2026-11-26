@@ -403,6 +403,14 @@ def test_a_screen_reads_as_numbered_items_and_text():
     assert phone_control.record_line(text) == lines[0]
 
 
+def test_a_gridded_picture_says_how_to_read_it():
+    shown = screen(items=[])
+    shown["image"] = {**shown["image"], "width": 1600, "height": 720, "grid": 100}
+    line = phone_control.render(shown, picture=True).split("\n")[1]
+    assert "the phone is in landscape" in line
+    assert "a coordinate grid drawn on: a line every 100 px" in line
+
+
 def test_phone_pictures_reach_her_like_desktop_screenshots():
     messages = [HumanMessage("turn on my hotspot")]
     for i in range(1, 5):

@@ -170,7 +170,11 @@ def render(screen: dict, *, picture: bool) -> str:
     if picture and image:
         width, height = image.get("width"), image.get("height")
         held = "landscape" if width and height and width > height else "portrait"
-        notes.append(f"the phone is in {held}; its picture ({width}x{height}, numbered boxes drawn on) follows; "
+        step = image.get("grid")
+        drawn = (f"numbered boxes and a coordinate grid drawn on: a line every {step} px, its value on every "
+                 "edge (x along the top and bottom, y down the sides); read a point's pixels off those lines"
+                 if step else "numbered boxes drawn on")
+        notes.append(f"the phone is in {held}; its picture ({width}x{height}, {drawn}) follows; "
                      "tap_point, tap_points and swipe take that picture's pixels")
     elif missing == "secure":
         notes.append("no picture: this app forbids screenshots (text only)")

@@ -288,7 +288,8 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
     @tool(response_format="content_and_artifact")
     async def phone_tap_point(x: int, y: int, screen: str | None = None) -> tuple[str, dict | None]:
         """Tap a point of the phone screen's picture (its pixels), for something with no number: a spot on a map, a
-        game, an unlabeled custom view. Use a number whenever there is one: a point can miss. screen: whose picture
+        game, an unlabeled custom view. Use a number whenever there is one: a point can miss. When the picture has a
+        coordinate grid, read the point off its labelled lines rather than guessing it. screen: whose picture
         (default the latest). Answers with the screen after it."""
         return await send("tap_point", {"screen": screen_from(screen), "x": x, "y": y})
 
