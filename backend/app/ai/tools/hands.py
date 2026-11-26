@@ -28,8 +28,17 @@ TOOL_NAMES = ("use_phone", "tell_hands", "pause_hands", "resume_hands", "stop_ha
               "recent_phone_screens")
 
 
+def _state(job: hands.HandsJob) -> str:
+    if job.status == "running":
+        return "they're working on it"
+    if job.status == "paused":
+        why = hands.PAUSED_BY.get(job.paused_by or "", "paused")
+        return f"the job is still paused ({why}): nothing happens on the phone until resume_hands"
+    return "the job has ended"
+
+
 def _said(job: hands.HandsJob, what: str) -> str:
-    return f"{what} (job [{str(job.id)[:8]}], instructions version {job.version})."
+    return f"{what}: {_state(job)} (job [{str(job.id)[:8]}], instructions version {job.version})."
 
 
 def build_hands_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, reply: bool,
@@ -48,17 +57,20 @@ def build_hands_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, reply: 
         third song of an album, a chat with no notification, a setting, a game, reading a long page). Your hands
         work in the background on their real screen, one step at a time, and wake you when they're done, stuck,
         need you, or find something worth telling; you don't wait for them. goal: what's to be achieved, in a
-        sentence. instructions: how, in your own words (where, in what order, what to avoid, when to ask you).
-        A job already open is ended first. Tell them you're on it; you can talk while your hands work."""
+        sentence. instructions: how, in your own words (where, in what order, what to avoid). Your hands do what
+        the instructions say, no more: a "wait", "pause" or "check with me first" in them stops them there, and the
+        user's asking is all the go-ahead they need. A job already open is ended first. You can talk while your
+        hands work."""
         job, error = await call(hands.start, user_id, conversation_id, goal=goal, instructions=instructions,
                                 message_id=message_id, zone=zone)
-        return error or _said(job, "Started: your hands are on it and will wake you")
+        return error or _said(job, "Started, your hands will wake you when there's something to know")
 
     @tool
     async def tell_hands(instructions: str, replace: bool = False) -> str:
         """Change or add to what your hands on their phone are doing: they read it before their next action.
         instructions: in your own words; added to what you said before, or instead of it with replace=true.
-        Answering a question of theirs? Put the answer here, then resume_hands."""
+        Answering a question of theirs: the answer goes here (they keep working while they wait). A job you paused, or
+        that the user stopped on the banner, stays paused (resume_hands)."""
         job, error = await call(hands.tell, user_id, instructions, replace=replace)
         return error or _said(job, "Told them")
 
@@ -79,7 +91,7 @@ def build_hands_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *, reply: 
         """Let your paused hands carry on (after their Stop on the banner, only because they asked you to).
         instructions: anything to add first."""
         job, error = await call(hands.resume, user_id, instructions or None)
-        return error or _said(job, "Resumed: your hands carry on and will wake you")
+        return error or _said(job, "Resumed")
 
     @tool(response_format="content_and_artifact")
     async def read_phone_screen(wait_ms: int = 0) -> tuple[str, dict | None]:

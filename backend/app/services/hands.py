@@ -208,13 +208,34 @@ def tell(user_id: uuid.UUID, instructions: str, *, replace: bool = False) -> Han
         job.version += 1
         job.revisions = [*(job.revisions or []), {"version": job.version, "at": _now().isoformat(),
                                                   "text": words, "replace": replace}][-20:]
-        if job.paused_by == "hands":
-            job.question = None  # her answer is in the instructions; resuming is still hers to choose
+        job.question = None  # what she tells them answers it
+        # A job paused on their question (before 2026-11-26 a question paused it): they carry on with it (seen live
+        # 2026-11-26: her answer sat unread on a paused job while she said she was pressing Attack). A pause of
+        # hers, the user's Stop or the phone's refusal stays paused: resuming those is resume_hands.
+        restarted = job.status == "paused" and job.paused_by == "hands"
+        if restarted:
+            _restart(job)
         db.commit()
         db.refresh(job)
         db.expunge(job)
+    if restarted:
+        _after_restart(user_id, job)
     _signal(user_id, "tell", job.id)
     return job
+
+
+def _restart(job: HandsJob) -> None:
+    """A paused job running again, on a new phone turn (one the banner's Stop ended stays ended on the phone),
+    claimable once that turn is taken (``_after_restart``). The caller commits."""
+    job.status, job.paused_by, job.pause_reason, job.question = "running", None, None, None
+    job.turn, job.resumed_at, job.claim_token, job.heartbeat_at = str(uuid.uuid4()), _now(), TAKING, _now()
+
+
+def _after_restart(user_id: uuid.UUID, job: HandsJob) -> None:
+    _take(user_id, job.turn)
+    release(job.id, TAKING)
+    job.claim_token = None
+    _poke()
 
 
 def pause(user_id: uuid.UUID, reason: str | None = None) -> HandsJob:
@@ -250,16 +271,12 @@ def resume(user_id: uuid.UUID, instructions: str | None = None) -> HandsJob:
                                      INSTRUCTIONS_CHARS)
             job.revisions = [*(job.revisions or []), {"version": job.version + 1, "at": _now().isoformat(),
                                                       "text": words, "replace": False}][-20:]
-        job.status, job.paused_by, job.pause_reason, job.question = "running", None, None, None
         job.version += 1
-        job.turn, job.resumed_at, job.claim_token, job.heartbeat_at = str(uuid.uuid4()), _now(), TAKING, _now()
+        _restart(job)
         db.commit()
         db.refresh(job)
         db.expunge(job)
-    _take(user_id, job.turn)
-    release(job.id, TAKING)
-    job.claim_token = None
-    _poke()
+    _after_restart(user_id, job)
     _signal(user_id, "resume", job.id)
     return job
 
@@ -386,8 +403,22 @@ def report(job_id: uuid.UUID, token: str, note: str) -> bool:
     return True
 
 
+def ask(job_id: uuid.UUID, token: str, question: str) -> bool:
+    """The hands ask her something; the job keeps running (the user's decision, 2026-11-26: no pause for a
+    question). Her answer is new instructions (``tell``), read before their next action."""
+    words = _words(question, NOTE_CHARS)
+    with SessionLocal() as db:
+        job = _held(db, job_id, token)
+        if job is None or not words:
+            return False
+        job.question = words
+        db.commit()
+        _wake(db, job, "need_her", words)
+    return True
+
+
 def finish(job_id: uuid.UUID, token: str, event: str, text: str | None = None) -> bool:
-    """The hands end their run: ``done`` (ended), ``need_her`` (paused: a question), ``user_stop`` (the banner's
+    """The hands end their run: ``done`` (ended), ``user_stop`` (the banner's
     Stop: paused), ``phone`` (a refusal of the phone: paused), ``limit`` / ``failed`` (ended). Wakes her once."""
     words = _words(text, NOTE_CHARS)
     ended = False
@@ -403,9 +434,9 @@ def finish(job_id: uuid.UUID, token: str, event: str, text: str | None = None) -
             ended = True
         else:
             job.status = "paused"
-            job.paused_by = {"need_her": "hands", "user_stop": "user", "phone": "phone"}[event]
+            job.paused_by = {"user_stop": "user", "phone": "phone"}[event]
             job.pause_reason = words or None
-            job.question = words if event == "need_her" else None
+            job.question = None
             job.claim_token = None
         db.commit()
         _wake(db, job, event, words)
@@ -512,8 +543,8 @@ def describe(db, job: HandsJob, *, now: datetime | None = None, steps: int = STE
         skipped = rows[0].index
         lines.append("Their last steps" + (f" (the first {skipped} not shown)" if skipped else "") + ":")
         lines += [f"  {_step_line(row)}" for row in rows]
-    if job.question and job.status == "paused":
-        lines.append(f"They need you: {job.question}")
+    if job.question and job.status != "ended":
+        lines.append(f"They asked you (still working): {job.question}")
     if job.report:
         lines.append(f"Their latest report ({_ago(job.report_at, now)}): {job.report}")
     return lines
@@ -567,8 +598,8 @@ def is_wake(inp: dict | None) -> bool:
 
 _WAKE_WORDS = {
     "done": "Your hands say they're done: {text}",
-    "need_her": "Your hands stopped and need you: {text}. The job is paused; tell_hands gives them what they "
-                "need, and resume_hands (on a turn of their words) lets them carry on.",
+    "need_her": "Your hands ask you: {text}. They keep working meanwhile; tell_hands with the answer reaches them "
+                "before their next action.",
     "report": "Your hands report, while they keep going: {text}",
     "user_stop": "They tapped Stop on the banner: the job is paused. Only their words can let your hands go on.",
     "phone": "The phone stopped your hands: {text}. The job is paused.",

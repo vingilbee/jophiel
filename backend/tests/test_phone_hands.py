@@ -125,10 +125,11 @@ def test_the_hands_events_wake_her_once_each_and_the_job_leaves_one_chat_line(ph
     hands.step(job.id, "t1", 1, "tapped [1]", None, 1)
     hands.step(job.id, "t1", 1, "tapped [1]", "Phone screen s2: Clash of Clans in front", 1)
     assert hands.report(job.id, "t1", "Two stars so far")
-    assert hands.finish(job.id, "t1", "need_her", "Which base, the left or the right one?")
+    # A question doesn't pause the job (the user's decision, 2026-11-26): it wakes her, and they keep going.
+    assert hands.ask(job.id, "t1", "Which base, the left or the right one?")
     with phone.db() as db:
         row = db.get(HandsJob, job.id)
-        assert (row.status, row.paused_by, row.question, row.actions) == ("paused", "hands",
+        assert (row.status, row.paused_by, row.question, row.actions) == ("running", None,
                                                                          "Which base, the left or the right one?", 2)
         assert row.apps == ["Clash of Clans"]
         found = wakes(db, phone.user)
@@ -136,17 +137,16 @@ def test_the_hands_events_wake_her_once_each_and_the_job_leaves_one_chat_line(ph
         assert found[0].input["hands"]["text"] == "Two stars so far"
         # Her moment: the job as it stands.
         text = "\n".join(hands.describe(db, row))
-    assert "Job [" in text and "Attack this base" in text and "paused: your hands need you" in text
+    assert "Job [" in text and "Attack this base" in text and "State: running" in text
     assert "2. tapped [1] → Phone screen s2: Clash of Clans in front" in text
-    assert "They need you: Which base" in text and "Two stars so far" in text
+    assert "They asked you (still working): Which base" in text and "Two stars so far" in text
     rendered = coordinator.render_wake({"work_id": str(found[1].id), "input": found[1].input, "reason": "due"})
-    assert "Your hands stopped and need you: Which base" in rendered and "stay_silent" in rendered
-    # Paused, nothing more of theirs counts; resumed on a new turn, they finish.
-    assert not hands.finish(job.id, "t1", "done", "late")
-    hands.tell(phone.user, "The right one")
-    hands.resume(phone.user)
-    hands.claim_next("t2")
-    assert hands.finish(job.id, "t2", "done", "Three stars on the right base")
+    assert "Your hands ask you: Which base" in rendered and "keep working" in rendered and "stay_silent" in rendered
+    # Her answer is a new version, read before their next action; the question is answered.
+    answered = hands.tell(phone.user, "The right one")
+    assert answered.status == "running" and answered.question is None
+    assert hands.check(job.id, "t1", 1).verdict == "moved"
+    assert hands.finish(job.id, "t1", "done", "Three stars on the right base")
     with phone.db() as db:
         assert db.get(HandsJob, job.id).outcome == "done"
         assert len(wakes(db, phone.user)) == 3
@@ -296,7 +296,7 @@ def test_her_read_while_the_hands_work_is_their_latest_look(phone):
     assert "Your hands' latest look" in said and "Loot 1200" in said
     assert phone.sent == []  # nothing taken from the job
     said = asyncio.run(named["use_phone"].ainvoke({"goal": "Collect the loot", "instructions": "then home"}))
-    assert said.startswith("Started: your hands are on it")
+    assert said.startswith("Started") and "they're working on it" in said
     assert asyncio.run(named["tell_hands"].ainvoke({"instructions": "Warden last"})).startswith("Told them")
     assert asyncio.run(named["stop_hands"].ainvoke({})).startswith("Stopped")
     assert asyncio.run(named["pause_hands"].ainvoke({})) == "Not done: no job is open on their phone."
@@ -385,3 +385,31 @@ def test_a_hold_refused_for_the_jobs_own_turn_is_the_users_stop(phone, monkeypat
         row = db.get(HandsJob, job.id)
         assert (row.status, row.paused_by) == ("paused", "user")
         assert [w.input["hands"]["event"] for w in wakes(db, phone.user)] == ["user_stop"]
+
+
+def test_telling_does_not_undo_her_pause_or_the_users_stop(phone):
+    job = hands.start(phone.user, phone.conversation, goal="Attack")
+    hands.pause(phone.user)
+    told = hands.tell(phone.user, "Warden last")
+    assert told.status == "paused"
+    named = {t.name: t for t in mind_tools.build_hands_tools(phone.user, phone.conversation, reply=True)}
+    said = asyncio.run(named["tell_hands"].ainvoke({"instructions": "Queen first"}))
+    assert "still paused (you paused it): nothing happens on the phone until resume_hands" in said
+    hands.resume(phone.user)
+    hands.claim_next("t1")
+    hands.finish(job.id, "t1", "user_stop", "they tapped Stop on the banner")
+    assert hands.tell(phone.user, "carry on").status == "paused"
+
+
+def test_a_question_mid_run_keeps_the_run_going(phone):
+    job = hands.start(phone.user, phone.conversation, goal="Attack")
+    hands.claim_next("t1")
+    model = ScriptedModel([
+        AIMessage("", tool_calls=[call("need_her", {"question": "Which base?"}, 1)]),
+        AIMessage("", tool_calls=[call("read_phone_screen", {"wait_ms": 5000}, 2)]),
+        AIMessage("", tool_calls=[call("done", {"summary": "Attacked"}, 3)]),
+    ])
+    assert asyncio.run(hands_loop.run_job(job.id, "t1", model_factory=lambda tools: model)) == "done"
+    assert [a for a, _ in phone.sent] == ["read_screen", "read_screen", "end_control"]
+    with phone.db() as db:
+        assert [w.input["hands"]["event"] for w in wakes(db, phone.user)] == ["need_her", "done"]

@@ -42,7 +42,8 @@ Her hands (2026-11-25, `PLAN_PHONE_HANDS.md`): migration `d9b3e6a1c7f4` (`hands_
 left her orchestrator: her mind starts a job (`use_phone(goal, instructions)`, reply turns only), changes it
 (`tell_hands`, a new version), `pause_hands` / `resume_hands` (reply turns only) / `stop_hands` (`ai/tools/hands.py`);
 her hands run it in their own loop on the `hands` worker thread (`ai/hands.py`: the screen read in code first, the
-job checked before every action, `report` / `need_her` / `done`), and each of their events is a wake of hers (origin
+job checked before every action, `report` / `need_her` / `done`; a question never pauses the job: her answer
+reaches them as new instructions), and each of their events is a wake of hers (origin
 `hands:<job>:<event>`). The job is in her moment ("Your hands on their phone", `services/hands.moment`). Her words
 never stop the hands; the banner's Stop pauses the job. Her own `read_phone_screen` only looks (the hands' latest
 screen while they work). The look-again wake and the read-back of cut-off turns are gone. The banner stays up for

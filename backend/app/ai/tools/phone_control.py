@@ -256,7 +256,7 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
     async def phone_type(n: int, text: str, enter: bool = False, screen: str | None = None) -> tuple[str, dict | None]:
         """Type into field n of the phone screen: text replaces what's in it (up to 4000 characters). enter: then
         press the keyboard's go / send / search key. Password fields work the same (their text is hidden from you).
-        Sending, paying, deleting or calling only when her instructions say so; otherwise need_her first. screen:
+        Sending, paying, deleting or calling only when her instructions say so; otherwise ask her with need_her first. screen:
         as for phone_tap. Answers with the screen after it."""
         if len(text or "") > TEXT_CHARS:
             return f"Not done: that's more than {TEXT_CHARS} characters.", None

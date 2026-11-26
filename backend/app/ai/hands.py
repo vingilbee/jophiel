@@ -2,7 +2,8 @@
 
 One run of a job: from a start or a resume until the hands halt (done, need her, the user's Stop, a refusal of the
 phone, a bound) or her mind changes the job under them (pause, stop, a new job). The hands speak to nobody: what
-they find goes to her mind as ``report``, ``need_her`` or ``done``, each a wake of hers.
+they find goes to her mind as ``report``, ``need_her`` (a question; the job keeps running) or ``done``, each a wake
+of hers.
 
 - **Speed.** The screen is read in code before the first model call, so that call already sees it and can act.
 - **What each model call reads** (``_messages``): a system prompt built fresh from the job (goal, her instructions
@@ -66,10 +67,14 @@ finger went: a miss tells you which way to move.
 until the goal is reached.
 - report(note): something she'd want to know while you keep going (a result, a choice you made, a surprise). Not \
 every step: she's told each time.
-- need_her(question): you're stuck, or you need something only she or the user can give (which one, a password, \
-a choice her instructions don't settle). The job pauses until she answers.
+- Being unsure isn't a reason to stop: take the sensible reading of her instructions and the goal, carry on, and \
+report the choice. A screen you didn't expect (the home screen, a preview already counting down) is a step on \
+the way: open the app from its icon, carry the attack out.
+- need_her(question): only for something you can't do without (a password, a choice that changes what was \
+asked). The job keeps running: do what you safely can meanwhile, or watch with read_phone_screen(wait_ms=5000); \
+her answer reaches you as new instructions before your next action.
 - done(summary): the goal is reached (or plainly can't be: say why). Say what you did and how it ended, briefly.
-- Always end with done or need_her; never just stop."""
+- Always end with done; never just stop."""
 
 
 def _instructions(run: HandsRun) -> str:
@@ -133,10 +138,13 @@ def _job_tools(run: HandsRun) -> list[BaseTool]:
 
     @tool
     async def need_her(question: str) -> str:
-        """You're stuck, or need something only she or the user can give. The job pauses until she answers; call
-        nothing more after this."""
-        run.halt = ("need_her", question)
-        return "Asked her. The job is paused: call nothing more."
+        """Ask her for something you can't do without (she's woken for it). The job keeps running: her answer
+        reaches you as new instructions before your next action."""
+        ok = await asyncio.to_thread(hands.ask, run.job_id, run.token, question)
+        if not ok:
+            return "Not sent: the job is no longer yours. Call nothing more."
+        return ("Asked her. Keep doing what you safely can, or watch the screen with read_phone_screen(wait_ms=5000) "
+                "until her answer arrives.")
 
     @tool
     async def done(summary: str) -> str:
@@ -206,7 +214,7 @@ async def run_job(job_id: uuid.UUID, token: str, *, model_factory: Callable | No
     if event == "quiet":
         await asyncio.to_thread(hands.release, job_id, token)
         return event
-    if event in ("done", "limit", "failed", "need_her", "phone"):
+    if event in ("done", "limit", "failed", "phone"):
         # The banner goes now (the user's Stop already took it down).
         await asyncio.to_thread(_end_control, run)
     await asyncio.to_thread(hands.finish, job_id, token, event, text)
