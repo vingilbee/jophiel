@@ -1,5 +1,6 @@
-"""Phase 9, phone control (frontend-phone/PLAN_PHASE_9.md): a fake phone round-trips screens over the real socket
-and result endpoint; turns, takeovers, limits, the owner's say-so, short-term screen memory and the pictures."""
+"""Phase 9, phone control (frontend-phone/PLAN_PHASE_9.md), as her hands' tools (PLAN_PHONE_HANDS.md): a fake phone
+round-trips screens over the real socket and result endpoint; turns, takeovers, refusals, steps, short-term screen
+memory and the pictures. The job around them is tests/test_phone_hands.py."""
 from __future__ import annotations
 
 import asyncio
@@ -8,18 +9,15 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from app.ai import chat as ai_chat
-from app.ai.context import AgentRuntimeContext
 from app.ai.tools import phone_control as control_tools
 from app.ai.tools.desktop_control import screenshot_hook
-from app.core.config import get_settings
 from app.schemas.phone import PhoneActionResult
-from app.services import fcm, phone_actions, phone_control, phone_state
+from app.services import fcm, hands, phone_actions, phone_control, phone_state
 from db_support import database  # noqa: F401
 from test_phone_actions import channel, headers, receive, result_url, wait_for_phone  # noqa: F401
 
@@ -44,28 +42,39 @@ def tools_by_name(tools):
     return {t.name: t for t in tools}
 
 
+def hands_run(monkeypatch, user=None, conversation=None, *, turn=None):
+    """A run of her hands on a job, with the job record stubbed: the job keeps running unless ``job.status`` is
+    changed; ``steps`` collects what the record would keep."""
+    run = control_tools.HandsRun(user or uuid.uuid4(), conversation or uuid.uuid4(), uuid.uuid4(),
+                                 str(turn or uuid.uuid4()), "token", 1, "")
+    job = SimpleNamespace(status="running", turn=run.turn, version=1, instructions="")
+    steps: dict[int, tuple] = {}
+    monkeypatch.setattr(hands, "check", lambda *args, **kwargs: hands.Check(
+        "go" if job.version == run.version else "moved", job.version, job.instructions, job.status)
+        if job.status == "running" else hands.Check("halt", job.version, "", job.status, "she paused it"))
+    monkeypatch.setattr(hands, "step", lambda job_id, token, index, did, result, version, **kwargs:
+                        steps.__setitem__(index, (did, result)))
+    monkeypatch.setattr(hands, "load", lambda job_id: job)
+    return run, job, steps
+
+
 def run_tool(executor, tool, args):
     return executor.submit(asyncio.run, tool.ainvoke({"type": "tool_call", "id": "c1", "name": tool.name,
                                                       "args": args}))
 
 
-def test_a_fake_phone_round_trips_screens_and_the_turn_leaves_one_line(channel, monkeypatch):
+def test_a_fake_phone_round_trips_screens_with_the_jobs_turn(channel, monkeypatch):
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
-    turn = uuid.uuid4()
-    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=turn)
-    named = tools_by_name(tools)
+    run, _, steps = hands_run(monkeypatch, channel.user, channel.conversation)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
         with ThreadPoolExecutor() as executor:
-            # Acting before reading the screen (and so before the user's say-so) is refused without sending.
-            early = asyncio.run(named["phone_tap"].ainvoke({"n": 1}))
-            assert early.startswith("Not done: start with read_phone_screen")
-
             pending = run_tool(executor, named["read_phone_screen"], {"wait_ms": 9000})
             frame = receive(ws, "phone_action")
             assert frame["action"] == "read_screen"
-            assert frame["args"] == {"wait_ms": 5000, "turn": str(turn)}
+            assert frame["args"] == {"wait_ms": 5000, "turn": run.turn}
             with channel.bus.pubsub() as listener:
                 listener.subscribe(phone_actions._reply_channel(uuid.UUID(frame["action_id"])))
                 assert listener.get_message(timeout=2)["type"] == "subscribe"
@@ -82,7 +91,7 @@ def test_a_fake_phone_round_trips_screens_and_the_turn_leaves_one_line(channel, 
 
             pending = run_tool(executor, named["phone_tap"], {"n": 2})
             frame = receive(ws, "phone_action")
-            assert frame["action"] == "tap" and frame["args"] == {"screen": "s1", "n": 2, "turn": str(turn)}
+            assert frame["action"] == "tap" and frame["args"] == {"screen": "s1", "n": 2, "turn": run.turn}
             after = screen("s2", items=[{"n": 1, "role": "switch", "label": "Hotspot", "checked": True}])
             # A large screen (the phone's picture can be ~1 MB) through the result endpoint.
             after["image"]["jpeg_base64"] = "A" * 1_000_000
@@ -92,17 +101,12 @@ def test_a_fake_phone_round_trips_screens_and_the_turn_leaves_one_line(channel, 
             message = pending.result(timeout=10)
             assert '[1] switch "Hotspot" (checked)' in message.content
             assert len(message.artifact["phone_screen"]["jpeg_b64"]) == 1_000_000
-
-            # The turn ends with control on: end_control goes out, and the turn's one line is written.
-            control.finish()
-            frame = receive(ws, "phone_action")
-            assert frame["action"] == "end_control" and frame["args"] == {"turn": str(turn)}
-            ws.send_json({"type": "phone_action_result", "action_id": frame["action_id"], "status": "done"})
-            activity = receive(ws, "phone_activity")
-            assert activity["text"] == "Used your phone in Settings, 2 steps"
+    # Two steps on the job: what was done and the screen's first line, nothing of what was on it.
+    assert steps == {0: ("read the screen after 5000 ms", "Phone screen s1: Settings (com.android.settings) in front"),
+                     1: ("tapped [2]", "Phone screen s2: Settings (com.android.settings) in front")}
+    # No chat line per action.
     with channel.db() as db:
-        assert [m.content for m in phone_actions.history(db, channel.conversation)] == [
-            "Used your phone in Settings, 2 steps"]
+        assert phone_actions.history(db, channel.conversation) == []
     # Nothing of a screen stays in Redis.
     for key in channel.bus.scan_iter("phone:*"):
         if channel.bus.type(key) == b"string":
@@ -123,11 +127,11 @@ def test_results_must_fit_control_actions(channel):
     assert phone_actions._valid_result("tap", PhoneActionResult(status="refused", reason="taken_over"))
 
 
-def test_new_words_end_the_old_turns_control(channel, monkeypatch):
+def test_a_newer_turn_ends_a_waiting_action_and_her_pause_halts_quietly(channel, monkeypatch):
     monkeypatch.setattr(fcm, "send", lambda *args, **kwargs: pytest.fail("The action reached a live socket"))
-    old, new = uuid.uuid4(), uuid.uuid4()
-    tools, control = control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=old)
-    named = tools_by_name(tools)
+    run, job, _ = hands_run(monkeypatch, channel.user, channel.conversation)
+    phone_control.begin_turn(channel.user, run.turn, client=channel.bus)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     with channel.client.websocket_connect("/api/chat/ws", headers=headers(channel.token)) as ws:
         receive(ws, "history")
         wait_for_phone(channel.user)
@@ -137,22 +141,23 @@ def test_new_words_end_the_old_turns_control(channel, monkeypatch):
             ws.send_json({"type": "phone_action_result", "action_id": frame["action_id"], "status": "done",
                           "data": {"screen": screen()}})
             pending.result(timeout=10)
-            # The old turn waits on a tap; the user's new words start another turn.
+            # The hands wait on a tap; her mind pauses the job (committed first), then the phone's turn moves on.
             pending = run_tool(executor, named["phone_tap"], {"n": 1})
             receive(ws, "phone_action")
             started = time.monotonic()
-            control_tools.build_phone_control_tools(channel.user, channel.conversation, turn_id=new)
+            job.status = "paused"
+            phone_control.begin_turn(channel.user, "held-x", client=channel.bus)
             message = pending.result(timeout=10)
             assert time.monotonic() - started < 3  # it stopped waiting, it didn't time out
-            assert message.content.startswith("Not done: the user took over their phone")
-            assert control.taken_over
-            # Nothing more of the old turn is sent.
-            assert asyncio.run(named["phone_press"].ainvoke({"key": "back"})).startswith("Not done: the user took")
-    outcome = phone_actions.act(channel.user, channel.conversation, "tap", {"screen": "s1", "n": 1, "turn": str(old)})
+            assert message.content.startswith("Not done: you were stopped")
+            assert run.halt == ("quiet", "her mind changed the job")
+            # Nothing more of the run is sent.
+            assert asyncio.run(named["phone_press"].ainvoke({"key": "back"})).startswith("Not done: you're stopped")
+    outcome = phone_actions.act(channel.user, channel.conversation, "tap", {"screen": "s1", "n": 1, "turn": run.turn})
     assert (outcome.status, outcome.reason) == ("refused", "taken_over")
 
 
-def test_the_users_touch_stops_her_for_the_turn(monkeypatch):
+def test_the_banner_stop_while_the_job_runs_is_the_users(monkeypatch):
     sent = []
 
     def act(user_id, conversation_id, action, args, **kwargs):
@@ -162,45 +167,60 @@ def test_the_users_touch_stops_her_for_the_turn(monkeypatch):
         return phone_actions.Outcome("refused", uuid.uuid4(), "Not done (taken_over)", reason="taken_over")
 
     monkeypatch.setattr(phone_actions, "act", act)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     monkeypatch.setattr(phone_control, "remember", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, _, _ = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     first = asyncio.run(named["read_phone_screen"].ainvoke({}))
     assert "no picture: this app forbids screenshots" in first
-    assert asyncio.run(named["phone_tap"].ainvoke({"n": 2})).startswith("Not done: the user took over")
-    assert asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"})).startswith("Not done: the user took")
+    assert asyncio.run(named["phone_tap"].ainvoke({"n": 2})).startswith("Not done: you were stopped")
+    assert run.halt == ("user_stop", "they tapped Stop on the banner")
+    assert asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"})).startswith("Not done: you're stopped")
     assert sent == ["read_screen", "tap"]
-    assert phone_control.turn_line(apps=control.apps, steps=control.steps, acted=control.acted,
-                                   taken_over=control.taken_over) == "Used your phone in Settings, 2 steps (you took over)"
+    assert phone_control.turn_line(apps=run.apps, steps=run.steps, acted=True,
+                                   taken_over=True) == "Used your phone in Settings, 2 steps (you took over)"
 
 
-def test_eighty_actions_a_turn_then_she_stops(monkeypatch):
-    monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: phone_actions.Outcome(
+def test_new_instructions_are_handed_over_before_acting(monkeypatch):
+    sent = []
+    monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: sent.append(args[2]) or phone_actions.Outcome(
         "done", uuid.uuid4(), "Done", screen=screen(image=False)))
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     monkeypatch.setattr(phone_control, "remember", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, job, steps = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     asyncio.run(named["read_phone_screen"].ainvoke({}))
-    for _ in range(control_tools.MAX_ACTIONS_PER_TURN - 1):
-        asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
-    assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
-    limit = asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
-    assert limit == "Not done: that's 80 phone actions this turn. You can carry on when they reply."
-    assert control.steps == control_tools.MAX_ACTIONS_PER_TURN
+    job.version, job.instructions = 2, "Warden last, ability at the Town Hall"
+    said = asyncio.run(named["phone_tap"].ainvoke({"n": 1}))
+    assert said.startswith("Not done: her instructions changed just now (version 2). Nothing was sent.")
+    assert "Warden last" in said
+    assert (run.version, run.instructions) == (2, "Warden last, ability at the Town Hall")
+    assert sent == ["read_screen"] and len(steps) == 1
+    asyncio.run(named["phone_tap"].ainvoke({"n": 1}))
+    assert sent == ["read_screen", "tap"]
+
+
+def test_a_bound_stops_the_run(monkeypatch):
+    monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: pytest.fail("Sent past a bound"))
+    run, _, _ = hands_run(monkeypatch)
+    monkeypatch.setattr(hands, "check", lambda *args, **kwargs: hands.Check("limit", 1, "", "running",
+                                                                             "300 actions on this job"))
+    named = tools_by_name(control_tools.build_screen_tools(run))
+    said = asyncio.run(named["phone_scroll"].ainvoke({"direction": "down"}))
+    assert said == "Not done: that's 300 actions on this job, the most a job may take. Stop now."
+    assert run.halt == ("limit", "300 actions on this job")
 
 
 def test_phone_reasons_are_said_plainly(monkeypatch):
     reasons = iter(["own_app", "stale_screen", "locked"])
     monkeypatch.setattr(phone_actions, "act", lambda *args, **kwargs: phone_actions.Outcome(
         "refused" if args[2] != "tap" else "failed", uuid.uuid4(), "x", reason=next(reasons)))
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    tools, _ = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, _, _ = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     assert "you can read it but not act in it" in asyncio.run(named["read_phone_screen"].ainvoke({}))
     assert "Call read_phone_screen and act on the new numbers" in asyncio.run(named["phone_tap"].ainvoke({"n": 3}))
-    assert "Ask them to unlock it" in asyncio.run(named["phone_press"].ainvoke({"key": "back"}))
+    assert run.halt is None
+    # A refusal they can't get past pauses the job (her mind is told).
+    assert "the phone is locked. You can't get past that" in asyncio.run(named["phone_press"].ainvoke({"key": "back"}))
+    assert run.halt == ("phone", "the phone is locked")
 
 
 def test_an_action_that_happened_before_the_takeover_is_said_to_have_happened(monkeypatch):
@@ -213,15 +233,15 @@ def test_an_action_that_happened_before_the_takeover_is_said_to_have_happened(mo
         return phone_actions.Outcome("refused", uuid.uuid4(), "Not done (taken_over_after)", reason="taken_over_after")
 
     monkeypatch.setattr(phone_actions, "act", act)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, _, steps = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     asyncio.run(named["read_phone_screen"].ainvoke({}))
     said = asyncio.run(named["phone_tap"].ainvoke({"n": 2}))
-    assert said.startswith("Done: that action did happen on the phone. Then the user took over")
-    assert control.taken_over
-    # Nothing more of this turn reaches the phone.
-    assert asyncio.run(named["phone_tap"].ainvoke({"n": 3})).startswith("Not done: the user took over")
+    assert said.startswith("Done: that action did happen on the phone. Then you were stopped")
+    assert run.halt == ("user_stop", "they tapped Stop on the banner")
+    assert steps[1][1].startswith("Done: that action did happen on the phone")
+    # Nothing more of this run reaches the phone.
+    assert asyncio.run(named["phone_tap"].ainvoke({"n": 3})).startswith("Not done: you're stopped")
     assert sent == ["read_screen", "tap"]
 
 
@@ -234,9 +254,8 @@ def test_pinch_and_gesture_send_several_fingers_on_the_picture(monkeypatch):
         return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=shown)
 
     monkeypatch.setattr(phone_actions, "act", act)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    tools, _ = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, _, _ = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     asyncio.run(named["read_phone_screen"].ainvoke({}))
     asyncio.run(named["phone_pinch"].ainvoke({"x": 360, "y": 800, "zoom": "out"}))
     action, args = sent[-1]
@@ -251,7 +270,7 @@ def test_pinch_and_gesture_send_several_fingers_on_the_picture(monkeypatch):
     asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[100, 900, 100, 500], [300, 900, 300, 500]],
                                                 "ms": 5000}))
     assert sent[-1] == ("gesture", {"screen": "s1", "fingers": [[100, 900, 100, 500], [300, 900, 300, 500]],
-                                    "ms": 2000, "turn": sent[-1][1]["turn"]})
+                                    "ms": 2000, "turn": run.turn})
     count = len(sent)
     assert asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[1, 2, 3]]})).startswith("Not done: give 1 to 5")
     assert asyncio.run(named["phone_gesture"].ainvoke({"fingers": [[1, 1, 1, 1]] * 6})).startswith("Not done")
@@ -266,16 +285,15 @@ def test_several_taps_go_in_one_step_and_bad_points_send_nothing(monkeypatch):
         return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=screen("s2", "Clash of Clans"))
 
     monkeypatch.setattr(phone_actions, "act", act)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    run, _, _ = hands_run(monkeypatch)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     asyncio.run(named["read_phone_screen"].ainvoke({}))
     said = asyncio.run(named["phone_tap_points"].ainvoke({"points": [[100, 900], [120, 950], [140, 1000]],
                                                           "gap_ms": 5000}))
     assert said.startswith("Phone screen s2: Clash of Clans")
     assert sent[-1] == ("tap_points", {"screen": "s2", "points": [[100, 900], [120, 950], [140, 1000]],
-                                       "gap_ms": 1000, "turn": sent[-1][1]["turn"]})
-    assert control.steps == 2  # one step for all three taps
+                                       "gap_ms": 1000, "turn": run.turn})
+    assert run.steps == 2  # one step for all three taps
     count = len(sent)
     assert asyncio.run(named["phone_tap_points"].ainvoke({"points": []})).startswith("Not done: give 1 to 20")
     assert asyncio.run(named["phone_tap_points"].ainvoke({"points": [[1, 2, 3]]})).startswith("Not done")
@@ -285,27 +303,23 @@ def test_several_taps_go_in_one_step_and_bad_points_send_nothing(monkeypatch):
 
 
 def test_each_step_is_kept_as_what_she_did_never_what_was_on_the_screen(monkeypatch):
-    user, turn = uuid.uuid4(), uuid.uuid4()
-    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
-    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: None)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    monkeypatch.setattr(phone_control, "_client", lambda: None)
     seen_before_sent = []
+    run, _, steps = hands_run(monkeypatch)
 
     def act(user_id, conversation_id, action, args, **kwargs):
-        seen_before_sent.append(phone_control.steps(user, turn)[-1])
+        seen_before_sent.append(steps[max(steps)])
         if action == "press":
             return phone_actions.Outcome("refused", uuid.uuid4(), "x", reason="taken_over_after")
         return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=screen("s7"))
 
     monkeypatch.setattr(phone_actions, "act", act)
-    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=turn)
-    named = tools_by_name(tools)
+    monkeypatch.setattr(phone_control, "remember", lambda *args, **kwargs: None)
+    named = tools_by_name(control_tools.build_screen_tools(run))
     asyncio.run(named["read_phone_screen"].ainvoke({}))
     asyncio.run(named["phone_type"].ainvoke({"n": 1, "text": "my secret words", "enter": True}))
     asyncio.run(named["phone_tap_points"].ainvoke({"points": [[10, 20], [30, 40]]}))
     asyncio.run(named["phone_press"].ainvoke({"key": "back"}))
-    lines = phone_control.steps(user, turn)
+    lines = [f"{did} → {result}" for did, result in (steps[i] for i in sorted(steps))]
     assert lines[:3] == ["read the screen → Phone screen s7: Settings (com.android.settings) in front",
                          "typed 15 characters into [1] and pressed enter → Phone screen s7: Settings "
                          "(com.android.settings) in front",
@@ -313,31 +327,8 @@ def test_each_step_is_kept_as_what_she_did_never_what_was_on_the_screen(monkeypa
     assert lines[3].startswith("pressed back → Done: that action did happen on the phone")
     text = " ".join(lines)
     assert "secret" not in text.lower() and "Hotspot" not in text and "Search settings" not in text
-    # Noted before the phone answers: a turn stopped mid-action still knows the step went out.
-    assert all("no answer seen" in line for line in seen_before_sent)
-    assert phone_control.steps_text(lines).startswith("step by step: 1. read the screen")
-    phone_control.wipe(user)
-    assert phone_control.steps(user, turn) == []
-
-
-def test_steps_are_bounded_and_gone_when_control_is_switched_off(monkeypatch):
-    user = uuid.uuid4()
-    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
-    state = {"control_on": True}
-    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: state)
-    now = time.time()
-    for i in range(phone_control.STEP_TURNS + 2):
-        phone_control.note_step(user, f"t{i}", 0, "tapped [1] → Phone screen s1: Settings in front", now=now + i)
-    assert phone_control.steps(user, "t0") == [] and phone_control.steps(user, "t1") == []
-    assert phone_control.steps(user, "t2", now=now) == ["tapped [1] → Phone screen s1: Settings in front"]
-    assert phone_control.steps(user, "t2", now=now + phone_control.MEMORY_SECONDS + 5) == []
-    many = [f"step {i}" for i in range(40)]
-    text = phone_control.steps_text(many)
-    assert text.startswith("step by step (the first 10 not shown): 11. step 10;") and text.endswith("40. step 39")
-    state["control_on"] = False
-    assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
-    state["control_on"] = True
-    assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
+    # Kept before the phone answers: a run stopped mid-action still knows the step went out.
+    assert all(result is None for _, result in seen_before_sent)
 
 
 @pytest.fixture
@@ -376,13 +367,12 @@ def test_short_term_screen_memory_is_text_only_bounded_and_wiped(channel, state_
 
 
 def test_remembered_screens_are_recall_only(monkeypatch):
+    from app.ai.tools.hands import build_hands_tools
     user = uuid.uuid4()
     monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
     monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: None)
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
     phone_control.remember(user, screen("s4", "Spotify"), "Phone screen s4: Spotify in front.\n  Song A")
-    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=uuid.uuid4())
-    named = tools_by_name(tools)
+    named = tools_by_name(build_hands_tools(user, uuid.uuid4(), reply=False))
     listing = asyncio.run(named["recent_phone_screens"].ainvoke({}))
     assert "- s4: Spotify, 1 min ago" in listing and "not actionable" in listing
     assert "Song A" in asyncio.run(named["recent_phone_screens"].ainvoke({"screen": "s4"}))
@@ -422,41 +412,6 @@ def test_phone_pictures_reach_her_like_desktop_screenshots():
     pictures = [m for m in shown if isinstance(m, HumanMessage) and isinstance(m.content, list)]
     assert [p.content[1]["text"] for p in pictures] == ["Phone screen s2:", "Phone screen s3:", "Phone screen s4:"]
     assert "the user's phone screen" in pictures[0].content[0]["text"]
-
-
-def test_control_tools_only_on_reply_turns_with_a_phone(monkeypatch):
-    settings = get_settings().model_copy(update={"redis_url": "redis://unused"})
-    monkeypatch.setattr(ai_chat, "get_settings", lambda: settings)
-    monkeypatch.setattr(ai_chat, "build_server_config", lambda connections: {})
-    built = {}
-
-    def agent(tools, **kwargs):
-        built["hook"] = kwargs.get("pre_model_hook")
-        return {tool.name for tool in tools}
-
-    monkeypatch.setattr(ai_chat, "build_agent", agent)
-    monkeypatch.setattr(ai_chat, "get_agent", lambda *args: set())
-    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
-    finished = []
-    monkeypatch.setattr(control_tools.PhoneControl, "finish", lambda self: finished.append(self.turn))
-    reply = AgentRuntimeContext(uuid.uuid4(), conversation_id=uuid.uuid4(), source_message_id=uuid.uuid4(),
-                                turn_id=uuid.uuid4(), phone="Notifications: shared")
-
-    async def registered(context):
-        async with ai_chat._orchestrator_for(context) as (names, _):
-            return names, ai_chat._run_config(context)
-
-    names, config = asyncio.run(registered(reply))
-    assert set(control_tools.TOOL_NAMES) <= names
-    assert built["hook"] is screenshot_hook and config == {"recursion_limit": ai_chat.DESKTOP_RECURSION_LIMIT}
-    assert finished == [str(reply.turn_id)]
-    # Never on her own turns, a turn someone else's words caused, a nudge, or without a phone.
-    for other in (replace(reply, source_message_id=None, wake="late result", phone_control=None),
-                  replace(reply, third_party=True, phone_control=None),
-                  replace(reply, nudge="say hello", phone_control=None),
-                  replace(reply, phone=None, phone_control=None)):
-        names, config = asyncio.run(registered(other))
-        assert not set(control_tools.TOOL_NAMES) & names and config is None
 
 
 def test_a_screen_with_a_grid_is_accepted():

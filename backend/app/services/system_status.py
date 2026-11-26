@@ -44,7 +44,7 @@ class Part:
 PARTS: tuple[Part, ...] = (
     Part("mouth", "Mouth", ("chat",), desktop_only=("agent-events",), configured=(("whatsapp", "whatsapp_enabled"),)),
     Part("mind", "Mind", ("coordinator", "mind")),
-    Part("hands", "Hands", (), desktop_only=("desktop-driver", "game-practice")),
+    Part("hands", "Hands", ("hands",), desktop_only=("desktop-driver", "game-practice")),
     Part("memory", "Memory", ("memory", "recall-embeddings", "file-deletion")),
     Part("observation", "Observation", ("observation",)),
     Part("learning", "Learning", ("learning", "learning-assessment", "learning-lessons"),

@@ -54,8 +54,8 @@ from app.ai.tools.memory import build_memory_tools
 from app.ai.tools.memory.recall import build_recall_tools
 from app.ai.tools.mind import build_mind_tools
 from app.ai.tools.phone import build_exchange_tools, build_people_tools, build_phone_tools, build_reply_tools
+from app.ai.tools.hands import build_hands_tools
 from app.ai.tools.phone_control import SCREEN_TOOLS as PHONE_SCREEN_TOOLS
-from app.ai.tools.phone_control import build_phone_control_tools
 from app.ai.tools.screen import build_look_at_screen
 from app.core.config import get_settings
 from app.services.phone_control import record_line as phone_control_record_line
@@ -224,17 +224,9 @@ def _build_inputs(
 
 @asynccontextmanager
 async def _orchestrator_for(context: AgentRuntimeContext, queue: asyncio.Queue | None = None):
-    """Yield ``(agent, specs)`` for this user's turn (``_assemble``); when the turn ends, however it ends, her use of
-    the phone screen this turn is finished (control off, its one chat line: app/ai/tools/phone_control.py)."""
-    try:
-        async with _assemble(context, queue) as built:
-            yield built
-        if context.phone_control is not None:
-            # Her run ended by itself (not stopped, not failed): only such a turn looks at the phone again.
-            context.phone_control.answered = True
-    finally:
-        if context.phone_control is not None:
-            context.phone_control.finish()
+    """Yield ``(agent, specs)`` for this user's turn (``_assemble``)."""
+    async with _assemble(context, queue) as built:
+        yield built
 
 
 @asynccontextmanager
@@ -316,16 +308,14 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
         # Who she knows on the phone (read only): the user's own reply turns, never a wake.
         if phone_reply:
             direct_tools.extend(build_people_tools(context.user_id, context.source_message_id))
-        # Phase 9: her hands on their phone's screen (frontend-phone/PLAN_PHASE_9.md): the user's reply turns (typed
-        # or spoken), and a wake to look again after one of them used the screen, for what the user's message asked
-        # (services/phone_look.py; never a wake someone else's words caused: excluded above). Building them takes
-        # the phone's control for this turn: an older turn still acting there is answered taken_over. Its
-        # screenshots reach her through the picture hook. A turn whose hands acted schedules her next look.
-        asked = context.source_message_id if phone_reply else context.phone_look
-        if asked is not None and context.phone is not None and context.turn_id is not None:
-            control_tools, context.phone_control = build_phone_control_tools(
-                context.user_id, context.conversation_id, turn_id=context.turn_id, asked=asked, zone=context.zone)
-            direct_tools.extend(control_tools)
+        # Her hands on their phone's screen (PLAN_PHONE_HANDS.md): her mind starts, changes, pauses or stops a job,
+        # and the hands work through it in their own loop (app/ai/hands.py), never in this turn. Starting or
+        # resuming one only on a turn the user's own words caused; on her wakes (her hands' own included) she can
+        # still tell them more, pause or stop them. Never on a turn someone else's words caused (excluded above).
+        if context.phone is not None:
+            direct_tools.extend(build_hands_tools(context.user_id, context.conversation_id, reply=phone_reply,
+                                                  message_id=context.source_message_id if phone_reply else None,
+                                                  zone=context.zone))
             hook = hook or screenshot_hook
     # Her reading of what people on the phone said (affinity B2: shadow records, requests for space): only on her
     # mind's turns someone else's words there caused. Nothing in them sends or acts.
@@ -389,9 +379,8 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
     yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook, reasoning=reasoning), specs
 
 def _run_config(context: AgentRuntimeContext) -> dict | None:
-    """A desktop or phone-control turn alternates looking and acting many times: more graph steps than a chat turn
-    (both budgets are 80 actions)."""
-    if context.desktop is not None or context.phone_control is not None:
+    """A desktop turn alternates looking and acting many times: more graph steps than a chat turn (80 actions)."""
+    if context.desktop is not None:
         return {"recursion_limit": DESKTOP_RECURSION_LIMIT}
     return None
 

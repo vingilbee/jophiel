@@ -28,26 +28,26 @@ Follow-through (2026-11-23): migration `a3f8c1e6d9b4` (`follow_through_attempts`
 or intention of hers due now (`act`) wakes her mind with her tools even with nothing to say, once per item and observed
 change; each device action there is a recorded, fenced attempt, achieved only on the device's own answer or a fresh
 report (check wakes, bounded); `services/follow_through.py`.
-Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): her hands on the phone's screen, reply turns
-only (`ai/tools/phone_control.py`: read_phone_screen first; act by number, by point as a fallback, several fingers with
-phone_pinch / phone_gesture; 80 actions a turn; `taken_over` stops her for the turn, `taken_over_after` when the action
-itself happened first; one chat line per turn; phone_tap_points: up to 20 taps in one step, the phone settles and
-reads only after the last, phone app action `tap_points`). Screens travel
-sealed to the waiting worker and are never stored (`services/phone_control.py`: turn supersession, render, the
-short-term memory of 10 text-only screens for 30 min in process memory, wiped when the phone reports `control_on`
-false). No migration.
+Phone control (phase 9, 2026-11-24; `frontend-phone/PLAN_PHASE_9.md`): the screen tools (`ai/tools/phone_control.py`:
+read_phone_screen first; act by number, by point as a fallback, several fingers with phone_pinch / phone_gesture;
+phone_tap_points: up to 20 taps in one step). Screens travel sealed to the waiting worker and are never stored
+(`services/phone_control.py`: the phone's control turn, render, the short-term memory of 10 text-only screens for
+30 min in process memory, wiped when the phone reports `control_on` false). No migration.
 Waiting on her devices (2026-11-24): `run_command(background=true)` (controller 0.14.0, relay feature `command_jobs`)
 keeps a long command running as `cmd:…` (`check_command` / `stop_command`); its end comes back as `CommandDone`
 and goes on her hands' trail (`desktop_control.command_finished`), so her background mind can wake her to follow up.
 `come_back_to(..., on="desktop"|"phone")`: if she uses that device again before it's due, it moves to the same
 delay after her last use (`coordinator._reset`). No migration; update the VM's controller to use background commands.
-Looking again (2026-11-25): a reply turn whose hands acted on the phone screen (not taken over) schedules a wake
-10 s after it ends (`services/phone_look.py`, origin `phone_look:<turn>`); that wake has the screen tools for what the
-user's message asked, within 10 min of it, dropped by any newer message of theirs; a look that acts schedules the next.
-The one exception to phase 9's "reply turns only". No migration.
-Cut-off phone turns (2026-11-25): each step of her hands is kept as one line (what she did, the screen's first line;
-`phone_control.note_step`, process memory, wiped with her screens), and a turn stopped by the user's new words is read
-back step by step in her history; a look is scheduled only after a turn she finished herself (`PhoneControl.answered`).
+Her hands (2026-11-25, `PLAN_PHONE_HANDS.md`): migration `d9b3e6a1c7f4` (`hands_jobs`, `hands_steps`). The screen tools
+left her orchestrator: her mind starts a job (`use_phone(goal, instructions)`, reply turns only), changes it
+(`tell_hands`, a new version), `pause_hands` / `resume_hands` (reply turns only) / `stop_hands` (`ai/tools/hands.py`);
+her hands run it in their own loop on the `hands` worker thread (`ai/hands.py`: the screen read in code first, the
+job checked before every action, `report` / `need_her` / `done`), and each of their events is a wake of hers (origin
+`hands:<job>:<event>`). The job is in her moment ("Your hands on their phone", `services/hands.moment`). Her words
+never stop the hands; the banner's Stop pauses the job. Her own `read_phone_screen` only looks (the hands' latest
+screen while they work). The look-again wake and the read-back of cut-off turns are gone. The banner stays up for
+the whole job: the hands send `control_hold` every 8 s while they think (phone app with `control_hold`; an older app
+answers `unknown_action` and the banner hides between actions as before).
 Latency (2026-11-25): her prompt is two system messages, the standing part first (`prompts.build_prompt_parts`)
 and this evaluation's moment (Now, senses, memory, devices, delivery rules) right before the message it answers, so
 OpenAI's prompt cache serves the standing prompt and the history; the history window's start moves every
@@ -143,6 +143,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
       openai_http.py    # HTTP clients for OpenAI calls before a reply: 120 s keep-alive, one pool per event loop,
                         #   streamed replies closed so their connection is reused
       chat.py           # stream_chat / complete_chat; assembles the orchestrator per turn
+      hands.py          # her hands' own model loop on the phone (one run of a job; services/hands.py is the record)
       context.py        # AgentRuntimeContext (user_id + per-user integration handles)
       messages.py       # role/content <-> LangChain message conversions
       mcp_registry.py   # builds MultiServerMCPClient config from tools/*/config.json
@@ -190,8 +191,10 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /desktop        # game tools (start/replan/pause/...) — NOT MCP; on the orchestrator, only with her Minecraft pack
         /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
                         #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
-        phone_control.py # her hands on the user's phone screen (phase 9): read_phone_screen, phone_tap/... — NOT MCP;
-                        #   on the orchestrator on the user's reply turns when they have a phone; pictures via screenshot_hook
+        phone_control.py # her hands' screen tools on the user's phone (read_phone_screen, phone_tap/...): run by
+                        #   ai/hands.py (the hands' own loop, `hands` worker), never on her orchestrator
+        hands.py        # her mind's tools for her hands: use_phone, tell_hands, pause/resume/stop_hands, a read-only
+                        #   read_phone_screen, recent_phone_screens — NOT MCP; reply turns (start/resume) and wakes
       /desktop_control # her own Windows desktop: screenshot, move_mouse,
                         #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
                         #   screenshot_hook shows her the pictures (pre-model hook)
@@ -306,10 +309,13 @@ Jophiel is a general conversational agent with a persistent identity, personalit
                        #   heartbeat), push.py (push
                        #   outbox: her messages the user hasn't seen anywhere, re-checked when due), fcm.py (FCM HTTP v1);
                        #   follow_through.py: promises a change made due: her wake to act, attempts, checks;
+                       #   hands.py: her hands' jobs on the phone (start / tell / pause / resume / stop, the hands'
+                       #   claim, checks, steps, events as wakes, her moment's "Hands" section);
                        #   coordinator.py: background thinking she started and the durable wake events that bring her
                        #   back (finished thinking, her thoughts and proposals, reconsiderations she scheduled), outputs
                        #   per wake; autonomous_speech.py: those events' delivery fences)
-    /workers           # external workers: chat, memory, whatsapp, file_deletion, push (phone notifications),
+    /workers           # external workers: chat, memory, whatsapp, file_deletion, push (phone notifications), hands (her
+                       #   hands' jobs on the phone, one thread per running job),
                        #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Jophiel on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
                        #   learning (raw-capture retention) + learning-assessment

@@ -32,7 +32,7 @@ from app.services import heard
 from app.services import image_store, long_term_memory as memory_service
 from app.services import recall_references
 from app.services import coordinator, mind_turn, personality, promise_check
-from app.services import agent_say, phone_look, phone_notifications, push
+from app.services import agent_say, hands, phone_notifications, push
 from app.ai import prompts
 from app.services import stickers
 from app.services import tts as tts_service
@@ -209,6 +209,7 @@ async def _generate(job: ChatJob) -> None:
         asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at) if spoke_at else _none(),
         asyncio.to_thread(_personality),
         asyncio.to_thread(_phone_line, job.user_id),
+        asyncio.to_thread(_hands_moment, job.user_id),
     ))
     try:
         mind, wake_text, info = await _prepare_mind(job, payload, user, claim_token)
@@ -223,7 +224,8 @@ async def _generate(job: ChatJob) -> None:
     request_id = uuid.UUID(payload["request_id"]) if follow_up else None
     recall_turn = mind.recall_turn
     # After her memory check (a new message closes thinking for earlier ones), so these read what it left.
-    (game, (desktop, desktop_usable, desktop_commands), security, files, picture, personality_page, phone), \
+    (game, (desktop, desktop_usable, desktop_commands), security, files, picture, personality_page, phone,
+     hands_moment), \
         (working_memory, now, mind_state) = await asyncio.gather(
             early_reads,
             asyncio.gather(
@@ -242,7 +244,7 @@ async def _generate(job: ChatJob) -> None:
         wake_text = mind_phone_scope.wake_text(mind)
         history, game, desktop, desktop_usable, security, files, working_memory = [], None, None, False, None, (), None
         desktop_commands = False
-        picture, mind_state, phone, recall_turn = None, None, None, None
+        picture, mind_state, phone, recall_turn, hands_moment = None, None, None, None, None
         payload = {**payload, "awareness": "", "image_ids": [], "asset_ids": [], "vision_enabled": False}
         gmail_token = drive_token = None
 
@@ -275,8 +277,6 @@ async def _generate(job: ChatJob) -> None:
         mind=mind,
         wake=wake_text,
         third_party=mind.third_party,
-        phone_look=(phone_look.asked_of(info.get("input")) if follow_up and info and not mind.third_party
-                    and mind.phone_scope is None else None),
         memory_tools=mind.phone_scope is None,
         source_message_id=job.user_message_id,
         vision_enabled=bool(payload.get("vision_enabled", False)),
@@ -295,6 +295,9 @@ async def _generate(job: ChatJob) -> None:
         desktop_commands=desktop_commands,
         security=security,
         phone=phone,
+        # Her hands' job on their phone as it stands (services/hands.moment); never on a turn someone else's words
+        # caused.
+        hands=None if mind.third_party else hands_moment,
         zone=payload.get("zone"),
         turn_id=job.turn_id,
         conversation_id=job.conversation_id,
@@ -641,6 +644,15 @@ def _readable_files(user_id, attached: list[str]) -> tuple[tuple[str, str], ...]
     except Exception:  # noqa: BLE001 - a turn never fails because the file list did
         logger.exception("chat worker: listing readable files failed")
         return ()
+
+
+def _hands_moment(user_id: uuid.UUID) -> str | None:
+    """Her hands' job on their phone for the prompt; never fails a turn."""
+    try:
+        return hands.moment(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Reading her hands' job failed")
+        return None
 
 
 def _phone_line(user_id: uuid.UUID) -> str | None:

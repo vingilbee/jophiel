@@ -3203,6 +3203,70 @@ class CoordinatorOutput(Base):
                                                  onupdate=func.now())
 
 
+class HandsJob(Base):
+    """One job of her hands on the user's phone (PLAN_PHONE_HANDS.md, services/hands.py, migration d9b3e6a1c7f4).
+    One writer per field: her mind writes the goal, the instructions (``version`` bumps on each change) and the
+    status (pause / resume / stop); the hands write the steps, ``report`` and ``question``, and end it when done.
+    ``status``: running -> paused / ended; at most one job per user that isn't ended. ``paused_by``: her, the user
+    (the banner's Stop), the phone (locked, screen off, Phone control off) or the hands (``need_her``).
+    ``turn``: the phone's control turn the job holds now (a new one on every start or resume); ``claim_token`` +
+    ``claim_generation``: the hands' worker that runs it (fenced). Never anything of a screen."""
+
+    __tablename__ = "hands_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('running', 'paused', 'ended')", name="ck_hands_jobs_status"),
+        Index("uq_hands_jobs_open", "user_id", unique=True, postgresql_where=text("status <> 'ended'")),
+        Index("ix_hands_jobs_user_started", "user_id", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    revisions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    paused_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    pause_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    apps: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    actions: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    turn: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    zone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    resumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class HandsStep(Base):
+    """One action of her hands in a job: what they did (numbers, points, a key; never typed text) and the first
+    line of what came back (the screen's id and app, or the refusal), never what was on the screen."""
+
+    __tablename__ = "hands_steps"
+    __table_args__ = (UniqueConstraint("job_id", "index", name="uq_hands_steps_job_index"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("hands_jobs.id", ondelete="CASCADE"), nullable=False)
+    index: Mapped[int] = mapped_column(Integer, nullable=False)
+    did: Mapped[str] = mapped_column(String(300), nullable=False)
+    result: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class FollowThroughAttempt(Base):
     """One thing she did to carry out a promise or intention of hers when a change made it due, on a wake that
     wasn't a message (services/follow_through.py, migration a3f8c1e6d9b4). ``transition``: the observed change

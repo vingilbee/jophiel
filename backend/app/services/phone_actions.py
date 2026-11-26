@@ -52,11 +52,12 @@ PUSH_WAIT_SECONDS = 20
 COORDINATE_ACTIONS = {"get_position", "resolve_saved_place"}
 # Phase 9 (frontend-phone/PLAN_PHASE_9.md): her using the phone's screen. Each answers ``done`` with the screen after
 # it (``SCREEN_ACTIONS``), encrypted to the waiter like a coordinate, never kept in Redis or Postgres; no chat line
-# per action (the turn writes one, app/ai/tools/phone_control.py). ``args["turn"]``: the reply turn; a newer turn
+# per action (a job of her hands writes one, services/hands.py). ``args["turn"]``: the job's turn; a newer turn
 # holding the phone answers ``taken_over`` (services/phone_control.py).
 SCREEN_ACTIONS = {"read_screen", "tap", "long_press", "type_text", "scroll", "tap_point", "tap_points", "swipe", "gesture",
                   "press"}
-CONTROL_ACTIONS = SCREEN_ACTIONS | {"end_control"}
+# ``control_hold``: her hands are still at work between actions; the banner stays up (PLAN_PHONE_HANDS.md).
+CONTROL_ACTIONS = SCREEN_ACTIONS | {"end_control", "control_hold"}
 SEALED_ACTIONS = COORDINATE_ACTIONS | SCREEN_ACTIONS
 # What each action is called in "unavailable / sent, no answer yet" lines.
 LABELS = {

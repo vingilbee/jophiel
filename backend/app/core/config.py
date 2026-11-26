@@ -103,6 +103,10 @@ class Settings(BaseSettings):
     # (gpt-6.2-sol refuses reasoning_effort "none": keep an effort set while it's the model.)
     desktop_control_model: str | None = "gpt-6-luna"
     desktop_control_reasoning_effort: str | None = "low"
+    # Her hands on the phone (PLAN_PHONE_HANDS.md, app/ai/hands.py): their own loop. None: chat_model / the usual
+    # reasoning setting (the same model as her mind's, to start with).
+    hands_model: str | None = None
+    hands_reasoning_effort: str | None = None
     # Turns while she's in a game (a game session on, or a game event woke her): her mind there runs on a reasoning
     # model too. None: the turn's usual model / chat_reasoning_effort. Her desktop's own model wins when both apply.
     # gpt-6-luna with reasoning (2026-11-24, the user's choice): sol took ~7.5 s before her first word in a game

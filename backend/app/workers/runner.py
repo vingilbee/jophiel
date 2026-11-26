@@ -9,7 +9,7 @@ import redis
 from app.core.config import get_settings
 from app.services import system_status
 from app.workers import (
-    agent_events, chat, desktop, file_deletion, game_practice, learning,
+    agent_events, chat, desktop, file_deletion, game_practice, hands, learning,
     memory, mind, push, recall_embeddings, observation,
     whatsapp,
 )
@@ -115,6 +115,9 @@ def run(stop: threading.Event | None = None) -> None:
             worker_specs.append(("trajectory", learning.trajectory_once, "macrovision:trajectory:wakeups", 2.0))
         # Phone pushes (frontend-phone/PLAN_PHASE_0-3.md phase 2): her messages the user hasn't seen anywhere.
         worker_specs.append(("push", push.run_once, "macrovision:push:wakeups", 1.0))
+        # Her hands on the phone (PLAN_PHONE_HANDS.md): jobs her mind started, each run on a thread of its own.
+        from app.services.hands import QUEUE as HANDS_QUEUE
+        worker_specs.append(("hands", hands.run_once, HANDS_QUEUE, 1.0))
         # Embedding memory events for recall: background, batched; recall works before it catches up.
         worker_specs.append(("recall-embeddings", recall_embeddings.run_once,
                              "macrovision:recall-embeddings:wakeups", 5.0))

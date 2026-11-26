@@ -1,28 +1,25 @@
-"""Phone control (frontend-phone/PLAN_PHASE_9.md): the backend's part of her using the phone's screen.
+"""Phone control (frontend-phone/PLAN_PHASE_9.md, PLAN_PHONE_HANDS.md): the backend's part of her hands using the
+phone's screen.
 
 The phone does the seeing and the pressing (an accessibility service, on the real screen in front of the user);
-the tools are ``app/ai/tools/phone_control.py`` and every action travels the phase 7 channel
-(``services/phone_actions.act``). This module keeps what lives between those:
+her hands' tools are ``app/ai/tools/phone_control.py`` (run by ``app/ai/hands.py``, a job of ``services/hands.py``)
+and every action travels the phase 7 channel (``services/phone_actions.act``). This module keeps what lives
+between those:
 
-- **Whose turn it is.** Each reply turn that can use the phone takes the user's control turn (``begin_turn``): the
-  newest turn id in Redis, announced on a per-user channel. An action of an older turn is answered ``taken_over``
-  before it's sent, and one already waiting stops waiting (``phone_actions.act``): the user's new words end the old
-  turn's control, she starts the new one from a fresh screen. The phone keeps the same rule on its side.
+- **Whose turn it is.** The phone's control turn (``begin_turn``): the newest turn id in Redis, announced on a
+  per-user channel. A job of her hands holds one (a new one on each start or resume); her mind pausing or stopping
+  it, a new job, or a look of her own moves it on. An action of an older turn is answered ``taken_over`` before
+  it's sent, and one already waiting stops waiting (``phone_actions.act``). The phone keeps the same rule.
 - **Screens as she reads them** (``render``): the numbered items and the text, in reading order, with a first line
-  that names only the screen and the app (that line alone is what any record of her turn keeps:
-  ``record_line``).
+  that names only the screen and the app (that line alone is what any record keeps: ``record_line``).
 - **Short-term screen memory** (``remember`` / ``recent``): her last ``MEMORY_SCREENS`` screens as text only (no
   pictures), in this process's memory, each for ``MEMORY_SECONDS``, so "what was that song you saw?" can be answered
-  in a later turn. Never in the database, never in Redis; a restart loses them. Wiped at once when the phone
-  reports the master switch or Phone control off (``wipe``, from ``services/phone_state.report``: a per-user epoch
-  in Redis, since the report reaches the API process and the memory lives in the chat worker). Remembered screens
-  are for recall only: their numbers can't be acted on.
-- **The turn's chat line** (``turn_line``): one per turn ("Used your phone in Spotify, 9 steps"), never one per tap.
-- **A turn's steps** (``note_step`` / ``steps``): what her hands did, one line per action ("tapped [4] → Phone screen
-  s12: Spotify in front"): the action, its numbers or points, and the screen's first line only, never what's on it
-  (``record_line``). Kept in this process's memory like her screens (``STEP_TURNS`` turns, ``MEMORY_SECONDS``,
-  wiped with them), so a turn the user's new words cut off is read back step by step by the next one
-  (services/chat.py), not as "16 steps".
+  later, and her mind can read her hands' latest look. Never in the database, never in Redis; a restart loses them.
+  Wiped at once when the phone reports the master switch or Phone control off (``wipe``, from
+  ``services/phone_state.report``: a per-user epoch in Redis, since the report reaches the API process and the
+  memory lives in the worker). Remembered screens are for recall only: their numbers can't be acted on.
+- **A step** (``step_action``): what her hands did, never text typed or anything on the screen.
+- **A job's chat line** (``turn_line``): one per job ("Used your phone in Spotify, 9 steps"), never one per tap.
 """
 from __future__ import annotations
 
@@ -67,7 +64,7 @@ def _client() -> redis.Redis | None:
 
 
 def begin_turn(user_id: uuid.UUID, turn: str, *, client: redis.Redis | None = None) -> None:
-    """This reply turn now holds the user's phone control: an older turn's actions answer ``taken_over``."""
+    """This turn now holds the user's phone control: an older turn's actions answer ``taken_over``."""
     client = client or _client()
     if client is None:
         return
@@ -80,7 +77,7 @@ def begin_turn(user_id: uuid.UUID, turn: str, *, client: redis.Redis | None = No
 
 
 def superseded(user_id: uuid.UUID, turn: str, *, client: redis.Redis | None = None) -> bool:
-    """A newer reply turn holds the phone (unknown, or none recorded: not superseded)."""
+    """A newer turn holds the phone (unknown, or none recorded: not superseded)."""
     client = client or _client()
     if client is None:
         return False
@@ -225,8 +222,6 @@ class Remembered:
 
 _memory: dict[str, deque[Remembered]] = {}
 _lock = threading.Lock()
-# user id -> turn id -> (when it started, the epoch, its step lines); oldest turns dropped past STEP_TURNS.
-_steps: dict[str, dict[str, tuple[float, int, list[str]]]] = {}
 
 
 def _epoch(user_id: uuid.UUID | str, client: redis.Redis | None = None) -> int | None:
@@ -245,7 +240,6 @@ def wipe(user_id: uuid.UUID | str, *, client: redis.Redis | None = None) -> None
     """Forget every screen she saw on this user's phone, in every process (the epoch) and in this one now."""
     with _lock:
         _memory.pop(str(user_id), None)
-        _steps.pop(str(user_id), None)
     client = client or _client()
     if client is None:
         return
@@ -288,7 +282,6 @@ def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Rememb
             return []
         if off:
             _memory.pop(str(user_id), None)
-            _steps.pop(str(user_id), None)
             return []
         if epoch is None:  # whether a wipe happened can't be read: show nothing, keep nothing new either
             return []
@@ -300,11 +293,9 @@ def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Rememb
 
 
 # --------------------------------------------------------------------------- #
-# A turn's steps (this process only)
+# A step of her hands, as its record keeps it
 # --------------------------------------------------------------------------- #
 
-STEP_TURNS = 20
-STEPS_SHOWN = 30
 _POINTS_SHOWN = 6
 
 
@@ -340,52 +331,8 @@ def step_action(action: str, args: dict) -> str:
     return action
 
 
-def note_step(user_id: uuid.UUID | str, turn: str, index: int, line: str, *, now: float | None = None) -> None:
-    """Step ``index`` (0-based) of a turn: added, or replaced once its answer is known."""
-    epoch = _epoch(user_id)
-    if epoch is None:
-        return
-    now = time.time() if now is None else now
-    with _lock:
-        turns = _steps.setdefault(str(user_id), {})
-        started, kept_epoch, lines = turns.get(turn) or (now, epoch, [])
-        if kept_epoch != epoch:
-            started, lines = now, []
-        if index < len(lines):
-            lines[index] = line
-        else:
-            lines.append(line)
-        turns[turn] = (started, epoch, lines)
-        while len(turns) > STEP_TURNS:
-            turns.pop(min(turns, key=lambda t: turns[t][0]))
-
-
-def steps(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None = None) -> list[str]:
-    """A turn's steps, oldest first (none past ``MEMORY_SECONDS``, none from before a wipe)."""
-    now = time.time() if now is None else now
-    epoch = _epoch(user_id)
-    off = _control_off(user_id)
-    with _lock:
-        if off:
-            _steps.pop(str(user_id), None)
-            return []
-        kept = (_steps.get(str(user_id)) or {}).get(str(turn))
-        if kept is None or epoch is None or kept[1] != epoch or now - kept[0] >= MEMORY_SECONDS:
-            return []
-        return list(kept[2])
-
-
-def steps_text(lines: list[str]) -> str:
-    """The steps as one clause for her history: the last ``STEPS_SHOWN`` of them, numbered."""
-    if not lines:
-        return ""
-    start = max(0, len(lines) - STEPS_SHOWN)
-    shown = "; ".join(f"{i + 1}. {line}" for i, line in enumerate(lines[start:], start))
-    return f"step by step{f' (the first {start} not shown)' if start else ''}: {shown}"
-
-
 # --------------------------------------------------------------------------- #
-# The turn's one chat line
+# A job's one chat line
 # --------------------------------------------------------------------------- #
 
 
@@ -397,14 +344,9 @@ def _apps(apps: list[str]) -> str:
     return ", ".join(apps[:2]) + f" and {len(apps) - 2} more"
 
 
-def turn_line_id(turn: uuid.UUID | str) -> uuid.UUID:
-    """The id of a turn's one chat line: the same for the turn however it ended, so her history can find it."""
-    return uuid.uuid5(uuid.UUID(str(turn)), "phone-control")
-
-
 def turn_line(*, apps: list[str], steps: int, acted: bool, taken_over: bool = False,
               at_limit: bool = False) -> str:
-    """What the chat shows for a turn of hers on the phone: where and how many steps, never what she saw."""
+    """What the chat shows for a job of her hands on the phone: where and how many steps, never what she saw."""
     where = f" in {_apps(apps)}" if apps else ""
     if acted:
         text = f"Used your phone{where}, {steps} step{'s' if steps != 1 else ''}"
