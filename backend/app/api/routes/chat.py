@@ -1162,7 +1162,6 @@ async def chat_ws(websocket: WebSocket) -> None:
             cached_memory=mind.cached_memory,
             turn_boundary=mind.boundary(),
             mind_state=mind_state,
-            lessons=mind_turn.lessons_text(mind),
             mind=mind,
             memory_tools=True,
             source_message_id=user_message.id,

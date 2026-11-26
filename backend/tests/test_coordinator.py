@@ -35,7 +35,7 @@ from db_support import create_conversation, create_user, database, db_env  # noq
 def env(db_env, monkeypatch, tmp_path):
     settings = get_settings()
     for key, value in {"redis_url": None, "mind_turn_log_path": str(tmp_path / "turns.jsonl"),
-                       "mind_work_deadline_seconds": 180, "lessons_supply_enabled": False,
+                       "mind_work_deadline_seconds": 180,
                        "desktop_agent_enabled": False}.items():
         monkeypatch.setattr(settings, key, value)
 
@@ -670,6 +670,7 @@ def test_after_one_message_of_silence_the_next_request_is_its_own_current_messag
     assert messages(env)[-1] == ("assistant", "Ready.")
     # The same boundaries after a reload and when the window is cut to the last two messages.
     monkeypatch.setattr(get_settings(), "short_term_memory_messages", 2)
+    monkeypatch.setattr(chat_service, "HISTORY_STEP", 1)  # a window cut exactly (it normally holds its start)
     with env.db() as db:
         conversation = chat_service.get_conversation(db, user_id=env.user.id, conversation_id=env.conversation.id)
         reloaded = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)

@@ -40,7 +40,8 @@ from app.ai.agent import build_agent, get_agent
 from app.ai.context import AgentRuntimeContext
 from app.ai.mcp_registry import build_server_config
 from app.ai.messages import ChatTurn, extract_text, to_lc_messages
-from app.ai.prompts import build_system_prompt
+from app.ai.loop_timing import LoopTimer
+from app.ai.prompts import build_prompt_parts
 from app.ai.subagents import SUBAGENT_TAG, build_subagent_tool, subagents_for
 from app.ai.subagents.registry import SubAgentSpec
 from app.ai.tools.macrovision import macrovision_mcp_url, mint_scope_token
@@ -193,12 +194,18 @@ def _build_inputs(
     context: AgentRuntimeContext,
     specs: Sequence[SubAgentSpec],
 ) -> dict[str, Any]:
-    system = build_system_prompt(context, list(specs))
+    standing, moment = build_prompt_parts(context, list(specs))
     if context.mind is not None:
-        context.mind.prompt = system  # the evaluation's record keeps exactly what she read
+        context.mind.prompt = f"{standing}\n{moment}"  # the evaluation's record keeps exactly what she read
+    # Standing prompt, the conversation so far, then this evaluation's moment right before what it answers: the
+    # request opens with the same text from one turn to the next, so OpenAI's prompt cache serves the standing
+    # prompt and the history (services/chat.get_history keeps the window's start in place for several turns).
+    earlier, last = list(messages[:-1]), list(messages[-1:])
     lc_messages: list[BaseMessage] = [
-        SystemMessage(system),
-        *to_lc_messages(messages),
+        SystemMessage(standing),
+        *to_lc_messages(earlier),
+        SystemMessage(moment),
+        *to_lc_messages(last),
     ]
     if context.game_picture is not None and lc_messages and isinstance(lc_messages[-1], HumanMessage):
         # Her game as the user saw it when they spoke, on the in-flight message
@@ -416,9 +423,9 @@ async def stream_chat(
 ) -> AsyncIterator[dict]:
     """Stream the orchestrator's reply as token/subagent events.
 
-    ``on_stage``, if given, is called with ``"tools_ready"`` once the
-    specialists' MCP sessions are up and the model request is about to go out
-    -- the caller's timing hook. It must not raise; errors are swallowed.
+    ``on_stage(stage, **dims)``, if given, is the caller's timing hook: called with ``"tools_ready"`` once the
+    specialists' MCP sessions are up and the model request is about to go out, then with each model call and tool
+    of her loop (``app/ai/loop_timing.py``). It must not raise; errors are swallowed.
     """
     queue: asyncio.Queue[tuple[str | None, str] | dict | None] = asyncio.Queue()
     logger.debug("stream_chat: queue created id=%s", id(queue))
@@ -429,7 +436,10 @@ async def stream_chat(
                     with contextlib.suppress(Exception):
                         on_stage("tools_ready")
                 inputs = _build_inputs(messages, context, specs)
-                async for chunk, metadata in agent.astream(inputs, _run_config(context), stream_mode="messages"):
+                config = _run_config(context)
+                if on_stage is not None:
+                    config = {**(config or {}), "callbacks": [LoopTimer(on_stage)]}
+                async for chunk, metadata in agent.astream(inputs, config, stream_mode="messages"):
                     if SUBAGENT_TAG in (metadata.get("tags") or ()):
                         continue  # belongs to a subagent; it already pushed itself
                     if isinstance(chunk, ToolMessage) and context.mind is not None:

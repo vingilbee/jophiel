@@ -9,7 +9,7 @@ const CARD = 'rounded-2xl border border-[#D9E8F6] bg-white p-4'
 const TITLE = 'text-[10px] font-semibold tracking-[0.08em] text-[#7183A3] uppercase'
 const KIND: Record<string, string> = { question: 'Open question', commitment: 'Promise', intention: 'Intends to' }
 const WOKEN_BY: Record<string, string> = {
-  work_result: 'thinking she started', thought: 'a thought of hers', proposal: 'a proposal',
+  work_result: 'thinking she started', thought: 'a thought of hers',
   conflict: 'something memory noticed', finding: 'a security finding', due: 'something she chose to come back to',
   event: 'an event',
 }

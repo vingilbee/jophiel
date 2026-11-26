@@ -188,9 +188,8 @@ function WatchRow({ item, onOpen }: { item: WatchItem; onOpen: (part: PartId, an
 
 // --------------------------------------------------------------------------- Signals
 
-/** Signal kinds whose ref is a conversation turn, or a decision, so the row can open its trace. */
+/** Signal kinds whose ref is a conversation turn, so the row can open its trace. */
 const TURN_KINDS = new Set(['decision', 'thinking'])
-const ATTEMPT_KINDS = new Set(['lessons_hands', 'lessons_planner', 'lessons_mind'])
 
 function SignalsTab({ live, onOpen }: { live: Signal[]; onOpen: (part: PartId, anchor?: string) => void }) {
   const trace = useTrace()
@@ -230,7 +229,7 @@ function SignalsTab({ live, onOpen }: { live: Signal[]; onOpen: (part: PartId, a
         {shown.map((s) => {
           const from = PART_BY_ID[s.from]
           const to = PART_BY_ID[s.to]
-          const traceable = s.ref && (TURN_KINDS.has(s.kind) || ATTEMPT_KINDS.has(s.kind))
+          const traceable = s.ref && TURN_KINDS.has(s.kind)
           return (
             <li key={s.id} className="flex items-center gap-2 border-t border-[#11161A] py-2 text-[13px] first:border-t-0">
               <time className="w-[54px] shrink-0 text-[11.5px] text-[#6B757E] tabular-nums" title={clock(s.at)}>{clock(s.at).slice(0, 8)}</time>

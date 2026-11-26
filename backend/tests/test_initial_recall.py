@@ -168,7 +168,7 @@ def test_the_receipt_says_what_each_consumer_saw(db, alice):
 @pytest.fixture
 def pipeline(monkeypatch, tmp_path, database):
     settings = mind_turn.get_settings()
-    for key, value in {"mind_turn_log_path": str(tmp_path / "turns.jsonl"), "lessons_supply_enabled": False,
+    for key, value in {"mind_turn_log_path": str(tmp_path / "turns.jsonl"),
                        "desktop_agent_enabled": False}.items():
         monkeypatch.setattr(settings, key, value)
     monkeypatch.setattr(coordinator, "SessionLocal", database)

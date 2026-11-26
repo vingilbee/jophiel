@@ -323,27 +323,6 @@ def start(source: Source, scope: Scope, att: Attention, problem: Problem, at: fl
 # The thought
 # --------------------------------------------------------------------------- #
 
-def lessons_for(db: Session, user_id: uuid.UUID, problem) -> tuple[object | None, tuple[str, ...]]:
-    """What she learned with this user before, for a hard thought: the same retrieval a wake of her mind uses,
-    tentative inferences labelled as guesses. Its exact supply is kept beside the input (``mind_hard`` records which
-    revisions the thought had). A failure is no lessons, never a failed thought."""
-    from app.ai.learning import lessons as L
-    from app.services import memory_lessons
-
-    if not get_settings().lessons_supply_enabled:
-        return None, ()
-    try:
-        with db.begin_nested():
-            supply = memory_lessons.for_decision(db, user_id, problem.text, include_tentative=True)
-    except Exception:  # noqa: BLE001
-        log.exception("mind: reading lessons for a thought failed")
-        return None, ()
-    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
-    if lines:
-        lines.append(L.GUIDE.split("lessons_weighed:")[0].strip())
-    return supply, tuple(lines)
-
-
 def thinker() -> HardThinker:
     global _thinker
     if _thinker is None:
@@ -445,10 +424,6 @@ def run(source: Source, scope: Scope, att: Attention, problem: Problem, at: floa
         if not source.shadow:
             _log_hard(scope, problem, system, render(inp), thought)
             _capture_attempt(attempt_id, source, scope, problem, inp, thought, started_at=started_at)
-            if thought.learn and not thought.error:
-                _nominate(scope, attempt_id, thought.learn)
-            if thought.reconsider and not thought.error:
-                _critique(scope, attempt_id, inp, thought.reconsider)
         if thought.error or thought.kind is None:
             if source.shadow:
                 _log_shadow(scope, problem, system, render(inp), thought, status="nothing", why=None)
@@ -505,40 +480,6 @@ def _concluded(source: Source, scope: Scope, problem: Problem, kind: str | None,
         log.exception("mind: %s did not take a landed thought", source.name)
 
 
-def _nominate(scope: Scope, attempt_id: uuid.UUID, text: str) -> None:
-    """She pointed her learning at something in this activity (post-audit 3). Learning's reviewer decides whether
-    the records bear it out; her thought is never evidence. Never raises."""
-    from app.services import learning_review
-
-    try:
-        with SessionLocal() as db:
-            if learning_review.nominate(db, scope.user_id, source=scope.source, activity=scope.activity,
-                                        thought_id=attempt_id, text=text):
-                db.commit()
-    except Exception:  # noqa: BLE001
-        log.exception("mind: a nomination for learning was not kept")
-
-
-def _critique(scope: Scope, attempt_id: uuid.UUID, inp: HardInput, asked: dict) -> None:
-    """She thinks a lesson she was shown is mistaken (post-audit 4): her learning reads it again on its own evidence.
-    Only a lesson in what she read (its ref there); her thought is what prompts the reading, never evidence. Never
-    raises."""
-    from app.services import learning_lessons
-
-    supply = getattr(inp, "lesson_supply", None)
-    view = next((v for v in getattr(supply, "views", ()) if v.ref == asked.get("lesson")), None)
-    if view is None:
-        log.info("mind: a critique named %s, which wasn't among the lessons she read", asked.get("lesson"))
-        return
-    try:
-        with SessionLocal() as db:
-            if learning_lessons.critique(db, scope.user_id, uuid.UUID(view.id), asked.get("why") or "",
-                                         source=f"hard_thought:{attempt_id}"):
-                db.commit()
-    except Exception:  # noqa: BLE001
-        log.exception("mind: a critique of a lesson was not kept")
-
-
 def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, problem: Problem, inp: HardInput,
                      thought: HardThought, *, started_at: datetime) -> None:
     """A hard thought as asked (its exact text and system, what it read) and as answered, for learning
@@ -546,23 +487,15 @@ def _capture_attempt(attempt_id: uuid.UUID, source: Source, scope: Scope, proble
     from app.ai.mind.hard import SCHEMA
     from app.services import learning_capture
 
-    from app.services import memory_lessons
-    supply = getattr(inp, "lesson_supply", None)
-    if supply is not None:
-        memory_lessons.record_uses(scope.user_id, attempt_id, supply, consumer="mind", received=True,
-                                  decision_status="ok" if thought.kind else "no_conclusion")
     try:
         messages = [m["id"] for m in inp.conversation if m.get("id")]
         session_id = source.thought_session(scope)
         refs = [f"message:{m}" for m in messages] + [str(r) for r in inp.memory_refs]
-        refs += [f"lesson:{v.id}" for v in (supply.views if supply is not None else ())]
         if session_id is not None:
             refs.append(f"session:{session_id}")
         ctx = learning_capture.Ctx(
             user_id=scope.user_id, attempt_id=attempt_id, trigger=f"hard:{problem.trigger}"[:32],
-            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs) + tuple(
-                {"ref": f"lesson:{v.id}", "revision": v.revision, "status": v.status}
-                for v in (supply.views if supply is not None else ())),
+            game_session_id=session_id, input_refs=tuple({"ref": str(r)} for r in inp.memory_refs),
             sources=tuple(refs))
         answered = thought.raw is not None
         status = ("ok" if thought.kind is not None or (answered and not thought.error)

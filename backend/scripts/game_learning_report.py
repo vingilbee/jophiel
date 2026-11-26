@@ -53,16 +53,12 @@ def main() -> int:
     if not rows:
         print("No game sessions yet.")
         return 0
-    print(f"{'started':16} {'lessons':>8} " + " ".join(f"{c:>17}" for c in COLUMNS))
+    print(f"{'started':16} " + " ".join(f"{c:>17}" for c in COLUMNS))
     for r in rows:
-        lessons = "-" if r["lessons_on"] is None else (f"on:{r['lessons']}" if r["lessons_on"] else "off")
-        print(f"{r['started_at']:%Y-%m-%d %H:%M} {lessons:>8} "
+        print(f"{r['started_at']:%Y-%m-%d %H:%M} "
               + " ".join(f"{'-' if r[c] is None else r[c]:>17}" for c in COLUMNS))
     print()
-    for label, group in (("lessons on", [r for r in rows if r["lessons_on"]]),
-                         ("lessons off", [r for r in rows if r["lessons_on"] is False])):
-        if group:
-            print(f"{label:12} n={len(group):<3} " + "  ".join(f"{c}={_avg(group, c)}" for c in COLUMNS))
+    print(f"{'all':12} n={len(rows):<3} " + "  ".join(f"{c}={_avg(rows, c)}" for c in COLUMNS))
     explored = [(at, r) for at, r in explored if r["picked"] or r["lessons"]]
     if explored:
         print("\nExploring (challenges she set herself; model_calls = picks + 2 per lesson try + 1 per tidy):")

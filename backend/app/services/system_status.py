@@ -47,8 +47,7 @@ PARTS: tuple[Part, ...] = (
     Part("hands", "Hands", (), desktop_only=("desktop-driver", "game-practice")),
     Part("memory", "Memory", ("memory", "recall-embeddings", "file-deletion")),
     Part("observation", "Observation", ("observation",)),
-    Part("learning", "Learning", ("learning", "learning-assessment", "learning-lessons"),
-         desktop_only=("learning-trials", "trajectory")),
+    Part("learning", "Learning", ("learning", "practice"), desktop_only=("trajectory",)),
     Part("phone", "Phone", ("push",)),
 )
 

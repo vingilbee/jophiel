@@ -6,7 +6,7 @@ Public surface:
     - complete_chat       : await the full response as a single string
 
 Exports resolve lazily so importing a sibling package such as
-``app.ai.mind`` or ``app.ai.learning`` does not load the chat agent.
+``app.ai.mind`` does not load the chat agent.
 """
 from __future__ import annotations
 

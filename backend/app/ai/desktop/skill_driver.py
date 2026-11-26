@@ -21,8 +21,7 @@ Each ``step``:
    while the model was thinking;
 5. starts the skill in the pack and records progress.
 
-Every outcome and notice is also recorded as an experience (game learning),
-and the lessons she learned in earlier sessions are part of the system prompt.
+Every outcome and notice is also recorded as an experience (game learning).
 
 While she teaches herself a move (stage H1, ``practice``) her hands hold: they
 decide nothing and start nothing until it's over (the learner stops a skill of
@@ -124,7 +123,7 @@ def _param_schema(rule: dict) -> dict:
     return schema
 
 
-def skill_schema(manifest: list[dict], lesson_refs: list[str] | None = None) -> dict:
+def skill_schema(manifest: list[dict]) -> dict:
     """Strict JSON schema: a note, the step status and id, and one action
     (a skill from the manifest with its parameters, or a wait), or none."""
     actions = []
@@ -162,10 +161,6 @@ def skill_schema(manifest: list[dict], lesson_refs: list[str] | None = None) -> 
         "additionalProperties": False,
     }
 
-    if lesson_refs:
-        from app.ai.learning import lessons as L
-        schema["properties"]["lessons_weighed"] = L.weighed_schema(lesson_refs)
-        schema["required"].append("lessons_weighed")
     return schema
 
 
@@ -178,14 +173,7 @@ def _skill_line(skill: dict) -> str:
             f"Stops when {skill['stops_when']}.")
 
 
-def lessons_text(lessons: list[dict]) -> str:
-    from app.ai.learning import lessons as L
-    views = [L.LessonView.from_dict(v) for v in lessons]
-    lines = L.decision_lines(views)
-    return "\n\n" + "\n".join(lines) + "\n" + L.GUIDE if lines else ""
-
-
-def system_prompt(manifest: list[dict], game: str = "Minecraft", lessons: list[dict] | None = None) -> str:
+def system_prompt(manifest: list[dict], game: str = "Minecraft") -> str:
     skills = "\n".join(_skill_line(s) for s in manifest)
     return f"""You are Jophiel's hands in {game}: her own player in the world. Jophiel sets the goal and \
 the plan; you carry out the current plan step by choosing ONE skill at a time. A skill runs by itself until \
@@ -285,8 +273,7 @@ why. If no skill of yours (learned ones included) can do this step at all (e.g. 
 answer "stuck" now with a note starting "no skill for:" and the move that's missing. If you need the user \
 (e.g. they must give you something you can't get, or open the world), answer "needs_human" saying exactly what.
 - note: a few plain words about what you're doing, e.g. "chopping the oak to my left for planks".
-- params: use null for anything optional you don't need; names are Minecraft ids (oak_log, crafting_table).\
-{lessons_text(lessons or [])}"""
+- params: use null for anything optional you don't need; names are Minecraft ids (oak_log, crafting_table)."""
 
 
 def to_action(raw: dict, manifest: list[dict]) -> tuple[str, dict] | None:
@@ -385,10 +372,8 @@ class SkillDriverDeps:
     notice: Callable[[uuid.UUID, str, str], None] | None = None
     auto_goals: Callable[[uuid.UUID], int] | None = None
     messages: Callable[[uuid.UUID], list[dict]] | None = None
-    # Game learning: (session, kind, payload) appends an experience; lessons(session) loads her lessons.
+    # Game learning: (session, kind, payload) appends an experience.
     experience: Callable[[uuid.UUID, str, dict], None] | None = None
-    lessons: Callable[[uuid.UUID], list[dict]] | None = None
-    lesson_use: Callable | None = None
     # True while she's teaching herself a move (services/game_practice.holding): the hands hold.
     learning: Callable[[uuid.UUID], bool] | None = None
     # Moves she taught herself (services/game_skills, H2): learned(session) -> [{name, task, code, uses,
@@ -444,7 +429,6 @@ class SkillDriverRun:
     learned: dict[str, dict] = field(default_factory=dict)  # name -> her learned move (H2)
     _schema: dict | None = None
     _system: str | None = None
-    _lesson_refs: list[dict] = field(default_factory=list)
     _last_state: dict | None = None  # the last state read for counting (a run's end), for the capture
 
     def step(self) -> bool:
@@ -473,7 +457,7 @@ class SkillDriverRun:
                 self.learned = {m["name"]: m for m in self._load_learned()}
                 self.manifest = deps.pack.manifest() + [game_skills.manifest_entry(m) for m in self.learned.values()]
                 self._schema = skill_schema(self.manifest)
-                self._system = system_prompt(self.manifest, lessons=self._load_lessons())
+                self._system = system_prompt(self.manifest)
             self.pack_down_since = None
         except PackError as exc:
             return self._pack_down(exc)
@@ -518,10 +502,6 @@ class SkillDriverRun:
                          "why": why})
             self._save()
             return True
-        # Refresh between decisions so a newly assessed experience can inform this run.
-        supplied = self._load_lessons()
-        self._system = system_prompt(self.manifest, lessons=supplied)
-        self._schema = skill_schema(self.manifest, [v["ref"] for v in supplied])
         messages = deps.messages(self.session_id) if deps.messages else []
         text = self.prompt_text(view, current, state, messages)
         asked_at = deps.now()
@@ -977,12 +957,6 @@ class SkillDriverRun:
         """Her hands' decision as asked (system prompt, the step's text, the schema, the messages she was given)
         and as answered (her status for the step is her own claim; the run's result is recorded apart)."""
         model = self.deps.model
-        if self.deps.lesson_use:
-            try:
-                self.deps.lesson_use(self.session_id, attempt_id, getattr(self, "_supplied_lessons", []),
-                                     reply.output if reply else {}, status)
-            except Exception as exc:
-                self.deps.metric({"session": str(self.session_id), "event": "lesson_use_error", "error": str(exc)[:200]})
         self._capture(
             "attempt", attempt_id=attempt_id, model=getattr(model, "model", None) or type(model).__name__,
             input={"system": None, "schema": None, "text": text, "images": 0,
@@ -999,7 +973,7 @@ class SkillDriverRun:
                                               "output_tokens": reply.output_tokens,
                                               "cached_tokens": reply.cached_tokens},
             input_refs=[{"ref": f"learned_skill:{name}", "id": str(m.get("id")) if m.get("id") else None}
-                        for name, m in self.learned.items()] + list(self._lesson_refs)
+                        for name, m in self.learned.items()]
             + [{"ref": f"hands_message:{m.get('id')}"} for m in messages or []])
 
     def _execution(self, attempt_id: uuid.UUID | None, action, result: str, *, executed: dict | None = None,
@@ -1043,20 +1017,6 @@ class SkillDriverRun:
         try:
             return list(self.deps.learned(self.session_id))
         except Exception:  # noqa: BLE001 - her own moves are extra, never a reason to stop
-            return []
-
-    def _load_lessons(self) -> list[dict]:
-        self._supplied_lessons, self._lesson_refs = [], []
-        if self.deps.lessons is None:
-            return []
-        try:
-            lessons = self.deps.lessons(self.session_id)
-            self._supplied_lessons = lessons
-            self._lesson_refs = [{"ref": f"lesson:{lesson['id']}", "status": lesson.get("status"),
-                                  "revision": lesson.get("revision")} for lesson in lessons if lesson.get("id")]
-            return lessons
-        except Exception as exc:  # noqa: BLE001
-            self.deps.metric({"session": str(self.session_id), "event": "lessons_error", "error": str(exc)[:200]})
             return []
 
     # -- helpers ----------------------------------------------------------------

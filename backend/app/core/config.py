@@ -103,6 +103,11 @@ class Settings(BaseSettings):
     # (gpt-6.2-sol refuses reasoning_effort "none": keep an effort set while it's the model.)
     desktop_control_model: str | None = "gpt-6-luna"
     desktop_control_reasoning_effort: str | None = "low"
+    # Her phone_tap_on (app/ai/tools/phone_grounding.py): a model made for pointing at things on screens finds where
+    # to tap from her words, for what has no number (a game). Through OpenRouter: offered only with
+    # OPENROUTER_API_KEY set (the picture goes to its provider).
+    hands_grounding_model: str = "bytedance/ui-tars-1.5-7b"
+    hands_grounding_base_url: str = "https://openrouter.ai/api/v1"
     # Turns while she's in a game (a game session on, or a game event woke her): her mind there runs on a reasoning
     # model too. None: the turn's usual model / chat_reasoning_effort. Her desktop's own model wins when both apply.
     # gpt-6-luna with reasoning (2026-11-24, the user's choice): sol took ~7.5 s before her first word in a game
@@ -294,57 +299,6 @@ class Settings(BaseSettings):
     learning_capture_chunk_queue_max: int = Field(default=240, ge=1)
     trajectory_pull_chunks: int = Field(default=40, ge=1, le=500)
     trajectory_pull_calls: int = Field(default=10, ge=1, le=100)
-    # Retrospective assessment (docs/learning-system/02-implementation.md; services/learning_assessment.py): what
-    # experience says about what she did and what she understands. Post-audit 3 (services/learning_review.py): every
-    # completed exchange, a pause after her reply, and ongoing or ended game play give the reviewer an opportunity;
-    # the reviewer (the model) judges whether to examine, wait or leave it. Code only schedules: SETTLE seconds after
-    # new activity before a review runs (a burst arrives together); PAUSE: the user quiet this long after her reply
-    # reviews that reply; GAME: play this long with new experience gets a review before the session ends. STRETCH:
-    # the most messages one conversation review carries (a transport page, not an experience boundary: the reviewer
-    # can look earlier). WINDOW: lines shown before a stretch at first (doubling when it looks further back).
-    # MAX_CHARS: the most evidence read at once. None of these bound what can be learned, or how often.
-    learning_assessment_model: str = "gpt-6-luna"
-    learning_assessment_reasoning_effort: str | None = "low"
-    learning_assessment_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    learning_assessment_settle_seconds: float = Field(default=60.0, ge=0)
-    learning_review_pause_seconds: float = Field(default=300.0, ge=0)
-    learning_review_game_seconds: float = Field(default=300.0, ge=0)
-    learning_review_stretch_messages: int = Field(default=40, ge=2, le=400)
-    learning_assessment_window_messages: int = Field(default=12, ge=2, le=200)
-    learning_assessment_max_chars: int = Field(default=60000, ge=4000)
-    learning_assessment_max_attempts: int = Field(default=4, ge=1)
-    learning_assessment_log_path: str = "var/learning_assessment.jsonl"
-    # Lessons (docs/learning-system/03-implementation.md; services/learning_lessons.py builds them from supported
-    # assessments, services/memory_lessons.py owns them). LEARNING_LESSONS_ENABLED off: no new lessons or changes to
-    # them (what exists stays). LESSONS_SUPPLY_ENABLED off: the baseline, lessons are kept but given to no decision.
-    # Whether an inference is established or tentative is the builder's judgment on the evidence (post-audit 3), not a
-    # count of occasions. SUPPLIED_MAX: the most lessons one decision is given (past it, the most relevant, whole).
-    learning_lessons_enabled: bool = True
-    lessons_supply_enabled: bool = True
-    lessons_supplied_max: int = Field(default=5, ge=1, le=20)
-    learning_lessons_model: str = "gpt-6-luna"
-    learning_lessons_reasoning_effort: str | None = "low"
-    learning_lessons_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    learning_lessons_max_attempts: int = Field(default=4, ge=1)
-    learning_lessons_log_path: str = "var/learning_lessons.jsonl"
-    # Predictions and bounded game trials (docs/learning-system/04-implementation.md; services/learning_trials.py).
-    # LEARNING_TRIALS_ENABLED off: no new investigations or proposals (live trials still finish and are assessed).
-    # The per-trial limits are the first scenario's starting defaults (climbing a small obstacle): execution
-    # attempts, active seconds including preparation, blocks placed; whichever comes first ends the trial. A
-    # proposal may ask for less, never more. WINDOW: how long after execution ends observations still count.
-    learning_trials_enabled: bool = True
-    learning_trials_model: str = "gpt-6-luna"
-    learning_trials_reasoning_effort: str | None = "low"
-    learning_trials_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    learning_trials_max_attempts: int = Field(default=4, ge=1)
-    trial_max_attempts: int = Field(default=3, ge=1, le=10)
-    trial_max_seconds: int = Field(default=300, ge=30, le=3600)
-    trial_max_blocks: int = Field(default=8, ge=0, le=64)
-    trial_window_seconds: int = Field(default=20, ge=0, le=600)
-    # How long a deferral is kept when her mind names no expiry, and how far she may be from the obstacle.
-    trial_defer_hours: float = Field(default=2.0, gt=0, le=168)
-    trial_near_m: float = Field(default=24.0, gt=0, le=128)
-    learning_trials_log_path: str = "var/learning_trials.jsonl"
     # One evaluation of her mind per wake (services/mind_turn.py): one trace line each (ids, labels, counts,
     # timings; no message or memory text), with the coordinator's lifecycle lines.
     mind_turn_log_path: str = "var/mind_turns.jsonl"
@@ -599,6 +553,13 @@ class Settings(BaseSettings):
     typesafe_api_key: str = ""
     typesafe_base_url: str = "https://api.typesafe.ai/v1"
     openrouter_api_key: str = ""
+    # Her practice notes (services/practice.py): a stretch of her hands on a device is reviewed once they've been
+    # still for PRACTICE_SETTLE_SECONDS; its trail (steps, screens as text, a few pictures) waits in Redis at most
+    # PRACTICE_TRAIL_SECONDS and is deleted once read. The reviewer looks at pictures, so it needs a vision model.
+    practice_review_model: str = "gpt-6-luna"
+    practice_review_reasoning_effort: str | None = "low"
+    practice_settle_seconds: float = Field(default=90.0, ge=5)
+    practice_trail_seconds: int = Field(default=6 * 3600, ge=600)
     strands_decider_url: str = "http://127.0.0.1:8765"
 
     def is_owner(self, email: str | None) -> bool:

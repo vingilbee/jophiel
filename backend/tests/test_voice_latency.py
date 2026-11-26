@@ -113,3 +113,176 @@ def test_ws_adapter_accepts_latency_report_and_rejects_unknown_stage():
             "type": "voice_latency", "turn_id": turn, "outcome": "audio",
             "marks": {"transcript": 1.0},
         }))
+
+
+# --------------------------------------------------------------------------- #
+# Her loop inside model_ttft (app/ai/loop_timing.py)
+
+
+def _scripted_agent():
+    """A real LangGraph agent whose model is scripted: a tool call, then words. The tool runs a model itself (as
+    the phone checks do), which must count as the tool's time, not as a call of hers."""
+    from langchain_core.language_models import BaseChatModel
+    from langchain_core.messages import AIMessage, AIMessageChunk
+    from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+    from langchain_core.tools import tool
+    from langgraph.prebuilt import create_react_agent
+
+    class Scripted(BaseChatModel):
+        replies: list
+
+        @property
+        def _llm_type(self) -> str:
+            return "scripted"
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            return ChatResult(generations=[ChatGeneration(message=self.replies.pop(0))])
+
+        def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+            reply = self.replies.pop(0)
+            chunk = AIMessageChunk(content=reply.content, tool_call_chunks=[
+                {"name": c["name"], "args": json.dumps(c["args"]), "id": c["id"], "index": i}
+                for i, c in enumerate(reply.tool_calls)],
+                usage_metadata={"input_tokens": 3000, "output_tokens": 5, "total_tokens": 3005,
+                                "input_token_details": {"cache_read": 2048}})
+            if run_manager is not None:
+                run_manager.on_llm_new_token(reply.content or "", chunk=ChatGenerationChunk(message=chunk))
+            yield ChatGenerationChunk(message=chunk)
+
+    inner = Scripted(replies=[AIMessage("inner verdict")])
+
+    @tool
+    def read_phone_screen() -> str:
+        """Read the screen."""
+        inner.invoke("look")
+        return "screen 1"
+
+    model = Scripted(replies=[
+        AIMessage("", tool_calls=[{"name": "read_phone_screen", "args": {}, "id": "c1"}]),
+        AIMessage("Done."),
+    ])
+    return create_react_agent(model, tools=[read_phone_screen])
+
+
+def test_loop_timer_marks_her_model_calls_and_tools_only(monkeypatch):
+    import asyncio
+
+    from app.ai import chat as ai_chat
+    from app.ai.context import AgentRuntimeContext
+
+    agent = _scripted_agent()
+
+    class Built:
+        async def __aenter__(self):
+            return agent, []
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(ai_chat, "_orchestrator_for", lambda context, queue=None: Built())
+    monkeypatch.setattr(ai_chat, "_build_inputs", lambda messages, context, specs: {"messages": messages})
+    marks: list[tuple[str, dict]] = []
+
+    async def run():
+        async for _ in ai_chat.stream_chat(messages=[("user", "hi")], context=AgentRuntimeContext(uuid.uuid4()),
+                                           on_stage=lambda stage, **dims: marks.append((stage, dims))):
+            pass
+
+    asyncio.run(run())
+    stages = [stage for stage, _ in marks]
+    assert stages == ["tools_ready",
+                      "loop_model_start", "loop_model_first_chunk", "loop_model_end",
+                      "loop_tool_start", "loop_tool_end",
+                      "loop_model_start", "loop_model_first_chunk", "loop_model_end"]
+    ends = [dims for stage, dims in marks if stage == "loop_model_end"]
+    assert ends[0] == {"call": 1, "tool_calls": 1, "input_tokens": 3000, "cached_tokens": 2048, "output_tokens": 5}
+    assert ends[1]["call"] == 2 and ends[1]["tool_calls"] == 0
+    assert dict(marks)["loop_tool_start"] == {"tool": "read_phone_screen", "call": 1}
+
+
+def test_loop_steps_and_metrics_from_marks(log_file):
+    path, _ = log_file
+    turn = uuid.uuid4()
+    for stage, at, dims in [
+        ("tools_ready", 1000, {}),
+        ("loop_model_start", 1000, {"call": 1}),
+        ("loop_model_first_chunk", 1600, {"call": 1}),
+        ("loop_model_end", 1700, {"call": 1, "tool_calls": 1, "input_tokens": 9000, "cached_tokens": 6000}),
+        ("loop_tool_start", 1700, {"tool": "read_phone_screen", "call": 1}),
+        ("loop_tool_end", 2900, {"tool": "read_phone_screen", "ok": True}),
+        ("loop_model_start", 2900, {"call": 2}),
+        ("loop_model_first_chunk", 3300, {"call": 2}),
+        ("loop_model_end", 3500, {"call": 2, "tool_calls": 0}),
+        ("model_first_token", 3300, {}),
+    ]:
+        voice_latency.mark(stage, turn, source="worker", wall_ms=float(at), **dims)
+
+    turns = voice_latency.group_turns(voice_latency.read_records(path))
+    one = turns[str(turn)]
+    assert "loop_model_start" not in one["stages"] and one["stages"]["model_first_token"] == 3300
+    steps = voice_latency.loop_steps(one)
+    assert [(s["kind"], s.get("ms")) for s in steps] == [("model", 700), ("tool", 1200), ("model", 600)]
+    assert steps[0]["first_chunk_ms"] == 600 and steps[0]["cached_tokens"] == 6000
+    metrics = voice_latency.loop_metrics(one)
+    assert metrics == {"loop_model_calls": 2, "loop_model_ms": 1300, "loop_tools": 1, "loop_tool_ms": 1200,
+                       "loop_first_call_wait": 600, "loop_first_input_tokens": 9000,
+                       "loop_first_cached_tokens": 6000}
+    summary = voice_latency.summarize(turns)
+    assert summary["loop_tool_ms"]["p50"] == 1200 and summary["model_ttft"]["p50"] == 2300
+
+
+# --------------------------------------------------------------------------- #
+# A request that opens the same way from one turn to the next (prompt caching)
+
+
+def test_standing_prompt_first_and_the_moment_right_before_the_message():
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from app.ai.chat import _build_inputs
+    from app.ai.context import AgentRuntimeContext
+
+    context = AgentRuntimeContext(user_id=uuid.uuid4(), user_name="Sam", now="Tuesday 14:02",
+                                  awareness="- Eyes: closed", working_memory="- a goal")
+    history = [{"role": "user", "content": "first"}, {"role": "assistant", "content": "reply"},
+               {"role": "user", "content": "second"}]
+    messages = _build_inputs(history, context, [])["messages"]
+    assert [type(m).__name__ for m in messages] == ["SystemMessage", "HumanMessage", "AIMessage",
+                                                    "SystemMessage", "HumanMessage"]
+    standing, moment = messages[0].content, messages[3].content
+    assert "You are Jophiel" in standing and "You are speaking with Sam." in standing
+    for volatile in ("Tuesday 14:02", "Eyes: closed", "a goal"):
+        assert volatile not in standing and volatile in moment
+    assert isinstance(messages[-1], HumanMessage) and messages[-1].content == "second"
+
+    # Another moment, same standing prompt: the request's opening is unchanged.
+    later = AgentRuntimeContext(user_id=context.user_id, user_name="Sam", now="Tuesday 14:09",
+                                awareness="- Eyes: open", working_memory="- another goal")
+    again = _build_inputs([*history, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "third"}],
+                          later, [])["messages"]
+    assert again[0].content == standing and again[1:3] == messages[1:3]
+    assert isinstance(again[-2], SystemMessage) and "Tuesday 14:09" in again[-2].content
+
+
+def test_history_window_start_holds_for_several_turns():
+    from app.services.chat import HISTORY_STEP, _held_window
+
+    keep = 24
+
+    def rows(newest: int):
+        fetched = range(max(1, newest - keep - HISTORY_STEP + 1), newest + 1)
+        return [SimpleNamespace(conversation_sequence=seq) for seq in fetched]
+
+    starts = []
+    for newest in range(40, 40 + 3 * HISTORY_STEP):
+        held = _held_window(rows(newest), keep)
+        assert keep <= len(held) < keep + HISTORY_STEP
+        assert held[-1].conversation_sequence == newest
+        starts.append(held[0].conversation_sequence)
+    # Over 3 * HISTORY_STEP new messages the start moves 3 times, not once a turn.
+    assert sum(a != b for a, b in zip(starts, starts[1:])) == 3
+    assert _held_window(rows(10), keep) == rows(10)  # a short conversation: everything
+    gappy = [SimpleNamespace(conversation_sequence=seq) for seq in (1, 2, 3, 100)]
+    assert _held_window(gappy, 3) == gappy[-3:]

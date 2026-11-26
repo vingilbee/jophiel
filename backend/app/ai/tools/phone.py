@@ -604,7 +604,7 @@ def build_exchange_tools(user_id: uuid.UUID, conversation: str | None = None) ->
     @tool
     async def note_exchange(notification: str, about: list[str], addressed: Addressed, meaning: str,
                             their_words: Optional[str] = None, changed: Optional[_Changed] = None,
-                            worth_learning: bool = False, also_for: Optional[list[str]] = None) -> str:
+                            also_for: Optional[list[str]] = None) -> str:
         """Keep your reading of an exchange with someone on the phone, when it says something about them or about
         you two. Most exchanges change nothing: only note one that does. What you note is kept for review: it
         doesn't change your relationship record or what you do yet.
@@ -617,7 +617,7 @@ def build_exchange_tools(user_id: uuid.UUID, conversation: str | None = None) ->
         familiarity (how well you know each other), warmth (how you feel towards them), initiative (whether you'd
         reach out to them yourself: only when they showed they'd welcome it, or not; a friendly hello, a thank-you
         or a warm reply isn't that), your note. A request for space is note_request_for_space, not a change of
-        warmth. worth_learning: true when it tells you something about how to be with them.
+        warmth.
         also_for: other conversations their own words explicitly say it applies to, by name.
         """
         if why := await elsewhere(notification):
@@ -625,7 +625,7 @@ def build_exchange_tools(user_id: uuid.UUID, conversation: str | None = None) ->
         fields = changed.model_dump(exclude_none=True) if changed else {}
         return await asyncio.to_thread(
             phone_relationships.note_exchange, user_id, notification, about=about, addressed=addressed,
-            meaning=meaning, their_words=their_words, changed=fields, worth_learning=worth_learning,
+            meaning=meaning, their_words=their_words, changed=fields,
             also_for=also_for or [])
 
     @tool

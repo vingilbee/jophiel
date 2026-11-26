@@ -62,8 +62,7 @@ def pipeline(capture, monkeypatch, tmp_path):
         return turn
 
     monkeypatch.setattr(recall_references, "for_reply", for_reply)
-    settings = mind_turn.get_settings().model_copy(update={"mind_turn_log_path": str(tmp_path / "turns.jsonl"),
-                                                           "lessons_supply_enabled": False})
+    settings = mind_turn.get_settings().model_copy(update={"mind_turn_log_path": str(tmp_path / "turns.jsonl")})
     monkeypatch.setattr(mind_turn, "get_settings", lambda: settings)
     return state
 

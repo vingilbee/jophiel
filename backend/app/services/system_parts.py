@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     CaptureGap, ChatMessage, Conversation, CoordinatorWork, DecisionAttempt, DecisionExecution, DesktopSession,
-    GameExperience, MemoryEvent, MemoryJob, MemoryLesson, MemoryLessonUse, MindThought, Observation,
+    GameExperience, MemoryEvent, MemoryJob, MindThought, Observation,
     ObservationSource, PhoneActivity, PhoneAffinity, PhoneContactBoundary, PhoneConversation, PhoneExchange,
     PhoneOutbound, PhonePerson, PushDelivery, SemanticMemory, WorkingItem,
 )
@@ -91,10 +91,10 @@ def _evaluation_out(a: DecisionAttempt) -> dict[str, Any]:
             "seconds": _seconds(a.started_at, a.produced_at), "reason": inp.get("reason") or a.trigger,
             "message": _clip(inp.get("message"), 300), "wake": _clip(inp.get("wake"), 500),
             "memory": memory.get("status"), "memory_records": len(memory.get("refs") or []),
-            "lessons": len(inp.get("lessons") or []), "tools": tools,
+            "tools": tools,
             "silent": _clip(out.get("silent"), 200), "said": _clip(out.get("reply"), 400),
             "thinking_started": len(out.get("thinking_started") or []),
-            "scheduled": len(out.get("scheduled") or []), "proposal": out.get("proposal")}
+            "scheduled": len(out.get("scheduled") or [])}
 
 
 def _thought_out(t: MindThought) -> dict[str, Any]:
@@ -106,19 +106,6 @@ def _thought_out(t: MindThought) -> dict[str, Any]:
             "for_hands": _clip(t.for_hands, 300), "follows": t.follows,
             "judged": (judged(t.assessment).strip(" []") or None), "said": bool(t.said),
             "dropped": _clip(t.dropped_reason, 200)}
-
-
-def _lesson_uses(db: Session, user_id: uuid.UUID, consumers: tuple[str, ...], limit: int = 10) -> list[dict[str, Any]]:
-    """The lessons memory gave a decision maker lately, and what it said it did with each (its own account)."""
-    rows = db.execute(
-        select(MemoryLessonUse, MemoryLesson.statement, MemoryLesson.status)
-        .join(MemoryLesson, MemoryLesson.id == MemoryLessonUse.lesson_id)
-        .where(MemoryLessonUse.user_id == user_id, MemoryLessonUse.consumer.in_(consumers))
-        .order_by(MemoryLessonUse.created_at.desc()).limit(limit)).all()
-    return [{"id": u.id, "at": _iso(u.created_at), "consumer": u.consumer, "lesson": _clip(statement, 300),
-             "lesson_status": status, "revision": u.revision, "received": u.received,
-             "reason": _clip(u.reason, 200), "reported": u.reported, "why": _clip(u.reported_why, 300)}
-            for u, statement, status in rows]
 
 
 def _plan_out(a: DecisionAttempt, applied: DecisionExecution | None) -> dict[str, Any]:
@@ -161,7 +148,6 @@ def _mind(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                              for row in rows] for key, rows in continuity.items()},
         "thoughts": [_thought_out(t) for t in thoughts],
         "plans": [_plan_out(a, applied.get(a.id)) for a in planner],
-        "lessons": _lesson_uses(db, user_id, ("planner", "mind")),
     }
 
 
@@ -288,8 +274,6 @@ def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
             "claim": answer.get("status"), "note": _clip(answer.get("note"), 500),
             "action": _skill_line({"skill": action[0], "params": action[1] if len(action) > 1 else {}})
             if isinstance(action, list) and action else None,
-            "weighed": [{"lesson": w.get("lesson"), "use": w.get("use"), "why": _clip(w.get("why"), 200)}
-                        for w in answer.get("lessons_weighed") or [] if isinstance(w, dict)][:6],
             "run": _run_out(run) if run is not None else None,
         })
     desktop = db.scalars(select(DecisionExecution).where(DecisionExecution.user_id == user_id,
@@ -302,7 +286,6 @@ def _hands(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         "checks": [{"id": str(c.id), "at": _iso(c.ended_at or c.captured_at), "do": _clip((c.intended or {}).get("do"), 200),
                     "done_when": _clip((c.intended or {}).get("done_when"), 200),
                     "counted": _clip((c.executed or {}).get("counted"), 300)} for c in checks],
-        "lessons": _lesson_uses(db, user_id, ("hands",)),
         "outcomes": events,
     }
 
@@ -314,12 +297,6 @@ def _memory(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                         .order_by(MemoryEvent.recorded_at.desc()).limit(LIMIT)).all()
     facts = db.scalars(select(SemanticMemory).where(SemanticMemory.user_id == user_id)
                        .order_by(SemanticMemory.created_at.desc()).limit(LIMIT)).all()
-    lessons = db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id)
-                         .order_by(MemoryLesson.updated_at.desc()).limit(LIMIT)).all()
-    uses = dict(db.execute(select(MemoryLessonUse.lesson_id, func.count()).where(
-        MemoryLessonUse.user_id == user_id, MemoryLessonUse.received.is_(True),
-        MemoryLessonUse.lesson_id.in_([r.id for r in lessons] or [uuid.uuid4()]))
-        .group_by(MemoryLessonUse.lesson_id)).all())
     pending = db.scalar(select(func.count()).select_from(MemoryJob).where(
         MemoryJob.user_id == user_id, MemoryJob.status.in_(("pending", "processing", "retry"))))
     return {
@@ -331,10 +308,6 @@ def _memory(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         "facts": [{"id": str(f.id), "kind": f.kind, "status": f.status, "text": _clip(f.content, 300),
                    "confidence": round(f.confidence, 2), "revision": f.revision, "at": _iso(f.created_at)}
                   for f in facts],
-        "lessons": [{"id": str(r.id), "kind": r.kind, "scope": r.scope, "status": r.status, "origin": r.origin,
-                     "statement": _clip(r.statement, 400), "applies_when": _clip(r.applies_when, 300),
-                     "reason": _clip(r.status_reason, 200), "revision": r.revision, "used": uses.get(r.id, 0),
-                     "at": _iso(r.updated_at)} for r in lessons],
     }
 
 
@@ -457,8 +430,7 @@ def _phone(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         "exchanges": [{"id": str(e.id), "at": _iso(e.at), "person": _person_name(known.get(e.person_id)),
                        "conversation": conv_titles.get(e.conversation_id), "addressed": e.addressed,
                        "participated": e.participated, "observation": _clip(e.observation, 300),
-                       "their_words": _clip(e.their_words, 300), "lesson": e.lesson,
-                       "lesson_why": _clip(e.lesson_why, 300)} for e in exchanges],
+                       "their_words": _clip(e.their_words, 300)} for e in exchanges],
         "space": [{"id": str(b.id), "at": _iso(b.created_at), "person": _person_name(known.get(b.person_id)),
                    "conversation": conv_titles.get(b.conversation_id), "scope": b.scope, "topic": _clip(b.topic, 160),
                    "words": _clip(b.words, 300)} for b in space],
@@ -487,7 +459,7 @@ WATCH_LIMIT = 60
 
 def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
     """What the owner watches most, as one log, newest first: what she thought (mind), what memory captured
-    (events, facts, lessons) and her hands' goal (plan changes, steps counted done, skill runs). Real records only;
+    (events, facts) and her hands' goal (plan changes, steps counted done, skill runs). Real records only;
     each item says which part it came from, and its anchor on that part's page."""
     items: list[dict[str, Any]] = []
 
@@ -511,8 +483,7 @@ def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         o = _evaluation_out(a)
         did = ("stayed silent" if o["silent"] else "spoke" if o["said"] else "wrote nothing")
         extras = [f"started thinking" if o["thinking_started"] else None,
-                  f"scheduled {o['scheduled']}" if o["scheduled"] else None,
-                  f"proposal: {o['proposal']}" if o["proposal"] else None]
+                  f"scheduled {o['scheduled']}" if o["scheduled"] else None]
         add("mind", "evaluation", o["at"], " · ".join(b for b in (f"woke: {o['reason']}", did, *extras) if b),
             o["silent"] or o["said"] or o["message"], anchor="evaluations", ref=o["id"],
             tone="error" if a.status != "ok" else None,
@@ -532,10 +503,6 @@ def highlights(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
                         .order_by(SemanticMemory.created_at.desc()).limit(15)):
         add("memory", "fact", _iso(f.created_at), f"fact · {f.kind}", _clip(f.content, 300), anchor="facts",
             ref=str(f.id), tone="muted" if f.status != "active" else None)
-    for r in db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id)
-                        .order_by(MemoryLesson.updated_at.desc()).limit(10)):
-        add("memory", "lesson", _iso(r.updated_at), f"lesson · {r.status} · rev {r.revision}", _clip(r.statement, 300),
-            anchor="lessons", ref=f"{r.id}:{r.revision}", tone="muted" if r.status == "withdrawn" else None)
     for x in db.scalars(select(DecisionExecution).where(
             DecisionExecution.user_id == user_id,
             DecisionExecution.kind.in_(("skill_run", "step_check", "plan_apply")))

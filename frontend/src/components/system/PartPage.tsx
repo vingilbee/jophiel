@@ -3,13 +3,14 @@ import type { ReactNode } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { systemApi } from '../../api/system'
 import type {
-  HandsFeed, LearningFeed, LessonUse, MemoryFeed, MindEvaluation, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
+  HandsFeed, LearningFeed, MemoryFeed, MindEvaluation, MindFeed, MouthFeed, ObservationFeed, PartFeeds,
   PartId, PartStatus, PhoneFeed, Signal, Thought, WorkerStatus,
 } from '../../types/system'
 import { PART_BY_ID } from './anatomy'
 import type { PartAnatomy } from './anatomy'
 import { GoalCard } from './GoalCard'
 import { LearningDetails } from './LearningDetails'
+import { PracticeNotes } from './PracticeNotes'
 import { Entry, Facts, LinkButton, Timeline } from './log'
 import { ago, join, words } from './format'
 import { NodeGlyph } from './NodeGlyph'
@@ -24,7 +25,7 @@ const LINKED: Record<PartId, string[]> = {
   mouth: ['text'],
   mind: ['evaluations', 'continuity', 'hard', 'quick', 'planner', 'look-backs'],
   hands: ['desktop', 'goal', 'skills', 'pack'],
-  memory: ['facts', 'working', 'lessons'],
+  memory: ['facts', 'working'],
   observation: ['conversation', 'game', 'desktop', 'security', 'deliveries'],
   learning: ['capture'],
   phone: ['senses', 'notifications', 'replies', 'checks', 'people', 'space', 'push'],
@@ -35,7 +36,7 @@ const WORKER_WORD: Record<WorkerStatus['state'], string> = { alive: 'alive', bus
 /** Why her mind woke, in words (backend services/coordinator.wake_reason and mind_turn reasons). */
 const WAKE_WORD: Record<string, string> = {
   user_message: 'their message', work_result: 'thinking she started', thought: 'a thought of hers',
-  proposal: 'a proposal', conflict: 'something memory noticed', finding: 'a security finding', due: 'something she chose to come back to',
+  conflict: 'something memory noticed', finding: 'a security finding', due: 'something she chose to come back to',
   event: 'an event',
 }
 /** What a wake came to (coordinator_outputs.decision). */
@@ -99,6 +100,7 @@ export function PartPage({ part, status, signals, anchor, onClose }: {
             )}
           >
             <Feed part={part.id} anchor={anchor} />
+            {part.id === 'learning' && <PracticeNotes />}
             {part.id === 'learning' && <LearningDetails />}
           </ErrorBoundary>
         </main>
@@ -284,22 +286,6 @@ function Feed({ part, anchor }: { part: keyof PartFeeds; anchor?: string | null 
   )
 }
 
-/** A lesson memory gave a decision: what the decision said it did with it, or why it never got there. */
-function lessonUse(u: LessonUse) {
-  return (
-    <Entry
-      key={u.id}
-      at={u.at}
-      tone={u.received ? undefined : 'muted'}
-      meta={join(words(u.consumer), `rev ${u.revision}`, u.lesson_status, u.received ? (u.reported ? `said: ${words(u.reported)}` : 'no account given') : 'not given')}
-    >
-      {u.lesson}
-      {u.why && <p className="mt-1 text-[14px] text-[#AEB7BF]">{u.why}</p>}
-      {!u.received && u.reason && <p className="mt-1 text-[13.5px] text-[#8C97A3]">{u.reason}</p>}
-    </Entry>
-  )
-}
-
 const traceButton = (trace: (t: TraceTarget) => void, target: TraceTarget | null) =>
   target && <LinkButton onClick={() => trace(target)}>Trace</LinkButton>
 
@@ -352,7 +338,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
             tone={e.status === 'ok' ? undefined : 'error'}
             meta={join(`woken by ${WAKE_WORD[e.reason] ?? words(e.reason)}`, did, e.memory && `memory: ${words(e.memory)}`,
               e.thinking_started > 0 && 'started thinking', e.scheduled > 0 && `scheduled ${e.scheduled}`,
-              e.proposal && `proposal: ${e.proposal}`, e.seconds !== null && `${e.seconds.toFixed(1)} s`)}
+              e.seconds !== null && `${e.seconds.toFixed(1)} s`)}
             action={traceButton(trace, e.turn_id ? { turn: e.turn_id } : { attempt: e.id })}
             more={tools.length || e.wake ? (
               <div className="space-y-2.5">
@@ -374,7 +360,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
       return [
         {
           id: 'evaluations', sub: 'evaluations', title: 'Evaluations',
-          hint: 'Each time something woke her (their message, thinking she started that finished, a thought of hers, a proposal, something she chose to come back to): what memory gave her, the tools she used, and whether she spoke. Trace follows it through every part.',
+          hint: 'Each time something woke her (their message, thinking she started that finished, a thought of hers, something she chose to come back to): what memory gave her, the tools she used, and whether she spoke. Trace follows it through every part.',
           body: <Timeline empty="No evaluations recorded yet.">{f.evaluations.map(evaluation)}</Timeline>,
         },
         {
@@ -439,7 +425,6 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
           hint: 'When a plan step ends she looks back at her effort and judges it herself: is she getting anywhere, and if not, why.',
           body: <Timeline empty="No look backs yet.">{lookBacks.map(thought)}</Timeline>,
         },
-        { id: 'mind-lessons', title: 'Lessons she was given', hint: 'What memory gave her evaluations, her hard thoughts and her planner, and what each said it did with them (an evaluation gives no account of its own: reaching her is shown, not how she weighed it).', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
       ]
     }
     case 'hands': {
@@ -490,7 +475,7 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
                     meta={join(d.action ?? (d.status === 'ok' ? 'no action' : d.status), r && words(r.result), r?.seconds && `${r.seconds} s`, d.claim && `she says: ${words(d.claim)}`)}
                     action={traceButton(trace, { attempt: d.id })}
                     more={
-                      <Facts rows={{ 'step': d.step, 'pack says': r && join(r.pack_status, r.reason), 'deviation': r?.deviation, 'before': r?.before, 'after': r?.after, 'inventory': r?.inventory, 'observed': r?.observed_note, 'lessons': d.weighed.length ? <ul>{d.weighed.map((w, i) => <li key={i}>{w.lesson}: {words(w.use)}{w.why ? ` — ${w.why}` : ''}</li>)}</ul> : null, 'thinking took': d.seconds !== null && `${d.seconds.toFixed(1)} s`, 'error': d.error }} />
+                      <Facts rows={{ 'step': d.step, 'pack says': r && join(r.pack_status, r.reason), 'deviation': r?.deviation, 'before': r?.before, 'after': r?.after, 'inventory': r?.inventory, 'observed': r?.observed_note, 'thinking took': d.seconds !== null && `${d.seconds.toFixed(1)} s`, 'error': d.error }} />
                     }
                     moreLabel="The three reports"
                   >
@@ -516,7 +501,6 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
             </Timeline>
           ),
         },
-        { id: 'hands-lessons', title: 'Lessons she was given', hint: 'What memory gave her hands, and what they said they did with each (their own account, not proof).', body: <Timeline empty="No lessons given lately.">{f.lessons.map(lessonUse)}</Timeline> },
         {
           id: 'outcomes', sub: 'pack', title: 'What happened in the game',
           body: (
@@ -561,26 +545,6 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
                 {f.open.map((i) => <Entry key={i.id} at={i.at} meta={join(i.kind, i.owner === 'columbina' ? 'hers' : i.owner === 'user' ? 'yours' : i.owner, i.status)}>{i.text}</Entry>)}
               </Timeline>
             </>
-          ),
-        },
-        {
-          id: 'lessons', sub: 'lessons', title: 'Lessons',
-          hint: 'Learning writes lessons here; memory owns them and gives them to her mind’s evaluations, her hard thoughts, her planner and her hands. Tentative ones are given labelled as such.',
-          body: (
-            <Timeline empty="No lessons yet.">
-              {f.lessons.map((l) => (
-                <Entry
-                  key={l.id}
-                  at={l.at}
-                  tone={l.status === 'withdrawn' ? 'muted' : undefined}
-                  meta={join(l.status, words(l.kind), words(l.scope), `rev ${l.revision}`, l.used > 0 && `given ${l.used}×`, l.origin)}
-                  more={<Facts rows={{ 'applies when': l.applies_when, 'status': l.reason }} />}
-                  moreLabel="When it applies"
-                >
-                  {l.statement}
-                </Entry>
-              ))}
-            </Timeline>
           ),
         },
       ]
@@ -696,9 +660,9 @@ function sectionsFor(part: keyof PartFeeds, data: PartFeeds[keyof PartFeeds], tr
                   <Entry
                     key={e.id}
                     at={e.at}
-                    meta={join(e.person, e.conversation, `to ${words(e.addressed)}`, e.participated && 'she took part', e.lesson !== 'none' && `lesson: ${words(e.lesson)}`)}
-                    more={e.their_words || e.lesson_why ? <Facts rows={{ 'their words': e.their_words, 'lesson': e.lesson_why }} /> : undefined}
-                    moreLabel="Their words and the lesson"
+                    meta={join(e.person, e.conversation, `to ${words(e.addressed)}`, e.participated && 'she took part')}
+                    more={e.their_words ? <Facts rows={{ 'their words': e.their_words }} /> : undefined}
+                    moreLabel="Their words"
                   >
                     {e.observation}
                   </Entry>

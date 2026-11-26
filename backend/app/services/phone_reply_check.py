@@ -5,7 +5,7 @@ there is no separate writer). Before it goes out (B3 sends: services/phone_repli
 draft against ``POLICY`` and only what that conversation has seen (``material_for``):
 
 - the conversation's recent messages as the phone shows them, and her replies sent there;
-- the person's own words she noted in exchanges there, and behind live lessons learned there;
+- the person's own words she noted in exchanges there;
 - details the user authorized for the person she is answering, in that conversation;
 - requests for space that cover it (their words only where they were said).
 
@@ -34,7 +34,7 @@ from app.db.models import (
     PhonePersonKey,
 )
 from app.db.session import SessionLocal
-from app.services import memory_lessons, phone_notifications, phone_people, phone_relationships, phone_state
+from app.services import phone_notifications, phone_people, phone_relationships, phone_state
 
 log = logging.getLogger(__name__)
 
@@ -242,16 +242,12 @@ def _messages(lines: list, sent: list[PhoneOutbound], labels: _Labels, now: floa
 
 def _their_words(db, user_id: uuid.UUID, scope: _Scope, labels: _Labels) -> list[tuple[str, str]]:
     """The people's own words noted in this conversation, each with who said it (``_Labels``): from her readings
-    there and behind live lessons learned there (``for_phone_audience`` gives a lesson's words only where it was
-    learned)."""
+    there."""
     who = labels.person
 
     out = [(who(x.person_id), x.their_words) for x in db.scalars(select(PhoneExchange).where(
         PhoneExchange.user_id == user_id, PhoneExchange.conversation_id == scope.conversation.id,
         PhoneExchange.their_words.is_not(None)).order_by(PhoneExchange.at))]
-    if scope.recipient is not None:
-        for lesson in memory_lessons.for_phone_audience(db, user_id, scope.recipient.id, scope.conversation.id):
-            out += [(who(scope.recipient.id), w) for w in lesson.their_words or []]
     return list(dict.fromkeys((name, w) for name, w in out if w))
 
 

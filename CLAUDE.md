@@ -12,7 +12,7 @@ migration `c8e4a1f7b3d2` (`mind_evaluations`,
 `learning_assessments.awaiting_notes`); a fresh "Now" per evaluation, unmerged history with app records, wake chains.
 Phone affinity B1 (2026-11-22): migration `a4d7e1c9b3f2` (phone people, conversations, affinities, outbound replies).
 Phone affinity B2 (2026-11-22): migration `b5e8d2a7c4f1` (exchange readings, shadow proposals, requests for space,
-authorized details, phone-scoped assessments and lessons).
+authorized details; its phone-scoped assessments and lessons went with the old learner, 2026-11-26).
 Phone affinity B3 (2026-11-22): migration `c6f9e3b8d5a2` (`phone_outbound.attempt_key`: one claim per autonomous
 reply attempt).
 Phone privacy (2026-11-23): migration `d7a1f4c8e2b9` (`phone_disclosures.verified`: grants checked against the user's
@@ -48,6 +48,22 @@ The one exception to phase 9's "reply turns only". No migration.
 Cut-off phone turns (2026-11-25): each step of her hands is kept as one line (what she did, the screen's first line;
 `phone_control.note_step`, process memory, wiped with her screens), and a turn stopped by the user's new words is read
 back step by step in her history; a look is scheduled only after a turn she finished herself (`PhoneControl.answered`).
+Latency (2026-11-25): her prompt is two system messages, the standing part first (`prompts.build_prompt_parts`)
+and this evaluation's moment (Now, senses, memory, devices, delivery rules) right before the message it answers, so
+OpenAI's prompt cache serves the standing prompt and the history; the history window's start moves every
+`chat.HISTORY_STEP` (12) messages, not every turn. Voice marks now split `model_ttft` into each model call
+(tokens, cached tokens) and tool (`app/ai/loop_timing.py`), and context prep into history / memory check / reads;
+reads that don't depend on her memory check run alongside it. No migration.
+
+Tool learning (2026-11-26): migration `b9d4e2f7a1c3` (`practice_notes`). The old learner (retrospective assessment,
+memory lessons, game trials, learning's follow-ups and proposals, phone lessons) is removed, code and tables
+(migration `c1e5a9d3f7b2`, not reversible). In its place, practice: every action of her phone hands goes on a trail in Redis (tool, what she said to it, item or point, what
+came back, the screen as text, the picture she aimed on with her marks; never typed text; wiped with her screens), a
+stretch is reviewed once her hands are still `PRACTICE_SETTLE_SECONDS` (one vision model call, `services/practice.py`,
+contract `app/ai/practice.py`, trace `var/practice_reviews.jsonl`), and she keeps plain notes per app and tool, and on how the
+place itself behaves (`known` / `to_try`: something seen once is to try; the user's own never rewritten). She reads an app's notes with its first screen in a turn;
+`keep_phone_note` keeps one the user gives her; `/api/practice/notes` + the System page's Learning part edit them.
+Tool descriptions say what a tool does in every app; how to use it well in one is a note.
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -115,11 +131,9 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         integrations.py # Google OAuth connect/callback/status/disconnect
         desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED);
                         #   PUT/GET .../environments/{id}/security: the owner's security-monitoring switch + channel health
-        learning.py     # game learning: lessons, proposals, reflections under /api/learning; trials under
-                        #   /api/learning/trials; learning capture
-                        #   (chains, gaps) and training examples under /api/learning/capture, /training-examples;
-                        #   retrospective assessments under /api/learning/assessments; lessons (read only) under
-                        #   /api/learning/adaptation
+        practice.py     # her practice notes (tool learning): GET/POST/PATCH/DELETE /api/practice/notes (owner only)
+        learning.py     # moves she taught herself and her challenges under /api/learning; learning capture
+                        #   (chains, gaps, trajectory) under /api/learning/capture
         system.py       # her parts as one system: GET /api/system/status (worker heartbeats per part),
                         #   GET /api/system/parts/{part} (a part's recent activity, the owner's own),
                         #   GET /api/system/watch (thoughts, memory captured, hands' goal as one log),
@@ -149,12 +163,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /google         # OAuth 2.0: oauth.py, credentials.py, scopes.py, provider.py
       vision.py         # captions a screen frame to one line (small model)
       /observe          # registry.py: what each kind of observation looks like and its memory rule (pure)
-      /learning         # trials.py: bounded game trials (pure): proposal contract and checks, the options her mind reads,
-                        #   measurement, prediction checks, the assessor's contract;
-                        #   assessment.py: retrospective assessment (pure): the evidence bundle, the evaluator's
-                        #   contract and prompt, code checks of what it returns, fingerprints, qualitative statuses;
-                        #   lessons.py: lessons (pure): the builder's bundle, contract and checks, the LESSONS section
-                        #   and guide her mind, hard thoughts, planner and hands read, the lessons_weighed account
+      practice.py       # her practice notes (pure): the trail's steps, the reviewer's prompt and contract, checks, how notes read
       /security         # coverage.py: what she could see of a log channel over a window, and why not the rest (pure)
       /recall           # contracts.py: recall requests, typed results, memory references, limits (pure);
                         #   history.py: source-backed history contracts, reader prompt/schema, check, rendering (pure)
@@ -177,7 +186,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /attachments    # read_attachment: her own reading of attached files (overview / pages / find, bounded
                         #   per call and per reply) — NOT MCP; on the orchestrator when the user has readable files
         /mind           # her mind's own tools (stay_silent, think_it_over, stop_thinking, come_back_to,
-                        #   drop_come_back, decide_proposal, experiment) — NOT MCP; on every evaluation
+                        #   drop_come_back, settle_attempt) — NOT MCP; on every evaluation
         /memory         # her working-memory tools (set_goal, update_item, note_commitment, note_intention,
                         #   note_question, switch_context) — NOT MCP; on the orchestrator for every evaluation;
                         #   recall.py: her read tools (search_memories incl. "said", read_memory, read_timeline, what_i_know), recall_history
@@ -185,7 +194,9 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         /security       # get_security_activity: her desktop's security records, read only, with coverage — NOT MCP;
                         #   on the orchestrator whenever the user has a paired desktop (not on game-event turns)
         phone_control.py # her hands on the user's phone screen (phase 9): read_phone_screen, phone_tap/... — NOT MCP;
-                        #   on the orchestrator on the user's reply turns when they have a phone; pictures via screenshot_hook
+                        #   on the orchestrator on the user's reply turns when they have a phone; pictures via screenshot_hook;
+                        #   phone_grounding.py: phone_tap_on's pointing model (UI-TARS-1.5 on OpenRouter, only with
+                        #   OPENROUTER_API_KEY): she says what to tap, it finds where
       /desktop_control # her own Windows desktop: screenshot, move_mouse,
                         #   click, drag, scroll, keyboard — NOT MCP; on the orchestrator on reply turns with a paired VM;
                         #   screenshot_hook shows her the pictures (pre-model hook)
@@ -256,18 +267,6 @@ Jophiel is a general conversational agent with a persistent identity, personalit
                        #   learning_capture.py: what each learner was given and produced, and what executed (background
                        #   writer, gaps; planner and hard thoughts too); trajectory_capture.py + trajectory.py: her
                        #   trajectory, every game tick pulled from the pack in chunks, read back; capture_chains.py: reading chains back;
-                       #   learning_assessment.py: evidence and attribution (triggers, investigation, revisions,
-                       #   iterative requests, parked inquiries); learning_review.py: review opportunities (every
-                       #   exchange, pauses, ongoing play, her mind's nominations) and follow-ups handed to memory;
-                       #   learning_lessons.py: lessons from supported assessments (jobs, reading, fences), and
-                       #   reconsideration (post-audit 4): a lesson read again on its own evidence after a changed
-                       #   premise (sweep) or her mind's critique, never new support;
-                       #   learning_trials.py: bounded game trials (investigation, her mind's choice, preparation,
-                       #   execution bounds, recovery, assessment, what persists);
-                       #   memory_lessons.py: memory's lessons (lifecycle, revisions, retrieval, uses, forgetting),
-                       #   their links to other memories (premises / ingredients: a changed one makes the lesson
-                       #   UNSETTLED for every consumer at once), details (untested, tried, needs, would support /
-                       #   challenge), a prepared supply made current before delivery (``current``);
                        #   transcript_search.py: what was said (heard text, by speaker), her "said" search;
                        #   attachment_text.py: attached files' text pulled out once per page (PDF via pypdfium2, Word,
                        #   PowerPoint, Excel, text, CSV; no OCR: scanned pages marked) and read in bounded pieces;
@@ -306,8 +305,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
     /workers           # external workers: chat, memory, whatsapp, file_deletion, push (phone notifications),
                        #   coordinator (background thinking and her mind's wakes), desktop (gameplay driver) + agent_events (Jophiel on game events)
                        #   + game_learning (reflection on ended game sessions), all three when DESKTOP_AGENT_ENABLED;
-                       #   learning (raw-capture retention) + learning-assessment
-                       #   + learning-lessons (lessons from assessments) + learning-trials (desktop mode)
+                       #   learning (raw-capture retention) + practice (her practice notes from her phone hands)
                        #   (runner.py starts one thread per queue: `python -m app.workers`)
     main.py             # FastAPI app entrypoint
   /desktop_controller   # desktop agent action contract + controller core (0.12: discovery.py finds the relay by mDNS,
@@ -339,10 +337,6 @@ Jophiel is a general conversational agent with a persistent identity, personalit
                         #   bounded route checks: go_to's grounding); skill look_around in src/skills/looking.js;
                         #   backend side: app/ai/desktop/practice.py + services/game_practice.py (H1, her learner).
                         #   `bun run test`, `bun run smoke`, `bun run itest` (real server, needs the EULA accepted)
-
-/backend/evals/post_audit_04 # post-audit 4 behavioral acceptance: frozen RUBRIC.md, reserved/fixtures.json (evaluation
-                        #   only, never for tuning), development/ (runner checks), the pack's skill manifest snapshot.
-                        #   Runner: `uv run python scripts/broader_learning_eval.py --run` (TEST_DATABASE_URL, real models)
 
 /model_weights          # pretrained weights copied/downloaded from the separate training repo (gitignored)
 
@@ -467,14 +461,13 @@ Each line is the rule you need while coding. The detail lives in the module docs
 - Before anything a wake produced is stored: no newer user message, its premise still open, nothing forgotten since, not already said in this quiet stretch.
 - Tests refuse the dev DB (`tests/conftest.py`), give every test one fixed text personality, and script her mind's model run (`tests/test_coordinator.py`).
 
-**Learning** (`services/learning_*.py`, `app/ai/learning/`)
-- Capture, retrospective assessment, lessons for her mind, hard thoughts, planner and hands, bounded game trials. Learning proposes, memory and her mind own the outcome.
+**Learning** (`services/practice.py`, `app/ai/practice.py`, `services/learning_capture.py`)
+- Practice notes per app and tool, from a reviewer that sees what her hands did (steps, screens, pictures); capture of what each part was given and did. Notes are her own experience to weigh; what the user asks now comes first.
 
 **Product rules**
 - **Always on (2026-10-28, the user's decision):** no feature flags for her own parts. Flags remain only for outside setup or behaviour choices.
-- **People on the phone (B2, 2026-11-22):** relationship proposals and phone lessons are shadow: nothing she reads
-  or does uses them (`GET /api/memory/people/{id}/review` inspects them). Phone lessons are filtered out of every
-  ordinary lesson retrieval in the query; requests for space are active at once. Her mind writes replies to others
+- **People on the phone (B2, 2026-11-22):** relationship proposals are shadow: nothing she reads
+  or does uses them (`GET /api/memory/people/{id}/review` inspects them); requests for space are active at once. Her mind writes replies to others
   herself; a check model (`services/phone_reply_check.py`) reads each against a written policy and only that
   conversation's material before it goes out (and messages the user asks her to send, with their request). No
   content rule in code.

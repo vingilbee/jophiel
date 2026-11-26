@@ -25,7 +25,7 @@ Getting hurt or being stopped ends the attempt; a program that errors or misses
 is just a failed try. A program that finds the task can't be done even with
 single actions says so (``impossible``, ``missing``); said by two tries in a row
 it ends the attempt, instead of spending the rest of the tries saying it again
-(seen live: "attack a rabbit", tries 3 and 4). Once isn't enough: in a trial she
+(seen live: "attack a rabbit", tries 3 and 4). Once isn't enough: she once
 called climbing out of a stone shaft impossible ("no blocks") on try 1, though
 digging the stone gives her the blocks. Every try is reported (``save``) as it ends, so the user
 can read what she wrote even if the attempt is cut short.
@@ -201,33 +201,11 @@ class PracticeDeps:
 
 
 @dataclass
-class TrialSpec:
-    """A bounded experiment's execution (services/learning_trials.py): one approach chosen beforehand, a
-    destination code checks, and what is left of its budget when this run begins. Success is counted by code
-    (she stands at the destination), never judged by the critic. ``ready``: why she isn't ready, read off the
-    state right before the test, or None."""
-
-    approach: str
-    destination: dict
-    radius: float
-    attempts: int
-    seconds: float
-    blocks: int
-    ready: Callable[[dict], str | None] = lambda state: None
-
-
-@dataclass
 class PracticeResult:
     status: str  # learned | failed | stopped
     reason: str
     code: str | None = None
     tries: list[dict] = field(default_factory=list)
-    # A trial's run only: how it ended (trials.ENDINGS), the state when the test began, its seconds, and the
-    # other way the writer wanted to take (which needs its own prediction first).
-    ending: str | None = None
-    start_state: dict | None = None
-    seconds: float | None = None
-    other_approach: str | None = None
 
 
 class _Stopped(Exception):
@@ -241,83 +219,33 @@ class PracticeRun:
     max_tries: int = MAX_TRIES
     program_seconds: float = PROGRAM_SECONDS
     game: str = "Minecraft"
-    trial: TrialSpec | None = None
     tries: list[dict] = field(default_factory=list)
     model_errors: int = 0
     first_state: dict | None = None  # when the attempt began: tries can add up ("1 log, then 2 more")
-    started_at: float | None = None  # a trial: when its test began
-    placed: int = 0  # a trial: blocks its programs placed, as the pack counted them
 
     def run(self) -> PracticeResult:
-        result = self._run()
-        if self.trial is not None:
-            if result.ending is None:
-                result.ending = "completed" if result.status in ("learned", "failed") else "stopped"
-            result.start_state = self.first_state
-            if self.started_at is not None:
-                result.seconds = round(self.deps.now() - self.started_at, 1)
-        return result
-
-    def _run(self) -> PracticeResult:
         deps = self.deps
-        trial = self.trial
         try:
             manifest = deps.pack.manifest()
         except PackError as exc:
-            return PracticeResult("failed", f"the game isn't reachable: {exc}", tries=self.tries,
-                                  ending="not_started" if trial else None)
+            return PracticeResult("failed", f"the game isn't reachable: {exc}", tries=self.tries)
         system = writer_prompt(manifest, self.game)
-        if trial is not None:
-            from app.ai.learning.trials import WRITER_RULES
-
-            d = trial.destination
-            system += WRITER_RULES.format(approach=trial.approach, x=d["x"], y=d["y"], z=d["z"], radius=trial.radius,
-                                          blocks=trial.blocks, attempts=trial.attempts)
-        max_tries = min(self.max_tries, trial.attempts) if trial is not None else self.max_tries
         try:
-            for number in range(1, max_tries + 1):
+            for number in range(1, self.max_tries + 1):
                 self._check()
                 self._wait_until_free()
-                if trial is not None:
-                    ended = self._trial_gate(number)
-                    if ended is not None:
-                        return ended
                 result = self._try(number, system)
                 if result is not None:
                     return result
                 if self.model_errors >= MAX_MODEL_ERRORS:
                     return PracticeResult("failed", f"couldn't think it through: {self.tries[-1]['verdict']['reason']}",
-                                          tries=self.tries, ending="failed" if trial else None)
+                                          tries=self.tries)
         except _Stopped as exc:
-            return PracticeResult("stopped", str(exc), tries=self.tries,
-                                  ending=("not_started" if trial and self.started_at is None else "stopped")
-                                  if trial else None)
+            return PracticeResult("stopped", str(exc), tries=self.tries)
         except PackError as exc:
-            return PracticeResult("failed", f"the game stopped answering: {exc}", tries=self.tries,
-                                  ending="interrupted" if trial else None)
+            return PracticeResult("failed", f"the game stopped answering: {exc}", tries=self.tries)
         last = self.tries[-1]["verdict"]["reason"] if self.tries else "no try ran"
-        return PracticeResult("failed", f"didn't work after {len(self.tries)} tries; last: {last}", tries=self.tries,
-                              ending="completed" if trial else None)
-
-    def _trial_gate(self, number: int) -> PracticeResult | None:
-        """Before each try of an experiment: on the first, check it's really ready (read off the game now);
-        on any, end it if its time or blocks are spent."""
-        trial, deps = self.trial, self.deps
-        if self.started_at is None:
-            state = deps.pack.state()
-            why = trial.ready(state)
-            if why:
-                return PracticeResult("stopped", f"not ready: {why}", tries=self.tries, ending="not_started")
-            self.started_at = deps.now()
-            self.first_state = state
-            return None
-        if deps.now() - self.started_at >= trial.seconds:
-            return PracticeResult("failed", f"the time for this experiment ran out after {number - 1} tries",
-                                  tries=self.tries, ending="limit")
-        if trial.blocks > 0 and self.placed >= trial.blocks:
-            return PracticeResult("failed", f"the blocks for this experiment are used up ({self.placed} placed)",
-                                  tries=self.tries, ending="limit")
-        return None
+        return PracticeResult("failed", f"didn't work after {len(self.tries)} tries; last: {last}", tries=self.tries)
 
     # -- one try ---------------------------------------------------------------
 
@@ -327,13 +255,8 @@ class PracticeRun:
         if self.first_state is None:
             self.first_state = before
         census_before = self._census(before)
-        schema = WRITER_SCHEMA
-        if self.trial is not None:
-            from app.ai.learning.trials import TRIAL_WRITER_SCHEMA
-
-            schema = TRIAL_WRITER_SCHEMA
         try:
-            reply = deps.model.step(system, self._writer_text(number, before), [], schema)
+            reply = deps.model.step(system, self._writer_text(number, before), [], WRITER_SCHEMA)
         except DriverModelError as exc:
             self.model_errors += 1
             self._record({"n": number, "approach": None, "code": None, "program": None, "facts": None,
@@ -345,13 +268,6 @@ class PracticeRun:
         deps.metric({"event": "practice_written", "task": self.task, "try": number, "model_ms": reply.latency_ms,
                      "chars": len(code)})
         entry = {"n": number, "approach": approach, "code": code, "program": None, "facts": None, "verdict": None}
-        if self.trial is not None and reply.output.get("keeps_approach") is False:
-            other = str(reply.output.get("other_approach") or approach)[:400]
-            entry["code"] = None
-            entry["verdict"] = {"success": False, "reason": f"wanted another way, which needs its own prediction: {other}"}
-            self._record(entry)
-            return PracticeResult("stopped", f"changed approach: {other}", tries=self.tries, ending="approach_changed",
-                                  other_approach=other)
         if not code:
             entry["verdict"] = {"success": False, "reason": "the program was empty"}
             self._record(entry)
@@ -369,8 +285,6 @@ class PracticeRun:
             if census_after is not None:
                 entry["facts"]["blocks_around_start"] = census_change(census_before, census_after)
         status = program.get("status")
-        if self.trial is not None:
-            return self._trial_verdict(entry, program, after)
         if status == "stopped":
             entry["verdict"] = {"success": False, "reason": f"stopped: {program.get('reason')}"}
             self._record(entry)
@@ -410,56 +324,15 @@ class PracticeRun:
             return PracticeResult("learned", verdict["reason"], code=code, tries=self.tries)
         return None
 
-    def _trial_verdict(self, entry: dict, program: dict, after: dict) -> PracticeResult | None:
-        """An experiment's try, judged by code: does she stand at the destination? The program's own claims
-        and the critic don't decide it."""
-        from app.ai.learning.trials import at_destination
-
-        trial = self.trial
-        status = program.get("status")
-        placed = program.get("placed")
-        if isinstance(placed, int):
-            self.placed += placed
-        there = at_destination(after.get("position"), trial.destination, trial.radius)
-        where = (entry.get("facts") or {}).get("to")
-        if status == "stopped":
-            entry["verdict"] = {"success": bool(there), "reason": f"stopped: {program.get('reason')}"}
-            self._record(entry)
-            raise _Stopped(program.get("reason") or "stopped")
-        if status == "hurt":
-            entry["verdict"] = {"success": bool(there), "reason": f"got hurt: {program.get('reason')}"}
-            self._record(entry)
-            return PracticeResult("failed", f"got hurt trying ({program.get('reason')})", tries=self.tries,
-                                  ending="stopped")
-        reason = ("standing at the destination (counted by code)" if there else
-                  f"not at the destination (feet at {where})" if there is False else "her position wasn't read")
-        if status == "limit":
-            reason += f"; {program.get('reason')}"
-        elif status not in ("done", None):
-            reason += f"; the program ended {status}: {program.get('reason')}"
-        entry["verdict"] = {"success": bool(there), "reason": reason}
-        self._record(entry)
-        if there:
-            return PracticeResult("learned", reason, code=entry["code"], tries=self.tries, ending="completed")
-        if status == "limit":
-            return PracticeResult("failed", f"reached the block limit: {program.get('reason')}", tries=self.tries,
-                                  ending="limit")
-        return None
-
     def _run_program(self, code: str) -> dict:
         deps = self.deps
         seconds = self.program_seconds
-        extra: dict = {}
-        if self.trial is not None:
-            left = self.trial.seconds - (deps.now() - (self.started_at or deps.now()))
-            seconds = max(10, min(seconds, int(left)))
-            extra["limits"] = {"place": max(0, self.trial.blocks - self.placed)}
         try:
-            started = deps.pack.start_program(code, seconds=seconds, **extra)
+            started = deps.pack.start_program(code, seconds=seconds)
         except PackError as exc:
             if exc.status == 409:  # something took her body in the meantime: one more wait
                 self._wait_until_free()
-                started = deps.pack.start_program(code, seconds=seconds, **extra)
+                started = deps.pack.start_program(code, seconds=seconds)
             else:
                 return {"status": "error", "reason": str(exc)}
         program = started

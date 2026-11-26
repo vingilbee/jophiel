@@ -476,16 +476,10 @@ def _vm_details(session: DesktopSession, driver: dict, now: float) -> tuple[list
     return lines, facts
 
 
-def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None, *, supply=None) -> list[str]:
-    from app.ai.learning import lessons as L
-    from app.services import memory_lessons
-
+def _learned_lines(db: Session, user_id: uuid.UUID, game: str | None) -> list[str]:
     if game is None:
         return []
-    supply = supply if supply is not None else memory_lessons.for_game(db, user_id, game)
-    lines = L.decision_lines(supply.views, cut=len(supply.left_out))
-    if lines:
-        lines.append(L.GUIDE.split("lessons_weighed:")[0])
+    lines: list[str] = []
     from app.services import memory_episodes
     episode = memory_episodes.latest_game(db, user_id, game)
     if episode is not None:
@@ -519,9 +513,6 @@ def _pack_details(db: Session, env: DesktopEnvironment, session: DesktopSession,
     from app.services import game_practice
 
     lines += game_practice.summary_lines(db, session, now)
-    from app.services import learning_trials
-
-    lines += learning_trials.summary_lines(db, session)
     lately = _lately_lines(db, session, now)
     if lately:
         lines += lately
@@ -561,15 +552,11 @@ def planning_facts(db: Session, session: DesktopSession) -> dict[str, list[str]]
     now = time.time()
     driver = desktop_commands.load_driver_state(session.id) or {}
     who = _who_is_who(db, session.owner_user_id, env)
-    from app.services import memory_lessons
-    supply = memory_lessons.for_game(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id),
-                                     query=str(session.plan or {}))
     return {
         "now": _pack_details(db, env, session, driver, now)[0],
         "skills": _skill_manual(env) + game_skills.summary_lines(db, session.owner_user_id, PACK_GAME),
         "steps": [_pack_line(env)],
-        "learned": _learned_lines(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id), supply=supply),
-        "lesson_supply": supply,
+        "learned": _learned_lines(db, session.owner_user_id, game_experience.game_for_profile(session.profile_id)),
         "who": [who] if who else [],
     }
 

@@ -54,6 +54,8 @@ def get_chat_model(model: str | None = None, reasoning: str | None = None) -> Ch
     kwargs: dict[str, Any] = {
         "model": model_id,
         "max_tokens": settings.chat_max_tokens,
+        # Token usage on streamed replies too (input, cached, output): app/ai/loop_timing.py reads it.
+        "stream_usage": True,
     }
     # Reasoning-capable models (e.g. gpt-6-luna) would otherwise think for
     # seconds before the first word; conversation wants the quick reply.

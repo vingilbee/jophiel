@@ -21,14 +21,13 @@ import pytest
 from sqlalchemy import select, update
 
 from app.db.models import (
-    ChatJob, ChatMessage, CoordinatorWork, MemoryEvidence, MemoryEvent, ObservationProcessing, WorkingItem,
+    ChatJob, ChatMessage, CoordinatorWork, MemoryEvidence, MemoryEvent, WorkingItem,
 )
 from app.services import (
-    coordinator, learning_review, memory_manager, mind_conversation, observation, observation_adapters,
-    open_questions, thought_memory,
+    coordinator, memory_manager, mind_conversation, observation, observation_adapters,
+    open_questions,
 )
 from app.services.open_questions import Match, Reading
-from app.services.thought_memory import Judgement
 from test_coordinator import (  # noqa: F401
     _promise_tools, drain, env, evaluations, messages, run_job, said, says, wakes,
 )
@@ -363,29 +362,6 @@ def _add(env, role, content) -> uuid.UUID:
         return message.id
 
 
-def _propose(env, *, revision: int, assessment: uuid.UUID, text: str, up_to_seq: int) -> None:
-    """A learning review proposing a follow-up, through the real writer (services/learning_review.propose)."""
-    row = SimpleNamespace(id=assessment, user_id=env.user.id, conversation_id=env.conversation.id,
-                          trigger={"up_to_seq": up_to_seq}, game_session_id=None)
-    with env.db() as db:
-        learning_review.propose(db, row, revision, {"propose": True, "kind": "question", "text": text,
-                                                    "resolves": "whether the Play attempt resumed playback"},
-                                {"alternatives": ["it resumed", "it didn't"]})
-        db.commit()
-
-
-def _occurrence_judge(calls):
-    """Stands in for thought memory's model: the same occurrence (the latest message of what it is about) is the
-    same question, whether it is open or closed; another occurrence is new."""
-    def judge(view, candidates):
-        calls.append((view, candidates))
-        for c in candidates:
-            if (view.get("about") or [None])[-1] in c.about:
-                return Judgement(keep=True, relation="same", item=c.ref)
-        return Judgement(keep=True, relation="new")
-    return judge
-
-
 def _questions(env) -> list[WorkingItem]:
     with env.db() as db:
         return list(db.scalars(select(WorkingItem).where(WorkingItem.kind == "question")
@@ -409,85 +385,16 @@ def _consume(judge) -> None:
         pass
 
 
-def _seq(env, message_id) -> int:
-    with env.db() as db:
-        return db.get(ChatMessage, message_id).conversation_sequence
-
-
-def test_repeated_reviews_of_one_spotify_attempt_make_one_question_asked_once_and_closed_by_the_answer(qenv):
-    env = qenv
-    _add(env, "user", "Can you play spotify my calm song album")
-    play = _add(env, "assistant", "I asked Spotify to play “My Calm Song”. I can’t confirm what started yet.")
-    seq = _seq(env, play)
-    calls = []
-    judge = _occurrence_judge(calls)
-    # Three reviews of the same stretch, each proposing the question again in other words.
-    for n, text in enumerate(["Ask whether the Play attempt at m2 resumed playback for him.",
-                              "At a natural opportunity, ask whether that Spotify Play attempt resumed playback.",
-                              "Ask what he was checking and whether the earlier Play attempt resumed playback."], 1):
-        _propose(env, revision=n, assessment=uuid.uuid4(), text=text, up_to_seq=seq)
-        while thought_memory.run_once(judge=judge):
-            pass
-    [question] = _questions(env)
-    assert question.status == "open" and question.owner == "columbina"
-    assert [c.ref for c in calls[1][1]] == [memory_manager.ref(question)]  # the writer saw the prior entry
-
-    # She asks it during a normal reply: it counts as asked, by that message.
-    _add(env, "user", "hello")
-    asked = _add(env, "assistant", "Hi! Did Spotify resume on your end?")
-    _record_message(env, asked)
-    reader = _reader({"asks": "Play attempt", "answers": "Play attempt"})
-    _consume(reader)
-    [question] = _questions(env)
-    assert question.status == "asked"
-    with env.db() as db:
-        assert db.scalar(select(MemoryEvidence.message_id).where(
-            MemoryEvidence.item_id == question.id, MemoryEvidence.role == "asked")) == asked
-
-    # A retry of that reading changes nothing.
-    with env.db() as db:
-        db.execute(update(ObservationProcessing).where(ObservationProcessing.consumer == "questions")
-                   .values(status="pending", processed_at=None, next_attempt_at=coordinator._now()))
-        db.commit()
-    _consume(reader)
-    assert _questions(env)[0].status == "asked"
-
-    # Their answer closes it, with their message as the evidence.
-    answer = _add(env, "user", "yeah, it started")
-    _record_message(env, answer)
-    _consume(reader)
-    [question] = _questions(env)
-    assert question.status == "answered" and _resolution(env, question.id) == [answer]
-    assert any(t["task"] == "answers" and t.get("her_message_before") == "Hi! Did Spotify resume on your end?"
-               for t in reader.calls)
-
-    # The same attempt reviewed again: recognised as already answered, never reopened or added again.
-    _propose(env, revision=4, assessment=uuid.uuid4(), text="Ask whether that Play attempt resumed playback.",
-             up_to_seq=seq)
-    while thought_memory.run_once(judge=judge):
-        pass
-    assert [(q.id, q.status) for q in _questions(env)] == [(question.id, "answered")]
-    assert any(c.status == "answered" for c in calls[-1][1])  # it saw the closed one
-
-    # A genuinely separate attempt later is its own question.
-    _add(env, "user", "play it again")
-    later = _add(env, "assistant", "I pressed Play again.")
-    _propose(env, revision=1, assessment=uuid.uuid4(), text="Ask whether the second Play attempt resumed playback.",
-             up_to_seq=_seq(env, later))
-    while thought_memory.run_once(judge=judge):
-        pass
-    assert [q.status for q in _questions(env)] == ["answered", "open"]
-
-
 def test_while_they_are_quiet_she_is_handed_one_question_once_and_may_ask_it(qenv):
     env = qenv
     _add(env, "user", "play my calm song album")
     play = _add(env, "assistant", "I asked Spotify to play it.")
-    for n, text in enumerate(["Ask whether the Play attempt resumed playback.",
-                              "Ask whether the voice interruptions were deliberate."], 1):
-        _propose(env, revision=n, assessment=uuid.uuid4(), text=text, up_to_seq=_seq(env, play))
-        while thought_memory.run_once(judge=lambda view, candidates: Judgement(keep=True)):
-            pass
+    for text in ["Ask whether the Play attempt resumed playback.",
+                 "Ask whether the voice interruptions were deliberate."]:
+        with env.db() as db:  # questions of hers about that reply
+            memory_manager.add_item(db, env.user.id, kind="question", text_=text, owner="columbina",
+                                    epistemic="inferred", source=memory_manager.Source("message", play))
+            db.commit()
     first, second = _questions(env)
     with env.db() as db:  # the backlog: handed over by the migration, never woken for
         backlog = memory_manager.add_item(db, env.user.id, kind="question", text_="An old question",

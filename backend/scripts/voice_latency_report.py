@@ -46,6 +46,22 @@ def _print_turn(turn_id: str, turn: dict) -> None:
         print(f"  {'segment':<26}{'ms':>8}")
         for name, value in segs.items():
             print(f"  {name:<26}{_fmt(value)}")
+    steps = voice_latency.loop_steps(turn)
+    if steps:
+        print(f"  {'her loop':<26}{'ms':>8}")
+        for step in steps:
+            if step["kind"] == "model":
+                bits = [f"first chunk {step['first_chunk_ms']:.0f} ms" if "first_chunk_ms" in step else None,
+                        f"{step['tool_calls']} tool call(s)" if step.get("tool_calls") else None,
+                        f"in {step['input_tokens']} / cached {step.get('cached_tokens') or 0} tok"
+                        if step.get("input_tokens") is not None else None,
+                        "failed" if step.get("failed") else None]
+                label = f"model call {step.get('call')}"
+            else:
+                bits = [None if step.get("ok", True) else "failed"]
+                label = f"  tool {step.get('tool')}"
+            note = ", ".join(b for b in bits if b)
+            print(f"  {label:<26}{_fmt(step.get('ms'))}  {note}")
     if "TOTAL_first_audio" not in segs:
         print("  (no first-audio total: browser report missing, or no audio played)")
 

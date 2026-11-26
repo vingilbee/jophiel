@@ -63,8 +63,8 @@ what an event means isn't settled by its id or wording alone.
 - Only time the collector saw can show that nothing happened. A gap, a cleared log, an unreadable channel or time \
 monitoring was off leaves that time unknown: say which, and whether it changes what you can conclude.
 - What is expected on this machine (its updates, the user's habits, software they run) comes from what you \
-learned before and from the user, never from assumption. Weigh a lesson that fits; say so when this case differs \
-from it (another program, another account, a new kind of record), and use "reconsider" if it looks wrong.
+learned before and from the user, never from assumption; say so when this case differs from what you know \
+(another program, another account, a new kind of record).
 - Whether it was the user is theirs to say: a question is the way to find out.
 - Routine activity needs no conclusion: if nothing here is worth the user's attention, leave "kind" empty."""
 SITUATION = Situation(NAME, "keeping watch over the security records of her own Windows computer for {user}",
@@ -386,11 +386,10 @@ class SecuritySource:
         if env is None or env.owner_user_id != scope.user_id:
             return None, None
         now = _now()
-        supply, learned = mind_hard.lessons_for(db, scope.user_id, problem)
         talk = (mind_hard.conversation(db, scope.user_id, now, inv.conversation_id)
                 if inv.conversation_id else base.conversation)
         return replace(base, now="\n".join(evidence_lines(db, env, inv, now)), conversation=talk, goal=None,
-                       learned=learned, lesson_supply=supply), inv.revision
+                       ), inv.revision
 
     def dropped(self, db: Session, scope: Scope, problem: Problem, cancelled: str | None) -> str | None:
         if cancelled:
