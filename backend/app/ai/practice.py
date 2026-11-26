@@ -19,17 +19,19 @@ says what a review reads, what it may write back, and how notes read to her.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-NOTE_CHARS = 700  # the most a review may write; it is asked for NOTE_AIM
-NOTE_AIM = 400
+NOTE_CHARS = 500  # the most a review may write; it is asked for NOTE_AIM
+NOTE_AIM = 300
 EVIDENCE_CHARS = 300
 PLACE_CHARS = 80
-NOTES_PER_PLACE = 16  # a review merges rather than piles up past this (tools and how the place behaves)
-NOTES_SHOWN = 24  # with a screen, per place: hers and the user's, all of them in practice
+NOTES_PER_PLACE = 12  # her practice notes per place, held by check(): past it a review merges, never piles up
+USER_NOTES_PER_PLACE = 8  # the user's own notes per place (services/practice.keep_user_note): past it one is replaced
+NOTES_SHOWN = NOTES_PER_PLACE + USER_NOTES_PER_PLACE  # with a screen, per place: all of them, bounded by the two caps
 STEP_TEXT_CHARS = 1500  # a screen's text, per step, in the review
 STEPS_REVIEWED = 120
 PICTURES_REVIEWED = 20
@@ -91,8 +93,18 @@ class NoteChange(BaseModel):
     evidence: str = Field("", description="what in this stretch shows it (step numbers, what happened)")
 
 
+class Tally(BaseModel):
+    what: str = Field(description="one kind of action she kept doing, in a few words (\"deploy troops on the map\", "
+                                  "\"select a troop card\")")
+    tried: int = Field(ge=0, description="how many times she tried it in this stretch")
+    worked: int = Field(ge=0, description="how many of those did what she meant, as the screens and pictures show")
+
+
 class Review(BaseModel):
     summary: str = Field(description="one or two sentences: what she was doing and how it went with her tools")
+    user_notes: str = Field("", description="for each of the user's notes she followed or was meant to follow here: "
+                                            "whether she did, and what happened when she did; empty when none applied")
+    tallies: list[Tally] = Field(default_factory=list, description="the actions she repeated most, counted")
     changes: list[NoteChange] = Field(default_factory=list)
 
 
@@ -128,12 +140,16 @@ Look for what this stretch teaches about using the tools here:
   what the pictures and screens show (cause and effect you can see across them, a count that changed, a message
   the place gave), never what you'd expect from knowing the game or app. Describe things by how they look in the
   pictures (colour, shape, where they sit) as well as their name if the screen gives one.
-- One stretch shows what happened once. Something the place did once is a to_try ("seems to"; what would show it
-  again); it becomes known when an earlier note and this stretch agree, or the screen says it outright. A stretch
-  that contradicts a note of yours says so: rewrite or remove it.
+- One stretch shows what happened once. A new note about how the place behaves (no tool) is kept as to_try whatever
+  status you give it ("seems to"; what would show it again); it becomes known when a later stretch agrees and you
+  rewrite it as known. A stretch that contradicts a note of yours says so: rewrite or remove it.
 - Notes marked "you had it" were in front of you during this stretch. If you made the mistake one of them warns
   about anyway, it wasn't specific enough to stop you: rewrite it sharper (where exactly, what it looks like, what
   to do instead) rather than adding another note beside it.
+- When the same kind of action both failed and worked in this stretch (some taps refused or missed, others did what
+  you meant), the note says what the ones that worked had in common: where they landed in the picture and what was
+  there, so next time you can aim at that. A note that only tells you to look harder or be careful ("inspect the
+  boundary", "check first") changes nothing next time: say what to do instead, or don't write it.
 
 Write notes that will help the next time you're in this place, about the tools and about the place, never about the
 user, the conversation or yourself in general. A note about the place with no single tool behind it has no tool.
@@ -147,10 +163,18 @@ user, the conversation or yourself in general. A note about the place with no si
 - known: you saw it in this stretch or an earlier one (for how the place behaves: as above). to_try: an idea you
   haven't tried, or something the place did once, said as one ("Next time, try dropping a whole troop group in one
   phone_tap_points"; "The purple tower near the centre seemed to destroy my dragons fastest; watch it next attack").
-- Rewrite a note rather than add a near copy; remove one this stretch shows is wrong. Keep at most {per_place} per
-  place: merge when you'd go over.
+- One lesson is one note, whatever tools it touches. If a note of yours already says it (under any tool, or none),
+  rewrite that one and remove the others that repeat it; never add beside them. Give a tool only when the note is
+  about how that one tool behaves here (what it hit, what it took to make it work); a lesson about the place (where
+  things can be done, what a screen leads to) has no tool. Remove one this stretch shows is wrong. Keep at most
+  {per_place} per place: merge when you'd go over.
+- Step numbers, and positions of things that only stood in this attack or on this screen, go in evidence, not in
+  the note: the note is read later, when those steps are gone.
 - Notes marked as the user's are theirs: never rewrite or remove them; add your own beside them if experience
-  differs.
+  differs. In user_notes, say for each one that applied here whether you followed it and what happened when you
+  did (what the pictures and screens showed), so the user can see whether their advice works.
+- In tallies, count the one to three actions you repeated most (tried, and how many did what you meant): the same
+  wording each time for the same action, so stretches can be compared.
 - A tool's description says what the tool does; don't write notes that repeat it. Your notes are what you found
   using it here.
 - Nothing worth keeping is a fine answer: no changes. Don't invent lessons from a stretch where things just worked
@@ -230,6 +254,15 @@ class Checked:
     evidence: str
 
 
+_STEP_REFS = re.compile(r"\s*\((?:see\s+)?steps?\s+\d[\d,\s\-–&and]*\)", re.IGNORECASE)
+
+
+def _text(text: str) -> str:
+    """A note's text as kept: one line, without references to this stretch's step numbers (they belong in its
+    evidence; the note is read when those steps are gone)."""
+    return " ".join(_STEP_REFS.sub("", text or "").split())
+
+
 LOOKING = frozenset({"read_phone_screen", "phone_press", "recent_phone_screens", "end_phone_control"})
 
 
@@ -240,12 +273,20 @@ def acted_places(steps: list[Step]) -> set[str]:
 
 def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Checked], list[str]]:
     """Keep only changes the stretch can carry: a note about a place in it (or one already kept), never the user's
-    notes, an existing id for rewrite / remove, text within bounds. Returns (kept, why each other went)."""
+    notes, an existing id for rewrite / remove, text within bounds. A new note about how the place behaves (no tool)
+    starts as to_try: one stretch is one time; a later review that agrees makes it known. Returns (kept, why each
+    other went)."""
     places = acted_places(stretch.steps)
     by_id = {n.id: n for n in stretch.notes}
     canonical = {p.lower(): p for p in places | {n.place for n in stretch.notes}}
     kept: list[Checked] = []
     dropped: list[str] = []
+    removed = {c.note for c in review.changes if c.action == "remove" and c.note in by_id
+               and by_id[c.note].source != "user"}
+    held: dict[str, int] = {}  # her practice notes per place once this review's removes are done
+    for n in stretch.notes:
+        if n.source != "user" and n.id not in removed:
+            held[n.place.lower()] = held.get(n.place.lower(), 0) + 1
     for c in review.changes:
         place = canonical.get(_cut(c.place, PLACE_CHARS).lower())
         if c.action in ("rewrite", "remove"):
@@ -261,14 +302,20 @@ def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Ch
             dropped.append(f"{c.action}: place {c.place!r} isn't in this stretch")
             continue
         tool = c.tool if c.tool in tools else None
-        text = " ".join(c.text.split())
+        text = _text(c.text)
         if c.action != "remove" and not text:
             dropped.append(f"{c.action}: no text")
             continue
         if len(text) > NOTE_CHARS:
             dropped.append(f"{c.action}: text over {NOTE_CHARS} characters")
             continue
-        kept.append(Checked(c.action, c.note if c.action != "create" else None, place, tool, c.status, text,
+        if c.action == "create":
+            if held.get(place.lower(), 0) >= NOTES_PER_PLACE:
+                dropped.append(f"create: {place} already has {NOTES_PER_PLACE} of her notes (rewrite or merge instead)")
+                continue
+            held[place.lower()] = held.get(place.lower(), 0) + 1
+        status = "to_try" if c.action == "create" and tool is None else c.status
+        kept.append(Checked(c.action, c.note if c.action != "create" else None, place, tool, status, text,
                             _cut(c.evidence, EVIDENCE_CHARS)))
     return kept, dropped
 
