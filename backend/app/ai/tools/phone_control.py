@@ -12,6 +12,9 @@ the orchestrator itself: she looks, acts and looks again in one loop.
 - **Acting.** By number (the phone presses that exact item) normally; by a pixel of the picture only for something
   without a number; several fingers at once (``phone_pinch``, ``phone_gesture``) for zooming and multi-touch.
   Numbers belong to the latest screen only (``stale_screen`` otherwise).
+- **Aiming by point** (``app/ai/tools/phone_picture.py``): the picture after a tap, swipe or gesture by point marks
+  where the fingers went (magenta); ``phone_zoom`` enlarges part of the latest picture with a fine grid in its
+  pixels (in the backend: nothing sent to the phone, not an action of the turn).
 - **Whose say-so.** Her own judgement of what the user asked on a reply turn (no operation check: the user's
   decision, 2026-11-24). She starts with ``read_phone_screen``. Nothing on the screen ever asks for anything.
 - **Limits.** ``MAX_ACTIONS_PER_TURN`` per turn; the user tapping Stop on the banner or their new words end her control for the turn
@@ -37,7 +40,7 @@ from typing import Literal
 from langchain_core.tools import BaseTool, tool
 
 from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
-from app.ai.tools import phone_grounding
+from app.ai.tools import phone_grounding, phone_picture
 from app.ai import practice as practice_notes
 from app.services import phone_actions, phone_control, phone_look, practice
 
@@ -47,7 +50,7 @@ MAX_ACTIONS_PER_TURN = 80
 TEXT_CHARS = 4000  # the phone's own cap on typed text
 TOOL_NAMES = ("read_phone_screen", "phone_tap", "phone_long_press", "phone_type", "phone_scroll", "phone_tap_point",
               "phone_tap_points", "phone_swipe", "phone_pinch", "phone_gesture", "phone_press", "end_phone_control",
-              "recent_phone_screens", "keep_phone_note")
+              "recent_phone_screens", "keep_phone_note", "phone_zoom")
 OPTIONAL_TOOL_NAMES = ("phone_tap_on",)  # offered only with their outside setup (the pointing model's key)
 MAX_FINGERS = 5  # the phone's own cap on fingers in one gesture
 MAX_POINTS = 20  # the phone's own cap on taps in one phone_tap_points
@@ -88,6 +91,28 @@ REASONS = {
 
 def _why(outcome: phone_actions.Outcome) -> str:
     return REASONS.get(outcome.reason or "", outcome.reason or "no reason given")
+
+
+MARKED = ("Where your finger went is marked in magenta on this picture (a ring on each tap, numbered in order when "
+          "there were several; a line along each finger's path). If it isn't on what you meant, aim again by the "
+          "difference.")
+
+
+def _fingers(action: str, args: dict) -> tuple[list[tuple[int, int]], list[tuple[int, int, int, int]]]:
+    """Where an action by point put its fingers on the picture: (taps, paths)."""
+    if action == "tap_point":
+        return [(int(args["x"]), int(args["y"]))], []
+    if action == "tap_points":
+        return [(int(p[0]), int(p[1])) for p in args.get("points") or []], []
+    if action == "swipe":
+        return [], [(int(args["x1"]), int(args["y1"]), int(args["x2"]), int(args["y2"]))]
+    if action == "gesture":
+        points, paths = [], []
+        for f in args.get("fingers") or []:
+            x1, y1, x2, y2 = (int(v) for v in f)
+            (points.append((x1, y1)) if (x1, y1) == (x2, y2) else paths.append((x1, y1, x2, y2)))
+        return points, paths
+    return [], []
 
 
 @dataclass
@@ -210,6 +235,7 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         control.ended = False
         did = phone_control.step_action(action, args)
         marks = aimed(action, args)
+        fingers, aimed_on = _fingers(action, args), control.size
         shown = None
         if marks and control.picture:  # the picture she aimed on, kept for her practice review
             size = f"; the picture is {control.size[0]}x{control.size[1]}" if control.size else ""
@@ -222,7 +248,7 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         await asyncio.to_thread(phone_control.touch, user_id)
         outcome = await asyncio.to_thread(phone_actions.act, user_id, conversation_id, action,
                                           {**args, "turn": turn})
-        text, artifact = answer(outcome)
+        text, artifact = await answer(outcome, fingers, aimed_on)
         await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
                                 f"{did} → {phone_control.record_line(text).rstrip('.')}")
         screen_text = text.split("\n", 1)[1] if "\n" in text and outcome.screen else None
@@ -242,7 +268,8 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
                                         [n.id for n in notes[:practice_notes.NOTES_SHOWN]])
         return text, artifact
 
-    def answer(outcome: phone_actions.Outcome) -> tuple[str, dict | None]:
+    async def answer(outcome: phone_actions.Outcome, fingers=([], []),
+                     aimed_on: tuple[int, int] | None = None) -> tuple[str, dict | None]:
         if outcome.status == "refused" and outcome.reason == "taken_over_after":
             control.taken_over = True
             control.ended = True
@@ -263,7 +290,13 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
             control.picture = image["jpeg_base64"] if image else None
             text = phone_control.render(screen, picture=bool(image))
             phone_control.remember(user_id, screen, phone_control.render(screen, picture=False))
-            artifact = ({PHONE_ARTIFACT_KEY: {"id": control.latest, "jpeg_b64": image["jpeg_base64"],
+            shown = control.picture  # the phone's own picture stays unmarked (pointing, zoom, her practice)
+            if image and (fingers[0] or fingers[1]):
+                shown = await asyncio.to_thread(phone_picture.mark, control.picture, points=fingers[0],
+                                                paths=fingers[1], size=aimed_on)
+                if shown != control.picture:
+                    text += "\n" + MARKED
+            artifact = ({PHONE_ARTIFACT_KEY: {"id": control.latest, "jpeg_b64": shown,
                                               "label": f"Phone screen {control.latest}"}} if image else None)
             return text, artifact
         if outcome.status == "done":
@@ -336,7 +369,9 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
     async def phone_tap_point(x: int, y: int, screen: str | None = None) -> tuple[str, dict | None]:
         """Tap a point of the phone screen's picture (its pixels), for something with no number: a spot on a map, a
         game, an unlabeled custom view. Use a number whenever there is one: a point can miss. When the picture has a
-        coordinate grid, read the point off its labelled lines rather than guessing it. screen: whose picture
+        coordinate grid, read the point off its labelled lines rather than guessing it. For something small or
+        crowded, phone_zoom on it first and read the point off the zoom's finer grid. The picture after it marks
+        where your finger went. screen: whose picture
         (default the latest). Answers with the screen after it."""
         return await send("tap_point", {"screen": screen_from(screen), "x": x, "y": y})
 
@@ -479,6 +514,27 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         rows = [f"- {e.id}: {e.app}, {max(1, int((now - e.at) // 60))} min ago" for e in reversed(seen)]
         return "Phone screens you saw recently (newest first; recall only, not actionable):\n" + "\n".join(rows)
 
+    @tool(response_format="content_and_artifact")
+    async def phone_zoom(x: int, y: int, size: int = phone_picture.ZOOM_DEFAULT) -> tuple[str, dict | None]:
+        """Look closer at part of the latest phone picture before tapping by point: a square of it around x,y
+        (size: its side in the picture's pixels, 60 to 480; smaller = closer), enlarged, with a fine grid labelled in
+        the full picture's pixels and a magenta cross on x,y. Read the point you want off its labels and pass it to
+        phone_tap_point / tap_points / swipe as it is. Nothing happens on the phone, and it adds no detail the
+        picture didn't have: it shows you the part that matters bigger."""
+        if why := stopped():
+            return why, None
+        if not control.allowed or not control.picture:
+            return "Not done: there's no picture of the screen to zoom on. Call read_phone_screen first.", None
+        z = await asyncio.to_thread(phone_picture.zoom, control.picture, int(x), int(y), int(size or 0))
+        if z is None:
+            where = f" ({control.size[0]}x{control.size[1]})" if control.size else ""
+            return f"Not done: that point is outside the picture{where}.", None
+        text = (f"Zoom on phone screen {control.latest}: its pixels x {z.left} to {z.right - 1}, y {z.top} to "
+                f"{z.bottom - 1}, shown {z.factor:.1f}x bigger. The grid's labels are the full picture's pixels "
+                f"(a line every {z.step}); the magenta cross is {x},{y}. Nothing was done on the phone.")
+        return text, {PHONE_ARTIFACT_KEY: {"id": f"{control.latest}-zoom", "jpeg_b64": z.jpeg_b64,
+                                           "label": f"Zoom of phone screen {control.latest}"}}
+
     @tool
     async def keep_phone_note(app: str, note: str) -> str:
         """Keep a note the user gave you about using an app or game on their phone ("in Clash of Clans, drop the
@@ -498,8 +554,8 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         return await asyncio.to_thread(keep)
 
     tools: list[BaseTool] = [read_phone_screen, phone_tap, phone_long_press, phone_type, phone_scroll,
-                             phone_tap_point, phone_tap_points, phone_swipe, phone_pinch, phone_gesture, phone_press, end_phone_control,
-                             recent_phone_screens, keep_phone_note]
+                             phone_tap_point, phone_tap_points, phone_swipe, phone_pinch, phone_gesture, phone_press, phone_zoom,
+                             end_phone_control, recent_phone_screens, keep_phone_note]
     if phone_grounding.available():  # outside setup: the pointing model's key
         tools.insert(6, phone_tap_on)
     return tools, control

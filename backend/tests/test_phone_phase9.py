@@ -464,3 +464,80 @@ def test_a_screen_with_a_grid_is_accepted():
     image = ScreenImage.model_validate({"jpeg_base64": JPEG, "width": 1600, "height": 720, "grid": 100})
     assert image.grid == 100
     assert ScreenImage.model_validate({"jpeg_base64": JPEG, "width": 720, "height": 1600}).grid is None
+
+
+def _real_jpeg(width=800, height=400, color=(30, 120, 40)):
+    import io
+
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), color).save(out, "JPEG")
+    return base64.b64encode(out.getvalue()).decode()
+
+
+def _pixel(jpeg_b64, x, y):
+    import io
+
+    from PIL import Image
+    return Image.open(io.BytesIO(base64.b64decode(jpeg_b64))).convert("RGB").getpixel((x, y))
+
+
+def _game_phone(monkeypatch, picture, sent=None):
+    def act(user_id, conversation_id, action, args, **kwargs):
+        if sent is not None:
+            sent.append(action)
+        shown = {**screen("s1", "Clash of Clans"), "image": {"jpeg_base64": picture, "width": 800, "height": 400},
+                 "items": []}
+        return phone_actions.Outcome("done", uuid.uuid4(), "Done", screen=shown)
+
+    monkeypatch.setattr(phone_actions, "act", act)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    tools, control = control_tools.build_phone_control_tools(uuid.uuid4(), uuid.uuid4(), turn_id=uuid.uuid4())
+    return tools_by_name(tools), control
+
+
+def test_the_picture_after_a_tap_by_point_marks_where_it_landed(monkeypatch):
+    from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
+    picture = _real_jpeg()
+    named, control = _game_phone(monkeypatch, picture)
+    first = asyncio.run(named["read_phone_screen"].ainvoke({"type": "tool_call", "id": "a", "name": "read_phone_screen",
+                                                            "args": {}}))
+    assert "marked in magenta" not in first.content
+    assert first.artifact[PHONE_ARTIFACT_KEY]["jpeg_b64"] == picture
+    tapped = asyncio.run(named["phone_tap_point"].ainvoke({"type": "tool_call", "id": "b", "name": "phone_tap_point",
+                                                           "args": {"x": 400, "y": 200}}))
+    assert "marked in magenta" in tapped.content
+    r, g, b = _pixel(tapped.artifact[PHONE_ARTIFACT_KEY]["jpeg_b64"], 414, 200)  # on the ring
+    assert r > 180 and b > 120 and g < 100
+    assert control.picture == picture  # pointing and zoom read the phone's own picture, unmarked
+
+
+def test_a_picture_of_another_size_is_left_unmarked():
+    from app.ai.tools import phone_picture
+    picture = _real_jpeg()
+    assert phone_picture.mark(picture, points=[(10, 10)], size=(720, 1600)) == picture
+    assert phone_picture.mark("AAAA", points=[(10, 10)]) == "AAAA"
+    assert phone_picture.mark(picture) == picture
+
+
+def test_gesture_fingers_are_paths_and_held_ones_are_points():
+    points, paths = control_tools._fingers("gesture", {"fingers": [[1, 2, 1, 2], [3, 4, 50, 60]]})
+    assert points == [(1, 2)] and paths == [(3, 4, 50, 60)]
+    assert control_tools._fingers("tap", {"n": 3}) == ([], [])
+
+
+def test_a_zoom_enlarges_part_of_the_latest_picture_without_touching_the_phone(monkeypatch):
+    from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
+    sent = []
+    named, control = _game_phone(monkeypatch, _real_jpeg(), sent)
+    call = lambda args: asyncio.run(named["phone_zoom"].ainvoke(  # noqa: E731
+        {"type": "tool_call", "id": "z", "name": "phone_zoom", "args": args}))
+    assert call({"x": 10, "y": 10}).content.startswith("Not done: there's no picture")
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    zoomed = call({"x": 790, "y": 10, "size": 100})
+    assert "x 700 to 799, y 0 to 99" in zoomed.content and "7.2x" in zoomed.content
+    assert "a line every 10" in zoomed.content
+    assert zoomed.artifact[PHONE_ARTIFACT_KEY]["label"] == "Zoom of phone screen s1"
+    assert sent == ["read_screen"] and control.steps == 1  # not an action of the turn
+    assert call({"x": 900, "y": 10}).content == "Not done: that point is outside the picture (800x400)."
+    assert "phone_zoom" in control_tools.TOOL_NAMES
