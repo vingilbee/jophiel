@@ -12,6 +12,9 @@ phone's ``turn`` is the job's (``HandsJob.turn``), so the phone's newer-turn rul
 - **Acting.** By number (the phone presses that exact item) normally; by a pixel of the picture only for something
   without a number; several fingers at once (``phone_pinch``, ``phone_gesture``) for zooming and multi-touch.
   Numbers belong to the latest screen only (``stale_screen`` otherwise).
+- **Aiming by point** (``app/ai/tools/phone_picture.py``): the picture after a tap, swipe or gesture by point marks
+  where the fingers went; ``phone_zoom`` enlarges part of the latest picture with a fine grid in its pixels (in the
+  backend, nothing sent to the phone, not a step of the job).
 - **Before every action** the job is checked (``services/hands.check``): still running and still this run's, under
   its bounds, and with the instructions the hands last read. New instructions are handed over instead of acting;
   a pause or stop ends the run.
@@ -34,13 +37,14 @@ from typing import Literal
 from langchain_core.tools import BaseTool, tool
 
 from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
+from app.ai.tools import phone_picture
 from app.services import hands, phone_actions, phone_control
 
 log = logging.getLogger(__name__)
 
 TEXT_CHARS = 4000  # the phone's own cap on typed text
 TOOL_NAMES = ("read_phone_screen", "phone_tap", "phone_long_press", "phone_type", "phone_scroll", "phone_tap_point",
-              "phone_tap_points", "phone_swipe", "phone_pinch", "phone_gesture", "phone_press")
+              "phone_tap_points", "phone_swipe", "phone_pinch", "phone_gesture", "phone_press", "phone_zoom")
 MAX_FINGERS = 5  # the phone's own cap on fingers in one gesture
 MAX_POINTS = 20  # the phone's own cap on taps in one phone_tap_points
 TAP_GAP_MAX_MS = 1000
@@ -91,6 +95,7 @@ class HandsRun:
     apps: list[str] = field(default_factory=list)
     latest: str | None = None
     size: tuple[int, int] | None = None  # the latest screen's picture, in its pixels (width, height)
+    picture: str | None = None  # the latest screen's picture as the phone sent it (base64 JPEG), for phone_zoom
     # Why the run stops: (event, text) for services/hands.finish, or ("quiet", why) when her mind already changed
     # the job (paused, stopped, replaced) and nothing more is said.
     halt: tuple[str, str] | None = None
@@ -100,6 +105,28 @@ class HandsRun:
         if app and app not in self.apps:
             self.apps.append(app)
         return app or None
+
+
+MARKED = ("Where your finger went is marked in magenta on this picture (a ring on each tap, numbered in order when "
+          "there were several; a line along each finger's path). If it isn't on what you meant, aim again by the "
+          "difference.")
+
+
+def _fingers(action: str, args: dict) -> tuple[list[tuple[int, int]], list[tuple[int, int, int, int]]]:
+    """Where an action by point put its fingers on the picture: (taps, paths)."""
+    if action == "tap_point":
+        return [(int(args["x"]), int(args["y"]))], []
+    if action == "tap_points":
+        return [(int(p[0]), int(p[1])) for p in args.get("points") or []], []
+    if action == "swipe":
+        return [], [(int(args["x1"]), int(args["y1"]), int(args["x2"]), int(args["y2"]))]
+    if action == "gesture":
+        points, paths = [], []
+        for f in args.get("fingers") or []:
+            x1, y1, x2, y2 = (int(v) for v in f)
+            (points.append((x1, y1)) if (x1, y1) == (x2, y2) else paths.append((x1, y1, x2, y2)))
+        return points, paths
+    return [], []
 
 
 def build_screen_tools(run: HandsRun) -> list[BaseTool]:
@@ -136,6 +163,7 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
         index = run.steps
         run.steps += 1
         did = phone_control.step_action(action, args)
+        fingers, aimed_on = _fingers(action, args), run.size
         # Kept before it's sent: a run stopped while the phone acts still knows this step went out.
         await asyncio.to_thread(hands.step, run.job_id, run.token, index, did, None, run.version)
         await asyncio.to_thread(phone_control.touch, run.user_id)
@@ -143,7 +171,7 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
         outcome = await asyncio.to_thread(phone_actions.act, run.user_id, run.conversation_id, action,
                                           {**args, "turn": run.turn})
         run.contact = time.monotonic()
-        text, artifact, app = await answer(outcome)
+        text, artifact, app = await answer(outcome, fingers, aimed_on)
         await asyncio.to_thread(hands.step, run.job_id, run.token, index, did,
                                 phone_control.record_line(text).rstrip("."), run.version, app=app)
         return text, artifact
@@ -158,7 +186,8 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
         else:
             run.halt = ("quiet", "her mind changed the job")
 
-    async def answer(outcome: phone_actions.Outcome) -> tuple[str, dict | None, str | None]:
+    async def answer(outcome: phone_actions.Outcome, fingers=([], []),
+                     aimed_on: tuple[int, int] | None = None) -> tuple[str, dict | None, str | None]:
         if outcome.status == "refused" and outcome.reason == "taken_over_after":
             await taken()
             return ("Done: that action did happen on the phone. Then you were stopped, so you didn't see the screen "
@@ -175,7 +204,14 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
                 run.size = (int(image["width"]), int(image["height"]))
             text = phone_control.render(screen, picture=bool(image))
             phone_control.remember(run.user_id, screen, phone_control.render(screen, picture=False))
-            artifact = ({PHONE_ARTIFACT_KEY: {"id": run.latest, "jpeg_b64": image["jpeg_base64"],
+            run.picture = image["jpeg_base64"] if image else None
+            shown = run.picture
+            if image and (fingers[0] or fingers[1]):
+                shown = await asyncio.to_thread(phone_picture.mark, run.picture, points=fingers[0],
+                                                paths=fingers[1], size=aimed_on)
+                if shown != run.picture:
+                    text += "\n" + MARKED
+            artifact = ({PHONE_ARTIFACT_KEY: {"id": run.latest, "jpeg_b64": shown,
                                               "label": f"Phone screen {run.latest}"}} if image else None)
             return text, artifact, app
         if outcome.status == "done":
@@ -240,8 +276,9 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
     async def phone_tap_point(x: int, y: int, screen: str | None = None) -> tuple[str, dict | None]:
         """Tap a point of the phone screen's picture (its pixels), for something with no number: a spot on a map, a
         game, an unlabeled custom view. Use a number whenever there is one: a point can miss. When the picture has a
-        coordinate grid, read the point off its labelled lines rather than guessing it. screen: whose picture
-        (default the latest). Answers with the screen after it."""
+        coordinate grid, read the point off its labelled lines rather than guessing it. For something small or
+        crowded, phone_zoom on it first and read the point off the zoom's finer grid. The picture after it marks
+        where your finger went. screen: whose picture (default the latest). Answers with the screen after it."""
         return await send("tap_point", {"screen": screen_from(screen), "x": x, "y": y})
 
     @tool(response_format="content_and_artifact")
@@ -256,6 +293,27 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
             return f"Not done: give 1 to {MAX_POINTS} points, each as [x, y].", None
         return await send("tap_points", {"screen": screen_from(screen), "points": [[int(v) for v in p] for p in points],
                                          "gap_ms": max(0, min(int(gap_ms or 0), TAP_GAP_MAX_MS))})
+
+    @tool(response_format="content_and_artifact")
+    async def phone_zoom(x: int, y: int, size: int = phone_picture.ZOOM_DEFAULT) -> tuple[str, dict | None]:
+        """Look closer at part of the latest phone picture before tapping by point: a square of it around x,y
+        (size: its side in the picture's pixels, 60 to 480; smaller = closer), enlarged, with a fine grid labelled in
+        the full picture's pixels and a magenta cross on x,y. Read the point you want off its labels and pass it to
+        phone_tap_point / tap_points / swipe as it is. Nothing happens on the phone, and it adds no detail the
+        picture didn't have: it shows you the part that matters bigger."""
+        if why := halted():
+            return why, None
+        if not run.picture:
+            return "Not done: there's no picture of the screen to zoom on. Call read_phone_screen first.", None
+        z = await asyncio.to_thread(phone_picture.zoom, run.picture, int(x), int(y), int(size or 0))
+        if z is None:
+            where = f" ({run.size[0]}x{run.size[1]})" if run.size else ""
+            return f"Not done: that point is outside the picture{where}.", None
+        text = (f"Zoom on phone screen {run.latest}: its pixels x {z.left} to {z.right - 1}, y {z.top} to "
+                f"{z.bottom - 1}, shown {z.factor:.1f}x bigger. The grid's labels are the full picture's pixels "
+                f"(a line every {z.step}); the magenta cross is {x},{y}. Nothing was done on the phone.")
+        return text, {PHONE_ARTIFACT_KEY: {"id": f"{run.latest}-zoom", "jpeg_b64": z.jpeg_b64,
+                                           "label": f"Zoom of phone screen {run.latest}"}}
 
     @tool(response_format="content_and_artifact")
     async def phone_swipe(x1: int, y1: int, x2: int, y2: int, ms: int = 300,
@@ -307,4 +365,4 @@ def build_screen_tools(run: HandsRun) -> list[BaseTool]:
         return await send("press", {"key": key})
 
     return [read_phone_screen, phone_tap, phone_long_press, phone_type, phone_scroll, phone_tap_point,
-            phone_tap_points, phone_swipe, phone_pinch, phone_gesture, phone_press]
+            phone_tap_points, phone_zoom, phone_swipe, phone_pinch, phone_gesture, phone_press]
