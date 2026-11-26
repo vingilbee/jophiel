@@ -107,9 +107,6 @@ def run(stop: threading.Event | None = None) -> None:
             worker_specs.append(("agent-events", agent_events.run_once, "macrovision:agent-events:wakeups", 1.0))
             # Teaching herself a move (stage H1): one attempt at a time, minutes each, own thread.
             worker_specs.append(("game-practice", game_practice.run_once, settings.game_practice_queue_name, 2.0))
-            # Bounded game trials (docs/learning-system/04-implementation.md): investigation, handing the
-            # proposal to her mind, preparation, execution's bounds, assessment. Model calls, so its own thread.
-            worker_specs.append(("learning-trials", learning.trials_once, "macrovision:learning-trials:wakeups", 2.0))
             # Her trajectory (docs/learning-system/POST-AUDIT-01-implementation.md): every game tick, pulled from the
             # pack in chunks and saved by the capture writer. Its own thread: a slow save never delays play or a reply.
             worker_specs.append(("trajectory", learning.trajectory_once, "macrovision:trajectory:wakeups", 2.0))
@@ -120,13 +117,9 @@ def run(stop: threading.Event | None = None) -> None:
                              "macrovision:recall-embeddings:wakeups", 5.0))
         # Learning capture upkeep: raw captures past retention.
         worker_specs.append(("learning", learning.run_once, "macrovision:learning:wakeups", 30.0))
-        # Retrospective assessment (docs/learning-system/02-implementation.md): corrections, complaints, failures and
-        # sampled exchanges; model calls, so on its own thread.
-        worker_specs.append(("learning-assessment", learning.assess_once, "macrovision:learning-assessment:wakeups",
-                             5.0))
-        # Lessons from supported assessments (docs/learning-system/03-implementation.md): one model call per
-        # assessment revision worth reading, on its own thread.
-        worker_specs.append(("learning-lessons", learning.lessons_once, "macrovision:learning-lessons:wakeups", 5.0))
+        # Her practice (services/practice.py): a stretch of her hands on a device reviewed once they've been still,
+        # into her notes for that place. One model call per stretch, so its own thread.
+        worker_specs.append(("practice", learning.practice_once, "macrovision:practice:wakeups", 5.0))
         # What sources report (conversation, deliveries, games), captured once.
         worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
         # Background thinking her mind started, and the durable wake events that bring her back (finished

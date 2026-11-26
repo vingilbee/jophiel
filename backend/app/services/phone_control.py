@@ -35,6 +35,8 @@ from dataclasses import dataclass
 
 import redis
 
+from app.core.config import get_settings
+
 log = logging.getLogger(__name__)
 
 MEMORY_SCREENS = 10
@@ -43,6 +45,11 @@ TURN_TTL_SECONDS = 60 * 60
 TEXT_CHARS = 12_000  # the phone's own cap on a screen's text; kept here too
 FIELD_CHARS = 300
 
+
+
+def _pointing() -> bool:
+    """Whether her phone_tap_on is offered (its pointing model has a key: ai/tools/phone_grounding.available)."""
+    return bool(get_settings().openrouter_api_key)
 
 def _turn_key(user_id: uuid.UUID | str) -> str:
     return f"phone:control:turn:{user_id}"
@@ -175,7 +182,8 @@ def render(screen: dict, *, picture: bool) -> str:
                  "edge (x along the top and bottom, y down the sides); read a point's pixels off those lines"
                  if step else "numbered boxes drawn on")
         notes.append(f"the phone is in {held}; its picture ({width}x{height}, {drawn}) follows; "
-                     "tap_point, tap_points and swipe take that picture's pixels")
+                     "tap_point, tap_points and swipe take that picture's pixels"
+                     + ("; phone_tap_on takes what to tap, described, and a pointing model finds it" if _pointing() else ""))
     elif missing == "secure":
         notes.append("no picture: this app forbids screenshots (text only)")
     elif missing == "not_supported":
@@ -249,6 +257,8 @@ def wipe(user_id: uuid.UUID | str, *, client: redis.Redis | None = None) -> None
     client = client or _client()
     if client is None:
         return
+    from app.services import practice  # what her practice review would read of those screens goes too
+    practice.wipe(user_id, client=client)
     try:
         client.incr(_wipe_key(user_id))
     except redis.RedisError:

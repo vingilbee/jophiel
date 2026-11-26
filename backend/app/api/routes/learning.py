@@ -1,4 +1,4 @@
-"""The Learning page: shared assessments, memory-owned lessons and executable game skills.
+"""The Learning page: executable game skills and learning capture (the old learner is gone, 2026-11-26).
 
     GET    /api/learning/skills                moves she taught herself (H2)
     PATCH  /api/learning/skills/{id}           switch one on or off for her hands
@@ -13,23 +13,6 @@ Learning capture (docs/learning-system/01-implementation.md), the user's own rec
                                                        thoughts, hands, what each did, trajectory, what's missing
     GET    /api/learning/capture/trajectory            her trajectory's streams and what it costs
     GET    /api/learning/capture/trajectory/{stream}   a stretch of one stream: every tick, its events, holes
-
-Retrospective assessment (docs/learning-system/02-implementation.md):
-
-    GET    /api/learning/assessments                   counts and recent assessments (?outcome=)
-    GET    /api/learning/assessments/{id}              one, with its evidence, every revision, links and uses
-    POST   /api/learning/assessments/{id}/notes        the user's correction: new evidence, assessed again
-
-Lessons (docs/learning-system/03-implementation.md), memory's, read only:
-
-    GET    /api/learning/adaptation/lessons            lessons by status (?status=), counts, recent lesson jobs
-    GET    /api/learning/adaptation/lessons/{id}       one lesson: revisions, evidence, the decisions that had it
-    GET    /api/learning/adaptation/decisions/{id}     one decision (capture attempt): the lessons it had, and why
-
-Bounded game trials (docs/learning-system/04-implementation.md), learning's, read only:
-
-    GET    /api/learning/trials                        counts, recent trials (?status=), recent investigations
-    GET    /api/learning/trials/{id}                   one trial: every revision, its events, every assessment
 """
 from __future__ import annotations
 
@@ -47,11 +30,7 @@ from app.schemas.game_learning import (
     LearnedSkillOut,
     LearnedSkillUpdate,
 )
-from app.schemas.learning_capture import AssessmentNote
-from app.services import (
-    capture_chains, game_challenges, game_skills, learning_assessment, learning_lessons, learning_trials,
-    memory_lessons,
-)
+from app.services import capture_chains, game_challenges, game_skills
 
 # The owner only (deps.require_owner): her insides are not for other users.
 router = APIRouter(prefix="/learning", tags=["learning"], dependencies=[Depends(require_owner)])
@@ -147,84 +126,3 @@ def capture_trajectory(stream_id: uuid.UUID, from_tick: int | None = Query(defau
         found["ticks"] = [{**t, "state": trajectory.readable(t["state"])} for t in found["ticks"]]
     return found
 
-
-# --------------------------------------------------------------------------- #
-# Retrospective assessment
-# --------------------------------------------------------------------------- #
-
-
-@router.get("/assessments")
-def list_assessments(outcome: str | None = Query(default=None), user: User = Depends(get_current_user),
-                     db: Session = Depends(get_db)):
-    return learning_assessment.listing(db, user.id, outcome=outcome)
-
-
-@router.get("/assessments/{assessment_id}")
-def get_assessment(assessment_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    found = learning_assessment.detail(db, user.id, assessment_id)
-    if found is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such assessment."})
-    return found
-
-
-@router.post("/assessments/{assessment_id}/notes", dependencies=mutation)
-def note_assessment(assessment_id: uuid.UUID, data: AssessmentNote, user: User = Depends(get_current_user),
-                    db: Session = Depends(get_db)):
-    if learning_assessment.add_note(db, user.id, assessment_id, data.text) is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such assessment."})
-    return learning_assessment.detail(db, user.id, assessment_id)
-
-
-# --------------------------------------------------------------------------- #
-# Lessons (docs/learning-system/03-implementation.md): memory owns them; read only here
-# --------------------------------------------------------------------------- #
-
-_STATUSES = ("accepted", "hypothesis", "episode_only", "withdrawn")
-
-
-@router.get("/adaptation/lessons")
-def list_adaptation_lessons(status_filter: str | None = Query(default=None, alias="status"),
-                            user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if status_filter is not None and status_filter not in _STATUSES:
-        raise HTTPException(status_code=422, detail={"code": "bad_status", "message": "Unknown lesson status."})
-    found = memory_lessons.listing(db, user.id, status=status_filter)
-    return {**found, "jobs": learning_lessons.jobs(db, user.id)}
-
-
-@router.get("/adaptation/lessons/{lesson_id}")
-def get_adaptation_lesson(lesson_id: uuid.UUID, user: User = Depends(get_current_user),
-                          db: Session = Depends(get_db)):
-    found = memory_lessons.detail(db, user.id, lesson_id)
-    if found is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such lesson."})
-    return found
-
-
-@router.get("/adaptation/decisions/{attempt_id}")
-def get_adaptation_decision(attempt_id: uuid.UUID, user: User = Depends(get_current_user),
-                            db: Session = Depends(get_db)):
-    """Which lesson revisions one decision had, whether it received them, what it said about them."""
-    return {"attempt_id": str(attempt_id), "lessons": memory_lessons.uses_for_attempt(db, user.id, attempt_id)}
-
-
-# --------------------------------------------------------------------------- #
-# Bounded game trials (docs/learning-system/04-implementation.md): read only here
-# --------------------------------------------------------------------------- #
-
-
-@router.get("/trials")
-def list_trials(status_filter: str | None = Query(default=None, alias="status"),
-                user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from app.db.models import TRIAL_STATUSES
-
-    if status_filter is not None and status_filter not in TRIAL_STATUSES:
-        raise HTTPException(status_code=422, detail={"code": "bad_status", "message": "Unknown trial status."})
-    return learning_trials.listing(db, user.id, status=status_filter)
-
-
-@router.get("/trials/{trial_id}")
-def get_trial(trial_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    found = learning_trials.detail(db, user.id, trial_id)
-    if found is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "No such trial."})
-    return found

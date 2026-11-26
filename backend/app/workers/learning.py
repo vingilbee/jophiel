@@ -2,15 +2,11 @@
 
 - ``run_once`` (docs/learning-system/01-implementation.md): remove raw captures past their retention (every
   PRUNE_SECONDS).
-- ``assess_once`` (docs/learning-system/02-implementation.md): its own thread, since an assessment is one or more
-  model calls: triage new observations, sweep for failures and late captures, then run one due assessment.
-- ``lessons_once`` (docs/learning-system/03-implementation.md): its own thread: read one due assessment revision
-  for lessons and hand the checked changes to memory.
-- ``trials_once`` (docs/learning-system/04-implementation.md): its own thread, in desktop mode: bounded game
-  trials, from investigation to assessment (services/learning_trials.run_once).
 - ``trajectory_once`` (docs/learning-system/POST-AUDIT-01-implementation.md): its own thread, in desktop mode: her
   trajectory's new chunks pulled from the game pack and handed to the capture writer
-  (services/trajectory_capture.run_once). No memory, no model call."""
+  (services/trajectory_capture.run_once). No memory, no model call.
+- ``practice_once`` (tool learning, 2026-11-26): her practice notes from a settled stretch of her hands
+  (services/practice.run_once)."""
 from __future__ import annotations
 
 import logging
@@ -35,28 +31,16 @@ def run_once() -> bool:
     return False
 
 
-def assess_once() -> bool:
-    from app.services import learning_assessment
-
-    return learning_assessment.run_once()
-
-
-def lessons_once() -> bool:
-    from app.services import learning_lessons
-
-    return learning_lessons.run_once()
-
-
-def trials_once() -> bool:
-    from app.services import learning_trials
-
-    return learning_trials.run_once()
-
-
 def trajectory_once() -> bool:
     from app.services import trajectory_capture
 
     return trajectory_capture.run_once()
 
 
-__all__ = ["run_once", "assess_once", "lessons_once", "trials_once", "trajectory_once"]
+def practice_once() -> bool:
+    from app.services import practice
+
+    return practice.run_once()
+
+
+__all__ = ["run_once", "trajectory_once", "practice_once"]

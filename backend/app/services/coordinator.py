@@ -492,7 +492,6 @@ def _conclude(work_id: uuid.UUID) -> None:
                        if work.input.get("source") in autonomous_speech.CONVERSATIONAL else None)
                 _log({"op": "autonomous_not_said", "work": str(work.id), "why": why or "stale"})
                 _record(**common, decision="rejected", origin="coordinator", missing=None, status="not_sent")
-                autonomous_speech.dropped(work, why or "stale")
                 return
     if work.status in ("superseded", "cancelled", "blocked") or (newer and work.kind != "wake"):
         # The conversation moved on: the thought stays private; it can't answer a newer message.

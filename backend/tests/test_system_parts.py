@@ -31,9 +31,7 @@ def test_watch_log_holds_her_thoughts_memory_and_hands_runs_newest_first(db_env)
                               content="Likes green tea.", created_at=now - timedelta(seconds=20)))
         db.add(DecisionAttempt(id=attempt, user_id=user.id, learner="hands", trigger="step", status="ok",
                                input={"plan": {"step": {"do": "mine coal"}}},
-                               output={"output": {"status": "working", "note": "coal is right there",
-                                                  "lessons_weighed": [{"lesson": "L1", "use": "applied",
-                                                                       "why": "careful near lava"}]},
+                               output={"output": {"status": "working", "note": "coal is right there"},
                                        "action": ["mine", {"block": "coal_ore", "count": 3}]},
                                started_at=now - timedelta(seconds=12), produced_at=now - timedelta(seconds=11),
                                expires_at=now + timedelta(days=1)))
@@ -59,7 +57,6 @@ def test_watch_log_holds_her_thoughts_memory_and_hands_runs_newest_first(db_env)
         hands = system_parts.feed(db, user.id, "hands")
         decided = hands["decisions"][0]
         assert decided["claim"] == "working" and decided["note"] == "coal is right there"
-        assert decided["weighed"][0]["use"] == "applied"
         assert decided["run"]["inventory"] == "coal +3" and decided["run"]["pack_status"] == "done"
         assert "health 18" in decided["run"]["after"]
 

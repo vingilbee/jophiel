@@ -273,7 +273,6 @@ def turns(socket, monkeypatch):
     monkeypatch.setattr(chat.mind_turn, "prepare_message", Mock(return_value=mind))
     monkeypatch.setattr(chat.mind_turn, "finish", Mock())
     monkeypatch.setattr(chat.mind_turn, "fresh_awareness", Mock(return_value=""))
-    monkeypatch.setattr(chat.mind_turn, "lessons_text", Mock(return_value=""))
     monkeypatch.setattr(chat.chat_worker, "_personality", Mock(return_value=""))
     monkeypatch.setattr(chat.memory_manager, "view_for", Mock(return_value=""))
     monkeypatch.setattr(chat.desktop_game, "summary_for", Mock(return_value=None))

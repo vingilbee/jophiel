@@ -524,14 +524,13 @@ class MinecraftSource:
         # Her effort: the outcome from memory and the story of it (docs/learning-system/AUDIT-2026-11-04-learning-from-experience.md).
         # The plan's own goal is only her current approach, shown inside it.
         story = effort.lines_for_session(db, session, user=base.user, senses=SENSES, coverage=coverage(state))
-        from app.services import memory_lessons, desktop_game, game_skills
-        supply = memory_lessons.for_game(db, scope.user_id, "minecraft", query=problem.text)
-        learned = desktop_game._learned_lines(db, scope.user_id, "minecraft", supply=supply)
+        from app.services import desktop_game, game_skills
+        learned = desktop_game._learned_lines(db, scope.user_id, "minecraft")
         learned += game_skills.summary_lines(db, scope.user_id, "minecraft")
         now = _brief(state)
         shape = _shape(state)
         inp = replace(base, now=now + (f"\n{shape}" if shape else ""), goal=None if story else goal,
-                      effort=story, learned=tuple(learned), lesson_supply=supply)
+                      effort=story, learned=tuple(learned))
         return inp, game_moment.capture(db, session, state)
 
     def dropped(self, db: Session, scope: Scope, problem: Problem, cancelled: str | None) -> str | None:

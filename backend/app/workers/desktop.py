@@ -149,8 +149,6 @@ def _drive_skills(session_id: uuid.UUID, model) -> None:
         auto_goals=_db(sessions.auto_goals_set),
         messages=mind_hard.hands_messages,  # her mouth's tips and her own intentions
         experience=_db(game_experience.record_experience),
-        lessons=_db(game_experience.lessons_for_run),
-        lesson_use=_db(game_experience.record_lesson_use),
         learning=_db(game_practice.holding),
         learned=_db(game_skills.for_session),
         learned_used=_db(game_skills.record_use),

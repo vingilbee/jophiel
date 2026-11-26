@@ -4,7 +4,6 @@ third-party writer's input is filtered by audience before anything is read. Fict
 Real Redis and PostgreSQL (TEST_REDIS_URL, TEST_DATABASE_URL)."""
 from __future__ import annotations
 
-import json
 import threading
 import uuid
 from dataclasses import replace
@@ -15,16 +14,11 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
-from app.ai.learning import assessment as A
-from app.ai.learning import lessons as L
 from app.db.models import (
-    CoordinatorWork, LearningAssessment, MemoryLesson, PhoneAffinity, PhoneAffinityShadow, PhoneContactBoundary,
+    CoordinatorWork, PhoneAffinity, PhoneAffinityShadow, PhoneContactBoundary,
     PhoneConversation, PhoneDisclosure, PhoneExchange, PhoneOutbound, PhonePerson, PhonePersonKey,
     PhoneRelationshipEvidence,
 )
-from app.services import learning_assessment as LA
-from app.services import learning_lessons as LL
-from app.services import memory_lessons as ML
 from app.services import phone_notifications, phone_people, phone_relationships
 from app.services import phone_reply_check as RC
 from db_support import db_env, database  # noqa: F401
@@ -37,15 +31,9 @@ DM_KEY, BAND_KEY = "n_rina", "n_band"
 
 @pytest.fixture
 def env(channel, db_env, monkeypatch, tmp_path):
-    """The phone channel, her personality, and the learner with its delays off and its logs in tmp."""
+    """The phone channel and her personality."""
     from app.services import personality
 
-    settings = LA.get_settings().model_copy(update={
-        "learning_assessment_settle_seconds": 0, "learning_assessment_log_path": str(tmp_path / "assess.jsonl"),
-        "learning_lessons_log_path": str(tmp_path / "lessons.jsonl")})
-    for module in (LA, LL, ML):
-        monkeypatch.setattr(module, "get_settings", lambda: settings)
-    monkeypatch.setattr(ML, "_embed", lambda text: None)
     monkeypatch.setattr(personality, "_snapshot", None)
     return channel
 
@@ -115,71 +103,6 @@ def count(env, model, **where) -> int:
         return db.scalar(q)
 
 
-class Evaluator:
-    name = "assessment:scripted"
-
-    def __init__(self, raw):
-        self.raw, self.texts = raw, []
-
-    def __call__(self, text):
-        self.texts.append(text)
-        raw = self.raw(text) if callable(self.raw) else self.raw
-        return A.Answer(json.loads(json.dumps(raw)), 1.0, 10, 5)
-
-
-class Builder:
-    name = "lessons:scripted"
-
-    def __init__(self, answer):
-        self.answer, self.texts = answer, []
-
-    def __call__(self, text):
-        self.texts.append(text)
-        return L.Answer(json.loads(json.dumps(self.answer(text))), 1.0, 10, 5)
-
-
-def line_ref(text: str, needle: str, prefix: str = "m") -> str:
-    return next(line for line in text.splitlines() if needle in line and line.startswith(prefix)).split()[0]
-
-
-def stated(quote: str):
-    """The assessor's reading: the person stated a preference, in these exact words."""
-    def raw(text):
-        return {"feedback": "yes", "targets": [], "causes": [], "dimensions": [], "choice_vs_outcome": [],
-                "user_stated": [{"kind": "preference", "quote": quote, "cites": [line_ref(text, quote)]}],
-                "missing": [], "reopens": [], "next": {"step": "conclude", "look": [], "why": "they said it"},
-                "explanation": "they asked for one question at a time"}
-    return raw
-
-
-def preference(quote: str, statement: str = "Ask Rina one question at a time"):
-    def answer(text):
-        return {"changes": [{"op": "create", "lesson": "", "kind": "preference", "scope": "standing",
-                             "statement": statement, "applies_when": "when talking with Rina",
-                             "exceptions": [], "user_quote": quote, "conclusion_cites": [line_ref(text, quote)],
-                             "applicability_cites": [], "conflicts_with": [], "same_as_withdrawn": "",
-                             "why": "she said so"}], "explanation": "a stated preference"}
-    return answer
-
-
-def learn(env, evaluator, builder) -> tuple[str, list]:
-    """Run the real assessment worker step and the real lesson step once each (scripted models)."""
-    with env.db() as db:
-        claimed = LA.claim(db, soon(hours=1))
-    assert claimed is not None
-    with env.db() as db:
-        outcome = LA.assess(db, claimed, evaluator=evaluator)
-    outcomes = []
-    for _ in range(5):
-        with env.db() as db:
-            job = LL.claim(db, soon(hours=1))
-        if job is None:
-            break
-        with env.db() as db:
-            outcomes.append(LL.process(db, *job, builder=builder, embed=lambda text: None))
-    return outcome, outcomes
-
-
 QUESTIONS = "Jophiel, one question at a time please, I get lost otherwise"
 
 
@@ -216,65 +139,6 @@ def test_the_conversation_shows_who_wrote_her_confirmed_reply_reply_to_and_the_u
 # Scenario 1: one direct statement supports a DM lesson proposal, absent from live retrieval
 # --------------------------------------------------------------------------- #
 
-def test_a_direct_ask_in_a_dm_becomes_a_shadow_lesson_through_the_real_learner(env):
-    rina_asks_for_one_question(env)
-    said = phone_relationships.note_exchange(
-        env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")], addressed="you",
-        meaning="Rina asked me to ask her one thing at a time", their_words="one question at a time please",
-        worth_learning=True)
-    assert "goes to your learning" in said, said
-    rina = person(env)
-    with env.db() as db:
-        [exchange] = db.scalars(select(PhoneExchange)).all()
-        assert (exchange.addressed, exchange.participated, exchange.lesson) == ("her", True, "assessing")
-        row = db.get(LearningAssessment, exchange.assessment_id)
-        assert (row.trigger_kind, row.phone_person_id, row.conversation_id) == ("phone", rina.id, None)
-    evaluator = Evaluator(stated("one question at a time please"))
-    outcome, outcomes = learn(env, evaluator, Builder(preference("one question at a time please")))
-    assert outcome == "revised" and outcomes == ["changed"]
-    # The learner read only that conversation: her send, Rina's words, nothing of the user's memory.
-    [text] = evaluator.texts
-    assert '"user" below is Rina, someone writing to her on the user\'s phone' in text
-    assert "What do you play?" in text and "one question at a time please" in text
-    with env.db() as db:
-        [lesson] = db.scalars(select(MemoryLesson)).all()
-        dm = conversation(env, "c_rina")
-        assert (lesson.status, lesson.kind, lesson.phone_person_id, lesson.phone_conversation_id, lesson.phone_live) \
-            == ("accepted", "preference", rina.id, dm.id, False)
-        assert lesson.phone_applies_to == [str(dm.id)]
-        # Absent from every ordinary retrieval: her mind, hard thoughts, games, the reviewer, the builder.
-        assert ML.for_decision(db, env.user, "one question at a time", include_tentative=True).views == ()
-        assert ML.for_learning(db, env.user, "one question at a time") == []
-        assert ML.for_learning_ids(db, env.user, [lesson.id]) == []
-        lessons, _ = ML.shown_for(db, env.user, assessment_id=uuid.uuid4(), assessment_revision=1)
-        assert lessons == {}
-        # Shadow: not even the reply writer of its own audience reads it yet.
-        assert ML.for_phone_audience(db, env.user, rina.id, dm.id) == []
-        # Warmth may stay unchanged: nothing was proposed.
-        assert db.scalar(select(PhoneAffinity.warmth).where(PhoneAffinity.person_id == rina.id)) == "neutral"
-        assert db.get(PhoneAffinityShadow, rina.id) is None
-    assert ML.offered(env.user, "one question at a time").views == ()
-    with env.db() as db:
-        review = phone_relationships.review(db, env.user, rina.id)
-    assert [x["live"] for x in review["lessons"]] == [False] and review["assessments"][0]["outcome"] == "concluded"
-
-
-def test_an_ordinary_reading_never_touches_a_phone_lesson_and_a_phone_reading_only_its_persons(env):
-    rina_asks_for_one_question(env)
-    rina = person(env)
-    dm = conversation(env, "c_rina")
-    with env.db() as db:
-        c = L.Change("create", None, None, None, "preference", "standing", "Ask one question at a time",
-                     "with Rina", [], ["one question at a time please"], ["phone:x"], None, "she said so")
-        scope = ML.PhoneScope(rina.id, dm.id)
-        applied = ML.apply(db, env.user, [c], ML.Source("phone:x", soon(), None, None, phone=scope))
-        lesson_id = applied.lessons[0]
-        ordinary = ML.apply(db, env.user, [replace(c, op="support", lesson_id=lesson_id, expected_revision=1)],
-                            ML.Source("message:y", soon(), None, None))
-        assert ordinary.changed == [] and ordinary.skipped[0]["why"] == "a lesson of another audience"
-        db.commit()
-
-
 # --------------------------------------------------------------------------- #
 # Scenario 2: a missed call, a message to the user, an ambiguous addressee
 # --------------------------------------------------------------------------- #
@@ -287,23 +151,20 @@ def test_a_missed_call_a_message_to_the_user_and_an_ambiguous_one(env):
     # A missed call carries no one's words: nothing to rest a reading on.
     assert phone_relationships.note_exchange(
         env.user, ref("n_call"), about=["msg:00000000"], addressed="unclear", meaning="Rina called",
-        worth_learning=True).startswith("Not recorded")
-    # A message clearly to the user can shape an impression, never familiarity or a personal lesson.
+        ).startswith("Not recorded")
+    # A message clearly to the user can shape an impression, never familiarity.
     said = phone_relationships.note_exchange(
         env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], addressed="the_user",
-        meaning="Rina is organised about the band's gear", changed={"warmth": "warm", "familiarity": "acquainted"},
-        worth_learning=True)
-    assert "warmth warm" in said and "Familiarity not proposed" in said and "Nothing to learn" in said
-    # Ambiguous: no personal lesson.
+        meaning="Rina is organised about the band's gear", changed={"warmth": "warm", "familiarity": "acquainted"})
+    assert "warmth warm" in said and "Familiarity not proposed" in said
     said = phone_relationships.note_exchange(
         env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")], addressed="unclear",
-        meaning="can't tell who she's asking", worth_learning=True)
-    assert "Nothing to learn" in said
+        meaning="can't tell who she's asking")
+    assert said.startswith("Noted")
     rina = person(env)
     with env.db() as db:
         rows = {x.addressed: x for x in db.scalars(select(PhoneExchange))}
-        assert rows["owner"].lesson == rows["unclear"].lesson == "skipped"
-        assert db.scalar(select(func.count()).select_from(LearningAssessment)) == 0
+        assert set(rows) == {"owner", "unclear"}
         shadow = db.get(PhoneAffinityShadow, rina.id)
         assert (shadow.warmth, shadow.familiarity) == ("warm", None)
 
@@ -326,40 +187,6 @@ def test_her_own_messages_alone_never_make_them_familiar(env):
 # --------------------------------------------------------------------------- #
 # Scenario 3: her words include the band chat
 # --------------------------------------------------------------------------- #
-
-def test_a_preference_that_names_the_band_chat_covers_it_and_its_explanation_stays_in_the_dm(env):
-    rina_asks_for_one_question(env)
-    report(env, band(message("e_b1", "Rina", "p_rina", "rehearsal at 7")))
-    words = "one question at a time please, in the band chat too"
-    report(env, rina_dm(message("e_r2", "Rina", "p_rina", QUESTIONS),
-                        message("e_r3", "Rina", "p_rina", f"I get anxious with lots of questions. {words}"),
-                        revision=3))
-    said = phone_relationships.note_exchange(
-        env.user, ref(DM_KEY), about=[msg("c_rina", "e_r3")], addressed="you",
-        meaning="Rina finds many questions at once stressful", their_words=words, worth_learning=True,
-        also_for=["Band", "Climbing"])
-    assert "cover 1 other conversation" in said and '"Climbing": not one conversation' in said
-    learn(env, Evaluator(stated(words)), Builder(preference(words)))
-    rina, dm, group = person(env), conversation(env, "c_rina"), conversation(env, "c_band")
-    with env.db() as db:
-        [lesson] = db.scalars(select(MemoryLesson)).all()
-        assert set(lesson.phone_applies_to) == {str(dm.id), str(group.id)} and lesson.phone_live is False
-    # Shadow: no audience reads it.
-    with env.db() as db:
-        assert ML.for_phone_audience(db, env.user, rina.id, dm.id) == []
-        assert ML.for_phone_audience(db, env.user, rina.id, group.id) == []
-        db.get(MemoryLesson, lesson.id).phone_live = True  # B3's switch, simulated here
-        db.commit()
-    # Once live, the band gets the behaviour, never the explanation; the DM gets her words too.
-    with env.db() as db:
-        [in_dm] = ML.for_phone_audience(db, env.user, rina.id, dm.id)
-        [in_group] = ML.for_phone_audience(db, env.user, rina.id, group.id)
-    assert words in in_dm.their_words and not in_group.their_words
-    assert in_group.statement == "Ask Rina one question at a time"
-    band_seen = RC.material_for(env.user, ref(BAND_KEY)).render("hi!")
-    assert "anxious" not in band_seen and words not in band_seen
-    assert rina.id  # one person in both
-
 
 # --------------------------------------------------------------------------- #
 # Scenario 4: a request for space about the audition
@@ -541,19 +368,16 @@ def test_forgetting_a_person_removes_every_derived_record_and_keeps_her_sent_tex
     rina_asks_for_one_question(env)
     phone_relationships.note_exchange(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")], addressed="you",
                                       meaning="Rina asked me to ask one thing at a time",
-                                      their_words="one question at a time please", changed={"warmth": "warm"},
-                                      worth_learning=True)
+                                      their_words="one question at a time please", changed={"warmth": "warm"})
     phone_relationships.note_request_for_space(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")],
                                                their_words="one question at a time please", everywhere=False)
     grant(env, "Rina", "Vincent says hi", "tell Rina I say hi")
-    learn(env, Evaluator(stated("one question at a time please")), Builder(preference("one question at a time please")))
     rina = person(env)
-    assert count(env, MemoryLesson) == 1 and count(env, LearningAssessment) == 1
     with env.db() as db:
         assert phone_people.delete_person(db, env.user, rina.id)
         db.commit()
     for model in (PhoneExchange, PhoneRelationshipEvidence, PhoneAffinityShadow, PhoneContactBoundary,
-                  PhoneDisclosure, MemoryLesson, LearningAssessment):
+                  PhoneDisclosure):
         assert count(env, model) == 0, model.__tablename__
     with env.db() as db:
         assert [o.text for o in db.scalars(select(PhoneOutbound))] == [
@@ -648,33 +472,6 @@ def test_exchange_tools_only_on_turns_someone_elses_words_caused_and_authorizati
 # Review fixes (PR 49)
 # --------------------------------------------------------------------------- #
 
-def test_a_lesson_learned_in_the_dm_is_never_read_or_revised_from_the_group(env):
-    rina_asks_for_one_question(env)
-    report(env, band(message("e_b1", "Rina", "p_rina", "rehearsal at 7")))
-    rina, dm, group = person(env), conversation(env, "c_rina"), conversation(env, "c_band")
-    with env.db() as db:
-        c = L.Change("create", None, None, None, "preference", "standing", "Ask one question at a time",
-                     "with Rina", [], ["I get lost otherwise"], ["phone:x"], None, "she said so")
-        [lesson_id] = ML.apply(db, env.user, [c], ML.Source("phone:x", soon(), None, None,
-                                                           phone=ML.PhoneScope(rina.id, dm.id))).lessons
-        # A reading of the group sees none of the DM's lessons, and can't revise one.
-        shown, _ = ML.shown_for(db, env.user, assessment_id=uuid.uuid4(), assessment_revision=1,
-                                phone_person=rina.id, phone_conversation=group.id)
-        assert shown == {}
-        assert ML.for_learning(db, env.user, "question", phone_person=rina.id, phone_conversation=group.id) == []
-        revised = ML.apply(db, env.user, [replace(c, op="revise", lesson_id=lesson_id, expected_revision=1,
-                                                  statement="Keep it short in the band chat")],
-                           ML.Source("phone:y", soon(), None, None, phone=ML.PhoneScope(rina.id, group.id)))
-        assert revised.changed == [] and revised.skipped[0]["why"] == "a lesson of another audience"
-        # A phone reading whose conversation is unknown sees nothing at all.
-        assert ML.for_learning(db, env.user, "question", phone_person=rina.id) == []
-        # Its own conversation's reading still does.
-        shown, _ = ML.shown_for(db, env.user, assessment_id=uuid.uuid4(), assessment_revision=1,
-                                phone_person=rina.id, phone_conversation=dm.id)
-        assert [s.id for s in shown.values()] == [lesson_id]
-        db.commit()
-
-
 def test_an_authorization_for_another_member_of_the_group_isnt_this_replys(env):
     report(env, band(message("e_b1", "Budi", "p_budi", "is Vincent around?"),
                      message("e_b2", "Rina", "p_rina", "where's Vincent?")))
@@ -719,27 +516,10 @@ def test_a_message_from_before_her_first_reply_there_is_not_an_exchange_she_took
     send(env, "Hi Rina!")  # her first reply there, after Rina's message
     said = phone_relationships.note_exchange(
         env.user, ref(DM_KEY), about=[msg("c_rina", "e_r1")], addressed="you", meaning="no voice notes",
-        their_words="never send me voice notes", worth_learning=True)
-    assert "you haven't taken part in this conversation" in said
-    assert count(env, LearningAssessment) == 0
-
-
-def test_eligibility_and_the_learners_evidence_use_the_same_replies(env):
-    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hi")))
-    send(env, "Hi Rina!")
-    unknown = send(env, "Are you there?", status="unconfirmed")  # not a reply that counts as taking part
-    report(env, rina_dm(message("e_r1", "Rina", "p_rina", "hi"),
-                        message("e_r2", "Rina", "p_rina", "Jophiel, no voice notes please"), revision=2))
-    phone_relationships.note_exchange(env.user, ref(DM_KEY), about=[msg("c_rina", "e_r2")], addressed="you",
-                                      meaning="no voice notes", their_words="no voice notes please",
-                                      worth_learning=True)
-    evaluator = Evaluator(stated("no voice notes please"))
-    learn(env, evaluator, Builder(preference("no voice notes please")))
-    [text] = evaluator.texts
-    assert "Hi Rina!" in text and "Are you there?" not in text
-    assert "she has written in this conversation 1 time(s)" in text
+        their_words="never send me voice notes")
     with env.db() as db:
-        assert db.get(PhoneOutbound, unknown).status == "unknown"
+        [exchange] = db.scalars(select(PhoneExchange)).all()
+        assert said.startswith("Noted") and exchange.participated is False
 
 
 # --------------------------------------------------------------------------- #

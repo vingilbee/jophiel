@@ -294,11 +294,6 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     needs = _needs(target)
     if needs:
         sections.append(("What it takes", [needs]))
-    from app.services import learning_trials
-
-    trial = learning_trials.planning_lines(db, session)
-    if trial:
-        sections.append(("An experiment to get ready for", trial))
     facts = desktop_game.planning_facts(db, session)
     sections.append(("What is happening", facts["now"]))
     sections.append(("What she can do", facts["skills"]))
@@ -310,9 +305,6 @@ def build_input(db: Session, session: DesktopSession, reasons: list[str], goal: 
     talk = _talk(db, session.owner_user_id, read)
     if read is not None:
         read["goal_item_id"] = getattr(memory_manager.open_goal_of_session(db, session.id), "id", None)
-        read["lesson_supply"] = facts["lesson_supply"]
-        read["lessons"] = [{"ref": f"lesson:{v.id}", "status": v.status, "revision": v.revision}
-                           for v in facts["lesson_supply"].views]
     if talk:
         sections.append(("Recent talk (oldest first)", talk))
     return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
@@ -533,9 +525,6 @@ def run(user_id: uuid.UUID, session_id: uuid.UUID, reasons: list[str], payload: 
     text = f"PERSONALITY\n{current().text}\n\nPLANNING SITUATION\n{text}"
     decision = (planner or _get_planner()).plan(
         text, user=name, situation=mind_minecraft.situation(), max_steps=get_settings().desktop_plan_max_steps)
-    from app.services import memory_lessons
-    memory_lessons.record_uses(user_id, attempt_id, read["lesson_supply"], consumer="planner",
-                              received=True, decision_status="ok" if decision.decision else "invalid")
     _capture_attempt(attempt_id, user_id=user_id, session_id=session_id, job_id=job_id, try_number=try_number,
                      text=text, reasons=reasons, goal=goal, read=read, read_revision=read_revision,
                      plan_before=plan_before, decision=decision, started_at=started_at)
@@ -621,14 +610,13 @@ def _capture_attempt(attempt_id: uuid.UUID, *, user_id, session_id, job_id, try_
     from app.services import learning_capture
 
     try:
-        refs = [f"session:{session_id}", *(r["ref"] for r in read.get("lessons") or () if r.get("ref"))]
+        refs = [f"session:{session_id}"]
         if read.get("goal_item_id"):
             refs.append(f"item:{read['goal_item_id']}")
         ctx = learning_capture.Ctx(
             user_id=user_id, attempt_id=attempt_id, trigger="plan_job", game_session_id=session_id,
             conversation_id=read.get("conversation_id"),
             prior_attempt_id=learning_capture.prior_for(job_id, "planner", try_number),
-            input_refs=tuple(read.get("lessons") or ()),
             sources=tuple(refs))
         answered = decision.raw is not None
         status = "ok" if decision.decision is not None else "invalid" if answered else "unavailable"

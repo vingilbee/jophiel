@@ -177,17 +177,6 @@ def facts(db, work) -> list[str]:
     return out
 
 
-def dropped(work, why: str) -> None:
-    """An event that never reached her mind (stale before the wake): its producer hears about it."""
-    extra = (work.input or {}).get("extra") or {}
-    if (work.input or {}).get("wake") == "proposal" and extra.get("trial"):
-        try:
-            from app.services import learning_trials
-            learning_trials.undecided(uuid.UUID(extra["trial"]), why=f"it couldn't be considered: {why}")
-        except Exception:  # noqa: BLE001
-            pass
-
-
 def valid(db, work) -> bool:
     if work.status != "completed" or work.deadline_at <= coordinator._now():
         return False

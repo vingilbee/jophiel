@@ -136,9 +136,8 @@ class ThoughtConcluded(_Payload):
 
 
 class LearningFollowUp(_Payload):
-    """A reviewer's follow-up (services/learning_review.propose): a question to ask the user, or something to
-    observe or practise, that could settle what records can't. A proposal for her mind, handed to memory like her
-    own thoughts, so it's matched against what she already holds (``thought_memory``) instead of added again."""
+    """A follow-up the retired learner proposed (until 2026-11-26). Nothing makes these any more; the kind stays
+    registered so the observations already recorded still read."""
 
     assessment_id: str
     revision: int = Field(ge=1)
@@ -282,8 +281,7 @@ class KindSpec:
     # Its memory event belongs to a context, so promotion waits until it has one.
     needs_context: bool = True
     # Who processes it (one receipt each). Her thoughts go to ``thought_memory`` alone, which can judge
-    # with a model; ``memory`` is code only. ``learning`` (services/learning_assessment.triage, code only) decides
-    # whether a report starts or adds to a retrospective assessment.
+    # with a model; ``memory`` is code only.
     consumers: tuple[str, ...] = ("memory",)
 
 
@@ -508,28 +506,28 @@ def _fixed(level: str) -> Callable[[Any], str]:
 _SPECS = [
     KindSpec("conversation", "user_message", 1, UserMessage, "user", "observed", "user", _fixed("routine"),
              _user_message_summary, _skip("kept in the conversation history"), needs_context=False,
-             consumers=("memory", "learning", "questions")),
+             consumers=("memory", "questions")),
     KindSpec("conversation", "reply_recorded", 1, ReplyRecorded, "columbina", "observed", "model",
              lambda p: "notable" if p.status == "failed" else "routine", _reply_summary,
              _skip("kept in the conversation history"), needs_context=False, consumers=("memory", "questions")),
     KindSpec("conversation", "reply_interrupted", 1, ReplyInterrupted, "user", "reported", "system",
-             _fixed("notable"), _interrupted_summary, _interrupted_memory, consumers=("memory", "learning")),
+             _fixed("notable"), _interrupted_summary, _interrupted_memory, consumers=("memory",)),
     KindSpec("conversation", "file_shared", 1, FileShared, "user", "observed", "user", _fixed("notable"),
              _file_shared_summary, _file_shared_memory),
     KindSpec("conversation", "file_read", 1, FileRead, "columbina", "observed", "system", _fixed("routine"),
              _file_read_summary, _file_read_memory),
     KindSpec("conversation", "delivery_status", 1, DeliveryStatus, "system", "reported", "external",
              lambda p: "notable" if p.status == "failed" else "routine", _delivery_summary, _delivery_memory,
-             consumers=("memory", "learning")),
+             consumers=("memory",)),
     KindSpec("minecraft_pack", "skill_outcome", 1, SkillOutcome, "columbina", "observed", "external",
              lambda p: "notable" if p.status in SKILL_FAILED else "routine", _skill_summary, _skill_memory,
-             consumers=("memory", "learning")),
+             consumers=("memory",)),
     KindSpec("minecraft_pack", "notice", 1, GameNotice, "environment", "observed", "external",
-             _notice_salience, _notice_summary, _notice_memory, consumers=("memory", "learning")),
+             _notice_salience, _notice_summary, _notice_memory, consumers=("memory",)),
     KindSpec("minecraft_pack", "source_availability", 1, SourceAvailability, "system", "observed", "system",
              _fixed("notable"), _availability_summary, _availability_memory("minecraft_pack")),
     KindSpec("desktop", "desktop_action", 1, DesktopAction, "columbina", "observed", "external",
-             _desktop_salience, _desktop_summary, _desktop_memory, consumers=("memory", "learning")),
+             _desktop_salience, _desktop_summary, _desktop_memory, consumers=("memory",)),
     # Security records stay in observation (routine ones until retention): her mind's investigations read them, and
     # what she concludes reaches memory as her thought. No per-record receipts: nothing processes them one by one.
     KindSpec("desktop_security", "security_event", 1, SecurityEventReport, "environment", "observed", "external",
@@ -543,8 +541,7 @@ _SPECS = [
     KindSpec("mind", "thought_concluded", 1, ThoughtConcluded, "columbina", "inferred", "model", _fixed("notable"),
              _thought_summary, _skip("her thoughts go to thought memory"), consumers=("thought_memory",)),
     KindSpec("learning", "follow_up_proposed", 1, LearningFollowUp, "columbina", "inferred", "model",
-             _fixed("notable"), _follow_up_summary, _skip("matched against her open items by thought memory"),
-             consumers=("thought_memory",)),
+             _fixed("notable"), _follow_up_summary, _skip("the old learner is retired"), consumers=()),
 ]
 REGISTRY: dict[tuple[str, str, int], KindSpec] = {(s.source, s.kind, s.version): s for s in _SPECS}
 

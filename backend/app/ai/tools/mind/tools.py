@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
@@ -31,8 +31,7 @@ async def _run(fn: Callable[..., str]) -> str:
 
 
 def build_mind_tools(ev) -> list[BaseTool]:
-    """``ev``: this evaluation (``mind_turn.Evaluation``). Tools that need a conversation are left out without one;
-    ``decide_proposal`` is there only when a proposal woke her."""
+    """``ev``: this evaluation (``mind_turn.Evaluation``). Tools that need a conversation are left out without one."""
     from app.services import coordinator, memory_manager
 
     @tool(return_direct=True)
@@ -239,79 +238,4 @@ def build_mind_tools(ev) -> list[BaseTool]:
 
         tools.append(settle_attempt)
 
-    extra = ((ev.wake or {}).get("input") or {}).get("extra") or {}
-    if ev.reason == "proposal" and extra.get("trial"):
-        options = list(extra.get("options") or [])
-
-        @tool
-        async def decide_proposal(choice: Literal["accept", "decline", "defer"], reason: str,
-                                  option: str | None = None, come_back_in_minutes: int | None = None,
-                                  when_they_write_again: bool = False) -> str:
-            """Decide the proposal that woke you. It is yours to take up, turn down or put off; nobody asked the
-            user, and nothing happens unless you accept.
-
-            choice: accept (run one option now: your hands do one thing at a time, so it takes the place of what
-            they're doing), decline (drop it), defer (not now).
-            option: for accept, which option (its key, shown in brackets).
-            reason: why, in a sentence (kept with the proposal).
-            For defer, when to look again: come_back_in_minutes, or when_they_write_again; with neither, it comes
-            back when what it competes with is finished.
-            """
-            from app.services import learning_trials
-
-            decision_id = str(ev.capture.attempt_id) if ev.capture is not None else None
-            why = " ".join((reason or "").split())[:300]
-
-            def do(db) -> str:
-                if choice == "accept":
-                    if option not in options:
-                        raise ValueError(f"choose one of the options: {', '.join(options)}")
-                    key = f"trial:{extra['trial']}:{extra['revision']}:{option}"
-                    return learning_trials.on_pursue(db, ev.user_id, key, reason=why, decision_id=decision_id)
-                key = f"trial:{extra['trial']}:{extra['revision']}:{options[0] if options else 'a'}"
-                if choice == "decline":
-                    return learning_trials.on_decline(db, ev.user_id, key, reason=why, decision_id=decision_id)
-                condition = None
-                if come_back_in_minutes is not None and 0 <= come_back_in_minutes <= MAX_MINUTES:
-                    at = datetime.now(timezone.utc) + timedelta(minutes=come_back_in_minutes)
-                    condition = {"kind": "time_reached", "at": at.isoformat(), "by": "mind"}
-                elif when_they_write_again:
-                    condition = {"kind": "user_returns", "by": "mind"}
-                return learning_trials.on_defer(db, ev.user_id, key, reason=why, decision_id=decision_id,
-                                                condition=condition)
-            result = await _run(do)
-            if not result.startswith("Not done") and not result.startswith("not carried out"):
-                ev.proposal_decision = choice
-            return result
-
-        tools.append(decide_proposal)
-
-    if ev.live_trial:
-        @tool
-        async def experiment(action: Literal["pause", "resume", "stop"], reason: str) -> str:
-            """Pause, resume or stop the experiment you chose to run in your game (shown in your game summary).
-            reason: a few words."""
-            from app.services import learning_trials
-
-            def do(db) -> str:
-                trial_id = _live_trial(ev.user_id, db)
-                if trial_id is None:
-                    raise ValueError("no experiment is under way")
-                return learning_trials.on_work(db, ev.user_id, f"trial:{trial_id}",
-                                               {"stop": "cancel"}.get(action, action),
-                                               reason=" ".join((reason or "").split())[:200] or action)
-            return await _run(do)
-
-        tools.append(experiment)
     return tools
-
-
-def _live_trial(user_id: uuid.UUID, db) -> uuid.UUID | None:
-    """A bounded experiment of hers that is under way (selected, preparing, executing or paused)."""
-    from sqlalchemy import select
-
-    from app.db.models import LearningTrial
-
-    return db.scalar(select(LearningTrial.id).where(
-        LearningTrial.user_id == user_id,
-        LearningTrial.status.in_(("selected", "preparing", "executing", "paused"))).limit(1))

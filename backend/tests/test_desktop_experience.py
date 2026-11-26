@@ -1,4 +1,4 @@
-"""Her desktop actions as experience: capture records on the turn, observations, memory, learning.
+"""Her desktop actions as experience: capture records on the turn, observations, memory.
 
 Needs ``TEST_DATABASE_URL``.
 """
@@ -11,13 +11,22 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import DecisionExecution, LearningAssessment, MemoryEvent, Observation, ObservationProcessing
-from app.services import desktop_control, learning_capture, observation_memory
-from app.services import learning_assessment as LA
+from app.db.models import ChatMessage, Conversation, DecisionExecution, MemoryEvent, Observation, ObservationProcessing
+from app.services import chat as chat_service, desktop_control, learning_capture, observation_memory
 from app.services.desktop_control import Outcome, TurnRef
 from db_support import create_conversation, create_user, db_env, database  # noqa: F401
 from tests.desktop_support import isolated_redis  # noqa: F401  (fixture)
-from tests.test_learning_assessment import env, say  # noqa: F401  (fixture/helper)
+
+
+@pytest.fixture
+def env(db_env):
+    return db_env
+
+
+def say(db, conversation, role, text, *, turn_id=None) -> ChatMessage:
+    conversation = db.get(Conversation, conversation.id)
+    return chat_service.add_message(db, conversation=conversation, role=role, content=text, turn_id=turn_id,
+                                    status="completed")
 
 
 @pytest.fixture
@@ -30,13 +39,13 @@ def capture(env, tmp_path):  # noqa: F811
     learning_capture.install(before)
 
 
-def test_a_turn_of_desktop_work_reaches_capture_observation_memory_and_learning(env, capture, isolated_redis):
+def test_a_turn_of_desktop_work_reaches_capture_observation_and_memory(env, capture, isolated_redis):
     with env.db() as db:
         user = create_user(db)
         conversation = create_conversation(db, user)
         turn_id = uuid.uuid4()
         asked = say(db, conversation, "user", "save my notes in notepad", turn_id=turn_id)
-        her = say(db, conversation, "assistant", "Saved it as notes.txt.", turn_id=turn_id)
+        say(db, conversation, "assistant", "Saved it as notes.txt.", turn_id=turn_id)
         turn = TurnRef(turn_id=turn_id, conversation_id=conversation.id, message_id=asked.id)
         now = datetime.now(timezone.utc)
         shot = Outcome("a" * 32, "done", screen={"region": [0, 0, 1920, 1080], "size": [1280, 720],
@@ -64,19 +73,9 @@ def test_a_turn_of_desktop_work_reaches_capture_observation_memory_and_learning(
         assert seen[0].payload["app_changed"] is True and "Untitled - Notepad" in seen[0].summary
         consumers = set(db.scalars(select(ObservationProcessing.consumer)
                                    .where(ObservationProcessing.observation_id == seen[1].id)))
-        assert consumers == {"memory", "learning"}
+        assert consumers == {"memory"}
 
         # Memory: the new window and the failure are kept; bound to the context in focus.
         observation_memory.process(db, datetime.now(timezone.utc), time.monotonic() + 10, user_id=user_id)
         kinds = set(db.scalars(select(MemoryEvent.kind).where(MemoryEvent.user_id == user_id)))
         assert {"desktop_seen", "action_failed"} <= kinds
-
-        # Learning: the failed click opens an assessment of the exchange, with the desktop work as evidence.
-        LA.triage(db)
-        row = db.scalar(select(LearningAssessment).where(LearningAssessment.user_id == user_id,
-                                                         LearningAssessment.trigger_key == f"desktop:{turn_id}"))
-        assert row is not None and row.anchor_message_id == her.id
-        gathered = LA.gather(db, row, LA.Plan())
-        texts = [item.text for item in gathered.ev.items.values()]
-        desktop = [t for t in texts if t.startswith("desktop:")]
-        assert desktop and "click" in desktop[0] and "failed" in desktop[0] and "notepad.exe" in desktop[0]

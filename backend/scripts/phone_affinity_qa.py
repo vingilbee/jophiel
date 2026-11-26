@@ -225,8 +225,7 @@ def audit(out):
                             "Replay or quiet interval has zero relationship effects", location)
             if step != "seed active affinity":
                 previous = {p["person"]["id"]: p["active"] for p in before["people"]}
-                assert_that(all(p["active"] == previous.get(p["person"]["id"], p["active"]) and
-                                all(not lesson["live"] for lesson in p["lessons"])
+                assert_that(all(p["active"] == previous.get(p["person"]["id"], p["active"])
                                 for p in after["people"]), "Shadow does not promote into live state", location)
             if "owner_chat" in after:
                 new = [m for m in after["owner_chat"] if m not in before.get("owner_chat", [])]
@@ -250,7 +249,7 @@ def run(out, cases):
     from app.db.session import SessionLocal, engine
     from app.schemas.phone import PhoneNotificationsReport
     from app.services import (
-        autonomous_speech, chat, coordinator, google_maps, learning_assessment, learning_lessons, mind, mind_phone,
+        autonomous_speech, chat, coordinator, google_maps, mind, mind_phone,
         phone_actions, phone_notifications, phone_people, phone_relationships, phone_replies, phone_reply_check,
         phone_state, personality,
     )
@@ -434,12 +433,6 @@ def run(out, cases):
                     return
             raise RuntimeError("Coordinator or chat queue did not drain")
 
-        def learn(self):
-            for cycles in range(8):
-                if not (learning_assessment.run_once() | learning_lessons.run_once()):
-                    return {"worker_cycles": cycles, "idle": True}
-            return {"worker_cycles": 8, "idle": False}
-
         def idle_week(self):
             self.offset = 7 * 86400
             try:
@@ -525,8 +518,7 @@ def run(out, cases):
                         third_party=phone_notifications.has_third_party(notes), arrived=arrived,
                         reply_targets=targets)
                 self.drain()
-            learner = self.learn()
-            return {"ticks": ticks, "learner": learner, "natural_mind_wake": initial_woke,
+            return {"ticks": ticks, "natural_mind_wake": initial_woke,
                     "controlled_wake_requested": controlled and not initial_woke and bool(notes),
                     "phone_state_available": state is not None}
 
@@ -912,8 +904,7 @@ def run(out, cases):
 
     settings = get_settings()
     save({"configuration": {key: getattr(settings, key) for key in ("chat_model", "mind_gate", "mind_quick_model",
-          "learning_assessment_model", "learning_lessons_model", "phone_notification_burst_seconds",
-          "mind_quick_gap_seconds", "learning_assessment_settle_seconds")}, "cases": cases,
+          "phone_notification_burst_seconds", "mind_quick_gap_seconds")}, "cases": cases,
           "profile": "repository text personality migration", "dispatcher": "local recording"})
     errors = 0
     try:

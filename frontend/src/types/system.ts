@@ -43,19 +43,17 @@ export interface MindEvaluation {
   model: string | null
   turn_id: string | null
   seconds: number | null
-  /** user_message / work_result / thought / proposal / conflict / finding / due */
+  /** user_message / work_result / thought / conflict / finding / due */
   reason: string
   message: string | null
   wake: string | null
   memory: string | null
   memory_records: number
-  lessons: number
   tools: { tool: string | null; result: string | null }[]
   silent: string | null
   said: string | null
   thinking_started: number
   scheduled: number
-  proposal: string | null
 }
 
 /** Her mind's continuity, read from its owners' tables (GET /api/mind/state, and the mind's feed). */
@@ -87,20 +85,6 @@ export interface Thought {
   dropped: string | null
 }
 
-/** A lesson memory gave a decision, and what the decision said it did with it (its own account). */
-export interface LessonUse {
-  id: number
-  at: string | null
-  consumer: string
-  lesson: string | null
-  lesson_status: string
-  revision: number
-  received: boolean
-  reason: string | null
-  reported: string | null
-  why: string | null
-}
-
 export interface PlannerCall {
   id: string
   at: string | null
@@ -130,7 +114,6 @@ export interface MindFeed {
   continuity: MindContinuity
   thoughts: Thought[]
   plans: PlannerCall[]
-  lessons: LessonUse[]
 }
 
 /** Her latest game session: the goal, the plan's steps, and her effort as code counted it. */
@@ -170,7 +153,6 @@ export interface HandsDecision {
   claim: string | null
   note: string | null
   action: string | null
-  weighed: { lesson: string | null; use: string | null; why: string | null }[]
   /** What the game pack reported for the skill, and her state as code read it before and after. */
   run: {
     result: string
@@ -208,7 +190,6 @@ export interface HandsFeed {
   desktop: DesktopAction[]
   decisions: HandsDecision[]
   checks: { id: string; at: string | null; do: string | null; done_when: string | null; counted: string | null }[]
-  lessons: LessonUse[]
   outcomes: { id: number; at: string | null; kind: string; game: string; text: string | null; seconds: number | null; failed: boolean }[]
 }
 
@@ -217,19 +198,6 @@ export interface MemoryFeed {
   open: { id: string; kind: string; owner: string; status: string; text: string | null; at: string | null }[]
   events: { id: number; kind: string; epistemic: string; text: string | null; at: string | null }[]
   facts: { id: string; kind: string; status: string; text: string | null; confidence: number; revision: number; at: string | null }[]
-  lessons: {
-    id: string
-    kind: string
-    scope: string
-    status: string
-    origin: string
-    statement: string | null
-    applies_when: string | null
-    reason: string | null
-    revision: number
-    used: number
-    at: string | null
-  }[]
 }
 
 export interface LearningFeed {
@@ -253,7 +221,7 @@ export interface PhoneFeed {
    * the user's turn), grant (a detail the user let her pass on). ok null: no verdict recorded. */
   checks: { at: string | null; check: string | null; kind: string | null; ok: boolean | null; what: string | null; why: string | null; reveals: string[] }[]
   people: { id: string; name: string | null; contact: boolean | null; status: string; at: string | null; familiarity: string | null; warmth: string | null; initiative: string | null; note: string | null }[]
-  exchanges: { id: string; at: string | null; person: string | null; conversation: string | null; addressed: string; participated: boolean; observation: string | null; their_words: string | null; lesson: string; lesson_why: string | null }[]
+  exchanges: { id: string; at: string | null; person: string | null; conversation: string | null; addressed: string; participated: boolean; observation: string | null; their_words: string | null }[]
   space: { id: string; at: string | null; person: string | null; conversation: string | null; scope: string; topic: string | null; words: string | null }[]
   actions: { id: string; at: string | null; text: string | null }[]
   pushes: { id: string; at: string | null; kind: string; status: string; attempts: number; error: string | null }[]

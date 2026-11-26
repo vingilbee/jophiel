@@ -31,7 +31,7 @@ export interface PartAnatomy {
 export const PARTS: PartAnatomy[] = [
   {
     id: 'mind', label: 'Mind', fluor: 'mCherry', color: '#FF5C8A', x: 800, y: 500, r: 64, labelSide: 'below',
-    role: 'Decides everything she does: every message, finished thought or proposal wakes it, and in one evaluation she answers, stays silent, recalls, starts thinking, notes what stays open and chooses when to come back.',
+    role: 'Decides everything she does: every message or finished thought wakes it, and in one evaluation she answers, stays silent, recalls, starts thinking, notes what stays open and chooses when to come back.',
     subs: [
       { id: 'evaluations', label: 'Evaluations' },
       { id: 'continuity', label: 'What she keeps' },
@@ -63,12 +63,11 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'memory', label: 'Memory', fluor: 'mOrange', color: '#FF9A3C', x: 770, y: 835, r: 56, labelSide: 'below',
-    role: 'Keeps what lasts: facts, episodes, what’s open between you, the lessons she learned, corrections, and what she was asked to forget.',
+    role: 'Keeps what lasts: facts, episodes, what’s open between you, corrections, and what she was asked to forget.',
     subs: [
       { id: 'facts', label: 'Facts' },
       { id: 'episodes', label: 'Episodes' },
       { id: 'working', label: 'Working items' },
-      { id: 'lessons', label: 'Lessons' },
       { id: 'recall', label: 'Recall' },
     ],
   },
@@ -85,11 +84,9 @@ export const PARTS: PartAnatomy[] = [
   },
   {
     id: 'learning', label: 'Learning', fluor: 'Venus-V', color: '#B77DFF', x: 380, y: 745, r: 50, labelSide: 'left',
-    role: 'Captures what happened, looks back on it and writes lessons into memory; runs small experiments in games.',
+    role: 'Watches how her hands used her tools on the phone and keeps plain notes per app and tool for next time; captures what each part was given and did.',
     subs: [
-      { id: 'assessments', label: 'Assessments' },
-      { id: 'lessons', label: 'Lessons' },
-      { id: 'trials', label: 'Trials' },
+      { id: 'notes', label: 'Practice notes' },
       { id: 'capture', label: 'Capture' },
     ],
   },
@@ -139,23 +136,20 @@ export function layoutFor(portrait: boolean): Layout {
 
 /** Who hands work to whom (the direction a signal travels). Every wire is a real hand-off in the backend. */
 export const WIRES: { from: PartId; to: PartId }[] = [
-  { from: 'memory', to: 'mind' }, // the memory check every evaluation starts from, what she recalls, the lessons it weighs
+  { from: 'memory', to: 'mind' }, // the memory check every evaluation starts from, what she recalls
   { from: 'mind', to: 'mouth' }, // what she chose to say (or that she chose silence)
   { from: 'mind', to: 'memory' }, // what she notes and closes (her working-memory tools), and a concluded thought
   { from: 'mind', to: 'hands' }, // tips and plans for her hands
-  { from: 'learning', to: 'mind' }, // a proposal for her to accept, decline or put off
+  { from: 'learning', to: 'mind' }, // her practice notes for an app, read with its first screen
   { from: 'mouth', to: 'memory' }, // a finished exchange, consolidated
   { from: 'mouth', to: 'observation' }, // replies and deliveries reported
   { from: 'hands', to: 'observation' }, // skill outcomes reported
   { from: 'observation', to: 'memory' }, // reports reaching working memory
-  { from: 'observation', to: 'learning' }, // corrections and failures that trigger assessment
-  { from: 'hands', to: 'learning' }, // a stretch of play to assess, and her trajectory captured
-  { from: 'learning', to: 'memory' }, // a lesson written or revised (memory owns lessons)
-  { from: 'memory', to: 'hands' }, // lessons supplied to her hands' decisions
+  { from: 'hands', to: 'learning' }, // her trajectory in a game, captured
   { from: 'phone', to: 'mind' }, // a phone tick with news: a notification, a state change, an action's late answer
   { from: 'mind', to: 'phone' }, // an action on the phone, a reply she sent there, or one the check held
   { from: 'mouth', to: 'phone' }, // her message pushed to the phone when the user wasn't at any app
-  { from: 'phone', to: 'learning' }, // a phone exchange she took part in, for assessment
+  { from: 'phone', to: 'learning' }, // her hands' steps on the phone screen, reviewed once they're still
   { from: 'hands', to: 'mind' }, // her hands' actions on her desktop, watched by her background mind
 ]
 

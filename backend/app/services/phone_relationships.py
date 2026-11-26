@@ -19,11 +19,7 @@ enforces audience boundaries; her mind judges who was addressed, what an exchang
     from the rows not retracted, so concurrent changes to different fields both stand. Familiarity moves past
     "new" only once they have spoken: she has written where they are and they have addressed her (her own words
     alone never make it mutual). A message to the user can shape her impression; it never makes them familiar.
-  - **a personal lesson**, routed to the learner (``learning_assessment`` ``phone`` trigger, then
-    ``learning_lessons`` and ``memory_lessons``) only when she took part in that conversation and judged they were
-    talking to her; otherwise skipped, with why. The lesson is bound to the person, the conversation and the
-    audiences their words named, and stays shadow (``memory_lessons.PhoneScope``).
-  Nothing here is read by her active relationship record, ``read_person``, her prompts, her lessons or scheduling.
+  Nothing here is read by her active relationship record, ``read_person``, her prompts or scheduling.
 - **Requests for space** (``note_request_for_space``): the person's exact words, active at once, kept apart from
   proposals and the note (a later note rewrite never touches it). ``everywhere`` or the conversation it was said in,
   and a topic when they named one (other topics stay open). She reads them (``read_person``) and so does the check
@@ -32,7 +28,7 @@ enforces audience boundaries; her mind judges who was addressed, what an exchang
   authorization never covers a group. Recorded only when the user's own message explicitly grants it
   (services/phone_authority.py); every reader checks the source again (``phone_authority.grant_stands``).
 - **Inspection and correction** (``review`` / ``retract``): ``GET /api/memory/people/{id}/review``. Deleting a person
-  (B1 ``delete_person``) removes every record here, their phone assessments and lessons (cascade).
+  (B1 ``delete_person``) removes every record here (cascade).
 
 Review records keep a short scoped observation and references, never the notification's other text; long digit runs
 (codes, account numbers) are refused in quotes and masked in observations.
@@ -54,7 +50,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    LearningAssessment, MemoryLesson, PhoneAffinity, PhoneAffinityShadow, PhoneContactBoundary, PhoneConversation,
+    PhoneAffinity, PhoneAffinityShadow, PhoneContactBoundary, PhoneConversation,
     PhoneConversationMember, PhoneDisclosure, PhoneExchange, PhoneOutbound, PhonePerson, PhonePersonKey,
     PhoneRelationshipEvidence,
 )
@@ -69,7 +65,7 @@ WORDS_CHARS = 300
 TOPIC_CHARS = 120
 DETAIL_CHARS = 500
 TEXT_CHARS = 400
-EXCHANGES_READ = 6  # earlier readings of a conversation shown to her and to the learner
+EXCHANGES_READ = 6  # earlier readings of a conversation shown to her
 SENT_READ = 6
 DIMENSIONS = ("familiarity", "warmth", "initiative", "note")
 ADDRESSED = {"you": "her", "the_user": "owner", "everyone": "group", "unclear": "unclear"}
@@ -381,7 +377,7 @@ def _recompute(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> PhoneAf
 
 def note_exchange(user_id: uuid.UUID, handle: str, *, about: list[str], addressed: str, meaning: str,
                   their_words: str | None = None, changed: dict[str, str] | None = None,
-                  worth_learning: bool = False, also_for: list[str] | None = None) -> str:
+                  also_for: list[str] | None = None) -> str:
     """Record her reading of an exchange (see the module docstring). Returns what was recorded, in plain words.
     Every refusal leaves everything as it was."""
     who = ADDRESSED.get(addressed, addressed if addressed in ADDRESSED_WORDS else None)
@@ -435,9 +431,6 @@ def note_exchange(user_id: uuid.UUID, handle: str, *, about: list[str], addresse
                 ).on_conflict_do_nothing(constraint="uq_phone_relationship_evidence_event"))
             if changed:
                 _recompute(db, user_id, person.id)
-            lesson = _route_lesson(db, user_id, person, conversation, exchange, worth_learning)
-            if lesson:
-                notes.append(lesson)
     except Refused as exc:
         return f"Not recorded: {exc}."
     except SQLAlchemyError:
@@ -451,33 +444,6 @@ def note_exchange(user_id: uuid.UUID, handle: str, *, about: list[str], addresse
     if applies:
         said.append(f"Their words cover {len(applies)} other conversation{'s' if len(applies) != 1 else ''} too.")
     return " ".join(said + [n[0].upper() + n[1:] + "." for n in notes])
-
-
-def _route_lesson(db: Session, user_id: uuid.UUID, person: PhonePerson, conversation: PhoneConversation,
-                  exchange: PhoneExchange, worth_learning: bool) -> str | None:
-    """A personal lesson goes to the learner only when she took part and judged they were talking to her."""
-    from app.services import learning_assessment
-
-    if not worth_learning:
-        return None
-    if not exchange.participated or exchange.addressed != "her":
-        exchange.lesson = "skipped"
-        exchange.lesson_why = ("you haven't taken part in this conversation" if not exchange.participated else
-                               "it isn't clear they were talking to you")
-        return f"nothing to learn about being with them from this: {exchange.lesson_why}"
-    try:
-        with db.begin_nested():
-            row, _ = learning_assessment.open_assessment(
-                db, user_id=user_id, kind="phone", key=f"phone:{exchange.id}", anchor_at=exchange.at,
-                trigger={"why": "her mind noted an exchange addressed to her", "exchange": str(exchange.id),
-                         "person": phone_people.handle(person.id)},
-                evidence=[(f"phone:{exchange.id}", "the exchange her mind noted", {})],
-                phone_person_id=person.id)
-    except ValueError as exc:  # older than a test-learning reset
-        exchange.lesson, exchange.lesson_why = "skipped", _clean(str(exc), 200)
-        return f"nothing to learn from it: {exchange.lesson_why}"
-    exchange.lesson, exchange.assessment_id = "assessing", row.id
-    return "what it says about being with them goes to your learning (it stays for review until it's live)"
 
 
 def retract(db: Session, user_id: uuid.UUID, evidence_id: uuid.UUID) -> bool:
@@ -652,86 +618,12 @@ def authorize_detail(user_id: uuid.UUID, name: str, detail: str, *, conversation
 
 
 # --------------------------------------------------------------------------- #
-# The learner's view of a phone exchange (learning_assessment ``phone`` trigger)
-# --------------------------------------------------------------------------- #
-
-def _exchange_of(db: Session, row: LearningAssessment) -> PhoneExchange | None:
-    try:
-        exchange = db.get(PhoneExchange, uuid.UUID(str((row.trigger or {}).get("exchange"))))
-    except ValueError:
-        return None
-    return exchange if exchange is not None and exchange.user_id == row.user_id else None
-
-
-def lesson_scope(db: Session, row: LearningAssessment):
-    """The audience lessons from this phone assessment are bound to (None: its exchange is gone)."""
-    from app.services.memory_lessons import PhoneScope
-
-    exchange = _exchange_of(db, row)
-    if exchange is None:
-        return None
-    return PhoneScope(exchange.person_id, exchange.conversation_id, tuple(exchange.applies_to or ()))
-
-
-def assessment_evidence(db: Session, row: LearningAssessment, ev, facts) -> str | None:
-    """What a phone assessment reads: the person's words she noted in that conversation (the trigger's and her
-    earlier readings there), her own sent replies there, her mind's readings (signals, never evidence) and a fact
-    of her taking part. Returns who "user" is in it."""
-    from app.ai.learning import assessment as A
-
-    exchange = _exchange_of(db, row)
-    if exchange is None:
-        ev.signals.append("the phone exchange this was about is gone (forgotten or corrected)")
-        return None
-    person = db.get(PhonePerson, exchange.person_id)
-    conversation = db.get(PhoneConversation, exchange.conversation_id)
-    readings = list(reversed(db.scalars(select(PhoneExchange).where(
-        PhoneExchange.person_id == exchange.person_id, PhoneExchange.conversation_id == exchange.conversation_id,
-        PhoneExchange.at <= exchange.at).order_by(PhoneExchange.at.desc()).limit(EXCHANGES_READ)).all()))
-    # The same replies eligibility counted (``_sent_before``): what the learner reads is what made it eligible.
-    sent = list(reversed(db.scalars(select(PhoneOutbound).where(
-        *_sent_before(row.user_id, conversation.conversation_id, exchange.at))
-        .order_by(PhoneOutbound.created_at.desc()).limit(SENT_READ)).all()))
-    name = _clean(person.display_name, 40) or "someone"
-    where = f'the "{_clean(conversation.title, 40)}" group' if conversation.is_group else "a direct chat"
-    timeline: list[tuple[datetime, str, object]] = [(r.at, "them", r) for r in readings]
-    timeline += [(o.created_at, "her", o) for o in sent]
-    k = 0
-    for at, kind, item in sorted(timeline, key=lambda t: t[0]):
-        k += 1
-        ref, stamp = f"m{k}", at.strftime("%a %Y-%m-%d %H:%M")
-        if kind == "her":
-            ev.add(A.Item(ref=ref, kind="her", event=f"outbound:{item.id}", roots=(f"outbound:{item.id}",),
-                          text=f'{ref} [columbina, sent there, {stamp}] "{_clean(item.text, TEXT_CHARS)}"',
-                          words=item.text))
-            continue
-        started = " (this started it)" if item.id == exchange.id else ""
-        if item.their_words:
-            ev.add(A.Item(ref=ref, kind="user", event=f"phone:{item.id}", roots=(f"phone:{item.id}",),
-                          text=f'{ref} [user ({name}), {stamp}] "{item.their_words}"{started}',
-                          words=item.their_words))
-        ev.signals.append(f"her mind's reading of {ref if item.their_words else 'an exchange'} at {stamp} "
-                          f"({ADDRESSED_WORDS[item.addressed]}): {item.observation}{started}")
-    others = [db.get(PhoneConversation, uuid.UUID(c)) for c in exchange.applies_to or []]
-    if others:
-        ev.signals.append("their words also named: " + ", ".join(
-            f'"{_clean(c.title, 40)}"' for c in others if c is not None))
-    ev.add(A.Item(ref=facts.next(), kind="fact", fact_kind="phone", event=f"phone:{exchange.id}",
-                  roots=(f"phone:{exchange.id}",),
-                  text=f"she has written in this conversation {len(sent)} time(s) through a reply button before this "
-                       "(counted by code). Establishes: she took part there. Does not establish: who each message "
-                       "was for, or how it landed."))
-    return (f"{name}, someone writing to her on the user's phone in {where} (not the user of the app); "
-            "\"columbina\" lines are what she sent there")
-
-
-# --------------------------------------------------------------------------- #
 # Inspection
 # --------------------------------------------------------------------------- #
 
 def review(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> dict | None:
     """Everything B2 holds about one person, for backend review: the active record next to the shadow view, every
-    proposal with its provenance, her readings, requests for space, authorizations, phone assessments and lessons."""
+    proposal with its provenance, her readings, requests for space and authorizations."""
     person = db.scalar(select(PhonePerson).where(PhonePerson.id == person_id, PhonePerson.user_id == user_id))
     if person is None:
         return None
@@ -761,8 +653,7 @@ def review(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> dict | None
                          .order_by(PhoneRelationshipEvidence.created_at))],
         "exchanges": [{"id": x.id, "audience": room(x.conversation_id), "events": x.events, "addressed": x.addressed,
                        "participated": x.participated, "observation": x.observation, "their_words": x.their_words,
-                       "applies_to": [room(uuid.UUID(c)) for c in x.applies_to or []], "lesson": x.lesson,
-                       "lesson_why": x.lesson_why, "assessment_id": x.assessment_id, "at": x.at}
+                       "applies_to": [room(uuid.UUID(c)) for c in x.applies_to or []], "at": x.at}
                       for x in db.scalars(select(PhoneExchange).where(PhoneExchange.person_id == person_id)
                                           .order_by(PhoneExchange.at))],
         "boundaries": [{"id": b.id, "scope": b.scope, "topic": b.topic, "words": b.words,
@@ -773,14 +664,4 @@ def review(db: Session, user_id: uuid.UUID, person_id: uuid.UUID) -> dict | None
                         "created_at": d.created_at, "revoked_at": d.revoked_at}
                        for d in db.scalars(select(PhoneDisclosure).where(PhoneDisclosure.person_id == person_id)
                                            .order_by(PhoneDisclosure.created_at))],
-        "assessments": [{"id": a.id, "state": a.state, "outcome": a.outcome, "revision": a.revision,
-                         "explanation": a.explanation}
-                        for a in db.scalars(select(LearningAssessment).where(
-                            LearningAssessment.user_id == user_id, LearningAssessment.phone_person_id == person_id))],
-        "lessons": [{"id": m.id, "kind": m.kind, "status": m.status, "statement": m.statement,
-                     "applies_when": m.applies_when, "their_words": m.user_words, "live": m.phone_live,
-                     "learned_in": room(m.phone_conversation_id),
-                     "applies_to": [room(uuid.UUID(c)) for c in m.phone_applies_to or []]}
-                    for m in db.scalars(select(MemoryLesson).where(MemoryLesson.user_id == user_id,
-                                                                   MemoryLesson.phone_person_id == person_id))],
     }

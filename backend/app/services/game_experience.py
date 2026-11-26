@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.db.models import DesktopSession, DesktopSessionEvent, GameExperience, MemoryLessonUse, DecisionAttempt
+from app.db.models import DesktopSession, DesktopSessionEvent, GameExperience
 
 log = logging.getLogger(__name__)
 GAME_BY_PROFILE = {"minecraft_pack": "minecraft"}
@@ -76,39 +76,12 @@ def session_stats(db: Session, session: DesktopSession) -> dict:
         if o.get("status") != "done" and key == previous:
             repeats += 1
         previous = key
-    supplied = list(db.scalars(select(MemoryLessonUse).join(
-        DecisionAttempt, DecisionAttempt.id == MemoryLessonUse.attempt_id).where(
-        DecisionAttempt.game_session_id == session.id, MemoryLessonUse.user_id == session.owner_user_id)))
     minutes = ((session.ended_at or _now()) - session.started_at).total_seconds() / 60
     return {
         "session_id": str(session.id), "started_at": session.started_at, "minutes": round(minutes, 1),
-        "lessons_on": any(a.received for a in supplied) if supplied else None,
-        "lessons": len({a.lesson_id for a in supplied if a.received}),
         "outcomes": len(outcomes), "success_rate": round(done / len(judged), 3) if judged else None,
         "repeated_failures": repeats,
         "deaths": sum(1 for e in experiences if e.kind == "notice" and e.payload.get("kind") == "died"),
         "steps_done": events.count("desktop.step_done"), "goals": events.count("desktop.plan_set"),
         "stuck": events.count("desktop.stuck"),
     }
-
-
-def lessons_for_run(db: Session, session_id: uuid.UUID) -> list[dict]:
-    from app.services import memory_lessons
-    session = db.get(DesktopSession, session_id)
-    if session is None:
-        return []
-    return [v.to_dict() for v in memory_lessons.for_game(
-        db, session.owner_user_id, game_for_profile(session.profile_id), query=str(session.plan or {})).views]
-
-
-def record_lesson_use(db: Session, session_id, attempt_id, lessons, output, status):
-    import json
-    from app.ai.learning import lessons as L
-    from app.services import memory_lessons
-    session = db.get(DesktopSession, session_id)
-    if session is None:
-        return
-    views = tuple(L.LessonView.from_dict(v) for v in lessons)
-    weighed, _ = L.parse_weighed(json.dumps(output), [v.ref for v in views])
-    memory_lessons.record_uses(session.owner_user_id, attempt_id, memory_lessons.Supply(views=views),
-                              consumer="hands", received=True, weighed=weighed, decision_status=status)

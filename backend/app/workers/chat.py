@@ -271,7 +271,6 @@ async def _generate(job: ChatJob) -> None:
         cached_memory=None if mind.phone_scope is not None else mind.cached_memory,
         turn_boundary=None if mind.phone_scope is not None else mind.boundary(),
         mind_state=mind_state,
-        lessons=mind_turn.lessons_text(mind),
         mind=mind,
         wake=wake_text,
         third_party=mind.third_party,
@@ -551,8 +550,6 @@ async def _generate(job: ChatJob) -> None:
             system_signals.emit(job.user_id, "mind", "mouth", "silent" if silent else "reply", turn_id)
         if follow_up:
             coordinator.follow_up_outcome(request_id, status=delivered, assistant_message_id=stored)
-            await asyncio.to_thread(_wake_ended, mind, info, job, decided=mind.proposal_decision is not None,
-                                    why="she was woken with it and made no decision about it")
             if reply and outcome == "completed":
                 # Shown (and spoken on an idle live voice session) by the sockets: already stored above.
                 coordinator.announce_follow_up(request_id)
@@ -599,9 +596,6 @@ async def _generate(job: ChatJob) -> None:
                                          follow_up and not reply) else None)
                     if follow_up:
                         coordinator.follow_up_outcome(request_id, status="failed", assistant_message_id=None)
-                        await asyncio.to_thread(_wake_ended, mind, info, job,
-                                                decided=mind.proposal_decision is not None,
-                                                why="the evaluation it woke her for failed")
                     if context.channel == "whatsapp":
                         whatsapp_service.wake_worker()
                 else:
@@ -672,7 +666,6 @@ async def _prepare_mind(job: ChatJob, payload: dict, user, claim_token):
         with SessionLocal() as db:
             chat_service.finish_job(db, job.id, "cancelled", claim_token=claim_token)
         coordinator.follow_up_outcome(request_id, status="cancelled", assistant_message_id=None)
-        await asyncio.to_thread(_wake_ended, None, info, job, decided=False, why="it went stale before she was woken")
         return None, None, info
     wake_text = coordinator.render_wake(info)
     mind = await asyncio.to_thread(mind_turn.prepare_wake, job=job, info=info, user_name=user.name if user else None)
@@ -753,18 +746,6 @@ def _carried_out(db, mind, message_id: uuid.UUID, info: dict | None, *, kept: di
                 memory_manager.meant_to_ask(db, mind.user_id, item_id, message_id=message_id)
     except Exception:  # noqa: BLE001
         logger.exception("chat worker: recording the questions a reply meant to ask failed")
-
-
-def _wake_ended(mind, info: dict | None, job: ChatJob, *, decided: bool, why: str) -> None:
-    """After a wake ended (or never ran): a proposal that got no decision in it goes back to its producer as
-    undecided, never as a choice made for her. Never raises."""
-    try:
-        extra = ((info or {}).get("input") or {}).get("extra") or {}
-        if (info or {}).get("reason") == "proposal" and extra.get("trial"):
-            from app.services import learning_trials
-            learning_trials.settle_presented(user_id=job.user_id, trial_id=extra["trial"], decided=decided, why=why)
-    except Exception:  # noqa: BLE001
-        logger.exception("chat worker: settling the wake's producer failed")
 
 
 def _deliver_worded(job: ChatJob) -> None:

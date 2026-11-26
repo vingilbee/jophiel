@@ -8,12 +8,12 @@ assembles the bounded state she reads and keeps the record; she decides with her
 - ``prepare_message`` / ``prepare_wake`` (blocking; call in a thread): unfinished thinking a new message makes
   moot is superseded; memory is checked once for this moment (``recall_references.for_reply``: the answer before's
   references, standing constraints, a search for the message or for what the wake is about), kept as the turn's
-  recall so her memory tools continue from it in the same loop; the lessons memory holds for this user; thinking
+  recall so her memory tools continue from it in the same loop; thinking
   still under way and reconsiderations she scheduled. A failed search is said as failed, never as nothing found.
 - ``Evaluation``: the per-wake record her tools write into (``app/ai/tools/mind``): silence chosen, thinking
-  started, reconsiderations scheduled, a proposal decided.
+  started, reconsiderations scheduled.
 - ``finish``: one trace line in ``MIND_TURN_LOG_PATH`` (ids, labels, counts, timings: no message or memory text),
-  her attempt and its delivery in learning capture (learner ``mind``), which lessons she had.
+  her attempt and its delivery in learning capture (learner ``mind``).
 
 The database is the record between wakes. Nothing here survives in process memory.
 """
@@ -64,10 +64,7 @@ class Evaluation:
     searched: bool = False  # a search ran and worked (else: the answer before's references, re-read)
     memory_refs: tuple[dict[str, Any], ...] = ()
     conversation_sequence: int | None = None  # the conversation's latest message when this began
-    lessons: Any = None  # memory_lessons.Supply
-    lessons_note: str | None = None
     superseded: int = 0
-    live_trial: bool = False  # a bounded experiment of hers is under way (she can pause or stop it)
     capture: learning_capture.Ctx | None = None
     started: float = field(default_factory=time.monotonic)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -79,7 +76,6 @@ class Evaluation:
     silent: str | None = None  # her reason, when she chose to say nothing
     pending: tuple[coordinator.PendingWork, ...] = ()  # thinking she started in this evaluation
     scheduled: list[str] = field(default_factory=list)  # reconsiderations she scheduled (work ids)
-    proposal_decision: str | None = None  # accept / decline / defer, on a proposal wake
     deferred: list[dict[str, Any]] = field(default_factory=list)  # wakes she moved: from, to, reason
     dropped: list[dict[str, Any]] = field(default_factory=list)  # wakes she dropped or let go, with why
     fulfilled: list[uuid.UUID] = field(default_factory=list)  # promises she marked fulfilled (count once delivered)
@@ -542,41 +538,10 @@ def _memory(ev: Evaluation, query: str) -> None:
     turn.consumed("mind", [str(r.ref) for r in turn.result.records], turn.legacy)
 
 
-def _lessons(ev: Evaluation, query: str) -> None:
-    """The lessons memory holds for this user, for this moment. Read only; a failure is no lessons, said."""
-    from app.services import memory_lessons
-
-    if not get_settings().lessons_supply_enabled:
-        ev.lessons_note = "lesson supply is switched off (baseline)"
-        return
-    try:
-        with SessionLocal() as db:
-            # Tentative inferences too, labelled as guesses: they can inform how she reads and answers now; they
-            # are never asserted.
-            supply = memory_lessons.for_decision(db, ev.user_id, query, include_tentative=True)
-        why = None
-    except Exception as exc:  # noqa: BLE001 - this evaluation goes without lessons
-        logger.exception("mind_turn: reading lessons failed")
-        ev.lessons_note = f"reading lessons failed: {type(exc).__name__}"
-        return
-    ev.lessons = supply
-    ev.lessons_note = why or (None if supply.views or supply.left_out else "no lessons with live support")
-
-
-def lessons_text(ev: Evaluation) -> str | None:
-    from app.ai.learning import lessons as L
-
-    if ev.lessons is None or not ev.lessons.views:
-        return None
-    return "\n".join(L.decision_lines(ev.lessons.views, cut=len(ev.lessons.left_out)))
-
-
 def _capture(ev: Evaluation, tries: int | None) -> None:
-    lesson_refs = tuple({"ref": f"lesson:{v.id}", "revision": v.revision, "shown": True}
-                        for v in (ev.lessons.views if ev.lessons is not None else ()))
     sources = tuple(dict.fromkeys(filter(None, (
         f"message:{ev.trigger_message_id}" if ev.trigger_message_id else "",
-        *(r["ref"] for r in ev.memory_refs), *(r["ref"] for r in lesson_refs),
+        *(r["ref"] for r in ev.memory_refs),
         f"work:{ev.wake['work_id']}" if ev.wake else ""))))
     upstream = {"work": ev.wake["work_id"]} if ev.wake else {}
     activity = (ev.wake or {}).get("activity_id") if (ev.wake or {}).get("input", {}).get("source") == "minecraft" \
@@ -587,7 +552,7 @@ def _capture(ev: Evaluation, tries: int | None) -> None:
         conversation_id=ev.conversation_id, turn_id=ev.request_id,
         source_message_id=ev.trigger_message_id if not ev.is_wake else None,
         game_session_id=uuid.UUID(activity) if activity else None, upstream=upstream,
-        input_refs=ev.memory_refs + lesson_refs, sources=sources)
+        input_refs=ev.memory_refs, sources=sources)
 
 
 def _sequence(conversation_id: uuid.UUID | None) -> int | None:
@@ -649,7 +614,6 @@ def _lap(ev: Evaluation, name: str, since: float) -> float:
 
 def _gather(ev: Evaluation, query: str, tries: int | None, at: float) -> None:
     ev.conversation_sequence = _safely(lambda: _sequence(ev.conversation_id), None)
-    # Memory's search and the lessons read rank by the same message: it is embedded once for both.
     with recall.shared_embeddings():
         try:
             _memory(ev, query)
@@ -660,21 +624,8 @@ def _gather(ev: Evaluation, query: str, tries: int | None, at: float) -> None:
         if ev.memory_status != "failed":
             from app.services import system_signals
             system_signals.emit(ev.user_id, "memory", "mind", "memory_check", ev.trigger_message_id)
-        _lessons(ev, query)
-        at = _lap(ev, "lessons_ms", at)
-    if get_settings().desktop_agent_enabled:
-        ev.live_trial = _safely(lambda: _has_live_trial(ev.user_id), False)
     _capture(ev, tries)
     ev.timings["prepare_ms"] = round((time.monotonic() - ev.started) * 1000)
-
-
-def _has_live_trial(user_id: uuid.UUID) -> bool:
-    from app.db.models import LearningTrial
-
-    with SessionLocal() as db:
-        return db.scalar(select(LearningTrial.id).where(
-            LearningTrial.user_id == user_id,
-            LearningTrial.status.in_(("selected", "preparing", "executing", "paused"))).limit(1)) is not None
 
 
 def _safely(fn, default):
@@ -732,13 +683,10 @@ def finish(ev: Evaluation | None, *, outcome: str, reply: str, assistant_message
                        "version": hashlib.sha256(",".join(f"{r['ref']}#{r['fingerprint']}" for r in ev.memory_refs)
                                                  .encode()).hexdigest()[:16],
                        "tool_calls": turn.tool_calls if turn is not None else 0},
-            "lessons": {"offered": len(ev.lessons.views) if ev.lessons is not None else 0,
-                        "left_out": len(ev.lessons.left_out) if ev.lessons is not None else 0,
-                        "note": ev.lessons_note},
             "tools": [a.get("tool") for a in ev.actions],
             "did": {"silent": ev.silent is not None, "spoke": spoke,
                     "thinking_started": [p.work_id for p in ev.pending], "scheduled": list(ev.scheduled),
-                    "proposal": ev.proposal_decision, "moved": [d["from"] for d in ev.deferred],
+                    "moved": [d["from"] for d in ev.deferred],
                     "dropped": [d["wake"] for d in ev.dropped], "fulfilled": [str(i) for i in ev.fulfilled]},
             "superseded_work": ev.superseded,
             "delivery": {"outcome": outcome, "assistant_message_id": str(assistant_message_id)
@@ -832,12 +780,11 @@ def _record(ev: Evaluation, *, outcome: str, reply: str, assistant_message_id: u
         input={"reason": ev.reason, "message": ev.message or None, "system": None,
                "wake": coordinator.render_wake(ev.wake) if ev.wake else None,
                "memory": {"status": ev.memory_status, "searched": ev.searched, "refs": list(ev.memory_refs)},
-               "lessons": [v.to_dict() for v in ev.lessons.views] if ev.lessons is not None else [],
                "channel": ev.channel, "voice": ev.voice},
         output=None if failed and not reply and not ev.actions else {
             "reply": reply, "silent": ev.silent, "tools": ev.actions[:60],
             "thinking_started": [p.work_id for p in ev.pending], "scheduled": list(ev.scheduled),
-            "proposal": ev.proposal_decision, "moved": ev.deferred, "dropped": ev.dropped,
+            "moved": ev.deferred, "dropped": ev.dropped,
             "fulfilled": [str(i) for i in ev.fulfilled]},
         status="error" if failed else "ok", error=error, started_at=ev.started_at,
         produced_at=datetime.now(timezone.utc), versions={"schema": SCHEMA_VERSION},
@@ -848,12 +795,6 @@ def _record(ev: Evaluation, *, outcome: str, reply: str, assistant_message_id: u
         intended={"communication": "silent" if ev.silent is not None else "speak", "origin": "mind",
                   "reason": ev.reason}, channel=ev.channel, voice=ev.voice,
         started_at=datetime.now(timezone.utc) - timedelta(seconds=time.monotonic() - ev.started))
-    if ev.lessons is not None:
-        from app.services import memory_lessons
-        memory_lessons.record_uses(ev.user_id, ctx.attempt_id, ev.lessons, consumer="mind",
-                                   received=bool(ev.prompt), reason=None if ev.prompt else (
-                                       ev.lessons_note or "the evaluation failed before its prompt was built"),
-                                   decision_status="error" if failed else "ok")
 
 
 def _write(record: dict[str, Any]) -> None:

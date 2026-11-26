@@ -2,9 +2,7 @@
 (docs/COLUMBINA_THOUGHT_MEMORY_SPEC.md §4).
 
 Her mind hands every hard thought that reached a conclusion to memory as a ``mind.thought_concluded``
-observation, in the thought's own transaction; learning hands a reviewer's follow-up the same way
-(``learning.follow_up_proposed``, services/learning_review.propose), so both go through the same matching. This
-consumer, on the memory worker thread, decides what lasts:
+observation, in the thought's own transaction. This consumer, on the memory worker thread, decides what lasts:
 
 1. **Code maps the kind**: intention -> intention, question -> question, guess -> hypothesis, decision ->
    decision; a feeling is skipped (the inner state's).
@@ -73,7 +71,6 @@ class Candidate:
 # How long a closed item stays a candidate: a repeat of it is recognised as already settled, not added again.
 RECENT_CLOSED = timedelta(days=14)
 SHOWN_CLOSED = 8
-FOLLOW_UP_KIND = {"question": "question", "observation": "hypothesis", "practice": "hypothesis"}
 
 
 _PROMPT = """You keep a companion's memory. She (Jophiel) just finished thinking something through, and you
@@ -153,24 +150,18 @@ def process(db: Session, claimed: tuple[int, int], *,
     observation_id, attempts = claimed
     observation = db.get(Observation, observation_id)
     try:
-        if observation.kind == "follow_up_proposed":
-            payload = registry.LearningFollowUp.model_validate(observation.payload)
-            kind = FOLLOW_UP_KIND[payload.kind]
-            facts = {}
-        else:
-            payload = registry.ThoughtConcluded.model_validate(observation.payload)
-            kind = KIND.get(payload.conclusion_kind)
-            if kind is None:
-                return _settle(db, claimed, "skipped", "feelings are the inner state's")
+        if observation.kind == "follow_up_proposed":  # the retired learner's (2026-11-26)
+            return _settle(db, claimed, "skipped", "the old learner is retired")
+        payload = registry.ThoughtConcluded.model_validate(observation.payload)
+        kind = KIND.get(payload.conclusion_kind)
+        if kind is None:
+            return _settle(db, claimed, "skipped", "feelings are the inner state's")
         if observation.context_id is None or _closed(db, observation.context_id):
             return _settle(db, claimed, "skipped", "the place it was about is closed")
         candidates = _candidates(db, observation, kind)
-        if observation.kind == "follow_up_proposed":
-            view = _follow_up_view(db, payload, kind)
-        else:
-            facts = _facts_read(db, observation.user_id, payload)
-            view = _thought_view(payload, kind)
-            view["about"] = list(_about(db, [m for m in payload.basis.messages]))
+        facts = _facts_read(db, observation.user_id, payload)
+        view = _thought_view(payload, kind)
+        view["about"] = list(_about(db, [m for m in payload.basis.messages]))
         db.rollback()  # nothing held while the model thinks
         if facts:
             view["facts_she_read"] = [{"ref": ref, "text": text} for ref, (_, text) in facts.items()]
@@ -180,11 +171,8 @@ def process(db: Session, claimed: tuple[int, int], *,
         db.rollback()
         return _settle(db, claimed, "error", f"{type(exc).__name__}: {exc}"[:200])
     try:
-        if observation.kind == "follow_up_proposed":
-            outcome, reason = _apply_follow_up(db, observation, payload, kind, judgement, {c.ref for c in candidates})
-        else:
-            outcome, reason = _apply(db, observation, payload, kind, judgement, {c.ref for c in candidates},
-                                     {ref: fact_id for ref, (fact_id, _) in facts.items()})
+        outcome, reason = _apply(db, observation, payload, kind, judgement, {c.ref for c in candidates},
+                                 {ref: fact_id for ref, (fact_id, _) in facts.items()})
     except Exception as exc:  # noqa: BLE001
         log.exception("thought memory: applying observation %s failed", observation_id)
         db.rollback()
@@ -242,12 +230,6 @@ def _about_items(db: Session, item_ids: list[uuid.UUID]) -> dict[uuid.UUID, tupl
             .order_by(ChatMessage.conversation_sequence)):
         out.setdefault(item_id, []).append(f"m{seq}")
     return {k: tuple(dict.fromkeys(v))[-8:] for k, v in out.items()}
-
-
-def _follow_up_view(db: Session, payload: registry.LearningFollowUp, kind: str) -> dict:
-    return {"kind": kind, "conclusion": payload.text, "question": payload.text if kind == "question" else None,
-            "her_reasoning": payload.resolves, "what_started_it": "a learning review of what happened",
-            "other_explanations": payload.alternatives, "about": list(_about(db, payload.messages))}
 
 
 def _facts_read(db: Session, user_id: uuid.UUID, payload: registry.ThoughtConcluded) -> dict[str, tuple]:
@@ -345,48 +327,6 @@ def _target(db: Session, user_id: uuid.UUID, observation: Observation, kind: str
             return None, ("skipped", f"already {target.status}: item {target.id}")
         return None, None
     return target, None
-
-
-def _apply_follow_up(db: Session, observation: Observation, payload: registry.LearningFollowUp, kind: str,
-                     judgement: Judgement, shown: set[str]) -> tuple[str, str]:
-    """A learning follow-up: the same as an open item of hers is a restatement (the messages it adds are its
-    basis too), the same as a closed one is skipped, otherwise a new open item of hers, with the review as its
-    origin and the stretch's messages as its basis."""
-    user_id = observation.user_id
-    db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"memory:{user_id}"))))
-    if not _still_ours(db, observation.id):
-        return "gone", "another worker settled it"
-    if not judgement.keep:
-        return "skipped", f"not worth keeping: {judgement.why}".strip()[:200]
-    origin = Source("observation", observation.id)
-    target, settled = _target(db, user_id, observation, kind, judgement, shown)
-    if settled is not None:
-        return settled
-    if target is not None and judgement.relation == "same":
-        memory_manager.restate(db, user_id, target, origin)
-        return "applied", f"restated item {target.id}"
-    if target is not None:
-        memory_manager.resolve(db, user_id, target.id, status=REPLACED[kind],
-                               reason=f"replaced by a later follow-up: {payload.text}"[:300], source=origin)
-    marker = f"learning follow-up (assessment {payload.assessment_id})"
-    alternatives = "; ".join(payload.alternatives)
-    reason = (f"{marker}, revision {payload.revision}: it could resolve {payload.resolves or 'what records leave open'}"
-              + (f"; other explanations: {alternatives}" if alternatives else "")
-              + ". A proposal: whether and when is her choice.")[:1000]
-    session_id = uuid.UUID(payload.session_id) if payload.session_id else None
-    goal = memory_manager.open_goal_of_session(db, session_id)
-    serves = goal.id if goal is not None and goal.context_id == observation.context_id else None
-    entry = memory_manager.add_item(db, user_id, kind=kind, text_=payload.text, owner="columbina",
-                                    epistemic="inferred", context_id=observation.context_id, parent_id=serves,
-                                    source=origin, reason=reason)
-    for message_id in payload.messages:
-        try:
-            memory_manager.link(db, user_id, role="basis", source=Source("message", uuid.UUID(message_id)),
-                                item_id=entry.id)
-        except ValueError:
-            continue
-    replaced = f", replacing item {target.id}" if target is not None else ""
-    return "applied", f"{kind} {entry.id}{replaced}"
 
 
 def _premise(db: Session, user_id: uuid.UUID, conflict_id: str | None):

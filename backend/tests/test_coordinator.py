@@ -35,7 +35,7 @@ from db_support import create_conversation, create_user, database, db_env  # noq
 def env(db_env, monkeypatch, tmp_path):
     settings = get_settings()
     for key, value in {"redis_url": None, "mind_turn_log_path": str(tmp_path / "turns.jsonl"),
-                       "mind_work_deadline_seconds": 180, "lessons_supply_enabled": False,
+                       "mind_work_deadline_seconds": 180,
                        "desktop_agent_enabled": False}.items():
         monkeypatch.setattr(settings, key, value)
 

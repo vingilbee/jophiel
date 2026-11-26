@@ -70,11 +70,9 @@ SCHEMA = {
                    "progress": {"type": "string", "enum": [*PROGRESS, ""]},
                    "cause": {"type": "string", "enum": [*CAUSES, ""]},
                    "check": {"type": "string"}, "if_supported": {"type": "string"},
-                   "leaves_unknown": {"type": "string"}, "learn": {"type": "string"},
-                   "reconsider": {"type": "object", "additionalProperties": False, "required": ["lesson", "why"],
-                                  "properties": {"lesson": {"type": "string"}, "why": {"type": "string"}}}},
+                   "leaves_unknown": {"type": "string"}},
     "required": ["thinking", "kind", "conclusion", "for_hands", "question", "follows", "progress", "cause", "check",
-                 "if_supported", "leaves_unknown", "learn", "reconsider"],
+                 "if_supported", "leaves_unknown"],
     "additionalProperties": False,
 }
 
@@ -120,13 +118,6 @@ outcome should change, make it a question for {user}. Changing the approach is h
 {for_hands}
 - "question": for a question, the exact words she'd say to {user}, short, in her voice. Otherwise empty.
 {effort_rules}
-- "learn": when something here seems worth learning from for later (something that worked, a pattern across \
-what happened, a surprise, how {user} tends to mean things), name it in a few words so her learning can look at \
-the records; otherwise empty. It points; it concludes nothing, and her learning checks it against what happened.
-- "reconsider": when, thinking this through, one of the lessons in what she learned before looks mistaken or \
-over-confident on its own evidence (it reads too much into one moment, or blames the wrong thing), its ref ("L2") \
-and why, in a sentence; otherwise both empty. Her learning reads that lesson again on its evidence; this changes \
-nothing by itself.
 - If nothing here is worth concluding, leave "kind" empty."""
 # Only when she has an effort to judge (her effort is in what she reads).
 EFFORT_RULES = """- "progress": is her effort getting anywhere toward the outcome? "yes", "no" or "unclear", judged by her \
@@ -172,8 +163,7 @@ class HardInput:
     conversation: tuple[dict, ...] = ()  # {"role", "content", "ago", "id"?} oldest first
     memories: str | None = None
     memory_refs: tuple[str, ...] = ()  # the memories supplied ("event:42"), for what she read
-    lesson_supply: object | None = None
-    learned: tuple[str, ...] = ()  # lessons and learned moves, as lines
+    learned: tuple[str, ...] = ()  # moves she taught herself and earlier experience, as lines
     earlier: tuple[str, ...] = ()  # her earlier conclusions on this problem
     character: tuple[str, ...] = ()  # what she cares about
 
@@ -186,10 +176,6 @@ class HardThought:
     for_hands: str | None = None
     question: str | None = None
     follows: str | None = None  # the earlier conclusion it says it carries out (a timeline id)
-    # What she pointed her learning at (post-audit 3: a nomination, not a conclusion and never evidence).
-    learn: str | None = None
-    # A lesson she thinks is mistaken (post-audit 4): {"lesson": "L2", "why": ...}; her learning reads it again.
-    reconsider: dict | None = None
     # Her judgment of the effort, when there is one: progress, cause, check, if_supported, leaves_unknown.
     assessment: dict | None = None
     latency_ms: float = 0.0
@@ -291,15 +277,10 @@ def parse(out: dict, **extra) -> HardThought:
     where its kind allows one."""
     kind = out.get("kind") or None
     conclusion = _clean(out.get("conclusion"))
-    learn = _clean(out.get("learn"))
-    asked = out.get("reconsider") if isinstance(out.get("reconsider"), dict) else {}
-    reconsider = ({"lesson": _clean(asked.get("lesson")), "why": _clean(asked.get("why"))}
-                  if _clean(asked.get("lesson")) and _clean(asked.get("why")) else None)
     if kind not in CONCLUSIONS or not conclusion:
-        return HardThought(None, None, thinking=_clean(out.get("thinking")), assessment=assessment(out), learn=learn,
-                           reconsider=reconsider, **extra)
+        return HardThought(None, None, thinking=_clean(out.get("thinking")), assessment=assessment(out), **extra)
     return HardThought(
-        kind, conclusion, thinking=_clean(out.get("thinking")), learn=learn, reconsider=reconsider,
+        kind, conclusion, thinking=_clean(out.get("thinking")),
         for_hands=_clean(out.get("for_hands")) if kind in ("decision", "guess", "intention") else None,
         question=(_clean(out.get("question")) or conclusion) if kind == "question" else None,
         follows=follows_id(out.get("follows")),

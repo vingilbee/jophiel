@@ -99,14 +99,13 @@ class AgentRuntimeContext:
     # This evaluation of her mind (services/mind_turn.py). ``cached_memory``: the memories from the last answer,
     # re-read, when no search ran or it failed (replaces ``recall`` in the prompt). ``turn_boundary``: what this
     # evaluation had from memory. ``mind_state``: thinking she started that's still under way and what she
-    # scheduled to come back to. ``lessons``: what she has learned with this user (the LESSONS section).
+    # scheduled to come back to.
     # ``mind``: the evaluation's record: her mind's tools are built from it and write what she did into it
     # (None: a turn that isn't an evaluation of her mind, e.g. a nudge). ``wake``: why she was woken when it
     # wasn't a user message (rendered by ``coordinator.render_wake``); her reply is then what she says, if anything.
     cached_memory: str | None = None
     turn_boundary: str | None = None
     mind_state: str | None = None
-    lessons: str | None = None
     mind: Any = None
     wake: str | None = None
     # Woken by someone else's words (a phone notification), or by what such a wake started or scheduled: no device

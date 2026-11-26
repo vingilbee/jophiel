@@ -867,11 +867,6 @@ def driver_progress(
             _record(db, session, f"desktop.{status}", {
                 "step_id": step_id, "note": (note or "")[:200], "source": "game_observation",
             })
-            if status == "stuck":
-                from app.services import learning_trials
-
-                # Learning may investigate it (a proposal for her mind, never an action).
-                learning_trials.consider(db, session, kind="stuck", text=note or "stuck")
             _transition(session, "paused", reason="driver_stuck" if status == "stuck" else "needs_human", db=db)
             stopping = True
             # Why travels with the event, so she can work out what's missing and ask.
@@ -898,12 +893,6 @@ def driver_noticed(db: Session, session_id: uuid.UUID, *, kind: str, text: str) 
     from app.services import mind_minecraft
     from app.services.game_event_kinds import COMMENTARY_KINDS
 
-    if kind == "struggling":
-        from app.services import learning_trials
-
-        # Learning may investigate a step that keeps failing (a proposal for her mind, never an action).
-        if learning_trials.consider(db, session, kind="struggling", text=text):
-            db.commit()
     if kind in COMMENTARY_KINDS and mind_minecraft.enabled():
         return  # her mind sees the same notices every tick and decides itself
     if kind == "struggling" and mind_minecraft.enabled():
@@ -1088,11 +1077,6 @@ def _transition(session: DesktopSession, to_state: str, *, reason: str, db: Sess
         session.execution_generation += 1
     if to_state in DESKTOP_TERMINAL_STATES:
         session.ended_at = _now()
-    if previous == "running" or to_state in DESKTOP_TERMINAL_STATES:
-        # Out of play (paused, offline, ended): reflect on the stretch just played.
-        from app.services import game_assessment
-
-        game_assessment.schedule(db, session, to_state)
     _record(db, session, "desktop.session_state", {"state": to_state, "previous_state": previous, "reason": reason})
 
 
