@@ -150,6 +150,8 @@ class ScreenImage(BaseModel):
     jpeg_base64: str = Field(min_length=1, max_length=SCREEN_IMAGE_CHARS, repr=False)
     width: int = Field(ge=1, le=10_000)
     height: int = Field(ge=1, le=20_000)
+    # A coordinate grid drawn on her copy: a line every this many pixels (phone app, when little is numbered).
+    grid: int | None = Field(default=None, ge=1, le=10_000)
 
 
 class PhoneScreen(BaseModel):

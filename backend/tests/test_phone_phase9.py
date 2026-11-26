@@ -457,3 +457,10 @@ def test_control_tools_only_on_reply_turns_with_a_phone(monkeypatch):
                   replace(reply, phone=None, phone_control=None)):
         names, config = asyncio.run(registered(other))
         assert not set(control_tools.TOOL_NAMES) & names and config is None
+
+
+def test_a_screen_with_a_grid_is_accepted():
+    from app.schemas.phone import ScreenImage
+    image = ScreenImage.model_validate({"jpeg_base64": JPEG, "width": 1600, "height": 720, "grid": 100})
+    assert image.grid == 100
+    assert ScreenImage.model_validate({"jpeg_base64": JPEG, "width": 720, "height": 1600}).grid is None
