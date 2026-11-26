@@ -48,12 +48,6 @@ The one exception to phase 9's "reply turns only". No migration.
 Cut-off phone turns (2026-11-25): each step of her hands is kept as one line (what she did, the screen's first line;
 `phone_control.note_step`, process memory, wiped with her screens), and a turn stopped by the user's new words is read
 back step by step in her history; a look is scheduled only after a turn she finished herself (`PhoneControl.answered`).
-Words keep her turn (2026-11-25, `services/phone_words.py`): from her first phone step until the turn ends, a message
-the user types or says in that conversation (no attachments, not just "stop") doesn't stop the turn. It's saved with
-its own job, which waits (one job per conversation at a time), and comes back to her under the next screen; a job she
-read there is closed as answered in that turn, one she didn't runs next. The turn's stream carries `hands` frames
-(open / closed); the phone app then never commits a long utterance as a barge-in (only Stop, the banner or the button
-stop her). Frames: `ack`/`transcript` carry `joins`, the joined turn's `done` carries `joined`. No migration.
 Latency (2026-11-25): her prompt is two system messages, the standing part first (`prompts.build_prompt_parts`)
 and this evaluation's moment (Now, senses, memory, devices, delivery rules) right before the message it answers, so
 OpenAI's prompt cache serves the standing prompt and the history; the history window's start moves every
