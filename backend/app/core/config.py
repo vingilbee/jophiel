@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     # Her wakes (a notification, a promise coming due, a follow-up, her own thinking finishing): nobody is waiting on
     # them, so her mind thinks before it decides and speaks (2026-11-24, the user's choice). Replies to the user's own
     # messages stay on chat_reasoning_effort (fast). None: the turn's usual effort. Game and desktop efforts win.
+    # Her hands on the phone screen (phase 9): from the first screen she reads or action she takes in a turn, her mind
+    # thinks before each next step (a fast attack otherwise drops her notes' rules: one card at a time, look before a
+    # batch). A reply that only talks stays quick. None: no thinking there. Desktop and game efforts win.
+    phone_control_reasoning_effort: str | None = "low"
     wake_mind_reasoning_effort: str | None = "low"
     chat_max_tokens: int = 4096
     # Only this many persisted messages are replayed into a live turn. The DB
@@ -557,8 +561,15 @@ class Settings(BaseSettings):
     # still for PRACTICE_SETTLE_SECONDS; its trail (steps, screens as text, a few pictures) waits in Redis at most
     # PRACTICE_TRAIL_SECONDS and is deleted once read. The reviewer looks at pictures, so it needs a vision model.
     practice_review_model: str = "gpt-6-luna"
-    practice_review_reasoning_effort: str | None = "low"
+    practice_review_reasoning_effort: str | None = "medium"  # in the background: time to look back
+    # Its output limit, reasoning included: a long stretch with pictures can spend the chat's 4096 on reasoning
+    # alone and answer nothing.
+    practice_review_max_tokens: int = Field(default=16000, ge=1024)
     practice_settle_seconds: float = Field(default=90.0, ge=5)
+    # Her picture of a place (services/place_memory.py): a small vision model updates it from her screenshots, in
+    # the background, at most once every few seconds per place while she uses it.
+    place_memory_model: str = "gpt-6-luna"
+    place_memory_reasoning_effort: str | None = None
     practice_trail_seconds: int = Field(default=6 * 3600, ge=600)
     strands_decider_url: str = "http://127.0.0.1:8765"
 

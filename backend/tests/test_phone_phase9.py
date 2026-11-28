@@ -331,13 +331,53 @@ def test_steps_are_bounded_and_gone_when_control_is_switched_off(monkeypatch):
     assert phone_control.steps(user, "t0") == [] and phone_control.steps(user, "t1") == []
     assert phone_control.steps(user, "t2", now=now) == ["tapped [1] → Phone screen s1: Settings in front"]
     assert phone_control.steps(user, "t2", now=now + phone_control.MEMORY_SECONDS + 5) == []
-    many = [f"step {i}" for i in range(40)]
+    many = [f"step {i} → Phone screen s{i}" for i in range(40)]
     text = phone_control.steps_text(many)
-    assert text.startswith("step by step (the first 10 not shown): 11. step 10;") and text.endswith("40. step 39")
+    # None is lost: the first ones keep what she did, the last STEPS_SHOWN what came back too.
+    assert text.startswith("step by step (the first 10 without what came back): 1. step 0; 2. step 1;")
+    assert "10. step 9; 11. step 10 → Phone screen s10;" in text and text.endswith("40. step 39 → Phone screen s39")
     state["control_on"] = False
     assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
     state["control_on"] = True
     assert phone_control.steps(user, f"t{phone_control.STEP_TURNS + 1}", now=now) == []
+
+
+def test_what_her_hands_did_lately_spans_her_finished_turns(monkeypatch):
+    user = uuid.uuid4()
+    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
+    state = {"control_on": True}
+    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: state)
+    now = time.time()
+    phone_control.note_step(user, "old", 0, "tapped [2] → Phone screen s1: Settings in front", now=now - 1200,
+                            place="Settings")
+    phone_control.note_step(user, "a", 0, "tapped [4] → no answer seen", now=now - 200, place="Clash of Clans")
+    phone_control.note_step(user, "a", 0, "tapped [4] → Phone screen s2: Clash of Clans in front", now=now - 190)
+    phone_control.note_step(user, "a", 1, "tapped point (1540, 400) → Phone screen s3: Clash of Clans in front",
+                            now=now - 30, place="Clash of Clans")
+    phone_control.note_step(user, "cut", 0, "tapped [1] → Phone screen s4: WhatsApp in front", now=now - 20,
+                            place="WhatsApp")
+    phone_control.note_step(user, "now", 0, "pressed back → Phone screen s5", now=now - 5, place="Clash of Clans")
+    for turn in ("old", "a", "now"):
+        phone_control.answered(user, turn)
+    phone_control.answered(user, "never-noted")  # a turn with no steps isn't remembered for it
+    lines = phone_control.recent_steps(user, skip="now", now=now)
+    # Older than the window, a turn the user's words cut off (read back in her history) and this turn: left out.
+    assert lines == ["3 min ago, Clash of Clans: tapped [4] → Phone screen s2: Clash of Clans in front",
+                     "just now, Clash of Clans: tapped point (1540, 400) → Phone screen s3: Clash of Clans in front"]
+    state["control_on"] = False
+    assert phone_control.recent_steps(user, now=now) == []
+    state["control_on"] = True
+    assert phone_control.recent_steps(user, now=now) == []  # wiped, not hidden
+
+
+def test_her_prompt_carries_what_her_hands_did_lately():
+    from app.ai.context import AgentRuntimeContext
+    from app.ai.prompts import build_prompt_parts
+    lines = "- 1 min ago, Clash of Clans: tapped point (1540, 400) → Phone screen s3"
+    _, moment = build_prompt_parts(AgentRuntimeContext(user_id=uuid.uuid4(), phone="Screen on.", phone_recent=lines))
+    assert "What your hands did on their phone lately" in moment and lines in moment
+    _, without = build_prompt_parts(AgentRuntimeContext(user_id=uuid.uuid4(), phone="Screen on."))
+    assert "What your hands did on their phone lately" not in without
 
 
 @pytest.fixture
@@ -432,6 +472,7 @@ def test_control_tools_only_on_reply_turns_with_a_phone(monkeypatch):
 
     def agent(tools, **kwargs):
         built["hook"] = kwargs.get("pre_model_hook")
+        built["hands"], built["hands_reasoning"] = kwargs.get("hands"), kwargs.get("hands_reasoning")
         return {tool.name for tool in tools}
 
     monkeypatch.setattr(ai_chat, "build_agent", agent)
@@ -449,6 +490,8 @@ def test_control_tools_only_on_reply_turns_with_a_phone(monkeypatch):
     names, config = asyncio.run(registered(reply))
     assert set(control_tools.TOOL_NAMES) <= names
     assert built["hook"] is screenshot_hook and config == {"recursion_limit": ai_chat.DESKTOP_RECURSION_LIMIT}
+    # She thinks before each step once her hands are on the screen.
+    assert set(control_tools.TOOL_NAMES) <= built["hands"] and built["hands_reasoning"] == "low"
     assert finished == [str(reply.turn_id)]
     # Never on her own turns, a turn someone else's words caused, a nudge, or without a phone.
     for other in (replace(reply, source_message_id=None, wake="late result", phone_control=None),
@@ -541,3 +584,84 @@ def test_a_zoom_enlarges_part_of_the_latest_picture_without_touching_the_phone(m
     assert sent == ["read_screen"] and control.steps == 1  # not an action of the turn
     assert call({"x": 900, "y": 10}).content == "Not done: that point is outside the picture (800x400)."
     assert "phone_zoom" in control_tools.TOOL_NAMES
+
+
+def test_a_cut_off_turn_keeps_its_intent_and_last_screen_until_wiped(monkeypatch):
+    user, turn = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(phone_control, "_epoch", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(phone_state, "read", lambda *args, **kwargs: None)
+    monkeypatch.setattr(phone_control, "begin_turn", lambda *args, **kwargs: None)
+    monkeypatch.setattr(phone_control, "_client", lambda: None)
+    monkeypatch.setattr(control_tools.phone_grounding, "available", lambda: True)
+
+    async def locate(picture, target, size):
+        return control_tools.phone_grounding.Found(100, 200, 0)
+
+    monkeypatch.setattr(control_tools.phone_grounding, "locate", locate)
+    screens = iter(["s1", "s2"])
+    monkeypatch.setattr(phone_actions, "act", lambda *a, **k: phone_actions.Outcome(
+        "done", uuid.uuid4(), "Done", screen=screen(next(screens), "Clash of Clans")))
+    tools, _ = control_tools.build_phone_control_tools(user, uuid.uuid4(), turn_id=turn)
+    named = tools_by_name(tools)
+    asyncio.run(named["read_phone_screen"].ainvoke({}))
+    asyncio.run(named["phone_tap_on"].ainvoke({"targets": ["the heal potion"]}))
+    lines = phone_control.steps(user, turn)
+    assert lines[1].startswith("tapped point (100, 200) (the heal potion) → Phone screen s2")
+    last = phone_control.last_screen(user, turn)
+    assert last.startswith("Phone screen s2: Clash of Clans") and "jpeg" not in last.lower()
+    assert phone_control.last_screen(user, uuid.uuid4()) is None
+    phone_control.wipe(user)
+    assert phone_control.last_screen(user, turn) is None
+
+
+def test_only_the_turn_to_carry_on_from_brings_its_last_screen(monkeypatch):
+    from app.services import chat as chat_service
+
+    old, latest = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(phone_control, "steps", lambda user, turn, **kw: ["tapped [2] → Phone screen s3: Game in front"])
+    monkeypatch.setattr(phone_control, "last_screen", lambda user, turn, **kw: f"Phone screen of {turn}.\n  HP 40")
+    out = chat_service._with_steps(uuid.uuid4(), {old: "Used your phone in Game, 1 step"}, [old, latest],
+                                   carry_on=latest)
+    assert "last screen" not in out[old] and out[old].startswith("Used your phone in Game, 1 step; step by step: 1.")
+    assert out[latest].startswith("Used your phone; step by step: 1. tapped [2]")
+    assert f"read it again before acting):\nPhone screen of {latest}.\n  HP 40" in out[latest]
+
+
+def test_she_thinks_once_her_hands_are_on_the_screen(monkeypatch):
+    """A reply that only talks stays on the quick model; from her hands' first answer on, each call reasons."""
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.messages import AIMessage, ToolMessage
+    from langchain_core.tools import tool as make_tool
+
+    from app.ai import agent as ai_agent
+
+    @make_tool
+    def read_phone_screen() -> str:
+        """Read the screen."""
+        return "Home screen"
+
+    class Fake(GenericFakeChatModel):
+        effort: str | None = None
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    calls: list[str | None] = []
+
+    def chat_model(model=None, reasoning=None, max_tokens=None):
+        replies = iter([AIMessage("done")] if reasoning else
+                       [AIMessage("", tool_calls=[{"name": "read_phone_screen", "args": {}, "id": "c1"}])])
+        fake = Fake(messages=replies, effort=reasoning)
+        original = fake._generate
+
+        def generate(*args, **kwargs):
+            calls.append(fake.effort)
+            return original(*args, **kwargs)
+        object.__setattr__(fake, "_generate", generate)
+        return fake
+
+    monkeypatch.setattr(ai_agent, "get_chat_model", chat_model)
+    graph = ai_agent.build_agent([read_phone_screen], hands=frozenset({"read_phone_screen"}), hands_reasoning="low")
+    out = graph.invoke({"messages": [HumanMessage("look at my phone")]})
+    assert isinstance(out["messages"][2], ToolMessage)
+    assert calls == [None, "low"]

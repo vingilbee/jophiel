@@ -14,6 +14,12 @@ says what a review reads, what it may write back, and how notes read to her.
 - **How she reads them.** With the screen, the first time a place comes up in a turn: "Your notes from using X".
   Experience of hers, not instructions; what the user asks now always comes first. The user's own notes (written
   by them or by her on their word) are marked as theirs and a review never rewrites them.
+- **What she watches for.** A review also keeps, per place, up to three lines on the mistakes of hers that keep
+  coming back there and what to do instead (``watch``): shown with every screen in that place, not only with the
+  notes, so the one thing she keeps getting wrong sits next to the screen she's deciding on. A line stays: she
+  doesn't change between sessions, so the habit it holds back comes back without it (2026-11-28: the card line was
+  dropped after one clean stretch and the bundling returned the next). It leaves only when a newer mistake needs its
+  slot (its lesson stays in her notes) or a stretch shows it wrong (``unwatch``); ``check_watch`` keeps the rest.
 - **Tool descriptions say what a tool does**, true in every app; notes say what worked for her, where. When a note and
   a description disagree about what the tool does, the description is the code's own truth.
 """
@@ -29,12 +35,17 @@ NOTE_CHARS = 500  # the most a review may write; it is asked for NOTE_AIM
 NOTE_AIM = 300
 EVIDENCE_CHARS = 300
 PLACE_CHARS = 80
-NOTES_PER_PLACE = 12  # her practice notes per place, held by check(): past it a review merges, never piles up
+NOTES_PER_PLACE = 6  # her practice notes per place, held by check(): past it a review merges, never piles up
 USER_NOTES_PER_PLACE = 8  # the user's own notes per place (services/practice.keep_user_note): past it one is replaced
 NOTES_SHOWN = NOTES_PER_PLACE + USER_NOTES_PER_PLACE  # with a screen, per place: all of them, bounded by the two caps
 STEP_TEXT_CHARS = 1500  # a screen's text, per step, in the review
 STEPS_REVIEWED = 120
 PICTURES_REVIEWED = 20
+PAST_SHOWN = 8  # earlier reviews of the same place the reviewer reads, newest first
+HISTORY_SHOWN = 3  # a note's earlier versions the reviewer reads, newest first
+REWORDED = 3  # a note in its third version or later is shown to the reviewer as rewritten that many times
+WATCH_PER_PLACE = 3  # her watch lines per place, shown with every screen there
+WATCH_CHARS = 160
 REMIND_EVERY = 15  # her actions in one place before its notes are shown to her again
 
 Status = Literal["known", "to_try"]
@@ -50,7 +61,27 @@ class Note:
     source: Literal["practice", "user"] = "practice"
     evidence: str | None = None
     updated: str | None = None  # when it last changed, as a date for her
+    revision: int = 1  # how many versions it has had (shown to the reviewer: advice reworded again and again)
+    history: list[dict] = field(default_factory=list)  # earlier versions, newest first: {"text", "at", ...}
     had: bool = False  # in front of her during the stretch being reviewed
+    pinned: bool = False  # the user pinned it: a review never rewrites or removes it
+
+    @property
+    def fixed(self) -> bool:
+        """Out of a review's reach: the user's own, or pinned by them."""
+        return self.source == "user" or self.pinned
+
+
+@dataclass(frozen=True)
+class Past:
+    """An earlier review of a stretch in the same place, as the next review reads it."""
+
+    at: str  # when, for her ("2026-11-26 21:38")
+    places: list[str]
+    summary: str
+    result: str | None = None
+    tallies: list[dict] = field(default_factory=list)
+    user_notes: str | None = None
 
 
 @dataclass
@@ -80,6 +111,8 @@ class Stretch:
     steps: list[Step]
     pictures: list[str] = field(default_factory=list)  # captions, by index (the images travel beside the text)
     notes: list[Note] = field(default_factory=list)  # her notes for the places in this stretch
+    past: list[Past] = field(default_factory=list)  # earlier reviews of these places, newest first
+    watch: dict[str, list[str]] = field(default_factory=dict)  # place -> what she watches for there now
 
 
 class NoteChange(BaseModel):
@@ -100,11 +133,38 @@ class Tally(BaseModel):
     worked: int = Field(ge=0, description="how many of those did what she meant, as the screens and pictures show")
 
 
+class Watch(BaseModel):
+    place: str = Field(description="the app or game, as the screen names it")
+    text: str = Field(description="the mistake that keeps coming back and what to do instead, in one short line, "
+                                  "first person")
+
+
+class Unwatch(BaseModel):
+    place: str = Field(description="the app or game, as the screen names it")
+    text: str = Field(description="the current line, exactly as shown")
+    why: str = Field(description="what in this stretch shows it wrong, or \"reworded\" when a new line replaces it")
+
+
 class Review(BaseModel):
+    # Field order is the order the model writes them in: it looks back before it changes any note.
     summary: str = Field(description="one or two sentences: what she was doing and how it went with her tools")
-    user_notes: str = Field("", description="for each of the user's notes she followed or was meant to follow here: "
-                                            "whether she did, and what happened when she did; empty when none applied")
+    result: str = Field("", description="how the task ended, as the screens show it, in a few words (\"57%, one "
+                                        "star, victory\"; \"ended before the result screen\"); empty when there's "
+                                        "no outcome to see. A fact for the record only: it never decides how "
+                                        "well she played")
     tallies: list[Tally] = Field(default_factory=list, description="the actions she repeated most, counted")
+    user_notes: str = Field("", description="for each of the user's notes (and the notes they "
+                                            "pinned) she followed or was meant to follow here: whether she did, and what happened when she did; empty when none applied")
+    looking_back: str = Field("", description="compared with the earlier stretches here: did she play better, worse "
+                                              "or the same (followed her plan and notes, wasted steps, mix-ups; never "
+                                              "judged by the score or result), and by what; which notes she had and still made the mistake they "
+                                              "warn about; for a note that changed, whether its earlier versions "
+                                              "went round in circles; what the actions that worked had in common")
+    watch: list[Watch] = Field(default_factory=list, description="per place in this stretch, at most three lines "
+                                                                 "she sees with every screen there: the current "
+                                                                 "ones in the same words, plus any new one")
+    unwatch: list[Unwatch] = Field(default_factory=list, description="current lines this stretch shows wrong, or "
+                                                                     "that a reworded line replaces")
     changes: list[NoteChange] = Field(default_factory=list)
 
 
@@ -122,17 +182,23 @@ Look for what this stretch teaches about using the tools here:
   point isn't on the thing), a description the pointing tool got wrong and the one it got right, a step you didn't
   need, a quicker way you found or could have used, how this app behaves (what's where, what each screen leads to,
   how long it takes to load, what interrupts).
-- How well the task itself went, if the stretch shows it (a game's result screen, the thing the user wanted done or
-  not), and what in your use of the tools made the difference.
+- How well you played, judged by what you did, never by the score or the result screen (that depends on the base,
+  the army, the luck of it): whether you followed your plan and your notes step by step, where you broke them (and
+  what came of it), steps you wasted, mix-ups (the wrong card, the wrong button, the same refused spot again).
 - Your "to try" notes: if you tried one, rewrite it as known with what happened; if it didn't work, say so or remove
   it.
+- Whether a tap did what you meant shows on the screen after it, not the one you aimed on: a picture marked as the
+  next screen after a tap shows what it did (a count on a card that dropped, a troop that appeared, a message).
+  Judge a tap from that, never from where its mark sits alone; when you don't have the screen after it, don't count
+  it as worked or failed. After several taps in one call, a warning on the next screen can come from one of them
+  while the others worked: count by what changed.
 - Every phone_tap_on target: compare what you described with what is under its numbered mark in the picture. When
   it landed on something else (a card or button instead of the ground, the wrong card), work out which kinds of
   descriptions the pointing tool gets right here and which it gets wrong, and what to use instead (a different
   description, or your own pixels with phone_tap_point / phone_tap_points).
-- When the task went badly or slowly, find the specific cause in how you used the tools: compare where your marks
-  actually landed with what is there in the pictures (a card bar, a button, a wall, water), not what you meant to
-  hit. Write the note that would have prevented it.
+- When something in your play went badly or slowly, find the specific cause in how you used the tools: compare
+  where your marks actually landed with what is there in the pictures (a card bar, a button, a wall, water), not
+  what you meant to hit. Write the note that would have prevented it.
 - How the place itself behaves, beyond your tools: what happened in response to what you did, and what the place
   did by itself. In a game, what hurt you and what didn't (a building whose shots wiped out a group of troops, a
   trap where troops vanished), what worked against what, what the result screen credits or blames, what it costs
@@ -143,9 +209,23 @@ Look for what this stretch teaches about using the tools here:
 - One stretch shows what happened once. A new note about how the place behaves (no tool) is kept as to_try whatever
   status you give it ("seems to"; what would show it again); it becomes known when a later stretch agrees and you
   rewrite it as known. A stretch that contradicts a note of yours says so: rewrite or remove it.
+- Your earlier stretches here (newest first, with what happened and the counts) and your notes' earlier versions
+  are your history in this place. Before changing any note, fill looking_back: did you play better than in the
+  earlier stretches, worse, or the same, and by what (notes followed or broken, the counts, mistakes that came
+  back)? Never by the score or result: a better score with the same mistakes isn't better play. The same mistake in stretch after stretch
+  means the notes about it haven't helped. A note whose versions keep changing what they say (a position that
+  moves, advice that flips) is one you don't actually know yet: settle it from what this stretch shows, or rewrite
+  it as to_try. Don't write a version you've had before.
+- A note marked "pinned by the user" is theirs to change, whoever wrote it: never rewrite or remove it. Judge your
+  play against it like the user's own notes (did you follow it, what happened when you did or didn't), and when
+  this stretch shows something it lacks, write that as a note of its own.
 - Notes marked "you had it" were in front of you during this stretch. If you made the mistake one of them warns
   about anyway, it wasn't specific enough to stop you: rewrite it sharper (where exactly, what it looks like, what
   to do instead) rather than adding another note beside it.
+- A note marked "rewritten N times" whose mistake happened again here is advice that isn't working: rewording it
+  won't change that. Find what is actually different between the actions that worked and the ones that failed
+  (where they landed, what was on screen just before, what you did first), and write that; if this stretch can't
+  show it, rewrite the note as to_try with a different approach to test, and say what would show it works.
 - When the same kind of action both failed and worked in this stretch (some taps refused or missed, others did what
   you meant), the note says what the ones that worked had in common: where they landed in the picture and what was
   there, so next time you can aim at that. A note that only tells you to look harder or be careful ("inspect the
@@ -155,26 +235,47 @@ Write notes that will help the next time you're in this place, about the tools a
 user, the conversation or yourself in general. A note about the place with no single tool behind it has no tool.
 - One concrete thing per note, about {aim} characters at most (never over {limit}), in your words, first person: "Describing troop cards by look and label works with
   phone_tap_on ('old man with white beard, labelled 60'); by game name ('Grand Warden') it picked the wrong card."
-- Say where things are in the picture's pixels, with the picture's size and orientation and which screen it is, so
-  you can aim by it next time. Read positions off the grid's labelled lines drawn on the picture: they are the
-  picture's own pixels (its size is in the caption), the same ones you tap. Don't record positions that only hold
-  for one army or one base (which card sits where changes with the army): "In battle (landscape 1600x720) the troop cards are the bottom row, y about 600-650;
-  tapping there only selects a card. Deploy by tapping ground above y 560."
+- Where things are depends on what they are. Controls fixed to the screen (a bar of cards, a button, a counter in
+  a corner) stay put however the view zooms or pans: say where they are in the picture's pixels, with its size and
+  orientation and which screen it is, read off the grid's labelled lines drawn on the picture (the picture's own
+  pixels, the same ones you tap): "In battle (landscape 1600x720) the troop cards are the bottom row, y about
+  600-650; tapping there only selects a card." Things in the place itself (a base, its walls, a no-go area, where
+  your troops landed, a building, a field) move on the screen with every zoom and pan: describe them by what is
+  around them ("on the open ground beyond the outer wall", "right of the tall tower"), never by pixels; the
+  pixels of a tap on them go in evidence. Don't record what only holds for one army or one base (which card sits
+  where changes with the army).
 - known: you saw it in this stretch or an earlier one (for how the place behaves: as above). to_try: an idea you
   haven't tried, or something the place did once, said as one ("Next time, try dropping a whole troop group in one
   phone_tap_points"; "The purple tower near the centre seemed to destroy my dragons fastest; watch it next attack").
-- One lesson is one note, whatever tools it touches. If a note of yours already says it (under any tool, or none),
-  rewrite that one and remove the others that repeat it; never add beside them. Give a tool only when the note is
+- One lesson is one note, whatever tools it touches. Before any create, read every note listed for the place (any
+  tool, any status, "known" and "to try" alike): if one is about the same thing, even in other words, rewrite that
+  one and remove the others that repeat it; never add beside them. A stretch that agrees with a note you have is a
+  rewrite of it (as known), not a new note. Give a tool only when the note is
   about how that one tool behaves here (what it hit, what it took to make it work); a lesson about the place (where
-  things can be done, what a screen leads to) has no tool. Remove one this stretch shows is wrong. Keep at most
-  {per_place} per place: merge when you'd go over.
+  things can be done, what a screen leads to) has no tool. Remove one this stretch shows is wrong, or one another
+  note already says in full. Keep at most {per_place} of your own notes per place (the user's notes don't count, and
+  neither does anything they pinned of theirs): when you'd go over, merge two of yours into one, never remove a
+  note only to make room. A note this stretch didn't use isn't wrong for that.
 - Step numbers, and positions of things that only stood in this attack or on this screen, go in evidence, not in
   the note: the note is read later, when those steps are gone.
 - Notes marked as the user's are theirs: never rewrite or remove them; add your own beside them if experience
   differs. In user_notes, say for each one that applied here whether you followed it and what happened when you
   did (what the pictures and screens showed), so the user can see whether their advice works.
 - In tallies, count the one to three actions you repeated most (tried, and how many did what you meant): the same
-  wording each time for the same action, so stretches can be compared.
+  wording each time for the same action, so stretches can be compared. One line per kind of action: actions with a
+  different target or a different result (selecting a card and placing what it holds; opening a menu and choosing
+  in it) are counted on separate lines, never together.
+- In watch, for each place in this stretch, write what you'll watch for there from now on: at most {watch_per}
+  lines, about {watch_chars} characters each, on the mistakes that keep coming back across your stretches here (in
+  looking_back: the ones you made though a note warned you), each saying what to do instead, concretely ("Select one
+  card, place it, then the next: several cards in one call leaves only the last selected"). You see these with every
+  screen there, so they're for the few things that matter most, not a summary of your notes.
+- A watch line stays. You don't change between sessions: a stretch without its mistake, with the line in front of
+  you, shows the line working, and without it the habit comes back. So list every current line again in exactly the
+  same words. A line leaves only when a mistake that keeps coming back needs its slot and all {watch_per} are taken
+  (then the one whose mistake has stayed away longest goes, and its lesson must be in a note of yours: rewrite or
+  create one), or when this stretch shows it wrong (list it in unwatch with why). To reword a line, list the old
+  one in unwatch with why "reworded". A mistake whose line left earlier and that came back gets its slot back.
 - A tool's description says what the tool does; don't write notes that repeat it. Your notes are what you found
   using it here.
 - Nothing worth keeping is a fine answer: no changes. Don't invent lessons from a stretch where things just worked
@@ -183,7 +284,8 @@ user, the conversation or yourself in general. A note about the place with no si
 
 
 def system_prompt() -> str:
-    return SYSTEM.format(per_place=NOTES_PER_PLACE, aim=NOTE_AIM, limit=NOTE_CHARS)
+    return SYSTEM.format(per_place=NOTES_PER_PLACE, aim=NOTE_AIM, limit=NOTE_CHARS, watch_chars=WATCH_CHARS,
+                         watch_per=WATCH_PER_PLACE)
 
 
 def _cut(text: str | None, limit: int) -> str:
@@ -195,6 +297,10 @@ def note_line(note: Note, *, review: bool = False) -> str:
     whose = "the user's" if note.source == "user" else ("to try" if note.status == "to_try" else "known")
     tool = f", {note.tool}" if note.tool else ""
     had = ", you had it" if review and note.had else ""
+    if review and note.pinned:
+        had += ", pinned by the user: follow it, never rewrite or remove it"
+    if review and not note.fixed and note.revision >= REWORDED:
+        had += f", rewritten {note.revision - 1} times"
     return f"- ({whose}{tool}{had}) {note.text}"
 
 
@@ -235,9 +341,33 @@ def render_stretch(stretch: Stretch) -> str:
         out += [f"- picture {i}: {caption}" for i, caption in enumerate(stretch.pictures)]
     places = sorted(acted_places(stretch.steps))
     out.append(f"Places in this stretch: {', '.join(places) if places else 'none named'}.")
+    if stretch.past:
+        out.append("Your earlier stretches in these places (newest first):")
+        for p in stretch.past[:PAST_SHOWN]:
+            line = f"- {p.at} [{', '.join(p.places)}]"
+            line += f" {_cut(p.summary, 400)}"
+            if p.tallies:
+                line += " Counts: " + "; ".join(f"{_cut(t.get('what'), 80)}: {t.get('worked', 0)} of {t.get('tried', 0)} worked"
+                                                 for t in p.tallies) + "."
+            if p.user_notes:
+                line += f" The user's advice: {_cut(p.user_notes, 300)}"
+            out.append(line)
+    watching = [(p, lines) for p, lines in sorted(stretch.watch.items()) if lines]
+    if watching:
+        out.append("What you watch for now (you saw it with every screen there):")
+        out += [f"- [{p}] {line}" for p, lines in watching for line in lines]
     if stretch.notes:
         out.append("Your notes so far for these places (id, then the note):")
-        out += [f"- {n.id} [{n.place}] {note_line(n, review=True)[2:]}" for n in stretch.notes]
+        for place in sorted({n.place for n in stretch.notes}):
+            mine = sum(1 for n in stretch.notes if n.place == place and n.source != "user")
+            theirs = sum(1 for n in stretch.notes if n.place == place and n.source == "user")
+            out.append(f"  [{place}] {mine} of yours (at most {NOTES_PER_PLACE}), {theirs} of the user's "
+                       "(not counted)")
+        for n in stretch.notes:
+            out.append(f"- {n.id} [{n.place}] {note_line(n, review=True)[2:]}")
+            if not n.fixed:
+                out += [f"    earlier version ({h.get('at') or '?'}): {_cut(h.get('text'), NOTE_CHARS)}"
+                        for h in n.history[:HISTORY_SHOWN]]
     else:
         out.append("You have no notes for these places yet.")
     return "\n".join(out)
@@ -273,7 +403,7 @@ def acted_places(steps: list[Step]) -> set[str]:
 
 def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Checked], list[str]]:
     """Keep only changes the stretch can carry: a note about a place in it (or one already kept), never the user's
-    notes, an existing id for rewrite / remove, text within bounds. A new note about how the place behaves (no tool)
+    notes or the ones they pinned, an existing id for rewrite / remove, text within bounds. A new note about how the place behaves (no tool)
     starts as to_try: one stretch is one time; a later review that agrees makes it known. Returns (kept, why each
     other went)."""
     places = acted_places(stretch.steps)
@@ -282,10 +412,10 @@ def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Ch
     kept: list[Checked] = []
     dropped: list[str] = []
     removed = {c.note for c in review.changes if c.action == "remove" and c.note in by_id
-               and by_id[c.note].source != "user"}
+               and not by_id[c.note].fixed}
     held: dict[str, int] = {}  # her practice notes per place once this review's removes are done
     for n in stretch.notes:
-        if n.source != "user" and n.id not in removed:
+        if n.source != "user" and n.id not in removed:  # pinned ones of hers count too
             held[n.place.lower()] = held.get(n.place.lower(), 0) + 1
     for c in review.changes:
         place = canonical.get(_cut(c.place, PLACE_CHARS).lower())
@@ -296,6 +426,9 @@ def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Ch
                 continue
             if old.source == "user":
                 dropped.append(f"{c.action}: {old.id} is the user's note")
+                continue
+            if old.pinned:
+                dropped.append(f"{c.action}: {old.id} is pinned by the user")
                 continue
             place = old.place
         if place is None:
@@ -318,6 +451,36 @@ def check(review: Review, stretch: Stretch, *, tools: set[str]) -> tuple[list[Ch
         kept.append(Checked(c.action, c.note if c.action != "create" else None, place, tool, status, text,
                             _cut(c.evidence, EVIDENCE_CHARS)))
     return kept, dropped
+
+
+def check_watch(review: Review, stretch: Stretch) -> dict[str, list[str]]:
+    """What she watches for, per place she acted in during this stretch. A current line stays unless the review
+    says this stretch shows it wrong (or reworded it), or the review's own lines fill every slot; a place the
+    stretch didn't act in keeps what it had: a review only speaks for the places it saw."""
+    places = acted_places(stretch.steps)
+    canonical = {p.lower(): p for p in places}
+    current = {p.lower(): lines for p, lines in stretch.watch.items()}
+    out: dict[str, list[str]] = {p: [] for p in places}
+    for w in review.watch:
+        place = canonical.get(_cut(w.place, PLACE_CHARS).lower())
+        text = _cut(_text(w.text), WATCH_CHARS)
+        if place is None or not text or text in out[place] or len(out[place]) >= WATCH_PER_PLACE:
+            continue
+        out[place].append(text)
+    gone = {(_cut(u.place, PLACE_CHARS).lower(), " ".join(u.text.split())) for u in review.unwatch}
+    for place, lines in out.items():
+        for line in current.get(place.lower(), []):
+            if len(lines) >= WATCH_PER_PLACE:
+                break
+            if line not in lines and (place.lower(), line) not in gone:
+                lines.append(line)  # left out but not shown wrong: it stays
+    return out
+
+
+def watch_text(place: str, lines: list[str]) -> str:
+    """With every screen in a place she watches something for."""
+    return (f"Watching for in {place} (mistakes your reviews found coming back):\n"
+            + "\n".join(f"- {line}" for line in lines))
 
 
 def notes_text(place: str, notes: list[Note]) -> str:

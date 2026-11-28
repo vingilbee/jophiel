@@ -22,7 +22,9 @@ the tools are ``app/ai/tools/phone_control.py`` and every action travels the pha
   s12: Spotify in front"): the action, its numbers or points, and the screen's first line only, never what's on it
   (``record_line``). Kept in this process's memory like her screens (``STEP_TURNS`` turns, ``MEMORY_SECONDS``,
   wiped with them), so a turn the user's new words cut off is read back step by step by the next one
-  (services/chat.py), not as "16 steps".
+  (services/chat.py), not as "16 steps". With them, the turn's last screen as text (``note_screen`` /
+  ``last_screen``, same memory, same rules): the next turn reads where things stood when it was cut off, without
+  a tool call, so she can carry on from there (2026-11-26).
 """
 from __future__ import annotations
 
@@ -235,6 +237,19 @@ _memory: dict[str, deque[Remembered]] = {}
 _lock = threading.Lock()
 # user id -> turn id -> (when it started, the epoch, its step lines); oldest turns dropped past STEP_TURNS.
 _steps: dict[str, dict[str, tuple[float, int, list[str]]]] = {}
+# user id -> turn id -> (the epoch, the turn's latest screen as text); kept and dropped with its steps.
+_screens: dict[str, dict[str, tuple[int, str]]] = {}
+# user id -> turn id -> per step (when, the app in front when she did it); kept and dropped with its steps.
+_stamps: dict[str, dict[str, list[tuple[float, str | None]]]] = {}
+# user id -> the turns she finished herself (answered): their steps are what she did lately (``recent_steps``); a
+# turn that was stopped is read back step by step in her history instead.
+_answered: dict[str, set[str]] = {}
+
+
+def _forget(user_id: uuid.UUID | str) -> None:
+    """Drop a user's remembered turns (steps, their times and places, last screens). Under ``_lock``."""
+    for kept in (_steps, _screens, _stamps, _answered):
+        kept.pop(str(user_id), None)
 
 
 def _epoch(user_id: uuid.UUID | str, client: redis.Redis | None = None) -> int | None:
@@ -253,12 +268,14 @@ def wipe(user_id: uuid.UUID | str, *, client: redis.Redis | None = None) -> None
     """Forget every screen she saw on this user's phone, in every process (the epoch) and in this one now."""
     with _lock:
         _memory.pop(str(user_id), None)
-        _steps.pop(str(user_id), None)
+        _forget(user_id)
     client = client or _client()
     if client is None:
         return
     from app.services import practice  # what her practice review would read of those screens goes too
     practice.wipe(user_id, client=client)
+    from app.services import place_memory  # and this sitting's pictures of places, with their waiting screenshots
+    place_memory.wipe(user_id, client=client)
     try:
         client.incr(_wipe_key(user_id))
     except redis.RedisError:
@@ -298,7 +315,7 @@ def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Rememb
             return []
         if off:
             _memory.pop(str(user_id), None)
-            _steps.pop(str(user_id), None)
+            _forget(user_id)
             return []
         if epoch is None:  # whether a wipe happened can't be read: show nothing, keep nothing new either
             return []
@@ -314,7 +331,8 @@ def recent(user_id: uuid.UUID | str, *, now: float | None = None) -> list[Rememb
 # --------------------------------------------------------------------------- #
 
 STEP_TURNS = 20
-STEPS_SHOWN = 30
+STEPS_SHOWN = 30  # in full; earlier ones as what she did only, so none is lost
+SCREEN_CHARS = 4000  # a cut-off turn's last screen, as the next turn reads it
 _POINTS_SHOWN = 6
 
 
@@ -350,8 +368,10 @@ def step_action(action: str, args: dict) -> str:
     return action
 
 
-def note_step(user_id: uuid.UUID | str, turn: str, index: int, line: str, *, now: float | None = None) -> None:
-    """Step ``index`` (0-based) of a turn: added, or replaced once its answer is known."""
+def note_step(user_id: uuid.UUID | str, turn: str, index: int, line: str, *, now: float | None = None,
+              place: str | None = None) -> None:
+    """Step ``index`` (0-based) of a turn: added, or replaced once its answer is known. ``place``: the app in front
+    when she did it (for what she did lately, ``recent_steps``)."""
     epoch = _epoch(user_id)
     if epoch is None:
         return
@@ -359,15 +379,49 @@ def note_step(user_id: uuid.UUID | str, turn: str, index: int, line: str, *, now
     with _lock:
         turns = _steps.setdefault(str(user_id), {})
         started, kept_epoch, lines = turns.get(turn) or (now, epoch, [])
+        stamps = _stamps.setdefault(str(user_id), {})
         if kept_epoch != epoch:
             started, lines = now, []
+            stamps.pop(turn, None)
+        marks = stamps.setdefault(turn, [])
         if index < len(lines):
             lines[index] = line
+            if index < len(marks):
+                marks[index] = (marks[index][0], place or marks[index][1])
         else:
             lines.append(line)
+            marks.append((now, place))
         turns[turn] = (started, epoch, lines)
         while len(turns) > STEP_TURNS:
-            turns.pop(min(turns, key=lambda t: turns[t][0]))
+            oldest = min(turns, key=lambda t: turns[t][0])
+            turns.pop(oldest)
+            for kept in (_screens, _stamps):
+                (kept.get(str(user_id)) or {}).pop(oldest, None)
+            (_answered.get(str(user_id)) or set()).discard(oldest)
+
+
+def note_screen(user_id: uuid.UUID | str, turn: str, text: str) -> None:
+    """A turn's latest screen, as text (``render(..., picture=False)``), replacing the one before: where things
+    stood if the turn is cut off. Kept only beside the turn's steps (same memory, same wipe)."""
+    epoch = _epoch(user_id)
+    if epoch is None:
+        return
+    with _lock:
+        if str(turn) not in (_steps.get(str(user_id)) or {}):
+            return
+        _screens.setdefault(str(user_id), {})[str(turn)] = (epoch, text[:SCREEN_CHARS])
+
+
+def last_screen(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None = None) -> str | None:
+    """A turn's last screen as text, while its steps are remembered (None otherwise)."""
+    if not steps(user_id, turn, now=now):
+        return None
+    epoch = _epoch(user_id)
+    with _lock:
+        kept = (_screens.get(str(user_id)) or {}).get(str(turn))
+        if kept is None or epoch is None or kept[0] != epoch:
+            return None
+        return kept[1]
 
 
 def steps(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None = None) -> list[str]:
@@ -377,7 +431,7 @@ def steps(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None 
     off = _control_off(user_id)
     with _lock:
         if off:
-            _steps.pop(str(user_id), None)
+            _forget(user_id)
             return []
         kept = (_steps.get(str(user_id)) or {}).get(str(turn))
         if kept is None or epoch is None or kept[1] != epoch or now - kept[0] >= MEMORY_SECONDS:
@@ -385,13 +439,60 @@ def steps(user_id: uuid.UUID | str, turn: uuid.UUID | str, *, now: float | None 
         return list(kept[2])
 
 
+RECENT_SECONDS = 15 * 60  # what her hands did lately, as each turn reads it
+RECENT_STEPS = 30
+
+
+def answered(user_id: uuid.UUID | str, turn: uuid.UUID | str) -> None:
+    """A turn she finished herself: its steps join what she did lately (a stopped one is read back in history)."""
+    with _lock:
+        if str(turn) in (_steps.get(str(user_id)) or {}):
+            _answered.setdefault(str(user_id), set()).add(str(turn))
+
+
+def _ago(seconds: float) -> str:
+    minutes = int(seconds // 60)
+    return "just now" if minutes < 1 else f"{minutes} min ago"
+
+
+def recent_steps(user_id: uuid.UUID | str, *, skip: uuid.UUID | str | None = None,
+                 now: float | None = None) -> list[str]:
+    """What her hands did on the phone lately, oldest first, across the turns she finished herself: the last
+    ``RECENT_STEPS`` within ``RECENT_SECONDS``, each with how long ago and the app in front ("3 min ago, Clash of
+    Clans: tapped point (1540, 400) → Phone screen s41: Clash of Clans in front"). ``skip``: the turn being
+    answered now (its own steps are in its history). Same memory and wipe as her screens: nothing from before a
+    wipe, nothing while the phone reports control off."""
+    now = time.time() if now is None else now
+    epoch = _epoch(user_id)
+    off = _control_off(user_id)
+    with _lock:
+        if off:
+            _forget(user_id)
+            return []
+        if epoch is None:
+            return []
+        turns = _steps.get(str(user_id)) or {}
+        stamps = _stamps.get(str(user_id)) or {}
+        done = _answered.get(str(user_id)) or set()
+        out: list[tuple[float, str]] = []
+        for turn, (_started, kept_epoch, lines) in turns.items():
+            if turn not in done or kept_epoch != epoch or turn == str(skip):
+                continue
+            for line, (at, place) in zip(lines, stamps.get(turn) or []):
+                if now - at < RECENT_SECONDS:
+                    out.append((at, f"{_ago(now - at)}{f', {place}' if place else ''}: {line}"))
+    out.sort(key=lambda kept: kept[0])
+    return [line for _at, line in out[-RECENT_STEPS:]]
+
+
 def steps_text(lines: list[str]) -> str:
-    """The steps as one clause for her history: the last ``STEPS_SHOWN`` of them, numbered."""
+    """The steps as one clause for her history, numbered: the last ``STEPS_SHOWN`` in full, the ones before as what
+    she did only (the part before " → "), so a long turn's start isn't lost."""
     if not lines:
         return ""
     start = max(0, len(lines) - STEPS_SHOWN)
-    shown = "; ".join(f"{i + 1}. {line}" for i, line in enumerate(lines[start:], start))
-    return f"step by step{f' (the first {start} not shown)' if start else ''}: {shown}"
+    shown = "; ".join(f"{i + 1}. {line if i >= start else line.split(' → ', 1)[0]}" for i, line in enumerate(lines))
+    return f"step by step{f' (the first {start} without what came back)' if start else ''}: {shown}"
 
 
 # --------------------------------------------------------------------------- #

@@ -10,6 +10,7 @@ import { PART_BY_ID } from './anatomy'
 import type { PartAnatomy } from './anatomy'
 import { GoalCard } from './GoalCard'
 import { LearningDetails } from './LearningDetails'
+import { PlaceLayouts } from './PlaceLayouts'
 import { PracticeNotes } from './PracticeNotes'
 import { Entry, Facts, LinkButton, Timeline } from './log'
 import { ago, join, words } from './format'
@@ -101,6 +102,7 @@ export function PartPage({ part, status, signals, anchor, onClose }: {
           >
             <Feed part={part.id} anchor={anchor} />
             {part.id === 'learning' && <PracticeNotes />}
+            {part.id === 'learning' && <PlaceLayouts />}
             {part.id === 'learning' && <LearningDetails />}
           </ErrorBoundary>
         </main>

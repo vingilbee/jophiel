@@ -174,6 +174,11 @@ class AgentRuntimeContext:
     security: str | None = None
     # Their phone's senses as one line (services/phone_notifications.prompt_line): None when they have no phone.
     phone: str | None = None
+    # What her hands did on their phone lately, in the turns she finished herself (services/phone_control
+    # .recent_steps): one line per action, with how long ago and the app. None when there's nothing.
+    phone_recent: str | None = None
+    # What she knows of the places she used on their phone in the last hour (services/place_memory.for_turn).
+    places: str | None = None
     zone: str | None = None
     # Phase 9: this reply turn's use of the phone screen (app/ai/tools/phone_control.PhoneControl), set when her
     # phone-control tools are built; finished when the turn ends.

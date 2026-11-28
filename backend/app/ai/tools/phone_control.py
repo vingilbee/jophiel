@@ -22,8 +22,10 @@ the orchestrator itself: she looks, acts and looks again in one loop.
 - **Afterwards** (``PhoneControl.finish``, when the turn ends however it ends): ``end_control`` when control is
   still on, one chat line for the turn ("Used your phone in Spotify, 9 steps"), and, when her hands acted and nobody
   took over, a look again shortly after (``phone_look.schedule``) when the turn ended with her answer (not when it
-  was stopped). Each step is kept as one line for the next turn (``phone_control.note_step``): what she did and the
-  screen's first line, so a turn cut off by the user's new words is read back step by step. Screens are never stored; her
+  was stopped). Each step is kept as one line for the next turn (``phone_control.note_step``): what she did (with
+  what she said she was tapping) and the screen's first line, and the turn's latest screen as text
+  (``phone_control.note_screen``), so a turn cut off by the user's new words is read back step by step, with where
+  things stood. Screens are never stored; her
   last few stay as text in this process's memory for a while (``recent_phone_screens``).
 """
 from __future__ import annotations
@@ -42,7 +44,8 @@ from langchain_core.tools import BaseTool, tool
 from app.ai.tools.desktop_control.tools import PHONE_ARTIFACT_KEY
 from app.ai.tools import phone_grounding, phone_picture
 from app.ai import practice as practice_notes
-from app.services import phone_actions, phone_control, phone_look, practice
+from app.ai import place_memory as place_pictures
+from app.services import phone_actions, phone_control, phone_look, place_memory, practice
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ MAX_ACTIONS_PER_TURN = 80
 TEXT_CHARS = 4000  # the phone's own cap on typed text
 TOOL_NAMES = ("read_phone_screen", "phone_tap", "phone_long_press", "phone_type", "phone_scroll", "phone_tap_point",
               "phone_tap_points", "phone_swipe", "phone_pinch", "phone_gesture", "phone_press", "end_phone_control",
-              "recent_phone_screens", "keep_phone_note", "phone_zoom")
+              "recent_phone_screens", "keep_phone_note", "phone_zoom", "keep_in_mind")
 OPTIONAL_TOOL_NAMES = ("phone_tap_on",)  # offered only with their outside setup (the pointing model's key)
 MAX_FINGERS = 5  # the phone's own cap on fingers in one gesture
 MAX_POINTS = 20  # the phone's own cap on taps in one phone_tap_points
@@ -59,7 +62,7 @@ TAP_GAP_MAX_MS = 1000
 _POINT_TARGET = re.compile(r"\(?\s*(\d{1,5})\s*[, ]\s*(\d{1,5})\s*\)?")
 # The tools whose answers carry a screen: any record of her turn keeps only their first line
 # (services/phone_control.record_line).
-SCREEN_TOOLS = frozenset(TOOL_NAMES + OPTIONAL_TOOL_NAMES) - {"end_phone_control", "keep_phone_note"}
+SCREEN_TOOLS = frozenset(TOOL_NAMES + OPTIONAL_TOOL_NAMES) - {"end_phone_control", "keep_phone_note", "keep_in_mind"}
 
 # Her tool for each phone action (the practice trail names the tool she used; phone_tap_on passes its own).
 ACTION_TOOLS = {"read_screen": "read_phone_screen", "tap": "phone_tap", "long_press": "phone_long_press",
@@ -138,6 +141,9 @@ class PhoneControl:
     items: dict[int, str] = field(default_factory=dict)  # the latest screen's numbered items, as labelled
     place: str | None = None  # the app in front on the latest screen
     noted: dict[str, int] = field(default_factory=dict)  # place -> her step when its practice notes were last shown
+    watching: dict[str, list[str]] = field(default_factory=dict)  # place -> what she watches for there (read once)
+    pictured: dict[str, tuple] = field(default_factory=dict)  # place -> the version of its picture she last saw
+    place_seen: dict[str, set] = field(default_factory=dict)  # place -> its lasting entries she read this turn
     _finished: bool = False
 
     def note_app(self, screen: dict) -> None:
@@ -160,6 +166,8 @@ class PhoneControl:
         threading.Thread(target=self._finish, name="phone-control-finish", daemon=True).start()
 
     def _finish(self) -> None:
+        if self.answered:  # her own finish: this turn's steps are what she did lately, for the turns after it
+            phone_control.answered(self.user_id, self.turn)
         if self.acted and self.picture:  # how the screen stood when her turn ended, for her practice review
             practice.last_look(self.user_id, self.picture,
                                caption=f"the screen when this turn of yours ended ({self.place or 'unknown app'})")
@@ -234,6 +242,8 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
         control.acted = control.acted or acting
         control.ended = False
         did = phone_control.step_action(action, args)
+        if said:  # what she meant to tap (phone_tap_on's targets): her intent, for a turn read back after a cut-off
+            did += f" ({said[:200]})"
         marks = aimed(action, args)
         fingers, aimed_on = _fingers(action, args), control.size
         shown = None
@@ -242,20 +252,26 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
             shown = await asyncio.to_thread(practice.picture, user_id, control.picture, marks=marks,
                                             caption=f"where step {index + 1} aimed ({did}){size}")
         item = control.items.get(int(args["n"])) if args.get("n") is not None else None
+        where = control.place  # the app in front when she acted (the answer may be another app's screen)
         # Noted before it's sent: a turn stopped while the phone acts still knows this step went out.
         await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
-                                f"{did} → no answer seen (the turn stopped while the phone acted)")
+                                f"{did} → no answer seen (the turn stopped while the phone acted)", place=where)
         await asyncio.to_thread(phone_control.touch, user_id)
         outcome = await asyncio.to_thread(phone_actions.act, user_id, conversation_id, action,
                                           {**args, "turn": turn})
         text, artifact = await answer(outcome, fingers, aimed_on)
         await asyncio.to_thread(phone_control.note_step, user_id, turn, index,
-                                f"{did} → {phone_control.record_line(text).rstrip('.')}")
+                                f"{did} → {phone_control.record_line(text).rstrip('.')}", place=where)
         screen_text = text.split("\n", 1)[1] if "\n" in text and outcome.screen else None
         await asyncio.to_thread(practice.record, user_id, practice_notes.Step(
             at=time.time(), turn=turn, tool=tool_name or ACTION_TOOLS.get(action, action), did=did, said=said,
             item=item, place=control.place, result=phone_control.record_line(text), screen=screen_text,
             picture=shown, aims=aims), asked=asked, conversation_id=conversation_id)
+        if outcome.screen and control.place and control.picture:  # her picture of the place, updated in the background
+            await asyncio.to_thread(place_memory.offer, user_id, control.place, control.picture, size=control.size,
+                                    action=None if action == "read_screen"
+                                    else f"{did} → {phone_control.record_line(text).rstrip('.')}",
+                                    marks=marks)
         last = control.noted.get(control.place or "")
         # Her notes for a place come with its first screen in the turn, and again every REMIND_EVERY actions there
         # (a long attack buries the first showing under its screens).
@@ -266,6 +282,22 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
                 text += "\n\n" + practice_notes.notes_text(control.place, notes)
                 await asyncio.to_thread(practice.shown, user_id,
                                         [n.id for n in notes[:practice_notes.NOTES_SHOWN]])
+        # What she watches for there (her reviews' lines on mistakes that keep coming back): with every screen, so
+        # it sits next to the screen she's deciding on, not 15 screens back with her notes.
+        if outcome.screen and control.place:
+            if control.place not in control.watching:
+                control.watching[control.place] = await asyncio.to_thread(practice.watch_for, user_id, control.place)
+            if control.watching[control.place]:
+                text += "\n\n" + practice_notes.watch_text(control.place, control.watching[control.place])
+        # What she knows of the place (kept from her screenshots there), whenever it changed since she last saw it.
+        if outcome.screen and control.place:
+            pictured = await asyncio.to_thread(place_memory.read, user_id, control.place)
+            if pictured is not None and control.pictured.get(control.place) != pictured.version:
+                control.pictured[control.place] = pictured.version
+                # Its lasting entries in full once a turn; after that only the new or changed ones.
+                seen = control.place_seen.setdefault(control.place, set())
+                text += "\n\n" + place_pictures.text_for_her(pictured, now=time.time(), lasting_seen=seen or None)
+                seen.update(f"{e.key}:{e.text}" for e in pictured.lasting)
         return text, artifact
 
     async def answer(outcome: phone_actions.Outcome, fingers=([], []),
@@ -289,7 +321,9 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
                 control.size = (int(image["width"]), int(image["height"]))
             control.picture = image["jpeg_base64"] if image else None
             text = phone_control.render(screen, picture=bool(image))
-            phone_control.remember(user_id, screen, phone_control.render(screen, picture=False))
+            as_text = phone_control.render(screen, picture=False)
+            phone_control.remember(user_id, screen, as_text)
+            phone_control.note_screen(user_id, turn, as_text)
             shown = control.picture  # the phone's own picture stays unmarked (pointing, zoom, her practice)
             if image and (fingers[0] or fingers[1]):
                 shown = await asyncio.to_thread(phone_picture.mark, control.picture, points=fingers[0],
@@ -563,9 +597,24 @@ def build_phone_control_tools(user_id: uuid.UUID, conversation_id: uuid.UUID, *,
             return f"Kept{gone}: you'll read it whenever {app} is in front."
         return await asyncio.to_thread(keep)
 
+    @tool
+    async def keep_in_mind(text: str, lasting: bool = False) -> str:
+        """Keep your own lines about the app or game in front (the latest screen's): what you're doing there, what
+        you mean to do next, what you know is where. They sit beside what you know of the place from your
+        screenshots (that part is kept for you as you go) and come back with its screens and in your next turns.
+        text replaces your lines there (empty clears them), up to 400 characters. lasting: true for what holds next
+        time too (your own village, farm or world and what's where in it); false for this sitting only (forgotten an
+        hour after you last use the place, and when Phone control goes off)."""
+        if not control.place:
+            return "Not kept: no app is in front yet (read the screen first)."
+        place = control.place
+        kept = await asyncio.to_thread(place_memory.keep_in_mind, user_id, place, text, lasting=lasting)
+        control.pictured.pop(place, None)
+        return kept
+
     tools: list[BaseTool] = [read_phone_screen, phone_tap, phone_long_press, phone_type, phone_scroll,
                              phone_tap_point, phone_tap_points, phone_swipe, phone_pinch, phone_gesture, phone_press, phone_zoom,
-                             end_phone_control, recent_phone_screens, keep_phone_note]
+                             end_phone_control, recent_phone_screens, keep_phone_note, keep_in_mind]
     if phone_grounding.available():  # outside setup: the pointing model's key
         tools.insert(6, phone_tap_on)
     return tools, control

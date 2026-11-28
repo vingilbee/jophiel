@@ -3239,8 +3239,9 @@ class PracticeNote(Base):
     """One note of hers from using her tools (the tool-learning revamp, services/practice.py, app/ai/practice.py;
     migration b9d4e2f7a1c3): what works or doesn't with a tool in one place (an app or game), or an idea to try
     there. ``surface``: the device (``phone`` today). ``source``: ``practice`` (a review of her own use wrote it) or
-    ``user`` (the user's words, written by them or by her on their word; a review never changes it). Removed notes
-    are deleted, not kept: a note is a working note, not a record."""
+    ``user`` (the user's words, written by them or by her on their word; a review never changes it). ``pinned``
+    (migration a8e2d5c1f9b3): the user pinned it, so a review reads it but never rewrites or removes it, whoever wrote
+    it. Removed notes are deleted, not kept: a note is a working note, not a record."""
 
     __tablename__ = "practice_notes"
     __table_args__ = (
@@ -3259,9 +3260,81 @@ class PracticeNote(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Its earlier versions, newest first (migration d3a8f6b1c5e2): [{"text", "status", "tool", "at"}], at most
+    # services/practice.HISTORY_KEPT. Only the reviewer reads them, to see advice going in circles.
+    history: Mapped[list] = mapped_column(JSONB, nullable=False, default=list,
+                                          server_default="[]")  # a string: ``text`` here is the column above
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
                                                  onupdate=func.now())
+
+
+class PlaceLayout(Base):
+    """A place she uses (services/place_memory.py, app/ai/place_memory.py; migrations e4b9a2c7d1f3, f5c1a8e3b7d2):
+    the header her lasting entries (``place_entries``) hang from, and ``her_layout``, her own lines about it
+    (keep_in_mind). Her words, never a screenshot. This sitting's part lives in Redis only."""
+
+    __tablename__ = "place_layouts"
+    __table_args__ = (UniqueConstraint("user_id", "surface", "place", name="uq_place_layouts_place"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    surface: Mapped[str] = mapped_column(String(16), nullable=False)
+    place: Mapped[str] = mapped_column(String(80), nullable=False)
+    her_layout: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+    entries: Mapped[list["PlaceEntry"]] = relationship(back_populates="layout", cascade="all, delete-orphan",
+                                                       passive_deletes=True)
+
+
+class PlaceEntry(Base):
+    """One thing she knows of a place that holds next time (migration f5c1a8e3b7d2): a control fixed to the screen,
+    a landmark or area of her own village, farm or world, or a thing she saw there (``near`` the landmark or area
+    it's by). Per ``world`` (the name the screens give it; empty when the place has none). Written by the updater
+    from her screenshots, as edits; the owner can fix or remove one (/api/practice/places)."""
+
+    __tablename__ = "place_entries"
+    __table_args__ = (Index("ix_place_entries_place_world", "place_id", "world"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    place_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("place_layouts.id", ondelete="CASCADE"), nullable=False)
+    world: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    near_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("place_entries.id", ondelete="SET NULL"),
+                                                      nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(),
+                                                 onupdate=func.now())
+    layout: Mapped[PlaceLayout] = relationship(back_populates="entries")
+
+
+class PracticeReview(Base):
+    """One review of a stretch of her hands (services/practice.review; migration d3a8f6b1c5e2): what it found, so the
+    next review of the same place reads how earlier stretches went (summary, result, counts, the user's advice)."""
+
+    __tablename__ = "practice_reviews"
+    __table_args__ = (Index("ix_practice_reviews_user", "user_id", "surface", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    surface: Mapped[str] = mapped_column(String(16), nullable=False)
+    places: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tallies: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    changes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # What she watches for from now on, per place it reviewed ({"place", "text"}; migration b2f7c4e9a1d8): the newest
+    # review of a place holds what she sees with every screen there (none listed for it: nothing).
+    watch: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 # --------------------------------------------------------------------------- #
