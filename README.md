@@ -296,7 +296,7 @@ Each part page shows what the part is for, the workers running it and when each 
 
 Jophiel playing Minecraft while I talk to her from the Android app.
 
-https://github.com/user-attachments/assets/2d4f5962-6d25-47e1-b0f7-a77a5a9f4aaa
+[![Watch the demo on YouTube](https://img.youtube.com/vi/bzyFEabfshg/hqdefault.jpg)](https://youtu.be/bzyFEabfshg)
 
 ---
 
