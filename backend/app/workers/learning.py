@@ -43,4 +43,10 @@ def practice_once() -> bool:
     return practice.run_once()
 
 
-__all__ = ["run_once", "trajectory_once", "practice_once"]
+def place_memory_once() -> bool:
+    from app.services import place_memory
+
+    return place_memory.run_once()
+
+
+__all__ = ["run_once", "trajectory_once", "practice_once", "place_memory_once"]

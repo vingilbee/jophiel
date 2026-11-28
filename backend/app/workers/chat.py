@@ -209,6 +209,8 @@ async def _generate(job: ChatJob) -> None:
         asyncio.to_thread(desktop_game.turn_picture, job.user_id, spoke_at) if spoke_at else _none(),
         asyncio.to_thread(_personality),
         asyncio.to_thread(_phone_line, job.user_id),
+        asyncio.to_thread(_phone_recent, job.user_id, job.turn_id),
+        asyncio.to_thread(_places, job.user_id),
     ))
     try:
         mind, wake_text, info = await _prepare_mind(job, payload, user, claim_token)
@@ -223,7 +225,8 @@ async def _generate(job: ChatJob) -> None:
     request_id = uuid.UUID(payload["request_id"]) if follow_up else None
     recall_turn = mind.recall_turn
     # After her memory check (a new message closes thinking for earlier ones), so these read what it left.
-    (game, (desktop, desktop_usable, desktop_commands), security, files, picture, personality_page, phone), \
+    (game, (desktop, desktop_usable, desktop_commands), security, files, picture, personality_page, phone,
+     phone_recent, places), \
         (working_memory, now, mind_state) = await asyncio.gather(
             early_reads,
             asyncio.gather(
@@ -242,7 +245,7 @@ async def _generate(job: ChatJob) -> None:
         wake_text = mind_phone_scope.wake_text(mind)
         history, game, desktop, desktop_usable, security, files, working_memory = [], None, None, False, None, (), None
         desktop_commands = False
-        picture, mind_state, phone, recall_turn = None, None, None, None
+        picture, mind_state, phone, recall_turn, phone_recent, places = None, None, None, None, None, None
         payload = {**payload, "awareness": "", "image_ids": [], "asset_ids": [], "vision_enabled": False}
         gmail_token = drive_token = None
 
@@ -294,6 +297,8 @@ async def _generate(job: ChatJob) -> None:
         desktop_commands=desktop_commands,
         security=security,
         phone=phone,
+        phone_recent=phone_recent if phone is not None else None,
+        places=places if phone is not None else None,
         zone=payload.get("zone"),
         turn_id=job.turn_id,
         conversation_id=job.conversation_id,
@@ -635,6 +640,27 @@ def _readable_files(user_id, attached: list[str]) -> tuple[tuple[str, str], ...]
     except Exception:  # noqa: BLE001 - a turn never fails because the file list did
         logger.exception("chat worker: listing readable files failed")
         return ()
+
+
+def _phone_recent(user_id: uuid.UUID, turn_id: uuid.UUID | None) -> str | None:
+    """What her hands did on their phone lately (this worker's memory); never fails a turn."""
+    try:
+        from app.services import phone_control
+        lines = phone_control.recent_steps(user_id, skip=turn_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Reading what her hands did lately failed")
+        return None
+    return "\n".join(f"- {line}" for line in lines) or None
+
+
+def _places(user_id: uuid.UUID) -> str | None:
+    """What she knows of the places she used on their phone lately; never fails a turn."""
+    try:
+        from app.services import place_memory
+        return place_memory.for_turn(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Reading her pictures of places failed")
+        return None
 
 
 def _phone_line(user_id: uuid.UUID) -> str | None:

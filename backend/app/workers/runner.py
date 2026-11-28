@@ -120,6 +120,9 @@ def run(stop: threading.Event | None = None) -> None:
         # Her practice (services/practice.py): a stretch of her hands on a device reviewed once they've been still,
         # into her notes for that place. One model call per stretch, so its own thread.
         worker_specs.append(("practice", learning.practice_once, "macrovision:practice:wakeups", 5.0))
+        # Her picture of a place (services/place_memory.py): updated from her screenshots a few seconds after they come
+        # back, while she uses it. One small model call per update, so its own thread.
+        worker_specs.append(("place-memory", learning.place_memory_once, "macrovision:place-memory:wakeups", 1.0))
         # What sources report (conversation, deliveries, games), captured once.
         worker_specs.append(("observation", observation.run_once, "macrovision:observation:wakeups", 1.0))
         # Background thinking her mind started, and the durable wake events that bring her back (finished

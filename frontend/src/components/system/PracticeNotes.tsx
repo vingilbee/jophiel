@@ -9,7 +9,7 @@ const BADGE: Record<string, string> = {
 }
 
 /** What she learned using her tools, per app: hers from practice, yours by your word. Edit or remove any;
- *  an edit makes a note yours, so her reviews leave it alone. */
+ *  an edit makes a note yours, so her reviews leave it alone. Pin one to keep it as it is without making it yours. */
 export function PracticeNotes() {
   const [notes, setNotes] = useState<PracticeNote[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -112,6 +112,14 @@ function Note({ note, act }: { note: PracticeNote; act: (fn: () => Promise<unkno
     <li className="rounded-md border border-[#1C2228] bg-[#0B0E11] px-3 py-2">
       <div className="flex items-start gap-2">
         <span className={`mt-0.5 shrink-0 rounded border px-1.5 text-[11px] ${badge}`}>{label}</span>
+        {note.pinned && (
+          <span
+            className="mt-0.5 shrink-0 rounded border border-[#5C4A2B] bg-[#221A0E] px-1.5 text-[11px] text-[#D8B87F]"
+            title="Her reviews read it but never rewrite or remove it"
+          >
+            pinned
+          </span>
+        )}
         {editing ? (
           <textarea
             value={draft}
@@ -144,6 +152,14 @@ function Note({ note, act }: { note: PracticeNote; act: (fn: () => Promise<unkno
           <>
             <button type="button" className="hover:text-[#C9D1D9]" onClick={() => setEditing(true)}>
               Edit
+            </button>
+            <button
+              type="button"
+              className="hover:text-[#D8B87F]"
+              aria-pressed={note.pinned}
+              onClick={() => void act(() => practiceApi.update(note.id, { pinned: !note.pinned }))}
+            >
+              {note.pinned ? 'Unpin' : 'Pin'}
             </button>
             <button
               type="button"

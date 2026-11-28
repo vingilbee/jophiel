@@ -559,6 +559,11 @@ it helps.
 the app."""
 
 
+_PHONE_RECENT_PROMPT = """\
+What your hands did on their phone lately, in your earlier turns (oldest first; a point is where you tapped on the \
+screen as it was then, and the screen may have moved since):
+{lines}"""
+
 _PHONE_PROMPT = """\
 
 ## Their phone
@@ -919,6 +924,10 @@ def build_prompt_parts(
         prompt += f"\n{_SECURITY_PROMPT.format(line=context.security)}"
     if context.phone is not None and context.game_event is None:
         prompt += f"\n{_PHONE_PROMPT.format(line=context.phone)}"
+        if context.phone_recent:
+            prompt += f"\n{_PHONE_RECENT_PROMPT.format(lines=context.phone_recent)}"
+        if context.places:
+            prompt += f"\n{context.places}"
     if context.game is not None and context.game_idle:
         prompt += f"\n{_GAME_IDLE_PROMPT.format(summary=context.game)}"
     elif context.game is not None:

@@ -12,6 +12,9 @@
   notes for its places; ``app/ai/practice.check`` keeps only what the stretch can carry; the notes change in one
   transaction. Every review is traced to ``var/practice_reviews.jsonl`` (what it read, what it changed, what was
   dropped and why; never the pictures).
+- **Its history.** Every review is kept (``practice_reviews``: summary, result, counts, the user's advice), and a
+  rewritten note keeps its earlier versions (``practice_notes.history``): the next review of the same place reads
+  both, so it can see whether her attacks are getting better and whether a note's advice goes round in circles.
 - **The notes** (``practice_notes``): per user, surface and place. ``for_place`` is what she reads with a screen;
   ``keep_user_note`` is the user's own note (their words, or hers on their word), which a review never changes.
 """
@@ -22,6 +25,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import replace
@@ -33,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import practice as P
 from app.core.config import get_settings
-from app.db.models import ChatMessage, PracticeNote
+from app.db.models import ChatMessage, PracticeNote, PracticeReview
 from app.db.session import SessionLocal
 
 log = logging.getLogger(__name__)
@@ -46,6 +50,8 @@ TRACE_PATH = "var/practice_reviews.jsonl"
 TALK_MESSAGES = 60  # from the first message her hands answered
 TALK_FALLBACK = 12
 USER_NOTE_CHARS = 600  # the user's own notes (and hers on their word)
+HISTORY_KEPT = 5  # a note's earlier versions kept (the reviewer reads P.HISTORY_SHOWN)
+PAST_READ = 60  # recent reviews on a surface looked through for the ones about a stretch's places
 _DUE = "practice:due"
 KINDS = ("meta", "convs", "asked", "steps", "pics", "shown")
 
@@ -164,6 +170,13 @@ def wipe(user_id: uuid.UUID | str, *, client: redis.Redis | None = None) -> None
         log.warning("practice: the trail couldn't be wiped")
 
 
+def _failure(exc: Exception) -> str:
+    """A failed review as the trace keeps it: long enough to show why (a response's status and token usage come
+    after its content), without the encrypted reasoning blobs that would fill it."""
+    text = re.sub(r"'encrypted_content': '[^']*'", "'encrypted_content': '…'", str(exc))
+    return f"failed: {type(exc).__name__}: {text}"[:4000]
+
+
 def _take(client: redis.Redis, user_id: str, surface: str) -> dict | None:
     """Move a settled stretch out of the way (new steps start the next one) and read it. None: nothing there."""
     token = uuid.uuid4().hex[:8]
@@ -200,9 +213,34 @@ def _take(client: redis.Redis, user_id: str, surface: str) -> dict | None:
 # --------------------------------------------------------------------------- #
 
 
+def _remember(row: PracticeNote) -> None:
+    """Keep a note's current version in its history before it's rewritten."""
+    at = row.updated_at.strftime("%Y-%m-%d %H:%M") if row.updated_at else None
+    row.history = ([{"text": row.text, "status": row.status, "tool": row.tool, "at": at}]
+                   + list(row.history or []))[:HISTORY_KEPT]
+
+
+def _past(db: Session, user_id, surface: str, places: list[str]) -> list[P.Past]:
+    """Earlier reviews that touched any of these places, newest first."""
+    wanted = {p.lower() for p in places}
+    rows = db.scalars(select(PracticeReview).where(
+        PracticeReview.user_id == user_id, PracticeReview.surface == surface).order_by(
+        PracticeReview.created_at.desc()).limit(PAST_READ))
+    out = []
+    for r in rows:
+        if wanted & {str(p).lower() for p in (r.places or [])}:
+            out.append(P.Past(at=r.created_at.strftime("%Y-%m-%d %H:%M"), places=list(r.places or []),
+                              summary=r.summary, result=r.result, tallies=list(r.tallies or []),
+                              user_notes=r.user_notes))
+        if len(out) >= P.PAST_SHOWN:
+            break
+    return out
+
+
 def _view(row: PracticeNote) -> P.Note:
     return P.Note(id=str(row.id), place=row.place, tool=row.tool, status=row.status, text=row.text,  # type: ignore[arg-type]
                   source=row.source, evidence=row.evidence,  # type: ignore[arg-type]
+                  revision=row.revision or 1, history=list(row.history or []), pinned=bool(row.pinned),
                   updated=row.updated_at.date().isoformat() if row.updated_at else None)
 
 
@@ -214,16 +252,43 @@ def _rows(db: Session, user_id, surface: str, places: list[str]) -> list[Practic
     return list(db.scalars(select(PracticeNote).where(
         PracticeNote.user_id == user_id, PracticeNote.surface == surface,
         func.lower(PracticeNote.place).in_(lowered)).order_by(
-        PracticeNote.source.desc(), PracticeNote.updated_at.desc())))  # the user's first, then the newest
+        PracticeNote.pinned.desc(), PracticeNote.source.desc(),
+        PracticeNote.updated_at.desc())))  # pinned first, then the user's, then the newest
 
 
 def for_place(user_id: uuid.UUID, place: str, *, surface: str = "phone") -> list[P.Note]:
-    """Her notes for one place, the user's first. A failure is no notes (logged)."""
+    """Her notes for one place, pinned and the user's first. A failure is no notes (logged)."""
     try:
         with SessionLocal() as db:
             return [_view(r) for r in _rows(db, user_id, surface, [place])]
     except Exception:  # noqa: BLE001 - she goes without her notes this time
         log.exception("practice: reading notes for %r", place)
+        return []
+
+
+def _watching(db: Session, user_id, surface: str, places: list[str]) -> dict[str, list[str]]:
+    """What she watches for now in each place: what the newest review that covered it said for it."""
+    left = {p.lower(): p for p in places}
+    out: dict[str, list[str]] = {}
+    rows = db.scalars(select(PracticeReview).where(
+        PracticeReview.user_id == user_id, PracticeReview.surface == surface).order_by(
+        PracticeReview.created_at.desc()).limit(PAST_READ))
+    for r in rows:
+        for covered in {str(p).lower() for p in (r.places or [])} & set(left):
+            out[left.pop(covered)] = [str(w.get("text")) for w in (r.watch or [])
+                                      if str(w.get("place") or "").lower() == covered and w.get("text")]
+        if not left:
+            break
+    return out
+
+
+def watch_for(user_id: uuid.UUID, place: str, *, surface: str = "phone") -> list[str]:
+    """What she watches for in one place, shown with every screen there. A failure is nothing (logged)."""
+    try:
+        with SessionLocal() as db:
+            return _watching(db, user_id, surface, [place]).get(place, [])
+    except Exception:  # noqa: BLE001 - she goes without it this time
+        log.exception("practice: reading what she watches for in %r", place)
         return []
 
 
@@ -270,17 +335,25 @@ def keep_user_note(db: Session, user_id: uuid.UUID, *, place: str, text: str, to
 
 
 def edit_note(db: Session, user_id: uuid.UUID, note_id: uuid.UUID, *, text: str | None = None,
-              status: str | None = None) -> PracticeNote | None:
-    """The user editing a note (any note: an edit of theirs makes it theirs)."""
+              status: str | None = None, pinned: bool | None = None) -> PracticeNote | None:
+    """The user editing a note (any note: an edit of its text or status makes it theirs). ``pinned``: pin or unpin
+    it; that alone leaves its words and whose it is as they are (a pinned note of hers is still hers, but no review
+    changes it)."""
     row = db.get(PracticeNote, note_id)
     if row is None or row.user_id != user_id:
         return None
+    if pinned is not None:
+        row.pinned = pinned
+    if text is None and status is None:
+        return row
     if text is not None:
         text = " ".join(text.split())
         if not text:
             raise ValueError("a note needs text")
         if len(text) > USER_NOTE_CHARS:
             raise ValueError(f"a note is at most {USER_NOTE_CHARS} characters")
+        if text != row.text:
+            _remember(row)
         row.text = text
     if status is not None:
         if status not in ("known", "to_try"):
@@ -359,21 +432,47 @@ def _draw(jpeg_b64: str, marks: list[dict]) -> str:
     return base64.b64encode(out.getvalue()).decode()
 
 
+def _spread(items: list[int], n: int) -> list[int]:
+    if n >= len(items):
+        return list(items)
+    if n <= 1:
+        return [items[len(items) // 2]] if n == 1 else []
+    step = (len(items) - 1) / (n - 1)
+    return sorted({items[round(i * step)] for i in range(n)})
+
+
 def _pictures(steps: list[P.Step], pics: dict[int, dict], last_look: int | None) -> tuple[dict[int, int], list[dict]]:
-    """Which pictures the review sees: the ones she aimed on, spread evenly over the whole stretch when there are
-    too many (the misses are as likely early as late), and the last look. Returns (kept index -> shown index, shown
-    pictures in order)."""
+    """Which pictures the review sees: pictures she aimed on, each with the next picture kept after it (the screen
+    that shows what the tap did: a count that dropped, a troop that appeared, a warning), spread evenly over the
+    whole stretch when there are too many (the misses are as likely early as late), and the last look. Returns
+    (kept index -> shown index, shown pictures in order); a picture that comes right after an aimed one carries
+    ``after``: the kept index of the one it follows."""
+    keys = sorted(pics)
+    following = {k: keys[i + 1] for i, k in enumerate(keys[:-1])}
     aimed = sorted({s.picture for s in steps if s.picture is not None and s.picture in pics})
     room = P.PICTURES_REVIEWED - (1 if last_look in pics else 0)
-    if len(aimed) > room > 0:
-        step = (len(aimed) - 1) / (room - 1) if room > 1 else 0
-        chosen = sorted({aimed[round(i * step)] for i in range(room)})
-    else:
-        chosen = aimed if room > 0 else []
-    if last_look in pics and last_look not in chosen:
-        chosen.append(last_look)
-    chosen.sort()
-    return {k: i for i, k in enumerate(chosen)}, [pics[k] for k in chosen]
+
+    def pick(n: int) -> set[int]:
+        out: set[int] = set()
+        for k in _spread(aimed, n):
+            out.add(k)
+            if k in following and following[k] != last_look:
+                out.add(following[k])
+        return out
+
+    chosen: set[int] = set()
+    for n in range(1, len(aimed) + 1):  # as many aimed pictures as fit with the screens after them
+        more = pick(n)
+        if len(chosen) <= len(more) <= room:
+            chosen = more
+    if last_look in pics:
+        chosen.add(last_look)
+    order = sorted(chosen)
+    shown = []
+    for k in order:
+        before = next((a for a, b in following.items() if b == k), None)
+        shown.append({**pics[k], "after": before if before in chosen and before in aimed else None})
+    return {k: i for i, k in enumerate(order)}, shown
 
 
 def _judge(text: str, images: list[str]) -> P.Review:
@@ -386,7 +485,8 @@ def _judge(text: str, images: list[str]) -> P.Review:
         content.append({"type": "text", "text": f"Picture {i}:"})
         content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + image,
                                                            "detail": "high"}})
-    model = get_chat_model(settings.practice_review_model, settings.practice_review_reasoning_effort)
+    model = get_chat_model(settings.practice_review_model, settings.practice_review_reasoning_effort,
+                           settings.practice_review_max_tokens)
     return invoke_private(model.with_structured_output(P.Review),
                           [SystemMessage(P.system_prompt()), HumanMessage(content=content)])
 
@@ -411,6 +511,8 @@ def review(user_id: uuid.UUID, surface: str, taken: dict, *, judge=_judge) -> di
         try:
             images.append(_draw(pic["jpeg"], pic.get("marks") or []))
             captions.append(pic.get("caption") or "")
+            if pic.get("after") is not None:
+                captions[-1] += f" — also the next screen after the tap on picture {shown[pic['after']]}"
         except Exception:  # noqa: BLE001 - a picture that won't open is left out, said in its caption
             log.warning("practice: a picture couldn't be drawn")
             images.append(None)
@@ -418,7 +520,9 @@ def review(user_id: uuid.UUID, surface: str, taken: dict, *, judge=_judge) -> di
     keep = [i for i, im in enumerate(images) if im is not None]
     images = [images[i] for i in keep]
     remap = {old: new for new, old in enumerate(keep)}
-    captions = [captions[i] for i in keep]
+    captions = [re.sub(r"after the tap on picture (\d+)", lambda m: f"after the tap on picture {remap[int(m[1])]}"
+                       if int(m[1]) in remap else "after a picture that couldn't be opened", captions[i])
+                for i in keep]
     for s in steps:
         s.picture = remap.get(s.picture) if s.picture is not None else None
     places = sorted(P.acted_places(steps))
@@ -430,12 +534,15 @@ def review(user_id: uuid.UUID, surface: str, taken: dict, *, judge=_judge) -> di
         rows = _rows(db, user_id, surface, places)
         had = set(taken.get("shown") or [])
         stretch = P.Stretch(surface=surface, asked=asked, replies=replies, steps=steps, pictures=captions,
-                            notes=[replace(_view(r), had=str(r.id) in had) for r in rows])
+                            notes=[replace(_view(r), had=str(r.id) in had) for r in rows],
+                            past=_past(db, user_id, surface, places),
+                            watch=_watching(db, user_id, surface, places))
         if not any(s.tool != "read_phone_screen" for s in steps):
             trace["outcome"] = "only looked: nothing to learn about using the tools"
             return trace
         result = judge(P.render_stretch(stretch), images)
         kept, dropped = P.check(result, stretch, tools=tools_for(surface))
+        watch = P.check_watch(result, stretch)
         by_id = {str(r.id): r for r in rows}
         changed = []
         for c in kept:
@@ -446,16 +553,23 @@ def review(user_id: uuid.UUID, surface: str, taken: dict, *, judge=_judge) -> di
                 by_id[str(row.id)] = row
             elif c.action == "rewrite":
                 row = by_id[c.note]
-                row.text, row.status, row.tool = c.text, c.status, c.tool or row.tool
+                _remember(row)
+                row.text, row.status, row.tool = c.text, c.status, c.tool  # a rewrite may move a lesson off a tool
                 row.evidence = c.evidence or row.evidence
                 row.revision += 1
             else:
                 db.delete(by_id.pop(c.note))
             changed.append({"action": c.action, "note": c.note, "place": c.place, "tool": c.tool,
                             "status": c.status, "text": c.text, "evidence": c.evidence})
+        tallies = [t.model_dump() for t in result.tallies]
+        db.add(PracticeReview(user_id=user_id, surface=surface, places=places, summary=result.summary,
+                              result=result.result or None, user_notes=result.user_notes or None,
+                              tallies=tallies, changes=changed,
+                              watch=[{"place": p, "text": t} for p, lines in sorted(watch.items()) for t in lines]))
         db.commit()
-    trace.update(outcome="reviewed", summary=result.summary, user_notes=result.user_notes,
-                 tallies=[t.model_dump() for t in result.tallies], changes=changed, dropped=dropped)
+    trace.update(outcome="reviewed", summary=result.summary, result=result.result, user_notes=result.user_notes,
+                 looking_back=result.looking_back, past=len(stretch.past), tallies=tallies, watch=watch, changes=changed,
+                 dropped=dropped)
     return trace
 
 
@@ -493,7 +607,7 @@ def run_once(*, client: redis.Redis | None = None, now: float | None = None, jud
     except Exception as exc:  # noqa: BLE001 - the stretch is lost; what she does is unaffected
         log.exception("practice: reviewing a stretch failed")
         record = {"at": datetime.now(timezone.utc).isoformat(), "user_id": user, "surface": surface,
-                  "outcome": f"failed: {type(exc).__name__}: {exc}"[:300]}
+                  "outcome": _failure(exc)}
     _trace(record)
     log.info("practice: %s", {k: record.get(k) for k in ("user_id", "surface", "steps", "outcome")})
     return True

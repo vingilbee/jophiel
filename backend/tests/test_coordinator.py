@@ -761,10 +761,13 @@ def test_a_stopped_reply_keeps_what_she_had_done_on_their_phone(env):
         import app.services.phone_control as phone_control_service
         original = phone_control_service.steps
         phone_control_service.steps = lambda user, turn, **kw: steps.get(str(turn), [])
+        original_screen = phone_control_service.last_screen
+        phone_control_service.last_screen = lambda user, turn, **kw: "Phone screen s5: WhatsApp in front.\n  Chats"
         try:
             stepped = chat_service.get_history(db, conversation=conversation, records=True, zone=ZONE)
         finally:
             phone_control_service.steps = original
+            phone_control_service.last_screen = original_screen
         plain = chat_service.get_history(db, conversation=conversation)
     assert [t["role"] for t in history] == ["user", "record", "user", "assistant", "user", "record", "user"]
     assert "stopped before any words" in history[1]["content"]
@@ -777,3 +780,5 @@ def test_a_stopped_reply_keeps_what_she_had_done_on_their_phone(env):
     assert ("Used your phone in WhatsApp, 4 steps; step by step: 1. tapped [3] → Phone screen s4: WhatsApp in front; "
             "2. pressed back → no answer seen") in stepped[1]["content"]
     assert "step by step" not in stepped[3]["marker"]
+    # Only her latest reply, if it was cut off, brings its last screen; this one's latest (quiet) used no phone.
+    assert "last screen you saw" not in stepped[1]["content"]

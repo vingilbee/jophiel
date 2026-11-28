@@ -23,6 +23,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import BaseTool
+from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from app.ai import openai_http
@@ -38,7 +39,8 @@ def supports_reasoning_controls(model: str) -> bool:
 
 
 @lru_cache
-def get_chat_model(model: str | None = None, reasoning: str | None = None) -> ChatOpenAI:
+def get_chat_model(model: str | None = None, reasoning: str | None = None,
+                   max_tokens: int | None = None) -> ChatOpenAI:
     """The OpenAI chat model. Streaming is driven by calling ``.astream``.
 
     ``model`` overrides ``settings.chat_model`` — voice turns pass a faster
@@ -47,13 +49,13 @@ def get_chat_model(model: str | None = None, reasoning: str | None = None) -> Ch
 
     ``reasoning``: an effort for a model that reasons while it uses tools (her desktop turns), on the Responses
     API; None: ``settings.chat_reasoning_effort`` on Chat Completions. Sampling parameters are intentionally left
-    at provider defaults.
+    at provider defaults. ``max_tokens``: the output limit (reasoning included); None: ``settings.chat_max_tokens``.
     """
     settings = get_settings()
     model_id = model or settings.chat_model
     kwargs: dict[str, Any] = {
         "model": model_id,
-        "max_tokens": settings.chat_max_tokens,
+        "max_tokens": max_tokens or settings.chat_max_tokens,
         # Token usage on streamed replies too (input, cached, output): app/ai/loop_timing.py reads it.
         "stream_usage": True,
     }
@@ -87,15 +89,29 @@ def invoke_private(runnable, messages):
 
 
 def build_agent(extra_tools: Sequence[BaseTool] = (), model: str | None = None, pre_model_hook=None,
-                reasoning: str | None = None):
+                reasoning: str | None = None, hands: frozenset[str] = frozenset(),
+                hands_reasoning: str | None = None):
     """Compile a ReAct agent over the base tools plus any per-request ones.
 
     ``extra_tools`` is normally the set of sub-agent delegation tools built for
     this turn. ``pre_model_hook`` changes what each model call reads (her desktop
     tools use it to show her their screenshots).
+
+    ``hands`` / ``hands_reasoning``: once a tool named in ``hands`` has answered in this turn (her hands on the phone
+    screen), every later model call thinks at ``hands_reasoning`` first; before that, a turn that only talks stays
+    on the quick model. Ignored when ``reasoning`` is already set for the whole turn.
     """
-    return create_react_agent(get_chat_model(model, reasoning), tools=[*BASE_TOOLS, *extra_tools],
-                              pre_model_hook=pre_model_hook)
+    tools = [*BASE_TOOLS, *extra_tools]
+    if not (hands and hands_reasoning) or reasoning:
+        return create_react_agent(get_chat_model(model, reasoning), tools=tools, pre_model_hook=pre_model_hook)
+    quick = get_chat_model(model).bind_tools(tools)
+    thinking = get_chat_model(model, hands_reasoning).bind_tools(tools)
+
+    def choose(state, runtime):
+        used = any(isinstance(m, ToolMessage) and m.name in hands for m in state["messages"])
+        return thinking if used else quick
+
+    return create_react_agent(choose, tools=tools, pre_model_hook=pre_model_hook)
 
 
 @lru_cache

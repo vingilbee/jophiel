@@ -64,6 +64,34 @@ contract `app/ai/practice.py`, trace `var/practice_reviews.jsonl`), and she keep
 place itself behaves (`known` / `to_try`: something seen once is to try; the user's own never rewritten). She reads an app's notes with its first screen in a turn;
 `keep_phone_note` keeps one the user gives her; `/api/practice/notes` + the System page's Learning part edit them.
 Tool descriptions say what a tool does in every app; how to use it well in one is a note.
+Review history (2026-11-27): migration `d3a8f6b1c5e2` (`practice_reviews`, `practice_notes.history`). Every review is
+kept (summary, result, counts, the user's advice) and a rewritten note keeps its last versions; the next review of
+the same place reads the newest few of both and fills `looking_back` (better or worse than before, advice going
+round in circles) before it changes any note. Reviewer effort is `medium`.
+Judging play (2026-11-27): the reviewer judges how she played (her plan and notes followed or broken, wasted steps,
+mix-ups), never the score; `result` is a fact only and earlier results aren't shown to it. Pinned notes (migration
+`a8e2d5c1f9b3`, `practice_notes.pinned`): a note the user pinned is read by every review and shown to her first, but
+never rewritten or removed, whoever wrote it; pin / unpin on the System page's Learning part (PATCH `pinned`).
+What she watches for (2026-11-28): migration `b2f7c4e9a1d8` (`practice_reviews.watch`). Each review also writes, per place
+it saw, at most three lines on the mistakes that keep coming back there and what to do instead; the newest review of a
+place holds them, and they come with every screen there (read once a turn), not only with her notes every
+`REMIND_EVERY` actions. A line stays (she doesn't change between sessions): it leaves only when a newer mistake needs
+its slot or a review shows it wrong (`unwatch`); `practice.check_watch` keeps the rest. The reviewer's pictures come in pairs
+(the one she aimed on and the next one kept, captioned as the screen after that tap): a tap is judged by what it did. Her notes per place are capped at 6 (was 12): a review merges instead of piling up.
+Her phone hands think (`phone_control_reasoning_effort`, `low`) from their first answer in a turn (`agent.build_agent`
+`hands`); a reply that only talks stays quick.
+Working memory of a place (2026-11-27): migration `e4b9a2c7d1f3` (`place_layouts`). Each turn's moment carries what
+her hands did on the phone lately (`phone_control.recent_steps`: her finished turns, 15 min, with time and app; a
+stopped turn is read back in history instead). Her picture of a place (`services/place_memory.py`, contract
+`app/ai/place_memory.py`): each screenshot is offered to a background updater (`place-memory` worker): an update at
+once, one at a time per place, screens during it are the next on the newest. One small vision call sees the
+screenshot it saw last time and the newest, and answers with edits (add / change / remove by id, each with a `why`
+that goes only to the trace): this sitting (what she's doing, where she is, the world, up to 15 entries she's keeping
+track of; Redis, gone an hour after last use and with her screens' wipe; out of view isn't gone) and what lasts
+(migration `f5c1a8e3b7d2`, `place_entries` under `place_layouts`: control / landmark / area / thing, per world).
+Shown with a place's screens when it changed (lasting entries in full once a turn) and in her moment; her own lines
+via `keep_in_mind`; `/api/practice/places` (+ `/entries/{id}`) and the System page's Learning part.
+Positions: pixels only for controls fixed to the screen, things in the place by what's around them (the reviewer too).
 
 ## Overview
 Jophiel is a general conversational agent with a persistent identity, personality, memory, and one mind that decides what she does. The primary product experience is natural text and voice conversation across everyday topics, including social exchanges, reflection, curiosity, disagreement, and practical collaboration. Her behavior should follow the conversation rather than defaulting to an assistant task, advice, or a deliverable.
@@ -131,7 +159,8 @@ Jophiel is a general conversational agent with a persistent identity, personalit
         integrations.py # Google OAuth connect/callback/status/disconnect
         desktop.py      # desktop agent environments/sessions/plan under /api/desktop (404 unless DESKTOP_AGENT_ENABLED);
                         #   PUT/GET .../environments/{id}/security: the owner's security-monitoring switch + channel health
-        practice.py     # her practice notes (tool learning): GET/POST/PATCH/DELETE /api/practice/notes (owner only)
+        practice.py     # her practice notes (tool learning): GET/POST/PATCH/DELETE /api/practice/notes (owner only);
+                        #   her pictures of places: GET/PATCH/DELETE /api/practice/places
         learning.py     # moves she taught herself and her challenges under /api/learning; learning capture
                         #   (chains, gaps, trajectory) under /api/learning/capture
         system.py       # her parts as one system: GET /api/system/status (worker heartbeats per part),
@@ -164,6 +193,7 @@ Jophiel is a general conversational agent with a persistent identity, personalit
       vision.py         # captions a screen frame to one line (small model)
       /observe          # registry.py: what each kind of observation looks like and its memory rule (pure)
       practice.py       # her practice notes (pure): the trail's steps, the reviewer's prompt and contract, checks, how notes read
+      place_memory.py   # her picture of a place (pure): the updater's prompt and contract, how a picture reads to her
       /security         # coverage.py: what she could see of a log channel over a window, and why not the rest (pure)
       /recall           # contracts.py: recall requests, typed results, memory references, limits (pure);
                         #   history.py: source-backed history contracts, reader prompt/schema, check, rendering (pure)

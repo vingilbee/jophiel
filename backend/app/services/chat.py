@@ -270,7 +270,11 @@ def get_history(
     # What a stopped reply of hers had already done on their phone (its turn's chat line), so a cut-off turn's
     # taps aren't forgotten: the line is the user's chat, never part of what she said.
     stopped_turns = [m.turn_id for m in rows if m.role == "assistant" and m.status in _STOPPED and m.turn_id]
-    phone_done = (_with_steps(conversation.user_id, _phone_lines(db, conversation.id, stopped_turns), stopped_turns)
+    # The cut-off turn she'd carry on from (her last reply, stopped): it comes back with its last screen too.
+    replies = [m for m in rows if m.role == "assistant"]
+    carry_on = replies[-1].turn_id if replies and replies[-1].status in _STOPPED else None
+    phone_done = (_with_steps(conversation.user_id, _phone_lines(db, conversation.id, stopped_turns), stopped_turns,
+                              carry_on=carry_on)
                   if records else {})
     history: list[ChatTurn] = []
     kept: list[tuple[datetime, ChatTurn]] = []
@@ -364,9 +368,12 @@ def _phone_lines(db: Session, conversation_id: uuid.UUID, turn_ids: list[uuid.UU
         PhoneActivity.conversation_id == conversation_id, PhoneActivity.id.in_(list(by_line))))}
 
 
-def _with_steps(user_id: uuid.UUID, lines: dict[uuid.UUID, str], turn_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+def _with_steps(user_id: uuid.UUID, lines: dict[uuid.UUID, str], turn_ids: list[uuid.UUID], *,
+                carry_on: uuid.UUID | None = None) -> dict[uuid.UUID, str]:
     """A stopped turn's line with its steps (services/phone_control.steps: what her hands did, one by one, while
-    this worker remembers them), so the next turn knows what was already done, not only how many steps."""
+    this worker remembers them), so the next turn knows what was already done, not only how many steps. The turn
+    in ``carry_on`` (her latest reply, cut off) also brings its last screen as text, so she knows where things
+    stood without a tool call; older cut-off turns don't (a screen is long, and theirs is stale)."""
     from app.services import phone_control
 
     out = dict(lines)
@@ -374,6 +381,10 @@ def _with_steps(user_id: uuid.UUID, lines: dict[uuid.UUID, str], turn_ids: list[
         steps = phone_control.steps_text(phone_control.steps(user_id, turn))
         if steps:
             out[turn] = f"{out[turn]}; {steps}" if turn in out else f"Used your phone; {steps}"
+            screen = phone_control.last_screen(user_id, turn) if turn == carry_on else None
+            if screen:
+                out[turn] += (f"; the last screen you saw then (as text; it may have moved on since: read it again "
+                              f"before acting):\n{screen}")
     return out
 
 

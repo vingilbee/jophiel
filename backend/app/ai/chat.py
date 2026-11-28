@@ -283,6 +283,7 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
     # never starts using the desktop on its own.
     hook = None
     reasoning = None
+    hands: frozenset[str] = frozenset()  # her phone-screen tools: thinking from their first answer on
     base_model = model  # specialists keep the turn's usual model (their calls run without reasoning)
     # In a game (a session on, or a game event woke her): her mind there thinks before it answers. An explicit
     # override wins; her desktop's own model below wins over this.
@@ -327,6 +328,7 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
                 context.user_id, context.conversation_id, turn_id=context.turn_id, asked=asked, zone=context.zone)
             direct_tools.extend(control_tools)
             hook = hook or screenshot_hook
+            hands = frozenset(t.name for t in control_tools)
     # Her reading of what people on the phone said (affinity B2: shadow records, requests for space): only on her
     # mind's turns someone else's words there caused. Nothing in them sends or acts.
     if (settings.redis_url and context.mind is not None and context.wake is not None and context.third_party
@@ -374,19 +376,22 @@ async def _assemble(context: AgentRuntimeContext, queue: asyncio.Queue | None = 
     if not server_config or not specs:
         # No specialists, but possibly still the eye. `get_agent` is the cached
         # tool-less agent and can only serve the genuinely tool-less case.
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools or reasoning else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning,
+                           hands=hands, hands_reasoning=settings.phone_control_reasoning_effort) if direct_tools or reasoning else get_agent(model)), []
         return
 
     subagent_tools = await _load_subagent_tools(server_config, specs, base_model, queue=queue)
     if not subagent_tools:
-        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning) if direct_tools or reasoning else get_agent(model)), []
+        yield (build_agent(direct_tools, model=model, pre_model_hook=hook, reasoning=reasoning,
+                           hands=hands, hands_reasoning=settings.phone_control_reasoning_effort) if direct_tools or reasoning else get_agent(model)), []
         return
 
     # Keep specs in step with the tools that actually built, so the prompt
     # never advertises a specialist whose server didn't come up.
     live = {tool.name for tool in subagent_tools}
     specs = [spec for spec in specs if spec.tool_name in live]
-    yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook, reasoning=reasoning), specs
+    yield build_agent([*direct_tools, *subagent_tools], model=model, pre_model_hook=hook, reasoning=reasoning,
+                           hands=hands, hands_reasoning=settings.phone_control_reasoning_effort), specs
 
 def _run_config(context: AgentRuntimeContext) -> dict | None:
     """A desktop or phone-control turn alternates looking and acting many times: more graph steps than a chat turn
